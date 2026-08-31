@@ -56,6 +56,20 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | VP-12 | Añadir pruebas de integración del sincronizador | Completada | Respuestas simuladas cubren éxito, paginación, duplicados y errores. |
 | VP-13 | Programar sincronizaciones y alertas | Pendiente | Ejecución periódica con reintentos y registro de fallos. |
 | VP-14 | Iniciar frontend CRM | En curso | Dashboard y vistas de clientes/suscripciones consumen la API. |
+| TK-01 | Sincronizar colecciones read-only de Toku a staging | Completada | Ejecuciones registradas por fuente y payloads disponibles en `source_records`. |
+| PK-01 | Sincronizar colecciones read-only de Payku a staging | Completada | Ejecuciones registradas por fuente y payloads disponibles en `source_records`. |
+| STG-01 | Exponer staging por canal y rediseñar dashboard temporal | Completada | Dashboard resume staging local y cada canal consulta únicamente sus registros almacenados. |
+| VP-15 | Mejorar vistas staging de VirtualPOS | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
+| TK-02 | Mejorar vistas staging de Toku | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
+| PK-02 | Mejorar vistas staging de Payku | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
+| STG-02 | Crear mini dashboards operativos por canal | Completada | Cada canal muestra métricas, estados y actividad mensual desde staging local. |
+
+## Estado local de integraciones
+
+- Fecha: 2026-08-31.
+- VirtualPOS: sincronización manual completada localmente.
+- Toku: sincronización manual completada localmente con 20 registros procesados.
+- Payku: autenticación read-only validada para clientes, planes y suscripciones tras incorporar la firma `Sign` requerida. La colección de transacciones excede el timeout local de 30 segundos; aumentar `PAYKU_TIMEOUT_SECONDS` antes de ejecutar la sincronización completa.
 
 ## Avance 2026-08-30
 

@@ -7,7 +7,7 @@ CRM interno para centralizar clientes, suscripciones y pagos recurrentes. El pri
 1. Activa el entorno virtual: `.\.venv\Scripts\Activate.ps1`
 2. Instala las dependencias: `python -m pip install -r requirements.txt`
 3. Crea tu configuración local: `Copy-Item .env.example .env`
-4. Configura las credenciales Sandbox de VirtualPOS en `.env`.
+4. Configura en `.env` las credenciales de los proveedores que vayas a sincronizar.
 5. Inicia PostgreSQL: `docker compose up -d postgres` (se expone localmente en el puerto `5433`).
 6. Aplica las migraciones: `alembic upgrade head`
 7. Inicia la API: `uvicorn app.main:app --reload`
@@ -22,9 +22,11 @@ Con PostgreSQL iniciado y las migraciones aplicadas, ejecuta desde la raiz:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\sync_virtualpos.py
+.\.venv\Scripts\python.exe scripts\sync_toku.py
+.\.venv\Scripts\python.exe scripts\sync_payku.py
 ```
 
-La operacion solo consulta VirtualPOS Sandbox. El resultado queda en `/api/v1/sync-runs`, el staging `source_records` y las vistas CRM.
+Todas las operaciones son de solo lectura. Cada ejecución queda en `/api/v1/sync-runs` y sus payloads saneados en `source_records`. El dashboard y los menús de proveedores consultan el staging local; la futura `BD_Central` será la fuente de los indicadores consolidados.
 
 ## Endpoints CRM
 
@@ -35,9 +37,11 @@ La operacion solo consulta VirtualPOS Sandbox. El resultado queda en `/api/v1/sy
 - `/api/v1/charges`
 - `/api/v1/payments`
 - `/api/v1/sync-runs`
+- `/api/v1/staging/summary`
+- `/api/v1/staging/records?source={virtualpos|toku|payku}&resource_type={tipo}`
+- `/api/v1/staging/dashboard/{virtualpos|toku|payku}`
 
-Los recursos CRM aceptan `offset`, `limit`, `source` y `status`; el detalle se consulta agregando el UUID interno al recurso.
-El detalle de suscripcion incluye exclusivamente su plan y sus cargos, que son las relaciones confirmadas por VirtualPOS.
+Los recursos CRM son la capa canónica actual de VirtualPOS. Las pantallas por proveedor usan staging y no llaman al proveedor desde el navegador. Cada canal tiene un mini dashboard con métricas, estados, actividad mensual, selector Cantidad/Monto y filtro anual, calculados solo con los campos disponibles en su staging.
 
 ## Seguridad
 

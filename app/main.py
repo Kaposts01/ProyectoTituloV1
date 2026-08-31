@@ -10,6 +10,7 @@ OPENAPI_TAGS = [
     {"name": "Charge", "description": "Consultas CRM para cargos de VirtualPOS."},
     {"name": "Payment", "description": "Consultas CRM para pagos de VirtualPOS."},
     {"name": "Sync runs", "description": "Ejecuciones de sincronizacion read-only."},
+    {"name": "Staging", "description": "Registros saneados almacenados por canal."},
     {"name": "health", "description": "Estado de la API."},
 ]
 

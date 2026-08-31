@@ -1,33 +1,28 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import './App.css'
+import './Staging.css'
 
-type CardSummary = { reference_id?: string; status?: string; brand?: string; card_type?: string; issuer?: string; last4?: string }
-type RecordItem = Record<string, unknown> & { id: string; external_id: string }
-type SyncRun = { id: string; status: string; finished_at?: string; records_processed: number }
-type ResourceKey = 'clients' | 'plans' | 'subscriptions' | 'charges' | 'payments'
-type DashboardData = { clients: RecordItem[]; plans: RecordItem[]; subscriptions: RecordItem[]; charges: RecordItem[]; payments: RecordItem[]; syncRuns: SyncRun[] }
-type SubscriptionDetail = { subscription: RecordItem; plan: RecordItem | null; charges: RecordItem[]; charge_total: number }
-type RecordColumn = { label: string; value: (record: RecordItem) => string }
-type ProviderRecord = Record<string, unknown>
+const ChannelActivityChart = lazy(() => import('./ChannelActivityChart'))
 
-const emptyDashboard: DashboardData = { clients: [], plans: [], subscriptions: [], charges: [], payments: [], syncRuns: [] }
-const resources: { key: ResourceKey; label: string }[] = [
-  { key: 'clients', label: 'Clientes' }, { key: 'plans', label: 'Planes' }, { key: 'subscriptions', label: 'Subscripciones' }, { key: 'charges', label: 'Cargos' }, { key: 'payments', label: 'Transacciones' },
+type SyncRun = { status: string; records_processed: number }
+type SourceSummary = { source: string; records: number; resources: Record<string, number>; last_sync: SyncRun | null }
+type Summary = { sources: SourceSummary[] }
+type StagingRecord = { id: string; external_id: string; payload: Record<string, unknown> }
+type StagingResponse = { items: StagingRecord[]; total: number }
+type ProviderSection = { source: string; resource: string; label: string }
+type TableColumn = { label: string; value: (record: StagingRecord) => string }
+type Activity = { year: number; month: number; count: number; amount: number }
+type ChannelDashboard = { source: string; records: number; resources: Record<string, number>; statuses: { resource: string; status: string; count: number }[]; activity_resource: string; activity: Activity[]; years: number[]; last_sync: SyncRun | null }
+
+const providerGroups: { name: string; sections: ProviderSection[] }[] = [
+  { name: 'VirtualPOS', sections: [{ source: 'virtualpos', resource: 'client', label: 'Clientes' }, { source: 'virtualpos', resource: 'plan', label: 'Planes' }, { source: 'virtualpos', resource: 'subscription', label: 'Subscripciones' }, { source: 'virtualpos', resource: 'charge', label: 'Cargos' }, { source: 'virtualpos', resource: 'payment', label: 'Transacciones' }] },
+  { name: 'Toku', sections: [{ source: 'toku', resource: 'customer', label: 'Clientes' }, { source: 'toku', resource: 'subscription', label: 'Subscripciones' }, { source: 'toku', resource: 'payment_method', label: 'Metodos de pago' }, { source: 'toku', resource: 'invoice', label: 'Deudas' }, { source: 'toku', resource: 'transaction', label: 'Transacciones' }] },
+  { name: 'Payku', sections: [{ source: 'payku', resource: 'client', label: 'Clientes' }, { source: 'payku', resource: 'subscription', label: 'Suscripciones' }, { source: 'payku', resource: 'transaction', label: 'Transacciones' }, { source: 'payku', resource: 'plan', label: 'Planes' }] },
 ]
-const labels: Record<string, string> = {
-  id: 'UUID interno', source: 'Fuente', external_id: 'UUID VirtualPOS', source_record_id: 'Registro staging', first_name: 'Nombre', last_name: 'Apellido', social_id: 'RUT', email: 'Correo', phone_number: 'Telefono', status: 'Estado', gender_id: 'Sexo', birth_date: 'Fecha nacimiento', provider_created_at: 'Fecha creacion', created_at: 'Creado', updated_at: 'Actualizado', name: 'Nombre', description: 'Descripcion', amount: 'Monto', currency: 'Moneda', plan_type: 'Tipo de plan', is_active: 'Activo en POS', service_id: 'Servicio', plan_external_id: 'Plan', automatic_renewal: 'Renovacion automatica', suscription_date: 'Fecha de inicio', canceled_at: 'Fecha de cancelacion', subscription_external_id: 'Suscripcion', charge_external_id: 'Cargo', charge_date: 'Fecha de cargo', payment_date: 'Fecha de pago', cards: 'Tarjetas',
-}
-const providerEndpoints: Record<string, string> = {
-  'Toku / Clientes': '/api/v1/toku/customers',
-  'Toku / Subscripciones': '/api/v1/toku/subscriptions',
-  'Toku / Metodos de pago': '/api/v1/toku/payment-methods',
-  'Toku / Deudas': '/api/v1/toku/invoices',
-  'Toku / Transacciones': '/api/v1/toku/transactions',
-  'Payku / Customers': '/api/v1/payku/clients',
-  'Payku / Sususcription': '/api/v1/payku/subscriptions',
-  'Payku / Sutransaction': '/api/v1/payku/transactions',
-  'Payku / Suplan': '/api/v1/payku/plans',
-}
+const virtualPosMetrics = [{ resource: 'client', label: 'Clientes', tone: 'blue' }, { resource: 'plan', label: 'Planes', tone: 'violet' }, { resource: 'subscription', label: 'Subscripciones', tone: 'gold' }, { resource: 'charge', label: 'Cargos', tone: 'orange' }, { resource: 'payment', label: 'Transacciones', tone: 'green' }]
+const tokuMetrics = [{ resource: 'customer', label: 'Clientes', tone: 'blue' }, { resource: 'subscription', label: 'Subscripciones', tone: 'violet' }, { resource: 'payment_method', label: 'Metodos de pago', tone: 'gold' }, { resource: 'invoice', label: 'Deudas', tone: 'orange' }, { resource: 'transaction', label: 'Transacciones', tone: 'green' }]
+const paykuMetrics = [{ resource: 'client', label: 'Clientes', tone: 'blue' }, { resource: 'plan', label: 'Planes', tone: 'violet' }, { resource: 'subscription', label: 'Suscripciones', tone: 'gold' }, { resource: 'transaction', label: 'Transacciones', tone: 'green' }]
+const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path)
@@ -40,154 +35,111 @@ function text(value: unknown, fallback = 'Sin dato'): string {
   return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
-function clientName(client: RecordItem): string {
-  return [text(client.first_name, ''), text(client.last_name, '')].filter(Boolean).join(' ') || text(client.external_id)
+function nested(payload: Record<string, unknown>, key: string, child: string): unknown {
+  const value = payload[key]
+  return value && typeof value === 'object' ? (value as Record<string, unknown>)[child] : undefined
 }
 
-function amount(record: RecordItem): string {
-  return record.amount ? `${text(record.amount)} ${text(record.currency, '')}` : 'Sin dato'
-}
-
-function activeLabel(value: unknown): string {
+function active(value: unknown): string {
   return String(value).toLowerCase() === 'true' ? 'Activo' : 'Inactivo'
 }
 
-function activeInPos(value: unknown): string {
-  return String(value).toLowerCase() === 'true' ? 'Si' : 'No'
+function paid(value: unknown): string {
+  if (value === true || String(value).toLowerCase() === 'true') return 'Pagado'
+  if (value === false || String(value).toLowerCase() === 'false') return 'No pagado'
+  return 'Sin dato'
 }
 
-function recordColumns(resource: ResourceKey): RecordColumn[] {
-  const reference = (record: RecordItem) => text(record.name, text(record.service_id, text(record.external_id)))
-  const status = (record: RecordItem) => text(record.status)
-  if (resource === 'clients') return [{ label: 'Referencia', value: clientName }, { label: 'Estado', value: status }, { label: 'Correo', value: (record) => text(record.email) }, { label: 'Telefono', value: (record) => text(record.phone_number) }]
-  if (resource === 'plans') return [{ label: 'Referencia', value: reference }, { label: 'Estado', value: (record) => activeLabel(record.is_active) }, { label: 'Monto', value: amount }, { label: 'Activo en POS', value: (record) => activeInPos(record.is_active) }]
-  if (resource === 'subscriptions') return [{ label: 'ID', value: (record) => text(record.external_id) }, { label: 'Referencia', value: reference }, { label: 'Estado', value: status }, { label: 'Fecha de inicio', value: (record) => text(record.suscription_date) }, { label: 'Fecha de cancelacion', value: (record) => text(record.canceled_at) }]
-  if (resource === 'charges') return [{ label: 'Referencia', value: reference }, { label: 'Estado', value: status }, { label: 'Monto', value: amount }, { label: 'Fecha de cargo', value: (record) => text(record.charge_date) }]
-  return [{ label: 'Referencia', value: reference }, { label: 'Estado', value: status }, { label: 'Monto', value: amount }, { label: 'Fecha de pago', value: (record) => text(record.payment_date) }]
+function title(source: string): string {
+  return source === 'virtualpos' ? 'VirtualPOS' : source[0].toUpperCase() + source.slice(1)
 }
 
-function providerRecords(payload: unknown): ProviderRecord[] {
-  if (Array.isArray(payload)) return payload.filter((record): record is ProviderRecord => typeof record === 'object' && record !== null)
-  if (!payload || typeof payload !== 'object') return []
-  const response = payload as ProviderRecord
-  const records = Object.values(response).find((value) => Array.isArray(value))
-  return Array.isArray(records) ? records.filter((record): record is ProviderRecord => typeof record === 'object' && record !== null) : []
+function virtualPosColumns(resource: string): TableColumn[] {
+  const clientRut = (record: StagingRecord) => text(nested(record.payload, 'client', 'social_id') ?? record.payload.social_id)
+  if (resource === 'client') return [{ label: 'UUID', value: (record) => text(record.payload.uuid, record.external_id) }, { label: 'RUT', value: (record) => text(record.payload.social_id) }, { label: 'Nombre', value: (record) => `${text(record.payload.first_name, '')} ${text(record.payload.last_name, '')}`.trim() || 'Sin dato' }, { label: 'Email', value: (record) => text(record.payload.email) }, { label: 'Telefono', value: (record) => text(record.payload.phone_number) }, { label: 'Estado', value: (record) => text(record.payload.status) }]
+  if (resource === 'plan') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Nombre', value: (record) => text(record.payload.name) }, { label: 'Monto', value: (record) => text(record.payload.amount) }, { label: 'Renovacion', value: (record) => active(record.payload.automatic_renewal) }, { label: 'Estado', value: (record) => active(record.payload.is_active) }, { label: 'Activo en POS', value: (record) => active(record.payload.show_in_terminal) }]
+  if (resource === 'subscription') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'RUT cliente', value: clientRut }, { label: 'Monto', value: (record) => text(record.payload.amount) }, { label: 'F. Inicio', value: (record) => text(record.payload.suscription_date) }, { label: 'F. Cancelacion', value: (record) => text(record.payload.canceled_at) }]
+  if (resource === 'charge') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'RUT cliente', value: clientRut }, { label: 'Monto', value: (record) => text(record.payload.amount) }, { label: 'Fecha de cargo', value: (record) => text(record.payload.charge_date) }]
+  return [{ label: 'UUID', value: (record) => text(nested(record.payload, 'order', 'uuid') ?? record.external_id) }, { label: 'Estado', value: (record) => text(nested(record.payload, 'order', 'status')) }, { label: 'RUT cliente', value: clientRut }, { label: 'Monto', value: (record) => text(nested(record.payload, 'order', 'amount')) }, { label: 'F. Pago', value: (record) => text(nested(record.payload, 'order', 'authorized_at')) }]
+}
+
+function tokuColumns(resource: string): TableColumn[] {
+  if (resource === 'customer') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'RUT', value: (record) => record.external_id }, { label: 'Nombre', value: (record) => text(record.payload.name) }, { label: 'Mail', value: (record) => text(record.payload.mail) }, { label: 'Telefono', value: (record) => text(record.payload.phone_number) }]
+  if (resource === 'subscription') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'ID cliente', value: (record) => text(record.payload.customer) }, { label: 'Monto', value: (record) => text(record.payload.amount) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'F. Inicio', value: (record) => text(record.payload.anchor) }, { label: 'F. Cancelacion', value: (record) => text(record.payload.end_date) }]
+  if (resource === 'payment_method') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'F. Creacion', value: (record) => text(record.payload.created_at) }, { label: 'Banco', value: (record) => text(record.payload.bank_name) }, { label: 'Tipo tarjeta', value: (record) => text(record.payload.card_type) }, { label: 'ID cliente', value: (record) => text(record.payload.customer_id) }, { label: 'RUT', value: (record) => record.external_id }, { label: 'Subscripciones', value: (record) => text(record.payload.subscription_ids) }]
+  if (resource === 'invoice') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Cliente', value: (record) => text(record.payload.customer) }, { label: 'Subscripcion', value: (record) => text(record.payload.subscription) }, { label: 'Monto', value: (record) => text(record.payload.amount) }, { label: 'Pagado', value: (record) => paid(record.payload.is_paid) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'Fecha limite', value: (record) => text(record.payload.due_date) }]
+  return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'ID cliente', value: (record) => text(record.payload.customer_id) }, { label: 'ID subscripcion', value: (record) => text(record.payload.subscription_id) }, { label: 'Monto', value: (record) => text(record.payload.amount) }, { label: 'Fecha transaccion', value: (record) => text(record.payload.transaction_date) }]
+}
+
+function paykuColumns(resource: string): TableColumn[] {
+  if (resource === 'client') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'RUT', value: (record) => text(record.payload.rut) }, { label: 'Nombre', value: (record) => `${text(record.payload.first_name, '')} ${text(record.payload.last_name, '')}`.trim() || text(record.payload.name) }, { label: 'Email', value: (record) => text(record.payload.email) }, { label: 'Telefono', value: (record) => text(record.payload.phone) }]
+  if (resource === 'plan') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'Nombre', value: (record) => text(record.payload.name) }]
+  if (resource === 'subscription') return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'RUT', value: (record) => text(nested(record.payload, 'client', 'rut')) }, { label: 'F. Inicio', value: (record) => text(record.payload.start) }, { label: 'F. Cancelacion', value: (record) => text(record.payload.end) }]
+  return [{ label: 'ID', value: (record) => text(record.payload.id, record.external_id) }, { label: 'Estado', value: (record) => text(record.payload.status) }, { label: 'ID subscripciones', value: (record) => text(record.payload.subscriptions) }, { label: 'Monto', value: (record) => text(record.payload.amount) }, { label: 'F. Pago', value: (record) => text(record.payload.created_at) }]
+}
+
+function Sidebar({ activeSection, channel, openProvider, onDashboard, onChannel, onSection, onToggle }: { activeSection: ProviderSection | null; channel: string | null; openProvider: string | null; onDashboard: () => void; onChannel: (source: string) => void; onSection: (section: ProviderSection) => void; onToggle: (provider: string) => void }) {
+  return <aside className="sidebar"><button className="sidebar-brand" onClick={onDashboard}><span>CRM</span><strong>Suscripciones</strong></button><nav className="sidebar-nav" aria-label="Navegacion principal"><button className={!activeSection && !channel ? 'sidebar-item active' : 'sidebar-item'} onClick={onDashboard}>Dashboard</button>{providerGroups.map((group) => <section className="sidebar-group" key={group.name}><div className="channel-heading"><button className={channel === group.sections[0].source ? 'channel-dashboard active' : 'channel-dashboard'} onClick={() => onChannel(group.sections[0].source)}>{group.name}</button><button className="sidebar-expand" aria-label={`Expandir ${group.name}`} aria-expanded={openProvider === group.name} onClick={() => onToggle(group.name)}>{openProvider === group.name ? '-' : '+'}</button></div>{openProvider === group.name ? group.sections.map((section) => <button className={activeSection?.source === section.source && activeSection.resource === section.resource ? 'sidebar-item nested active' : 'sidebar-item nested'} key={section.resource} onClick={() => onSection(section)}>{section.label}</button>) : null}</section>)}<section className="sidebar-group"><button className="sidebar-toggle" disabled>TCH <span>+</span></button></section></nav></aside>
 }
 
 function Metric({ label, value, tone }: { label: string; value: number; tone: string }) {
   return <article className="metric-card"><span className={`metric-dot ${tone}`} /><p>{label}</p><strong>{value}</strong></article>
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
-  return <button className="back-button" onClick={onClick}>Volver al dashboard</button>
-}
-
-function FieldList({ record, omit = [] }: { record: RecordItem; omit?: string[] }) {
-  return <dl className="field-list">{Object.entries(record).filter(([key]) => !omit.includes(key)).map(([key, value]) => <div key={key}><dt>{labels[key] ?? key}</dt><dd>{text(value)}</dd></div>)}</dl>
-}
-
-function Sidebar({ futureSection, openProvider, onDashboard, onResource, onFuture, onToggleProvider }: { futureSection: string | null; openProvider: string | null; onDashboard: () => void; onResource: (resource: ResourceKey) => void; onFuture: (section: string) => void; onToggleProvider: (provider: string) => void }) {
-  const virtualPosItems: { label: string; resource: ResourceKey }[] = [{ label: 'Clientes', resource: 'clients' }, { label: 'Planes', resource: 'plans' }, { label: 'Subscripciones', resource: 'subscriptions' }, { label: 'Cargos', resource: 'charges' }, { label: 'Transacciones', resource: 'payments' }]
-  const futureGroups = [{ name: 'Toku', items: ['Clientes', 'Subscripciones', 'Metodos de pago', 'Deudas', 'Transacciones'] }, { name: 'Payku', items: ['Customers', 'Sususcription', 'Sutransaction', 'Suplan'] }, { name: 'TCH', items: ['Clientes', 'Subcripciones', 'Cobros'] }]
-  return <aside className="sidebar"><button className="sidebar-brand" onClick={onDashboard}><span>VP</span><strong>CRM</strong></button><nav className="sidebar-nav" aria-label="Navegacion principal"><button className={!futureSection ? 'sidebar-item active' : 'sidebar-item'} onClick={onDashboard}>Dashboard</button><section className="sidebar-group"><button className="sidebar-toggle" aria-expanded={openProvider === 'VirtualPOS'} onClick={() => onToggleProvider('VirtualPOS')}>VirtualPOS <span>{openProvider === 'VirtualPOS' ? '-' : '+'}</span></button>{openProvider === 'VirtualPOS' ? virtualPosItems.map((item) => <button className="sidebar-item nested" key={item.resource} onClick={() => onResource(item.resource)}>{item.label}</button>) : null}</section>{futureGroups.map((group) => <section className="sidebar-group" key={group.name}><button className="sidebar-toggle" aria-expanded={openProvider === group.name} onClick={() => onToggleProvider(group.name)}>{group.name}<span>{openProvider === group.name ? '-' : '+'}</span></button>{openProvider === group.name ? group.items.map((item) => { const section = `${group.name} / ${item}`; return <button className={futureSection === section ? 'sidebar-item nested active' : 'sidebar-item nested'} key={section} onClick={() => onFuture(section)}>{item}</button> }) : null}</section>)}<button className={futureSection === 'Configuracion' ? 'sidebar-item active sidebar-config' : 'sidebar-item sidebar-config'} onClick={() => onFuture('Configuracion')}>Configuracion</button></nav></aside>
+function ChannelDashboardView({ data, mode, year, onMode, onYear, onOpenResource }: { data: ChannelDashboard; mode: 'count' | 'amount'; year: number | null; onMode: (mode: 'count' | 'amount') => void; onYear: (year: number) => void; onOpenResource: (resource: string) => void }) {
+  const metrics = data.source === 'virtualpos' ? virtualPosMetrics : data.source === 'toku' ? tokuMetrics : paykuMetrics
+  const chartData = data.activity.filter((entry) => year === null || entry.year === year).map((entry) => ({ ...entry, label: months[entry.month - 1] }))
+  const dataKey = mode
+  const activityTitle = data.source === 'toku' ? 'Actividad de deudas' : 'Actividad de cobros'
+  const metricSections = providerGroups.find((group) => group.sections[0].source === data.source)?.sections ?? []
+  return <main className="app-shell channel-dashboard-page"><p className="eyebrow">{title(data.source).toUpperCase()} / STAGING</p><header className="channel-hero"><div><h2>Resumen operativo</h2><p>Datos locales sincronizados, pendientes de consolidación en BD_Central.</p></div><div className={`sync-state ${data.last_sync?.status === 'completed' ? 'ready' : 'attention'}`}><span />{data.last_sync?.status ?? 'Sin sincronización'}</div></header><section className={`metrics provider-metrics ${data.source === 'payku' ? 'payku-metrics' : ''}`} aria-label={`Metricas ${title(data.source)}`}>{metrics.map((metric) => <Metric key={metric.resource} label={metric.label} value={data.resources[metric.resource] ?? 0} tone={metric.tone} />)}</section><section className="channel-workspace"><article className="panel chart-panel"><div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Serie mensual</h3></div><div className="dashboard-controls"><div className="mode-switch"><button className={mode === 'count' ? 'active' : ''} onClick={() => onMode('count')}>Cantidad</button><button className={mode === 'amount' ? 'active' : ''} onClick={() => onMode('amount')}>Monto</button></div>{data.years.length ? <select aria-label="Año" value={year ?? data.years[0]} onChange={(event) => onYear(Number(event.target.value))}>{data.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select> : null}</div></div>{chartData.length ? <Suspense fallback={<p className="empty-chart">Cargando gráfico...</p>}><ChannelActivityChart data={chartData} mode={dataKey} /></Suspense> : <p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>}</article><article className="panel status-panel"><p className="eyebrow">ESTADOS</p><h3>Distribución disponible</h3>{data.statuses.length ? <div className="status-list">{data.statuses.map((entry) => <div key={`${entry.resource}-${entry.status}`}><span>{entry.resource}</span><strong>{entry.status}</strong><b>{entry.count}</b></div>)}</div> : <p className="empty-chart">Este canal no entrega estados normalizados.</p>}</article></section><section className="panel channel-resources"><div><p className="eyebrow">EXPLORAR STAGING</p><h3>Recursos del canal</h3></div><div>{metricSections.map((section) => <button key={section.resource} onClick={() => onOpenResource(section.resource)}>{section.label}<span>{data.resources[section.resource] ?? 0}</span></button>)}</div></section></main>
 }
 
 function App() {
-  const [dashboard, setDashboard] = useState(emptyDashboard)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [activeResource, setActiveResource] = useState<ResourceKey>('clients')
-  const [showRecords, setShowRecords] = useState(false)
-  const [selectedClient, setSelectedClient] = useState<RecordItem | null>(null)
-  const [selectedSubscription, setSelectedSubscription] = useState<SubscriptionDetail | null>(null)
-  const [selectedRecord, setSelectedRecord] = useState<{ kind: ResourceKey; record: RecordItem } | null>(null)
-  const [futureSection, setFutureSection] = useState<string | null>(null)
+  const [summary, setSummary] = useState<Summary>({ sources: [] })
+  const [activeSection, setActiveSection] = useState<ProviderSection | null>(null)
+  const [channel, setChannel] = useState<string | null>(null)
+  const [channelData, setChannelData] = useState<ChannelDashboard | null>(null)
   const [openProvider, setOpenProvider] = useState<string | null>('VirtualPOS')
-  const [providerPayload, setProviderPayload] = useState<unknown>(null)
-  const [providerLoading, setProviderLoading] = useState(false)
-  const [providerError, setProviderError] = useState<string | null>(null)
+  const [records, setRecords] = useState<StagingResponse>({ items: [], total: 0 })
+  const [loading, setLoading] = useState(true)
+  const [channelLoading, setChannelLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [mode, setMode] = useState<'count' | 'amount'>('count')
+  const [year, setYear] = useState<number | null>(null)
 
   useEffect(() => {
-    let active = true
-    async function loadDashboard() {
-      try {
-        const [clients, plans, subscriptions, charges, payments, syncRuns] = await Promise.all([getJson<RecordItem[]>('/api/v1/clients?limit=100'), getJson<RecordItem[]>('/api/v1/plans?limit=100'), getJson<RecordItem[]>('/api/v1/subscriptions?limit=100'), getJson<RecordItem[]>('/api/v1/charges?limit=100'), getJson<RecordItem[]>('/api/v1/payments?limit=100'), getJson<SyncRun[]>('/api/v1/sync-runs')])
-        if (active) setDashboard({ clients, plans, subscriptions, charges, payments, syncRuns })
-      } catch { if (active) setError('No se pudo conectar con la API local.') } finally { if (active) setLoading(false) }
-    }
-    void loadDashboard()
-    return () => { active = false }
+    let mounted = true
+    getJson<Summary>('/api/v1/staging/summary').then((data) => { if (mounted) setSummary(data) }).catch(() => { if (mounted) setError('No se pudo cargar el resumen de staging local.') }).finally(() => { if (mounted) setLoading(false) })
+    return () => { mounted = false }
   }, [])
 
   useEffect(() => {
-    const endpoint = futureSection ? providerEndpoints[futureSection] : undefined
-    if (!endpoint) {
-      setProviderPayload(null); setProviderError(null); setProviderLoading(false)
-      return
-    }
-    let active = true
-    setProviderLoading(true); setProviderError(null)
-    getJson<unknown>(endpoint).then((payload) => {
-      if (active) setProviderPayload(payload)
-    }).catch(() => {
-      if (active) setProviderError('No se pudo consultar este proveedor. Revisa su configuracion local.')
-    }).finally(() => {
-      if (active) setProviderLoading(false)
-    })
-    return () => { active = false }
-  }, [futureSection])
+    if (!activeSection) return
+    let mounted = true
+    const path = `/api/v1/staging/records?source=${activeSection.source}&resource_type=${activeSection.resource}&limit=100`
+    getJson<StagingResponse>(path).then((data) => { if (mounted) setRecords(data) }).catch(() => { if (mounted) setError('No se pudieron cargar los registros de staging local.') }).finally(() => { if (mounted) setLoading(false) })
+    return () => { mounted = false }
+  }, [activeSection])
 
-  function resetViews() { setShowRecords(false); setSelectedClient(null); setSelectedSubscription(null); setSelectedRecord(null) }
-  function showDashboard() { setFutureSection(null); resetViews() }
-  function showResource(resource: ResourceKey) { setFutureSection(null); resetViews(); setActiveResource(resource); setShowRecords(true) }
-  function showFuture(section: string) { resetViews(); setFutureSection(section) }
-  function toggleProvider(provider: string) { setOpenProvider((open) => open === provider ? null : provider) }
-  function page(content: ReactNode) { return <div className="app-layout"><Sidebar futureSection={futureSection} openProvider={openProvider} onDashboard={showDashboard} onResource={showResource} onFuture={showFuture} onToggleProvider={toggleProvider} />{content}</div> }
+  useEffect(() => {
+    if (!channel) return
+    let mounted = true
+    getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${channel}`).then((data) => { if (mounted) { setChannelData(data); setYear(data.years[0] ?? null) } }).catch(() => { if (mounted) setError('No se pudo cargar el mini dashboard del canal.') }).finally(() => { if (mounted) setChannelLoading(false) })
+    return () => { mounted = false }
+  }, [channel])
 
-  async function openRecord(kind: ResourceKey, record: RecordItem) {
-    try {
-      if (kind === 'clients') setSelectedClient(await getJson<RecordItem>(`/api/v1/clients/${record.id}`))
-      else if (kind === 'subscriptions') setSelectedSubscription(await getJson<SubscriptionDetail>(`/api/v1/subscriptions/${record.id}/detail`))
-      else setSelectedRecord({ kind, record: await getJson<RecordItem>(`/api/v1/${kind}/${record.id}`) })
-    } catch { setError('No se pudo cargar el detalle del registro.') }
-  }
+  function showDashboard() { setActiveSection(null); setChannel(null); setError(null) }
+  function showChannel(source: string) { setActiveSection(null); setChannelData(null); setChannelLoading(true); setError(null); setYear(null); setChannel(source); setOpenProvider(title(source)) }
+  function showSection(section: ProviderSection) { setChannel(null); setLoading(true); setError(null); setActiveSection(section); setOpenProvider(title(section.source)) }
+  function openChannelResource(resource: string) { const section = providerGroups.flatMap((group) => group.sections).find((entry) => entry.source === channel && entry.resource === resource); if (section) showSection(section) }
 
-  if (futureSection) {
-    const [provider, feature] = futureSection.split(' / ')
-    const endpoint = providerEndpoints[futureSection]
-    const records = providerRecords(providerPayload)
-    const columns = records.length ? [...new Set(records.flatMap((record) => Object.keys(record)))].slice(0, 7) : []
-    if (endpoint) return page(<main className="app-shell detail-page provider-page"><BackButton onClick={showDashboard} /><p className="eyebrow">{provider.toUpperCase()}</p><h2>{feature}</h2><section className="panel provider-panel"><div className="panel-heading"><div><p className="eyebrow">LECTURA DEL PROVEEDOR</p><h3>Datos entregados por su endpoint GET</h3></div><span>{providerLoading ? 'Cargando' : `${records.length} registros`}</span></div>{providerError ? <p className="error-message">{providerError}</p> : null}{!providerLoading && !providerError && records.length === 0 ? <p>El proveedor no devolvio registros para esta consulta.</p> : null}{records.length > 0 ? <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{records.map((record, index) => <tr key={String(record.id ?? record.uuid ?? index)}>{columns.map((column) => <td key={column}>{text(record[column])}</td>)}</tr>)}</tbody></table></div> : null}</section></main>)
-    return page(<main className="app-shell future-page"><p className="eyebrow">{provider.toUpperCase()}</p><section className="future-panel"><span className="future-mark">+</span><p className="eyebrow">EN CONSTRUCCION</p><h2>{feature ?? provider}</h2><p>Esta seccion esta reservada para la futura integracion de {provider}. No realiza conexiones ni operaciones con proveedores.</p></section></main>)
-  }
+  const columns: TableColumn[] = activeSection?.source === 'virtualpos' ? virtualPosColumns(activeSection.resource) : activeSection?.source === 'toku' ? tokuColumns(activeSection.resource) : activeSection?.source === 'payku' ? paykuColumns(activeSection.resource) : []
+  const providerDetail = activeSection ? <main className="app-shell detail-page provider-page"><button className="back-button" onClick={() => showChannel(activeSection.source)}>Volver al resumen {title(activeSection.source)}</button><p className="eyebrow">{title(activeSection.source).toUpperCase()} / STAGING</p><h2>{activeSection.label}</h2><section className="panel provider-panel"><div className="panel-heading"><div><p className="eyebrow">SOURCE RECORDS</p><h3>Payloads saneados almacenados localmente</h3></div><span>{loading ? 'Cargando' : `${records.total} registros`}</span></div>{error ? <p className="error-message">{error}</p> : null}{!loading && !error && records.items.length === 0 ? <p>Sin registros sincronizados para este recurso.</p> : null}{records.items.length > 0 ? <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.label}>{column.label}</th>)}</tr></thead><tbody>{records.items.map((record) => <tr key={record.id}>{columns.map((column) => <td key={column.label}>{column.value(record)}</td>)}</tr>)}</tbody></table></div> : null}</section></main> : null
+  const globalDashboard = <main className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark">CRM</span><div><p className="eyebrow">OPERACIONES RECURRENTES</p><h1>CRM Suscripciones</h1></div></div><div className="sync-state ready"><span />Staging local</div></header><section className="hero-panel"><div><p className="eyebrow">RESUMEN OPERATIVO</p><h2>Datos por canal,<br />antes de la BD Central.</h2></div><p className="sync-copy">Selecciona VirtualPOS, Toku o Payku para abrir su mini dashboard operativo.</p></section>{error ? <p className="error-message">{error}</p> : null}<section className="metrics" aria-label="Resumen de staging">{summary.sources.map((source, index) => <Metric key={source.source} label={title(source.source)} value={source.records} tone={['blue', 'violet', 'gold'][index]} />)}</section><section className="source-summary">{summary.sources.map((source) => <article className="panel" key={source.source}><div className="panel-heading"><div><p className="eyebrow">{title(source.source).toUpperCase()}</p><h3>{source.records} registros staging</h3></div><span className={`status-pill ${source.last_sync?.status === 'completed' ? '' : 'status-attention'}`}>{source.last_sync?.status ?? 'Sin sync'}</span></div><p className="resource-copy">{Object.entries(source.resources).map(([resource, count]) => `${resource}: ${count}`).join(' · ') || 'Sin recursos sincronizados.'}</p></article>)}</section></main>
+  const content = providerDetail ?? (channel ? channelLoading || !channelData ? <main className="app-shell"><p className="muted-copy">Cargando mini dashboard...</p></main> : <ChannelDashboardView data={channelData} mode={mode} year={year} onMode={setMode} onYear={setYear} onOpenResource={openChannelResource} /> : globalDashboard)
 
-  if (selectedClient) {
-    const cards = Array.isArray(selectedClient.cards) ? selectedClient.cards as CardSummary[] : []
-    return page(<main className="app-shell detail-page"><BackButton onClick={() => setSelectedClient(null)} /><p className="eyebrow">CLIENTE</p><h2>{clientName(selectedClient)}</h2><section className="detail-grid"><article className="panel"><p className="eyebrow">DATOS DEL CLIENTE</p><FieldList record={selectedClient} omit={['id', 'source', 'source_record_id', 'cards', 'created_at', 'updated_at']} /></article><aside className="panel note-panel"><p className="eyebrow">RELACIONES</p><h3>Sin inferencias</h3><p>VirtualPOS no entrega un UUID de cliente dentro de las suscripciones. Esta vista no asocia registros por correo o nombre.</p></aside></section><section className="panel"><div className="panel-heading"><div><p className="eyebrow">TARJETAS</p><h3>Tarjetas asociadas</h3></div><span>{cards.length} total</span></div><div className="table-wrap"><table><thead><tr><th>Marca</th><th>Ultimos 4</th><th>Tipo</th><th>Emisor</th><th>Estado</th></tr></thead><tbody>{cards.map((card, index) => <tr key={card.reference_id ?? index}><td>{card.brand ?? 'Sin marca'}</td><td>{card.last4 ? `**** ${card.last4}` : 'No disponible'}</td><td>{card.card_type ?? 'Sin tipo'}</td><td>{card.issuer ?? 'Sin emisor'}</td><td><span className="status-pill">{card.status ?? 'Sin estado'}</span></td></tr>)}{cards.length === 0 ? <tr><td colSpan={5}>Sin tarjetas asociadas.</td></tr> : null}</tbody></table></div></section></main>)
-  }
-
-  if (selectedSubscription) {
-    const { subscription, plan, charges, charge_total } = selectedSubscription
-    return page(<main className="app-shell detail-page"><BackButton onClick={() => setSelectedSubscription(null)} /><p className="eyebrow">SUSCRIPCION</p><h2>{text(subscription.service_id, text(subscription.external_id))}</h2><section className="detail-grid"><article className="panel"><p className="eyebrow">DATOS DE SUSCRIPCION</p><FieldList record={subscription} omit={['id', 'source', 'source_record_id', 'created_at', 'updated_at']} /></article><aside className="panel note-panel"><p className="eyebrow">PLAN ASOCIADO</p><h3>{plan ? text(plan.name, text(plan.external_id)) : 'Sin plan'}</h3><p>{plan ? `${text(plan.amount)} ${text(plan.currency, '')}` : 'No hay plan confirmado.'}</p></aside></section><section className="panel"><div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Historial reciente</h3></div><span>{charge_total} total</span></div><div className="table-wrap"><table><thead><tr><th>Referencia</th><th>Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>{charges.map((charge) => <tr key={charge.id}><td>{text(charge.external_id)}</td><td>{amount(charge)}</td><td>{text(charge.charge_date)}</td><td><span className="status-pill">{text(charge.status)}</span></td></tr>)}{charges.length === 0 ? <tr><td colSpan={4}>Sin cargos asociados.</td></tr> : null}</tbody></table></div></section></main>)
-  }
-
-  if (selectedRecord) {
-    const { kind, record } = selectedRecord
-    const resource = resources.find((item) => item.key === kind)
-    return page(<main className="app-shell detail-page"><BackButton onClick={() => setSelectedRecord(null)} /><p className="eyebrow">{resource?.label.toUpperCase()}</p><h2>{text(record.name, text(record.external_id))}</h2><section className="panel"><p className="eyebrow">CAMPOS DISPONIBLES</p><FieldList record={record} omit={['cards']} /></section></main>)
-  }
-
-  const latestRun = dashboard.syncRuns[0]
-  const activeRecords = dashboard[activeResource]
-  const activeLabel = resources.find((item) => item.key === activeResource)?.label ?? ''
-  const columns = recordColumns(activeResource)
-  const syncLabel = loading ? 'Cargando datos' : latestRun?.status === 'completed' ? 'Sincronizacion al dia' : 'Revisar sincronizacion'
-
-  if (showRecords) {
-    return page(<main className="app-shell detail-page"><BackButton onClick={showDashboard} /><p className="eyebrow">EXPLORADOR CRM</p><h2>Registros sincronizados</h2><nav className="resource-tabs" aria-label="Recursos CRM">{resources.map((resource) => <button className={activeResource === resource.key ? 'active' : ''} key={resource.key} onClick={() => setActiveResource(resource.key)}>{resource.label}<span>{dashboard[resource.key].length}</span></button>)}</nav><section className="panel records-panel"><div className="panel-heading"><div><p className="eyebrow">{activeLabel.toUpperCase()}</p><h3>Selecciona un registro para ver su GET de detalle</h3></div><span>{activeRecords.length} cargados</span></div><div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.label}>{column.label}</th>)}</tr></thead><tbody>{activeRecords.map((record) => <tr key={record.id}>{columns.map((column, index) => <td key={column.label}>{index === 0 ? <button className="record-link" onClick={() => void openRecord(activeResource, record)}>{column.value(record)}</button> : column.value(record)}</td>)}</tr>)}{activeRecords.length === 0 ? <tr><td colSpan={columns.length}>Sin registros disponibles.</td></tr> : null}</tbody></table></div></section></main>)
-  }
-
-  return page(<main className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark">VP</span><div><p className="eyebrow">OPERACIONES RECURRENTES</p><h1>CRM Suscripciones</h1></div></div><div className={`sync-state ${latestRun?.status === 'completed' ? 'ready' : 'attention'}`}><span />{syncLabel}</div></header><section className="hero-panel"><div><p className="eyebrow">VIRTUALPOS SANDBOX</p><h2>Visibilidad operativa,<br />sin tocar el proveedor.</h2></div><p className="sync-copy">{latestRun ? `${latestRun.records_processed} cambios en la ultima ejecucion.` : 'Aun no hay ejecuciones registradas.'}</p></section>{error ? <p className="error-message">{error}</p> : null}<section className="metrics" aria-label="Resumen CRM"><Metric label="Clientes" value={dashboard.clients.length} tone="blue" /><Metric label="Planes" value={dashboard.plans.length} tone="violet" /><Metric label="Suscripciones" value={dashboard.subscriptions.length} tone="gold" /><Metric label="Cargos" value={dashboard.charges.length} tone="orange" /><Metric label="Pagos" value={dashboard.payments.length} tone="green" /></section><section className="panel explorer-card"><div><p className="eyebrow">REGISTROS</p><h3>Explora todos los datos CRM</h3><p>Clientes, planes, suscripciones, cargos y pagos con sus campos de detalle.</p></div><button className="primary-button" onClick={() => showResource('clients')}>Ver registros</button></section><section className="workspace"><article className="panel panel-wide"><div className="panel-heading"><div><p className="eyebrow">CLIENTES</p><h3>Recientemente actualizados</h3></div><button className="text-button" onClick={() => showResource('clients')}>Ver todos</button></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Correo</th><th>Estado</th></tr></thead><tbody>{dashboard.clients.slice(0, 5).map((client) => <tr key={client.id}><td><button className="record-link" onClick={() => void openRecord('clients', client)}>{clientName(client)}</button></td><td>{text(client.email)}</td><td><span className="status-pill">{text(client.status)}</span></td></tr>)}{dashboard.clients.length === 0 ? <tr><td colSpan={3}>No hay clientes sincronizados.</td></tr> : null}</tbody></table></div></article><aside className="panel sync-panel"><p className="eyebrow">ULTIMA SINCRONIZACION</p><strong>{latestRun?.status ?? 'Sin ejecuciones'}</strong><p>{latestRun?.finished_at ? new Date(latestRun.finished_at).toLocaleString() : 'Ejecuta la sincronizacion Sandbox para comenzar.'}</p><a href="http://127.0.0.1:8000/docs" target="_blank" rel="noreferrer">Abrir Swagger local</a></aside></section></main>)
+  return <div className="app-layout"><Sidebar activeSection={activeSection} channel={channel} openProvider={openProvider} onDashboard={showDashboard} onChannel={showChannel} onSection={showSection} onToggle={(provider) => setOpenProvider((open) => open === provider ? null : provider)} />{content}</div>
 }
 
 export default App

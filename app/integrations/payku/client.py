@@ -11,12 +11,15 @@ class PaykuClient:
     """Client for the Payku API (/api/* endpoints)."""
 
     def __init__(self) -> None:
+        api_key = settings.payku_api_key.strip()
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key[7:].strip()
         self._client = httpx.AsyncClient(
             base_url=settings.payku_base_url.rstrip("/"),
             timeout=settings.payku_timeout_seconds,
             headers={
                 "Accept": "application/json",
-                "Authorization": settings.payku_api_key,
+                "Authorization": f"Bearer {api_key}",
             },
         )
 
@@ -251,13 +254,17 @@ class PaykuClient:
     # ------------------------------------------------------------------ #
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = await self._client.get(path, params=params)
+        response = await self._client.get(
+            path,
+            params=params,
+            headers={"Sign": build_sign(path, params or {}, settings.payku_secret_key)},
+        )
         response.raise_for_status()
         return response.json()
 
     async def _post(self, path: str, data: dict[str, Any]) -> Any:
         body = json.dumps(data, separators=(",", ":"))
-        sign = build_sign(body, settings.payku_secret_key)
+        sign = build_sign(path, data, settings.payku_secret_key)
         response = await self._client.post(
             path,
             content=body,
@@ -268,7 +275,7 @@ class PaykuClient:
 
     async def _put(self, path: str, data: dict[str, Any]) -> Any:
         body = json.dumps(data, separators=(",", ":"))
-        sign = build_sign(body, settings.payku_secret_key)
+        sign = build_sign(path, data, settings.payku_secret_key)
         response = await self._client.put(
             path,
             content=body,

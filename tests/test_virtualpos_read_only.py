@@ -20,12 +20,9 @@ def test_api_does_not_register_virtualpos_proxy() -> None:
     assert not any(path.startswith("/api/v1/virtualpos") for path in paths)
 
 
-def test_toku_and_payku_expose_only_get_routes() -> None:
-    provider_paths = {
-        path: methods
-        for path, methods in app.openapi()["paths"].items()
-        if path.startswith(("/api/v1/payku", "/api/v1/toku"))
-    }
+def test_api_exposes_local_staging_instead_of_provider_proxies() -> None:
+    paths = set(app.openapi()["paths"])
 
-    assert provider_paths
-    assert all(set(methods) == {"get"} for methods in provider_paths.values())
+    assert "/api/v1/staging/records" in paths
+    assert "/api/v1/staging/summary" in paths
+    assert not any(path.startswith(("/api/v1/payku", "/api/v1/toku")) for path in paths)
