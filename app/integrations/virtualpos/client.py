@@ -7,7 +7,7 @@ from app.integrations.virtualpos.auth import build_signature
 
 
 class VirtualPOSClient:
-    """Read-only client for the VirtualPOS Sandbox API."""
+    """Client for the VirtualPOS Sandbox API (v3)."""
 
     def __init__(self) -> None:
         self._client = httpx.AsyncClient(
@@ -15,6 +15,7 @@ class VirtualPOSClient:
             timeout=settings.virtualpos_timeout_seconds,
             headers={
                 "Accept": "application/json",
+                "Content-Type": "application/json",
                 "Authorization": settings.virtualpos_api_key,
                 "Signature": build_signature(settings.virtualpos_api_key, settings.virtualpos_secret_key),
             },

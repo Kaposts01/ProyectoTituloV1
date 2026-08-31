@@ -18,5 +18,6 @@ class SourceRecord(Base):
     resource_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    sync_context: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

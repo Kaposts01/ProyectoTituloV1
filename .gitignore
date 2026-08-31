@@ -18,3 +18,9 @@ build/
 coverage.xml
 htmlcov/
 *.sqlite3
+
+# IDE and tool directories
+.opencode/
+
+# Local Postman workspace (nested git repo)
+postman/

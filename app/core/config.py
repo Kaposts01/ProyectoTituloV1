@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     virtualpos_api_key: str
     virtualpos_secret_key: str
     virtualpos_timeout_seconds: float = 30
+    toku_base_url: str = ""
+    toku_api_key: str = ""
+    toku_timeout_seconds: float = 30
+    payku_base_url: str = ""
+    payku_api_key: str = ""
+    payku_secret_key: str = ""
+    payku_timeout_seconds: float = 30
 
 
 @lru_cache
