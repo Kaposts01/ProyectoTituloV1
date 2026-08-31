@@ -1,0 +1,20 @@
+# Local Python environment and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local configuration
+.env
+
+# Build and editor artifacts
+dist/
+build/
+.vscode/
+.idea/
+
+# Test and application artifacts
+coverage.xml
+htmlcov/
+*.sqlite3
