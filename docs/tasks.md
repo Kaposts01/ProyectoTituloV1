@@ -30,6 +30,14 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 - El lanzador `python scripts\sync_virtualpos.py` fue verificado localmente tras corregir la resolución de imports.
 - VP-07 está listo para validación: las credenciales Sandbox fueron configuradas manualmente en `.env`; el entorno local de Postman no exporta sus valores secretos.
 
+## Auditoría de secretos
+
+- Fecha: 2026-08-30.
+- Alcance: commit `c7e0f94`.
+- Resultado: no hay archivos `.env` versionados ni patrones de claves AWS, tokens GitHub/Slack o claves privadas.
+- `.env` y `.venv` permanecen ignorados por Git.
+- `postman/` no forma parte del commit porque es un repositorio Git anidado sin historial.
+
 ## Próximas tareas priorizadas
 
 | ID | Tarea | Estado | Criterio de aceptación |
