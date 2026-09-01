@@ -226,6 +226,10 @@
   color: #52716d;
 }
 
+.client-subscriptions {
+  margin-top: 18px;
+}
+
 @media (max-width: 800px) {
   .source-summary {
     grid-template-columns: 1fr;

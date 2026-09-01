@@ -40,8 +40,18 @@ Todas las operaciones son de solo lectura. Cada ejecución queda en `/api/v1/syn
 - `/api/v1/staging/summary`
 - `/api/v1/staging/records?source={virtualpos|toku|payku}&resource_type={tipo}`
 - `/api/v1/staging/dashboard/{virtualpos|toku|payku}`
+- `/api/v1/staging/virtualpos/clients/{uuid}`
+- `/api/v1/staging/virtualpos/plans/{id}`
+- `/api/v1/staging/virtualpos/subscriptions/{id}`
+- `/api/v1/staging/{toku|payku}/{resource}/{id}`
 
 Los recursos CRM son la capa canónica actual de VirtualPOS. Las pantallas por proveedor usan staging y no llaman al proveedor desde el navegador. Cada canal tiene un mini dashboard con métricas, estados, actividad mensual, selector Cantidad/Monto y filtro anual, calculados solo con los campos disponibles en su staging.
+
+La ficha de cliente VirtualPOS se abre desde su UUID y muestra sus campos de staging. Sus suscripciones se relacionan por `social_id`/RUT, según la decisión funcional vigente; puede devolver más de una suscripción.
+
+Las fichas de plan y suscripción de VirtualPOS usan relaciones entregadas por el proveedor: `subscription.plan_id` para planes y el contexto de sincronización del cargo para suscripciones. El método de pago se muestra solo desde el payload saneado de la suscripción.
+
+Las fichas de Toku y Payku muestran todos los campos del payload de staging y sus registros relacionados solo mediante identificadores explícitos del mismo proveedor.
 
 ## Seguridad
 

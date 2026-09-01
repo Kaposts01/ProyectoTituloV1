@@ -63,6 +63,9 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | TK-02 | Mejorar vistas staging de Toku | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
 | PK-02 | Mejorar vistas staging de Payku | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
 | STG-02 | Crear mini dashboards operativos por canal | Completada | Cada canal muestra métricas, estados y actividad mensual desde staging local. |
+| VP-16 | Crear ficha de cliente VirtualPOS desde staging | Completada | UUID abre la ficha y lista todas las suscripciones VirtualPOS relacionadas por RUT. |
+| VP-17 | Crear fichas de plan y suscripción VirtualPOS | Completada | Planes listan suscripciones por plan_id; suscripciones muestran método de pago saneado y cargos por contexto de sync. |
+| STG-03 | Crear fichas completas para Toku y Payku | Completada | Fichas locales muestran payload completo y relaciones explícitas por proveedor. |
 
 ## Estado local de integraciones
 
