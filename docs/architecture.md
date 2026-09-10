@@ -18,7 +18,11 @@ La ficha de cliente VirtualPOS consulta `/api/v1/staging/virtualpos/clients/{uui
 
 Las fichas de plan y suscripción VirtualPOS consultan `/api/v1/staging/virtualpos/plans/{id}` y `/api/v1/staging/virtualpos/subscriptions/{id}`. Las suscripciones de un plan se filtran por `subscription.plan_id`. Los cargos se filtran por `sync_context.subscription_external_id`, registrado durante la extracción read-only de cargos. El método de pago proviene del payload saneado de la suscripción.
 
+La ficha de cargo VirtualPOS consulta `/api/v1/staging/virtualpos/charges/{id}`. Los cargos asociados a una subscripción se ordenan por `charge_date` descendente.
+
 Las fichas de Toku y Payku consultan `/api/v1/staging/{source}/{resource}/{id}` y se mantienen dentro de su misma fuente. Toku relaciona cliente, subscripción, método de pago, deuda y transacción mediante sus IDs declarados. Payku relaciona cliente, plan y subscripción mediante `subscription.client.id` y `subscription.plan.id`; sus transacciones independientes no se enlazan si el payload no declara un identificador verificable.
+
+Las listas de todos los proveedores filtran en la API local mediante `filter_field` y `query`, para conservar el total correcto de resultados. Los cargos VirtualPOS se ordenan por `charge_date` descendente y las transacciones por `order.authorized_at` descendente, dejando registros sin fecha al final. El RUT de clientes Toku procede de `government_id`.
 
 ## Seguridad
 

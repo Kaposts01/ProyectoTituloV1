@@ -43,6 +43,8 @@ Todas las operaciones son de solo lectura. Cada ejecución queda en `/api/v1/syn
 - `/api/v1/staging/virtualpos/clients/{uuid}`
 - `/api/v1/staging/virtualpos/plans/{id}`
 - `/api/v1/staging/virtualpos/subscriptions/{id}`
+- `/api/v1/staging/virtualpos/charges/{id}`
+- `/api/v1/staging/virtualpos/payments/{id}`
 - `/api/v1/staging/{toku|payku}/{resource}/{id}`
 
 Los recursos CRM son la capa canónica actual de VirtualPOS. Las pantallas por proveedor usan staging y no llaman al proveedor desde el navegador. Cada canal tiene un mini dashboard con métricas, estados, actividad mensual, selector Cantidad/Monto y filtro anual, calculados solo con los campos disponibles en su staging.
@@ -52,6 +54,10 @@ La ficha de cliente VirtualPOS se abre desde su UUID y muestra sus campos de sta
 Las fichas de plan y suscripción de VirtualPOS usan relaciones entregadas por el proveedor: `subscription.plan_id` para planes y el contexto de sincronización del cargo para suscripciones. El método de pago se muestra solo desde el payload saneado de la suscripción.
 
 Las fichas de Toku y Payku muestran todos los campos del payload de staging y sus registros relacionados solo mediante identificadores explícitos del mismo proveedor.
+
+Los clientes VirtualPOS disponen de una interfaz visual de edición desde la tabla y su ficha. El formulario no envía actualizaciones al proveedor mientras la integración Sandbox permanezca en modo solo lectura.
+
+`/api/v1/staging/records` acepta `filter_field` y `query` con las columnas operativas mostradas en cada tabla de VirtualPOS, Toku y Payku. Cargos y transacciones de VirtualPOS se ordenan por fecha de cargo o pago descendente.
 
 ## Seguridad
 

@@ -39,6 +39,56 @@ def test_list_staging_records_isolated_by_source_and_resource_type(db_session) -
     assert response["items"][0]["payload"] == {"name": "Toku"}
 
 
+def test_virtualpos_records_filter_by_operational_fields_and_order_dates(db_session) -> None:
+    db_session.add_all(
+        [
+            SourceRecord(source="virtualpos", resource_type="client", external_id="client-1", payload={"uuid": "client-1", "first_name": "Ana", "last_name": "Rios", "status": "ACTIVO"}),
+            SourceRecord(source="virtualpos", resource_type="client", external_id="client-2", payload={"uuid": "client-2", "first_name": "Bruno", "last_name": "Rios", "status": "INACTIVO"}),
+            SourceRecord(source="virtualpos", resource_type="plan", external_id="plan-1", payload={"id": "plan-1", "automatic_renewal": "T"}),
+            SourceRecord(source="virtualpos", resource_type="plan", external_id="plan-2", payload={"id": "plan-2", "automatic_renewal": "F"}),
+            SourceRecord(source="virtualpos", resource_type="charge", external_id="charge-old", payload={"charge_date": "9999-01-01"}),
+            SourceRecord(source="virtualpos", resource_type="charge", external_id="charge-new", payload={"charge_date": "9999-02-01"}),
+            SourceRecord(source="virtualpos", resource_type="payment", external_id="payment-old", payload={"order": {"authorized_at": "9999-01-01"}}),
+            SourceRecord(source="virtualpos", resource_type="payment", external_id="payment-new", payload={"order": {"authorized_at": "9999-02-01"}}),
+        ]
+    )
+    db_session.flush()
+
+    clients = staging.list_records(source="virtualpos", resource_type="client", filter_field="name", query="ana", db=db_session)
+    active_plans = staging.list_records(source="virtualpos", resource_type="plan", filter_field="automatic_renewal", query="activo", db=db_session)
+    charges = staging.list_records(source="virtualpos", resource_type="charge", db=db_session)
+    payments = staging.list_records(source="virtualpos", resource_type="payment", db=db_session)
+
+    assert [record["external_id"] for record in clients["items"]] == ["client-1"]
+    active_plan_ids = [record["external_id"] for record in active_plans["items"]]
+    charge_ids = [record["external_id"] for record in charges["items"]]
+    payment_ids = [record["external_id"] for record in payments["items"]]
+
+    assert "plan-1" in active_plan_ids
+    assert "plan-2" not in active_plan_ids
+    assert charge_ids.index("charge-new") < charge_ids.index("charge-old")
+    assert payment_ids.index("payment-new") < payment_ids.index("payment-old")
+
+
+def test_toku_and_payku_records_filter_by_visible_columns(db_session) -> None:
+    db_session.add_all(
+        [
+            SourceRecord(source="toku", resource_type="customer", external_id="toku-customer-filter", payload={"id": "customer-filter", "government_id": "11.222.333-4"}),
+            SourceRecord(source="toku", resource_type="subscription", external_id="toku-subscription-filter", payload={"id": "subscription-filter", "customer": "customer-filter"}),
+            SourceRecord(source="payku", resource_type="plan", external_id="payku-plan-filter", payload={"id": "payku-plan-filter", "name": "Plan Filtro Exclusivo"}),
+        ]
+    )
+    db_session.flush()
+
+    customers = staging.list_records(source="toku", resource_type="customer", filter_field="government_id", query="222.333", db=db_session)
+    subscriptions = staging.list_records(source="toku", resource_type="subscription", filter_field="customer", query="customer-filter", db=db_session)
+    plans = staging.list_records(source="payku", resource_type="plan", filter_field="name", query="filtro exclusivo", db=db_session)
+
+    assert [record["external_id"] for record in customers["items"]] == ["toku-customer-filter"]
+    assert [record["external_id"] for record in subscriptions["items"]] == ["toku-subscription-filter"]
+    assert [record["external_id"] for record in plans["items"]] == ["payku-plan-filter"]
+
+
 def test_staging_summary_groups_records_and_latest_sync_by_source(db_session) -> None:
     before = staging.staging_summary(db=db_session)
     before_toku = next(source for source in before["sources"] if source["source"] == "toku")
@@ -173,7 +223,14 @@ def test_virtualpos_subscription_detail_returns_payment_method_and_charges(db_se
                 source="virtualpos",
                 resource_type="charge",
                 external_id="detail-charge-1",
-                payload={"amount": 1000},
+                payload={"amount": 1000, "charge_date": "2026-01-01"},
+                sync_context={"subscription_external_id": "detail-subscription-3"},
+            ),
+            SourceRecord(
+                source="virtualpos",
+                resource_type="charge",
+                external_id="detail-charge-2",
+                payload={"amount": 2000, "charge_date": "2026-02-01"},
                 sync_context={"subscription_external_id": "detail-subscription-3"},
             ),
             SourceRecord(
@@ -190,8 +247,43 @@ def test_virtualpos_subscription_detail_returns_payment_method_and_charges(db_se
     response = staging.virtualpos_subscription_detail(external_id="detail-subscription-3", db=db_session)
 
     assert response["payment_method"] == {"brand": "Visa", "last4": "1234"}
-    assert response["charge_total"] == 1
-    assert response["charges"][0]["external_id"] == "detail-charge-1"
+    assert response["charge_total"] == 2
+    assert [charge["external_id"] for charge in response["charges"]] == [
+        "detail-charge-2",
+        "detail-charge-1",
+    ]
+
+
+def test_virtualpos_charge_detail_returns_local_staging_record(db_session) -> None:
+    db_session.add(
+        SourceRecord(
+            source="virtualpos",
+            resource_type="charge",
+            external_id="detail-charge-record",
+            payload={"id": "detail-charge-record", "charge_date": "2026-01-01"},
+        )
+    )
+    db_session.flush()
+
+    response = staging.virtualpos_charge_detail(external_id="detail-charge-record", db=db_session)
+
+    assert response["charge"]["external_id"] == "detail-charge-record"
+
+
+def test_virtualpos_payment_detail_returns_local_staging_record(db_session) -> None:
+    db_session.add(
+        SourceRecord(
+            source="virtualpos",
+            resource_type="payment",
+            external_id="detail-payment-record",
+            payload={"order": {"uuid": "payment-uuid"}},
+        )
+    )
+    db_session.flush()
+
+    response = staging.virtualpos_payment_detail(external_id="detail-payment-record", db=db_session)
+
+    assert response["payment"]["external_id"] == "detail-payment-record"
 
 
 def test_toku_detail_returns_only_explicit_related_records(db_session) -> None:

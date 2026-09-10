@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -66,11 +66,144 @@ def _month(value: Any) -> tuple[int, int] | None:
     return (year, month) if 1 <= month <= 12 else None
 
 
+def _staging_filter(source: str, resource_type: str, filter_field: str, query: str):
+    payload = SourceRecord.payload
+    fields = {
+        "virtualpos": {
+            "client": {
+                "uuid": func.coalesce(payload["uuid"].astext, SourceRecord.external_id),
+                "social_id": payload["social_id"].astext,
+                "name": func.concat_ws(" ", payload["first_name"].astext, payload["last_name"].astext),
+                "email": payload["email"].astext,
+                "phone_number": payload["phone_number"].astext,
+                "status": payload["status"].astext,
+            },
+            "plan": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "name": payload["name"].astext,
+                "amount": payload["amount"].astext,
+                "automatic_renewal": payload["automatic_renewal"].astext,
+                "is_active": payload["is_active"].astext,
+                "show_in_terminal": payload["show_in_terminal"].astext,
+            },
+            "subscription": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "status": payload["status"].astext,
+                "social_id": payload["client"]["social_id"].astext,
+                "amount": payload["amount"].astext,
+                "suscription_date": payload["suscription_date"].astext,
+                "canceled_at": payload["canceled_at"].astext,
+            },
+            "charge": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "status": payload["status"].astext,
+                "social_id": payload["client"]["social_id"].astext,
+                "amount": payload["amount"].astext,
+                "charge_date": payload["charge_date"].astext,
+            },
+            "payment": {
+                "uuid": func.coalesce(payload["order"]["uuid"].astext, SourceRecord.external_id),
+                "status": payload["order"]["status"].astext,
+                "social_id": payload["client"]["social_id"].astext,
+                "amount": payload["order"]["amount"].astext,
+                "authorized_at": payload["order"]["authorized_at"].astext,
+            },
+        },
+        "toku": {
+            "customer": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "government_id": payload["government_id"].astext,
+                "name": payload["name"].astext,
+                "mail": func.coalesce(payload["mail"].astext, payload["email"].astext),
+                "phone_number": payload["phone_number"].astext,
+            },
+            "subscription": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "customer": func.coalesce(payload["customer"]["id"].astext, payload["customer"].astext),
+                "amount": payload["amount"].astext,
+                "status": payload["status"].astext,
+                "anchor": payload["anchor"].astext,
+                "end_date": payload["end_date"].astext,
+            },
+            "payment_method": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "status": payload["status"].astext,
+                "created_at": payload["created_at"].astext,
+                "bank_name": payload["bank_name"].astext,
+                "card_type": payload["card_type"].astext,
+                "customer_id": payload["customer_id"].astext,
+                "external_id": SourceRecord.external_id,
+                "subscription_ids": payload["subscription_ids"].astext,
+            },
+            "invoice": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "customer": func.coalesce(payload["customer"]["id"].astext, payload["customer"].astext),
+                "subscription": func.coalesce(payload["subscription"]["id"].astext, payload["subscription"].astext),
+                "amount": payload["amount"].astext,
+                "is_paid": payload["is_paid"].astext,
+                "status": payload["status"].astext,
+                "due_date": payload["due_date"].astext,
+            },
+            "transaction": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "customer_id": payload["customer_id"].astext,
+                "subscription_id": payload["subscription_id"].astext,
+                "amount": payload["amount"].astext,
+                "transaction_date": payload["transaction_date"].astext,
+            },
+        },
+        "payku": {
+            "client": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "rut": payload["rut"].astext,
+                "name": func.coalesce(func.concat_ws(" ", payload["first_name"].astext, payload["last_name"].astext), payload["name"].astext),
+                "email": payload["email"].astext,
+                "phone": payload["phone"].astext,
+            },
+            "plan": {"id": func.coalesce(payload["id"].astext, SourceRecord.external_id), "status": payload["status"].astext, "name": payload["name"].astext},
+            "subscription": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "status": payload["status"].astext,
+                "rut": payload["client"]["rut"].astext,
+                "start": payload["start"].astext,
+                "end": payload["end"].astext,
+            },
+            "transaction": {
+                "id": func.coalesce(payload["id"].astext, SourceRecord.external_id),
+                "status": payload["status"].astext,
+                "subscriptions": payload["subscriptions"].astext,
+                "amount": payload["amount"].astext,
+                "created_at": payload["created_at"].astext,
+            },
+        },
+    }
+    field = fields.get(source, {}).get(resource_type, {}).get(filter_field)
+    if field is None:
+        raise HTTPException(status_code=422, detail="Invalid staging filter field")
+    normalized_query = query.strip().lower()
+    if filter_field in {"automatic_renewal", "is_active", "show_in_terminal", "is_paid"}:
+        if normalized_query in {"activo", "activa", "true", "t", "1", "si", "sí"}:
+            return cast(field, String).ilike("%true%") | cast(field, String).ilike("%t%")
+        if normalized_query in {"inactivo", "inactiva", "false", "f", "0", "no"}:
+            return cast(field, String).ilike("%false%") | cast(field, String).ilike("%f%")
+    return cast(field, String).ilike(f"%{query.strip()}%")
+
+
+def _record_order(source: str, resource_type: str):
+    if source == "virtualpos" and resource_type == "charge":
+        return (SourceRecord.payload["charge_date"].astext.desc().nullslast(), SourceRecord.last_seen_at.desc())
+    if source == "virtualpos" and resource_type == "payment":
+        return (SourceRecord.payload["order"]["authorized_at"].astext.desc().nullslast(), SourceRecord.last_seen_at.desc())
+    return (SourceRecord.last_seen_at.desc(),)
+
+
 @router.get("/records", tags=["Staging"])
 def list_records(
     source: str,
     db: Session = Depends(get_db),  # noqa: B008
     resource_type: str | None = None,
+    filter_field: str | None = None,
+    query: str | None = None,
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
@@ -79,7 +212,11 @@ def list_records(
     if resource_type:
         statement = statement.where(SourceRecord.resource_type == resource_type)
         count_statement = count_statement.where(SourceRecord.resource_type == resource_type)
-    records = db.scalars(statement.order_by(SourceRecord.last_seen_at.desc()).offset(offset).limit(limit)).all()
+    if filter_field and query and resource_type:
+        filter_expression = _staging_filter(source, resource_type, filter_field, query)
+        statement = statement.where(filter_expression)
+        count_statement = count_statement.where(filter_expression)
+    records = db.scalars(statement.order_by(*_record_order(source, resource_type or "")).offset(offset).limit(limit)).all()
     return {
         "items": [_serialize(record) for record in records],
         "total": db.scalar(count_statement) or 0,
@@ -185,7 +322,11 @@ def virtualpos_subscription_detail(
         SourceRecord.sync_context["subscription_external_id"].astext == subscription.external_id,
     )
     charges = db.scalars(
-        select(SourceRecord).where(*filters).order_by(SourceRecord.last_seen_at.desc()).offset(offset).limit(limit)
+        select(SourceRecord)
+        .where(*filters)
+        .order_by(SourceRecord.payload["charge_date"].astext.desc().nullslast(), SourceRecord.last_seen_at.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
     total = db.scalar(select(func.count()).select_from(SourceRecord).where(*filters)) or 0
     return {
@@ -194,6 +335,40 @@ def virtualpos_subscription_detail(
         "charges": [_serialize(charge) for charge in charges],
         "charge_total": total,
     }
+
+
+@router.get("/virtualpos/charges/{external_id}", tags=["Staging"])
+def virtualpos_charge_detail(
+    external_id: str,
+    db: Session = Depends(get_db),  # noqa: B008
+) -> dict[str, Any]:
+    charge = db.scalar(
+        select(SourceRecord).where(
+            SourceRecord.source == "virtualpos",
+            SourceRecord.resource_type == "charge",
+            SourceRecord.external_id == external_id,
+        )
+    )
+    if charge is None:
+        raise HTTPException(status_code=404, detail="VirtualPOS charge not found")
+    return {"charge": _serialize(charge)}
+
+
+@router.get("/virtualpos/payments/{external_id}", tags=["Staging"])
+def virtualpos_payment_detail(
+    external_id: str,
+    db: Session = Depends(get_db),  # noqa: B008
+) -> dict[str, Any]:
+    payment = db.scalar(
+        select(SourceRecord).where(
+            SourceRecord.source == "virtualpos",
+            SourceRecord.resource_type == "payment",
+            SourceRecord.external_id == external_id,
+        )
+    )
+    if payment is None:
+        raise HTTPException(status_code=404, detail="VirtualPOS payment not found")
+    return {"payment": _serialize(payment)}
 
 
 def _record_value(record: SourceRecord) -> str:
@@ -326,11 +501,17 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
 
     records = db.scalars(select(SourceRecord).where(SourceRecord.source == source)).all()
     resource_counts = Counter(record.resource_type for record in records)
+    resource_amounts: dict[str, float] = defaultdict(float)
     status_counts: Counter[tuple[str, str]] = Counter()
     activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
     activity_resource, date_path, amount_path, _ = ACTIVITY_FIELDS[source]
 
     for record in records:
+        amount_value = _payload_value(record.payload, ("amount",))
+        if amount_value is None:
+            amount_value = _payload_value(record.payload, ("order", "amount"))
+        if amount_value is not None:
+            resource_amounts[record.resource_type] += _amount(amount_value)
         status = _payload_value(record.payload, ("status",))
         if status is None:
             status = _payload_value(record.payload, ("order", "status"))
@@ -356,6 +537,7 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
         "source": source,
         "records": len(records),
         "resources": dict(resource_counts),
+        "resource_amounts": {resource: round(total, 2) for resource, total in resource_amounts.items()},
         "statuses": [
             {"resource": resource, "status": status, "count": count}
             for (resource, status), count in sorted(status_counts.items())

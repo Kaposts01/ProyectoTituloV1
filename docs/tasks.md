@@ -66,6 +66,18 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | VP-16 | Crear ficha de cliente VirtualPOS desde staging | Completada | UUID abre la ficha y lista todas las suscripciones VirtualPOS relacionadas por RUT. |
 | VP-17 | Crear fichas de plan y suscripción VirtualPOS | Completada | Planes listan suscripciones por plan_id; suscripciones muestran método de pago saneado y cargos por contexto de sync. |
 | STG-03 | Crear fichas completas para Toku y Payku | Completada | Fichas locales muestran payload completo y relaciones explícitas por proveedor. |
+| VP-18 | Añadir filtros y orden en tablas VirtualPOS | Completada | Filtros por columnas operativas; cargos y transacciones ordenados por fecha descendente. |
+| STG-04 | Añadir filtros para tablas Toku y Payku | Completada | Filtros por las columnas visibles y corrección de RUT de clientes Toku. |
+| VP-19 | Crear edición visual de clientes VirtualPOS | Completada | Botones y formulario visual; guardado remoto pendiente de autorizar escritura. |
+| VP-20 | Mejorar ficha de cliente VirtualPOS | Completada | Etiquetas visuales en español y navegación a fichas de subscripción. |
+| VP-21 | Traducir tipo de documento VirtualPOS | Completada | La ficha muestra RUT para 1 y DNI para 2. |
+| STG-05 | Traducir etiquetas visuales de fichas | Completada | Etiquetas en español y enlaces seguros para URLs de planes VirtualPOS. |
+| VP-22 | Crear cancelación visual de subscripciones VirtualPOS | Completada | Botones y confirmación visual; DELETE remoto pendiente de autorizar escritura. |
+| VP-23 | Mejorar ficha de subscripción VirtualPOS | Completada | Navegación al plan y presentación segura del método de pago. |
+| VP-24 | Restringir cancelación visual de subscripciones | Completada | Cancelar Sub se muestra solo para estado ACTIVA. |
+| VP-25 | Crear ficha y navegación de cargos VirtualPOS | Completada | IDs abren fichas de cargo; fechas ordenadas de más reciente a más antigua. |
+| VP-26 | Restaurar navegación en tablas de cargos y pagos | Completada | ID de cargo y UUID de pago abren sus fichas locales. |
+| VP-27 | Desglosar datos de transacción VirtualPOS | Completada | order y client se muestran como campos individuales en la ficha. |
 
 ## Estado local de integraciones
 

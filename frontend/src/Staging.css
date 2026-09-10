@@ -28,6 +28,15 @@
   margin: 28px 0;
 }
 
+.metric-amount {
+  display: block;
+  margin-top: 4px;
+  color: #617077;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
 .payku-metrics {
   grid-template-columns: repeat(4, 1fr);
 }
@@ -156,32 +165,81 @@
   background: #fff;
 }
 
-.status-list {
+.status-distribution {
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
 
-.status-list div {
+.status-group {
+  border-bottom: 1px solid #e1e7e5;
+}
+
+.status-group-head {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.status-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: #e4ebe9;
+  color: #173f4a;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.status-group-name {
+  color: #728186;
+  font-weight: 700;
+}
+
+.status-group-head > b {
+  min-width: 24px;
+  text-align: right;
+  color: #173f4a;
+}
+
+.status-group-body {
+  display: grid;
+  gap: 6px;
+  padding: 2px 0 12px 28px;
+}
+
+.status-group-body div {
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: 9px;
   align-items: center;
-  padding: 9px 0;
-  border-bottom: 1px solid #e1e7e5;
   font-size: 12px;
 }
 
-.status-list span {
-  color: #728186;
-}
-
-.status-list strong {
+.status-group-body strong {
   color: #38765c;
 }
 
-.status-list b {
+.status-group-body b {
   min-width: 24px;
   text-align: right;
+}
+
+.status-group-empty {
+  margin: 0;
+  color: #728186;
+  font-size: 12px;
 }
 
 .empty-chart {
@@ -230,6 +288,203 @@
   margin-top: 18px;
 }
 
+.record-filters {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin: 22px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid #c8d3d2;
+  border-radius: 12px;
+  background: #edf4f1;
+}
+
+.record-filters label {
+  display: grid;
+  gap: 5px;
+  color: #607075;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.record-filters select,
+.record-filters input,
+.record-filters button {
+  min-height: 36px;
+  border: 1px solid #c8d3d2;
+  border-radius: 8px;
+  color: #173f4a;
+  background: #fff;
+  font: inherit;
+}
+
+.record-filters select,
+.record-filters input {
+  padding: 0 10px;
+}
+
+.record-filters input {
+  min-width: min(320px, 55vw);
+}
+
+.record-filters button {
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.client-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -34px 0 18px;
+}
+
+.edit-button,
+.save-button,
+.cancel-button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 13px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.edit-button,
+.save-button {
+  color: #f7fcfa;
+  background: #173f4a;
+}
+
+.cancel-subscription-button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 13px;
+  cursor: pointer;
+  color: #fff;
+  background: #a53d35;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.cancel-subscription-button-table {
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.cancel-subscription-button:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
+.edit-button-table {
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.edit-dialog-backdrop {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(23 63 74 / 42%);
+}
+
+.edit-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 26px;
+  border: 1px solid #c8d3d2;
+  border-radius: 16px;
+  background: #f9fbfa;
+}
+
+.edit-dialog-heading,
+.edit-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.edit-dialog-heading span,
+.edit-dialog-note {
+  color: #607075;
+  font-size: 13px;
+}
+
+.edit-dialog-note {
+  margin: 18px 0;
+  line-height: 1.5;
+}
+
+.edit-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.edit-form-grid label {
+  display: grid;
+  gap: 6px;
+  color: #607075;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.edit-form-grid input,
+.edit-form-grid textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #c8d3d2;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #173f4a;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.edit-form-grid textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.edit-form-wide {
+  grid-column: 1 / -1;
+}
+
+.edit-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
+.save-button:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
+.cancel-button {
+  border: 1px solid #c8d3d2;
+  color: #173f4a;
+  background: #fff;
+}
+
 @media (max-width: 800px) {
   .source-summary {
     grid-template-columns: 1fr;
@@ -251,5 +506,26 @@
 
   .channel-resources > div:last-child {
     justify-content: flex-start;
+  }
+
+  .record-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .record-filters input {
+    min-width: 0;
+  }
+
+  .client-detail-actions {
+    margin-top: 16px;
+  }
+
+  .edit-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .edit-form-wide {
+    grid-column: auto;
   }
 }
