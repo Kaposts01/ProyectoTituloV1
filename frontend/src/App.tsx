@@ -1112,12 +1112,6 @@ function ChannelDashboardView({
                   <p className="eyebrow">CARGOS</p>
                   <h3>Estado mensual</h3>
                 </div>
-                <div className="dashboard-controls">
-                  <div className="mode-switch">
-                    <button className={mode === "count" ? "active" : ""} onClick={() => onMode("count")}>Cantidad</button>
-                    <button className={mode === "amount" ? "active" : ""} onClick={() => onMode("amount")}>Monto</button>
-                  </div>
-                </div>
               </div>
               <MonthlyStatusChart data={data.charges_monthly} mode={mode} year={year} />
             </article>
@@ -1140,12 +1134,6 @@ function ChannelDashboardView({
                   <p className="eyebrow">FACTURAS</p>
                   <h3>Estado mensual</h3>
                 </div>
-                <div className="dashboard-controls">
-                  <div className="mode-switch">
-                    <button className={mode === "count" ? "active" : ""} onClick={() => onMode("count")}>Cantidad</button>
-                    <button className={mode === "amount" ? "active" : ""} onClick={() => onMode("amount")}>Monto</button>
-                  </div>
-                </div>
               </div>
               <MonthlyStatusChart data={data.invoices_monthly} mode={mode} year={year} />
             </article>
@@ -1166,12 +1154,6 @@ function ChannelDashboardView({
                 <div>
                   <p className="eyebrow">TRANSACCIONES</p>
                   <h3>Estado mensual</h3>
-                </div>
-                <div className="dashboard-controls">
-                  <div className="mode-switch">
-                    <button className={mode === "count" ? "active" : ""} onClick={() => onMode("count")}>Cantidad</button>
-                    <button className={mode === "amount" ? "active" : ""} onClick={() => onMode("amount")}>Monto</button>
-                  </div>
                 </div>
               </div>
               <MonthlyStatusChart data={data.transactions_monthly as MonthlyStatusEntry[]} mode={mode} year={year} />
