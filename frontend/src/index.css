@@ -1,3 +1,87 @@
-:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #17283d; background: #eef3f4; font-synthesis: none; text-rendering: optimizeLegibility; }
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  /* backgrounds */
+  --bg-base:         #eef3f4;
+  --bg-sidebar:      #eff4f2;
+  --bg-surface:      #f9fbfa;
+  --bg-metric-from:  #f4f8f7;
+  --bg-metric-to:    #eaf2ef;
+  --bg-hover:        #dde9e5;
+  --bg-muted:        #e4ebe9;
+  --bg-expand:       #dce7e3;
+  --bg-tag:          #e4eeeb;
+  --bg-input:        #ffffff;
+  --bg-filter:       #edf4f1;
+  --bg-accent-panel: #173f4a;
+
+  /* borders */
+  --border:          #c8d3d2;
+  --border-light:    #d6dfdd;
+  --border-subtle:   #e1e7e5;
+
+  /* text */
+  --text-1:          #173f4a;
+  --text-2:          #5e6e72;
+  --text-3:          #728186;
+  --text-4:          #809095;
+  --text-label:      #607075;
+  --text-on-primary: #f7fcfa;
+
+  /* brand */
+  --color-primary:   #173f4a;
+  --brand-text:      #f5f1e8;
+
+  /* semantic */
+  --pill-text:       #38765c;
+  --pill-bg:         #e3f0e8;
+  --link-color:      #467884;
+  --error-border:    #e3c7ba;
+  --error-bg:        #fff6f1;
+  --error-text:      #8b4d37;
+  --cancel-bg:       #a53d35;
+  --shadow-card:     rgba(23, 63, 74, 0.08);
+}
+
+html[data-theme="dark"] {
+  --bg-base:         #0e1b1e;
+  --bg-sidebar:      #101f23;
+  --bg-surface:      #162229;
+  --bg-metric-from:  #1b2d32;
+  --bg-metric-to:    #162229;
+  --bg-hover:        #1f3338;
+  --bg-muted:        #1d3035;
+  --bg-expand:       #1e3038;
+  --bg-tag:          #1a2f35;
+  --bg-input:        #1a2d32;
+  --bg-filter:       #162229;
+  --bg-accent-panel: #1e3840;
+
+  --border:          #2b3f45;
+  --border-light:    #233638;
+  --border-subtle:   #1f3237;
+
+  --text-1:          #daeaec;
+  --text-2:          #8aadb4;
+  --text-3:          #6b929c;
+  --text-4:          #527b85;
+  --text-label:      #6a9aa6;
+  --text-on-primary: #0e1b1e;
+
+  --color-primary:   #daeaec;
+  --brand-text:      #0e1b1e;
+
+  --pill-text:       #50c88a;
+  --pill-bg:         #152f22;
+  --link-color:      #5eaab8;
+  --error-border:    #5a281f;
+  --error-bg:        #2a1210;
+  --error-text:      #e87060;
+  --cancel-bg:       #b83c35;
+  --shadow-card:     rgba(0, 0, 0, 0.35);
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; background: var(--bg-base); color: var(--text-1); }

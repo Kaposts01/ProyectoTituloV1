@@ -727,18 +727,22 @@ function Sidebar({
   activeSection,
   channel,
   openProvider,
+  theme,
   onDashboard,
   onChannel,
   onSection,
   onToggle,
+  onTheme,
 }: {
   activeSection: ProviderSection | null;
   channel: string | null;
   openProvider: string | null;
+  theme: "light" | "dark";
   onDashboard: () => void;
   onChannel: (source: string) => void;
   onSection: (section: ProviderSection) => void;
   onToggle: (provider: string) => void;
+  onTheme: () => void;
 }) {
   return (
     <aside className="sidebar">
@@ -801,6 +805,12 @@ function Sidebar({
           </button>
         </section>
       </nav>
+      <div className="sidebar-footer">
+        <button className="theme-btn" onClick={onTheme} aria-label="Cambiar tema">
+          <span className="theme-btn-icon">{theme === "dark" ? "☀" : "◐"}</span>
+          {theme === "dark" ? "Modo claro" : "Modo oscuro"}
+        </button>
+      </div>
     </aside>
   );
 }
@@ -1239,6 +1249,16 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"count" | "amount">("count");
   const [year, setYear] = useState<number | null>(null);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("crm-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
 
   useEffect(() => {
     let mounted = true;
@@ -2221,12 +2241,14 @@ function App() {
         activeSection={activeSection}
         channel={channel}
         openProvider={openProvider}
+        theme={theme}
         onDashboard={showDashboard}
         onChannel={showChannel}
         onSection={showSection}
         onToggle={(provider) =>
           setOpenProvider((open) => (open === provider ? null : provider))
         }
+        onTheme={toggleTheme}
       />
       {content}
       {clientEditDialog}

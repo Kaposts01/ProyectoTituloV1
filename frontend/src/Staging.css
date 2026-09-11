@@ -10,7 +10,7 @@
 
 .resource-copy,
 .muted-copy {
-  color: #5e6e72;
+  color: var(--text-2);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -28,13 +28,13 @@
   margin: 28px 0;
 }
 
-/* ── Metric card redesign ────────────────────────────────────────────────── */
+/* ── Metric card redesign ────────────────────────────────────────── */
 .metric-card {
-  background: linear-gradient(135deg, #f4f8f7 0%, #eaf2ef 100%);
+  background: linear-gradient(135deg, var(--bg-metric-from) 0%, var(--bg-metric-to) 100%);
   border: none;
   border-left: 4px solid var(--accent, #4a90c4);
   border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(23, 63, 74, 0.08);
+  box-shadow: 0 2px 12px var(--shadow-card);
   min-height: 120px;
   padding: 20px 22px;
   overflow: hidden;
@@ -43,10 +43,8 @@
 .metric-card::after {
   content: '';
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 100px;
-  height: 100px;
+  top: 0; right: 0;
+  width: 100px; height: 100px;
   background: radial-gradient(circle, var(--accent, #4a90c4) 0%, transparent 70%);
   opacity: 0.12;
   border-radius: 50%;
@@ -57,7 +55,7 @@
 .metric-card p,
 .metric-label {
   margin: 0 0 10px;
-  color: #5e7580;
+  color: var(--text-label);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.1em;
@@ -69,7 +67,7 @@
   display: block;
   font-size: 32px;
   font-weight: 800;
-  color: #173f4a;
+  color: var(--text-1);
   letter-spacing: -0.05em;
   line-height: 1.1;
 }
@@ -77,13 +75,13 @@
 .metric-amount {
   display: block;
   margin-top: 6px;
-  color: #5e7580;
+  color: var(--text-3);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-/* ── Status bars ─────────────────────────────────────────────────────────── */
+/* ── Status bars ─────────────────────────────────────────────────── */
 .status-bars {
   display: grid;
   gap: 22px;
@@ -103,11 +101,11 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #728186;
+  color: var(--text-3);
 }
 
 .status-bar-header b {
-  color: #173f4a;
+  color: var(--text-1);
 }
 
 .status-bar-track {
@@ -115,7 +113,7 @@
   height: 10px;
   border-radius: 6px;
   overflow: hidden;
-  background: #e4ebe9;
+  background: var(--bg-muted);
   gap: 1px;
 }
 
@@ -131,7 +129,7 @@
 
 .status-bar-empty {
   width: 100%;
-  background: #e4ebe9 !important;
+  background: var(--bg-muted) !important;
 }
 
 .status-bar-legend {
@@ -145,20 +143,19 @@
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: #5e7580;
+  color: var(--text-3);
 }
 
 .status-legend-item i {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 8px; height: 8px;
   border-radius: 2px;
   font-style: normal;
   flex-shrink: 0;
 }
 
 .status-legend-item b {
-  color: #173f4a;
+  color: var(--text-1);
   font-weight: 700;
 }
 
@@ -188,6 +185,7 @@
   margin-bottom: 18px;
 }
 
+/* ── Channel nav ─────────────────────────────────────────────────── */
 .channel-heading {
   display: flex;
   align-items: center;
@@ -199,7 +197,7 @@
 .sidebar-expand {
   border: 0;
   background: transparent;
-  color: #809095;
+  color: var(--text-4);
   cursor: pointer;
   font: inherit;
   font-size: 10px;
@@ -216,21 +214,21 @@
 
 .channel-dashboard:hover,
 .channel-dashboard.active {
-  color: #173f4a;
+  color: var(--text-1);
 }
 
 .sidebar-expand {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 20px; height: 20px;
   border-radius: 50%;
-  color: #52716d;
-  background: #dce7e3;
+  color: var(--text-3);
+  background: var(--bg-expand);
   font-size: 14px;
   letter-spacing: 0;
 }
 
+/* ── Channel dashboard page ──────────────────────────────────────── */
 .channel-dashboard-page {
   padding-top: 46px;
 }
@@ -241,15 +239,7 @@
   align-items: end;
   gap: 24px;
   padding-bottom: 28px;
-  border-bottom: 1px solid #c8d3d2;
-}
-
-.channel-hero-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .channel-hero h2 {
@@ -259,8 +249,16 @@
 .channel-hero p {
   max-width: 470px;
   margin: 0;
-  color: #5e6e72;
+  color: var(--text-2);
   line-height: 1.5;
+}
+
+.channel-hero-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .channel-workspace {
@@ -277,6 +275,7 @@
   margin-bottom: 22px;
 }
 
+/* ── Dashboard controls ──────────────────────────────────────────── */
 .dashboard-controls,
 .mode-switch {
   display: flex;
@@ -287,7 +286,7 @@
 .mode-switch {
   padding: 3px;
   border-radius: 9px;
-  background: #e4ebe9;
+  background: var(--bg-muted);
 }
 
 .mode-switch button,
@@ -303,118 +302,63 @@
 .mode-switch button {
   padding: 6px 8px;
   border-radius: 6px;
-  color: #5e6e72;
+  color: var(--text-2);
   background: transparent;
 }
 
 .mode-switch button.active {
-  color: #f7fcfa;
-  background: #173f4a;
+  color: var(--text-on-primary);
+  background: var(--color-primary);
 }
 
 .dashboard-controls select {
   padding: 7px 8px;
-  border: 1px solid #d6dfdd;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #173f4a;
-  background: #fff;
+  color: var(--text-1);
+  background: var(--bg-input);
 }
 
-.status-distribution {
-  display: grid;
-  gap: 4px;
-}
-
-.status-group {
-  border-bottom: 1px solid #e1e7e5;
-}
-
+/* ── Status distribution (legacy accordion styles kept) ──────────── */
+.status-distribution { display: grid; gap: 4px; }
+.status-group { border-bottom: 1px solid var(--border-subtle); }
 .status-group-head {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
+  align-items: center; gap: 10px;
+  width: 100%; padding: 10px 0;
+  border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12px; text-align: left;
 }
-
 .status-group-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  background: #e4ebe9;
-  color: #173f4a;
-  font-weight: 800;
-  line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 6px;
+  background: var(--bg-muted); color: var(--text-1); font-weight: 800; line-height: 1;
 }
+.status-group-name { color: var(--text-3); font-weight: 700; }
+.status-group-head > b { min-width: 24px; text-align: right; color: var(--text-1); }
+.status-group-body { display: grid; gap: 6px; padding: 2px 0 12px 28px; }
+.status-group-body div { display: grid; grid-template-columns: 1fr auto; gap: 9px; align-items: center; font-size: 12px; }
+.status-group-body strong { color: #38765c; }
+.status-group-body b { min-width: 24px; text-align: right; color: var(--text-1); }
+.status-group-empty { margin: 0; color: var(--text-3); font-size: 12px; }
 
-.status-group-name {
-  color: #728186;
-  font-weight: 700;
-}
+.empty-chart { color: var(--text-3); font-size: 13px; line-height: 1.5; }
 
-.status-group-head > b {
-  min-width: 24px;
-  text-align: right;
-  color: #173f4a;
-}
-
-.status-group-body {
-  display: grid;
-  gap: 6px;
-  padding: 2px 0 12px 28px;
-}
-
-.status-group-body div {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 9px;
-  align-items: center;
-  font-size: 12px;
-}
-
-.status-group-body strong {
-  color: #38765c;
-}
-
-.status-group-body b {
-  min-width: 24px;
-  text-align: right;
-}
-
-.status-group-empty {
-  margin: 0;
-  color: #728186;
-  font-size: 12px;
-}
-
-.empty-chart {
-  color: #728186;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
+/* ── Channel resources ───────────────────────────────────────────── */
 .channel-resources {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 18px;
   margin-top: 18px;
-  background: #e4eeeb;
+  background: var(--bg-tag);
+  border-radius: 16px;
+  padding: 20px 25px;
+  border: 1px solid var(--border-light);
 }
 
-.channel-resources h3 {
-  margin: 0;
-}
+.channel-resources h3 { margin: 0; }
 
 .channel-resources > div:last-child {
   display: flex;
@@ -426,22 +370,21 @@
 .channel-resources button {
   padding: 8px 10px;
   border-radius: 8px;
-  color: #173f4a;
-  background: #f8fbfa;
+  color: var(--text-1);
+  background: var(--bg-surface);
 }
 
 .channel-resources button:hover {
-  background: #d5e4df;
+  background: var(--bg-hover);
 }
 
 .channel-resources button span {
   margin-left: 7px;
-  color: #52716d;
+  color: var(--text-3);
 }
 
-.client-subscriptions {
-  margin-top: 18px;
-}
+/* ── Client subscriptions / record filters ───────────────────────── */
+.client-subscriptions { margin-top: 18px; }
 
 .record-filters {
   display: flex;
@@ -449,15 +392,15 @@
   gap: 12px;
   margin: 22px 0 18px;
   padding: 14px 16px;
-  border: 1px solid #c8d3d2;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: #edf4f1;
+  background: var(--bg-filter);
 }
 
 .record-filters label {
   display: grid;
   gap: 5px;
-  color: #607075;
+  color: var(--text-label);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: .08em;
@@ -468,10 +411,10 @@
 .record-filters input,
 .record-filters button {
   min-height: 36px;
-  border: 1px solid #c8d3d2;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  color: #173f4a;
-  background: #fff;
+  color: var(--text-1);
+  background: var(--bg-input);
   font: inherit;
 }
 
@@ -491,6 +434,7 @@
   font-weight: 800;
 }
 
+/* ── Edit / action buttons ───────────────────────────────────────── */
 .client-detail-actions {
   display: flex;
   justify-content: flex-end;
@@ -512,8 +456,8 @@
 
 .edit-button,
 .save-button {
-  color: #f7fcfa;
-  background: #173f4a;
+  color: var(--text-on-primary);
+  background: var(--color-primary);
 }
 
 .cancel-subscription-button {
@@ -523,7 +467,7 @@
   padding: 0 13px;
   cursor: pointer;
   color: #fff;
-  background: #a53d35;
+  background: var(--cancel-bg);
   font: inherit;
   font-size: 12px;
   font-weight: 800;
@@ -544,6 +488,7 @@
   padding: 0 9px;
 }
 
+/* ── Edit dialog ─────────────────────────────────────────────────── */
 .edit-dialog-backdrop {
   position: fixed;
   z-index: 10;
@@ -560,9 +505,9 @@
   overflow-y: auto;
   box-sizing: border-box;
   padding: 26px;
-  border: 1px solid #c8d3d2;
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: #f9fbfa;
+  background: var(--bg-surface);
 }
 
 .edit-dialog-heading,
@@ -575,7 +520,7 @@
 
 .edit-dialog-heading span,
 .edit-dialog-note {
-  color: #607075;
+  color: var(--text-label);
   font-size: 13px;
 }
 
@@ -593,7 +538,7 @@
 .edit-form-grid label {
   display: grid;
   gap: 6px;
-  color: #607075;
+  color: var(--text-label);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: .08em;
@@ -604,11 +549,11 @@
 .edit-form-grid textarea {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid #c8d3d2;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 10px;
-  color: #173f4a;
-  background: #fff;
+  color: var(--text-1);
+  background: var(--bg-input);
   font: inherit;
   font-size: 14px;
   letter-spacing: 0;
@@ -635,52 +580,21 @@
 }
 
 .cancel-button {
-  border: 1px solid #c8d3d2;
-  color: #173f4a;
-  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  background: var(--bg-input);
 }
 
 @media (max-width: 800px) {
-  .source-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .payku-metrics {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .channel-hero,
-  .channel-resources {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .channel-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .channel-resources > div:last-child {
-    justify-content: flex-start;
-  }
-
-  .record-filters {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .record-filters input {
-    min-width: 0;
-  }
-
-  .client-detail-actions {
-    margin-top: 16px;
-  }
-
-  .edit-form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .edit-form-wide {
-    grid-column: auto;
-  }
+  .source-summary { grid-template-columns: 1fr; }
+  .payku-metrics { grid-template-columns: repeat(2, 1fr); }
+  .channel-hero, .channel-resources { flex-direction: column; align-items: flex-start; }
+  .channel-hero-controls { align-items: flex-start; }
+  .channel-workspace { grid-template-columns: 1fr; }
+  .channel-resources > div:last-child { justify-content: flex-start; }
+  .record-filters { align-items: stretch; flex-direction: column; }
+  .record-filters input { min-width: 0; }
+  .client-detail-actions { margin-top: 16px; }
+  .edit-form-grid { grid-template-columns: 1fr; }
+  .edit-form-wide { grid-column: auto; }
 }
