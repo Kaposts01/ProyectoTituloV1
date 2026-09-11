@@ -44,8 +44,13 @@ type ChannelDashboard = {
   years: number[];
   last_sync: SyncRun | null;
   kpis?: VpKpis;
+  // VirtualPOS extended
   charges_monthly?: MonthlyStatusEntry[];
   payments_monthly?: MonthlyStatusEntry[];
+  // Toku extended
+  invoices_monthly?: MonthlyStatusEntry[];
+  transactions_monthly?: MonthlyEntry[] | MonthlyStatusEntry[];
+  // Shared
   activation_monthly?: MonthlyEntry[];
   churn_monthly?: MonthlyEntry[];
 };
@@ -1095,6 +1100,8 @@ function ChannelDashboardView({
       </section>
       {(data.charges_monthly?.length ||
         data.payments_monthly?.length ||
+        data.invoices_monthly?.length ||
+        (data.transactions_monthly as MonthlyEntry[] | undefined)?.length ||
         data.activation_monthly?.length ||
         data.churn_monthly?.length) ? (
         <section className="extended-charts">
@@ -1124,6 +1131,50 @@ function ChannelDashboardView({
                 </div>
               </div>
               <MonthlyStatusChart data={data.payments_monthly} mode={mode} year={year} />
+            </article>
+          ) : null}
+          {data.invoices_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">FACTURAS</p>
+                  <h3>Estado mensual</h3>
+                </div>
+                <div className="dashboard-controls">
+                  <div className="mode-switch">
+                    <button className={mode === "count" ? "active" : ""} onClick={() => onMode("count")}>Cantidad</button>
+                    <button className={mode === "amount" ? "active" : ""} onClick={() => onMode("amount")}>Monto</button>
+                  </div>
+                </div>
+              </div>
+              <MonthlyStatusChart data={data.invoices_monthly} mode={mode} year={year} />
+            </article>
+          ) : null}
+          {data.transactions_monthly && !("status" in (data.transactions_monthly[0] ?? {})) && (data.transactions_monthly as MonthlyEntry[]).length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">TRANSACCIONES</p>
+                  <h3>Serie mensual</h3>
+                </div>
+              </div>
+              <MonthlySimpleChart data={data.transactions_monthly as MonthlyEntry[]} color={CHANNEL_COLORS[data.source]} mode={mode} year={year} />
+            </article>
+          ) : data.transactions_monthly && "status" in ((data.transactions_monthly as MonthlyStatusEntry[])[0] ?? {}) && (data.transactions_monthly as MonthlyStatusEntry[]).length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">TRANSACCIONES</p>
+                  <h3>Estado mensual</h3>
+                </div>
+                <div className="dashboard-controls">
+                  <div className="mode-switch">
+                    <button className={mode === "count" ? "active" : ""} onClick={() => onMode("count")}>Cantidad</button>
+                    <button className={mode === "amount" ? "active" : ""} onClick={() => onMode("amount")}>Monto</button>
+                  </div>
+                </div>
+              </div>
+              <MonthlyStatusChart data={data.transactions_monthly as MonthlyStatusEntry[]} mode={mode} year={year} />
             </article>
           ) : null}
           {data.activation_monthly?.length ? (

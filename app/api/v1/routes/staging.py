@@ -294,6 +294,177 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     }
 
 
+def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
+    invoices_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
+    transactions_monthly: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    activation_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    mrr = 0.0
+    active_subs = 0
+    active_customers: set[str] = set()
+
+    for record in records:
+        rtype = record.resource_type
+        payload = record.payload
+
+        if rtype == "invoice":
+            month = _month(payload.get("due_date"))
+            if month:
+                status = str(payload.get("status") or ("PAGADO" if payload.get("is_paid") else "PENDIENTE")).upper()
+                invoices_monthly[month][status]["count"] += 1
+                invoices_monthly[month][status]["amount"] += _amount(payload.get("amount"))
+
+        elif rtype == "transaction":
+            month = _month(payload.get("transaction_date"))
+            if month:
+                transactions_monthly[month]["count"] += 1
+                transactions_monthly[month]["amount"] += _amount(payload.get("amount"))
+
+        elif rtype == "subscription":
+            status = str(payload.get("status", "")).lower()
+            amount = _amount(payload.get("amount"))
+
+            anchor = payload.get("anchor")
+            month = _month(anchor)
+            if month:
+                activation_by_month[month]["count"] += 1
+                activation_by_month[month]["amount"] += amount
+
+            end_date = payload.get("end_date")
+            if end_date:
+                month = _month(end_date)
+                if month:
+                    churn_by_month[month]["count"] += 1
+                    churn_by_month[month]["amount"] += amount
+
+            if status in ("active", "activa", "activo"):
+                mrr += amount
+                active_subs += 1
+                customer = payload.get("customer")
+                customer_id = _relationship_id(customer)
+                if customer_id:
+                    active_customers.add(customer_id)
+
+    active_clients = len(active_customers) or active_subs or 1
+    arpu = round(mrr / active_clients, 0) if active_clients else 0.0
+    total_subs = sum(1 for r in records if r.resource_type == "subscription")
+    total_churned = sum(int(v["count"]) for v in churn_by_month.values())
+    churn_rate = round(total_churned / total_subs * 100, 1) if total_subs > 0 else 0.0
+    ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
+
+    def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for (year, month), statuses in sorted(data.items()):
+            for status, vals in sorted(statuses.items()):
+                rows.append({
+                    "year": year, "month": month, "status": status,
+                    "count": int(vals["count"]), "amount": round(vals["amount"], 2),
+                })
+        return rows
+
+    def _flatten_series(data: dict) -> list[dict[str, Any]]:
+        return [
+            {"year": year, "month": month, "count": int(vals["count"]), "amount": round(vals["amount"], 2)}
+            for (year, month), vals in sorted(data.items())
+        ]
+
+    return {
+        "kpis": {
+            "mrr": round(mrr, 0),
+            "active_subscribers": active_subs,
+            "active_clients": active_clients,
+            "arpu": round(arpu, 0),
+            "churn_rate": churn_rate,
+            "ltv": round(ltv, 0),
+        },
+        "invoices_monthly": _flatten_by_status(invoices_monthly),
+        "transactions_monthly": _flatten_series(transactions_monthly),
+        "activation_monthly": _flatten_series(activation_by_month),
+        "churn_monthly": _flatten_series(churn_by_month),
+    }
+
+
+def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
+    transactions_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
+    activation_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    mrr = 0.0
+    active_subs = 0
+    active_ruts: set[str] = set()
+
+    for record in records:
+        rtype = record.resource_type
+        payload = record.payload
+
+        if rtype == "transaction":
+            month = _month(payload.get("created_at"))
+            if month:
+                status = str(payload.get("status", "sin_estado")).upper()
+                transactions_monthly[month][status]["count"] += 1
+                transactions_monthly[month][status]["amount"] += _amount(payload.get("amount"))
+
+        elif rtype == "subscription":
+            status = str(payload.get("status", "")).lower()
+
+            start = payload.get("start")
+            month = _month(start)
+            if month:
+                activation_by_month[month]["count"] += 1
+
+            end = payload.get("end")
+            if end:
+                month = _month(end)
+                if month:
+                    churn_by_month[month]["count"] += 1
+
+            if status in ("active", "activa", "activo"):
+                active_subs += 1
+                rut = _payload_value(payload, ("client", "rut")) or payload.get("rut")
+                if rut:
+                    active_ruts.add(str(rut))
+
+    active_clients = len(active_ruts) or active_subs or 1
+    arpu = round(mrr / active_clients, 0) if active_clients else 0.0
+    total_subs = sum(1 for r in records if r.resource_type == "subscription")
+    total_churned = sum(int(v["count"]) for v in churn_by_month.values())
+    churn_rate = round(total_churned / total_subs * 100, 1) if total_subs > 0 else 0.0
+    ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
+
+    def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for (year, month), statuses in sorted(data.items()):
+            for status, vals in sorted(statuses.items()):
+                rows.append({
+                    "year": year, "month": month, "status": status,
+                    "count": int(vals["count"]), "amount": round(vals["amount"], 2),
+                })
+        return rows
+
+    def _flatten_series(data: dict) -> list[dict[str, Any]]:
+        return [
+            {"year": year, "month": month, "count": int(vals["count"]), "amount": round(vals["amount"], 2)}
+            for (year, month), vals in sorted(data.items())
+        ]
+
+    return {
+        "kpis": {
+            "mrr": round(mrr, 0),
+            "active_subscribers": active_subs,
+            "active_clients": active_clients,
+            "arpu": round(arpu, 0),
+            "churn_rate": churn_rate,
+            "ltv": round(ltv, 0),
+        },
+        "transactions_monthly": _flatten_by_status(transactions_monthly),
+        "activation_monthly": _flatten_series(activation_by_month),
+        "churn_monthly": _flatten_series(churn_by_month),
+    }
+
+
 @router.get("/records", tags=["Staging"])
 def list_records(
     source: str,
@@ -630,7 +801,13 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
         {"year": year, "month": month, "count": int(values["count"]), "amount": values["amount"]}
         for (year, month), values in sorted(activity_by_month.items())
     ]
-    vp_extended: dict[str, Any] = _vp_extended_data(records) if source == "virtualpos" else {}
+    extended: dict[str, Any] = {}
+    if source == "virtualpos":
+        extended = _vp_extended_data(records)
+    elif source == "toku":
+        extended = _toku_extended_data(records)
+    elif source == "payku":
+        extended = _payku_extended_data(records)
     return {
         "source": source,
         "records": len(records),
@@ -653,5 +830,5 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
             if latest_run
             else None
         ),
-        **vp_extended,
+        **extended,
     }
