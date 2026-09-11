@@ -7,6 +7,12 @@
 - Resultado: sincronizaciones completadas correctamente. Sandbox entrega 25 clientes, 8 planes, 16 suscripciones, 452 cargos y 35 pagos. No se registraron secretos ni datos de tarjeta en esta documentacion.
 - La ruta de cargos se invoca por cada suscripcion y su identificador se conserva como contexto de sincronizacion, separado del payload crudo.
 
+## Sincronizacion y consumo local
+
+- El sincronizador `scripts/sync_virtualpos.py` consulta estas colecciones y persiste sus respuestas saneadas en `source_records` con fuente `virtualpos`.
+- La API CRM ofrece recursos canonicos de VirtualPOS bajo `/api/v1/clients`, `/plans`, `/subscriptions`, `/charges` y `/payments`.
+- El staging ofrece las fichas `/api/v1/staging/virtualpos/clients/{uuid}`, `/plans/{id}` y `/subscriptions/{id}`. Las relaciones se limitan a `social_id`/RUT para cliente-suscripcion, `plan_id` para plan-suscripcion y el contexto de sincronizacion para suscripcion-cargo.
+
 ## Contrato disponible
 
 - La respuesta observada es un objeto: los registros se encuentran en `clients`, `plans`, `suscriptions` y `payments`, respectivamente. Tambien se admiten listas directas y los envelopes `data`, `results`, `items` y `charges`.
@@ -24,6 +30,6 @@ Los campos se extraen solo si existen y son opcionales hasta obtener registros r
 - Cargo: `id`, `amount`, `charge_date`, `status`; la suscripcion procede de la URL de consulta.
 - Pago: `order.uuid` es el identificador estable y `order` contiene los datos de estado e importe.
 
-Cada entidad canonica conserva `source`, `external_id` y `source_record_id`, que referencia el payload de staging saneado. No se infieren relaciones que el proveedor no haya devuelto.
+Cada entidad canonica conserva `source`, `external_id` y `source_record_id`, que referencia el payload de staging saneado. Las relaciones de las fichas se aplican solo con los identificadores documentados en este archivo.
 
 Antes de persistir staging se eliminan campos de tarjeta y seguridad (`card_number`, `card_pan`, `pan`, `cvv`, `cvc` y `security_code`).

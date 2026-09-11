@@ -55,9 +55,9 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | VP-11 | Crear API de consulta del CRM | Completada | Endpoints paginados para clientes, suscripciones, pagos y detalle. |
 | VP-12 | Añadir pruebas de integración del sincronizador | Completada | Respuestas simuladas cubren éxito, paginación, duplicados y errores. |
 | VP-13 | Programar sincronizaciones y alertas | Pendiente | Ejecución periódica con reintentos y registro de fallos. |
-| VP-14 | Iniciar frontend CRM | En curso | Dashboard y vistas de clientes/suscripciones consumen la API. |
+| VP-14 | Iniciar frontend CRM | Completada | Dashboard y vistas de clientes/suscripciones consumen la API. |
 | TK-01 | Sincronizar colecciones read-only de Toku a staging | Completada | Ejecuciones registradas por fuente y payloads disponibles en `source_records`. |
-| PK-01 | Sincronizar colecciones read-only de Payku a staging | Completada | Ejecuciones registradas por fuente y payloads disponibles en `source_records`. |
+| PK-01 | Sincronizar colecciones read-only de Payku a staging | Bloqueada | Clientes, planes y suscripciones disponibles; transacciones exceden el timeout local de 30 segundos. |
 | STG-01 | Exponer staging por canal y rediseñar dashboard temporal | Completada | Dashboard resume staging local y cada canal consulta únicamente sus registros almacenados. |
 | VP-15 | Mejorar vistas staging de VirtualPOS | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
 | TK-02 | Mejorar vistas staging de Toku | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
@@ -81,10 +81,17 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 
 ## Estado local de integraciones
 
-- Fecha: 2026-08-31.
+- Fecha: 2026-09-09.
 - VirtualPOS: sincronización manual completada localmente.
 - Toku: sincronización manual completada localmente con 20 registros procesados.
 - Payku: autenticación read-only validada para clientes, planes y suscripciones tras incorporar la firma `Sign` requerida. La colección de transacciones excede el timeout local de 30 segundos; aumentar `PAYKU_TIMEOUT_SECONDS` antes de ejecutar la sincronización completa.
+
+## Mantenimiento en curso
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
+| DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
 
 ## Avance 2026-08-30
 
@@ -101,7 +108,10 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 - VP-14 incorpora detalles de cliente y suscripcion. El detalle de suscripcion devuelve el plan y cargos confirmados por identificadores externos, con paginacion de cargos.
 - VP-14 incorpora el explorador de registros para clientes, planes, suscripciones, cargos y pagos; cada registro abre su detalle CRM. El detalle de cliente incluye los campos canonicos y tarjetas resumidas sin datos de tarjeta completos.
 - Validación: `python -m pytest`, `ruff check app tests alembic scripts`, migración en `head` y sincronización Sandbox correcta.
-- Payku y Toku permanecen como integraciones futuras: sus módulos se conservan, pero no registran rutas públicas ni requieren credenciales para iniciar el CRM. VirtualPOS conserva solo el cliente de lectura usado por la sincronización.
-- VP-14 ajusta el explorador de registros por recurso: clientes muestran correo y telefono; planes reflejan el booleano de actividad; suscripciones, cargos y pagos incluyen sus fechas operativas.
-- VP-14 incorpora navegacion lateral: VirtualPOS enlaza las vistas CRM existentes y Toku, Payku, TCH y Configuracion reservan sus secciones con una vista local "En construccion", sin activar proveedores.
-- Toku y Payku exponen exclusivamente sus colecciones GET del menu lateral; el frontend renderiza las columnas que devuelve cada proveedor sin mezclarlas con el modelo CRM. TCH y Configuracion siguen reservados para trabajo futuro.
+
+## Actualizacion documental 2026-09-09
+
+- Se corrigio el estado de VP-14: el dashboard y las vistas CRM iniciales estan implementados.
+- PK-01 queda bloqueada hasta completar la lectura de transacciones Payku; clientes, planes y suscripciones ya se validaron localmente.
+- `README.md`, `docs/architecture.md`, `frontend/README.md` y la referencia de Payku describen el staging de VirtualPOS, Toku y Payku, sus limites actuales y la operacion local.
+- Se retiraron ejemplos de numeros de tarjeta y CVV de la documentacion versionada.

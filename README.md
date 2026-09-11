@@ -1,20 +1,26 @@
 # CRM de Suscripciones
 
-CRM interno para centralizar clientes, suscripciones y pagos recurrentes. El primer hito integra VirtualPOS Sandbox en modo de solo lectura.
+CRM interno read-only para consultar datos de suscripciones, clientes y cobros. VirtualPOS Sandbox, Toku y Payku se extraen a staging local; el navegador nunca recibe credenciales ni llama a proveedores.
+
+## Estado actual
+
+- VirtualPOS Sandbox: sincronizacion read-only validada para clientes, planes, suscripciones, cargos y pagos.
+- Toku: sincronizacion read-only validada para clientes, deudas, metodos de pago, suscripciones y transacciones.
+- Payku: autenticacion y sincronizacion de clientes, planes y suscripciones validadas. La coleccion de transacciones requiere aumentar `PAYKU_TIMEOUT_SECONDS` antes de una ejecucion completa.
+- Dashboard: muestra los datos de staging por canal. No es aun un dashboard consolidado: `BD_Central` y su ETL son trabajo futuro.
 
 ## Inicio local
 
-1. Activa el entorno virtual: `.\.venv\Scripts\Activate.ps1`
-2. Instala las dependencias: `python -m pip install -r requirements.txt`
-3. Crea tu configuración local: `Copy-Item .env.example .env`
-4. Configura en `.env` las credenciales de los proveedores que vayas a sincronizar.
-5. Inicia PostgreSQL: `docker compose up -d postgres` (se expone localmente en el puerto `5433`).
-6. Aplica las migraciones: `alembic upgrade head`
-7. Inicia la API: `uvicorn app.main:app --reload`
-8. En otra terminal, inicia el dashboard: `cd frontend; npm install; npm run dev`
+1. Activa el entorno: `.\.venv\Scripts\Activate.ps1`.
+2. Instala dependencias: `python -m pip install -r requirements.txt`.
+3. Crea la configuracion local: `Copy-Item .env.example .env`.
+4. Configura en `.env` solo las credenciales de los proveedores que vayas a sincronizar.
+5. Inicia PostgreSQL: `docker compose up -d postgres`. Se expone en `localhost:5433`.
+6. Aplica el esquema: `alembic upgrade head`.
+7. Inicia la API: `uvicorn app.main:app --reload`.
+8. En otra terminal, inicia el frontend: `cd frontend; npm install; npm run dev`.
 
-La documentación interactiva estará en `http://127.0.0.1:8000/docs`.
-El dashboard estará en `http://127.0.0.1:5173` y redirige las rutas `/api` hacia FastAPI local.
+Swagger queda disponible en `http://127.0.0.1:8000/docs` y el dashboard en `http://127.0.0.1:5173`.
 
 ## Sincronizacion manual
 
@@ -26,34 +32,19 @@ Con PostgreSQL iniciado y las migraciones aplicadas, ejecuta desde la raiz:
 .\.venv\Scripts\python.exe scripts\sync_payku.py
 ```
 
-Todas las operaciones son de solo lectura. Cada ejecución queda en `/api/v1/sync-runs` y sus payloads saneados en `source_records`. El dashboard y los menús de proveedores consultan el staging local; la futura `BD_Central` será la fuente de los indicadores consolidados.
+Los sincronizadores configurados usan exclusivamente consultas `GET`. Cada ejecucion se registra en `sync_runs`; sus respuestas saneadas se guardan de forma idempotente en `source_records` mediante la clave `(source, resource_type, external_id)`.
 
-## Endpoints CRM
+## API local
 
-- `/api/v1/clients`
-- `/api/v1/plans`
-- `/api/v1/subscriptions`
-- `/api/v1/subscriptions/{uuid}/detail`
-- `/api/v1/charges`
-- `/api/v1/payments`
-- `/api/v1/sync-runs`
-- `/api/v1/staging/summary`
-- `/api/v1/staging/records?source={virtualpos|toku|payku}&resource_type={tipo}`
-- `/api/v1/staging/dashboard/{virtualpos|toku|payku}`
-- `/api/v1/staging/virtualpos/clients/{uuid}`
-- `/api/v1/staging/virtualpos/plans/{id}`
-- `/api/v1/staging/virtualpos/subscriptions/{id}`
-- `/api/v1/staging/virtualpos/charges/{id}`
-- `/api/v1/staging/virtualpos/payments/{id}`
-- `/api/v1/staging/{toku|payku}/{resource}/{id}`
+- Recursos CRM canonicos de VirtualPOS: `/api/v1/clients`, `/plans`, `/subscriptions`, `/charges` y `/payments`.
+- Ejecuciones: `/api/v1/sync-runs`.
+- Resumen staging: `/api/v1/staging/summary`.
+- Registros staging paginados: `/api/v1/staging/records?source={virtualpos|toku|payku}&resource_type={tipo}`.
+- Mini dashboard por canal: `/api/v1/staging/dashboard/{virtualpos|toku|payku}`.
+- Fichas VirtualPOS: `/api/v1/staging/virtualpos/clients/{uuid}`, `/plans/{id}`, `/subscriptions/{id}`, `/charges/{id}` y `/payments/{id}`.
+- Fichas Toku y Payku: `/api/v1/staging/{toku|payku}/{resource}/{id}`.
 
-Los recursos CRM son la capa canónica actual de VirtualPOS. Las pantallas por proveedor usan staging y no llaman al proveedor desde el navegador. Cada canal tiene un mini dashboard con métricas, estados, actividad mensual, selector Cantidad/Monto y filtro anual, calculados solo con los campos disponibles en su staging.
-
-La ficha de cliente VirtualPOS se abre desde su UUID y muestra sus campos de staging. Sus suscripciones se relacionan por `social_id`/RUT, según la decisión funcional vigente; puede devolver más de una suscripción.
-
-Las fichas de plan y suscripción de VirtualPOS usan relaciones entregadas por el proveedor: `subscription.plan_id` para planes y el contexto de sincronización del cargo para suscripciones. El método de pago se muestra solo desde el payload saneado de la suscripción.
-
-Las fichas de Toku y Payku muestran todos los campos del payload de staging y sus registros relacionados solo mediante identificadores explícitos del mismo proveedor.
+Consulta `docs/architecture.md` para el flujo de datos y `docs/tasks.md` para el estado de las tareas.
 
 Los clientes VirtualPOS disponen de una interfaz visual de edición desde la tabla y su ficha. El formulario no envía actualizaciones al proveedor mientras la integración Sandbox permanezca en modo solo lectura.
 
@@ -61,4 +52,6 @@ Los clientes VirtualPOS disponen de una interfaz visual de edición desde la tab
 
 ## Seguridad
 
-`.env` y `.venv` son locales y están ignorados por Git. No almacenes claves API, secretos, números completos de tarjeta ni CVV en el repositorio o la base de datos.
+- `.env` y `.venv` son locales e ignorados por Git. No incluyas secretos en archivos versionados, mensajes de error ni documentacion.
+- Antes de persistir se eliminan los campos de tarjeta y seguridad conocidos: PAN, CVV/CVC y codigos de seguridad.
+- No almacenes ni documentes numeros completos de tarjetas, CVV/CVC ni credenciales, incluso si son datos de prueba.
