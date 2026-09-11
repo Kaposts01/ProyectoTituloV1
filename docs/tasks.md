@@ -92,6 +92,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | --- | --- | --- | --- |
 | MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
 | DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
+| DOC-02 | Documentar API VirtualPOS | Completada | `docs/Documentacion API VirtualPOS.md` cubre rutas, contratos, autenticación, paginación y estrategia incremental. |
 
 ## Avance 2026-08-30
 
@@ -115,3 +116,9 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 - PK-01 queda bloqueada hasta completar la lectura de transacciones Payku; clientes, planes y suscripciones ya se validaron localmente.
 - `README.md`, `docs/architecture.md`, `frontend/README.md` y la referencia de Payku describen el staging de VirtualPOS, Toku y Payku, sus limites actuales y la operacion local.
 - Se retiraron ejemplos de numeros de tarjeta y CVV de la documentacion versionada.
+
+## Actualizacion documental 2026-09-11
+
+- Se incorporaron VP-18 a VP-27: fichas de cargo y pago VirtualPOS, filtros avanzados por campo, modales de edicion y cancelacion visual (escritura remota pendiente), mejoras de etiquetas y navegacion en fichas de los tres canales.
+- Se agrego DOC-02: guia completa de la API VirtualPOS en `docs/Documentacion API VirtualPOS.md`.
+- `Dashboard_referencia.py` se incluye como template Streamlit de referencia para futuros dashboards analiticos; no es codigo productivo.

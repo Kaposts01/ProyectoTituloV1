@@ -32,7 +32,11 @@ Las relaciones se limitan a identificadores que entrega cada proveedor:
 - Toku usa sus IDs de cliente, suscripcion, metodo de pago, deuda y transaccion. El RUT del cliente procede de `government_id`.
 - Payku enlaza clientes, planes y suscripciones mediante los IDs declarados en la suscripcion. Las transacciones sin identificador comprobable quedan sin relacion.
 
-Las listas de todos los proveedores filtran en la API local mediante `filter_field` y `query`, para conservar el total correcto de resultados. Los cargos VirtualPOS se ordenan por `charge_date` descendente y las transacciones por `order.authorized_at` descendente, dejando registros sin fecha al final. El RUT de clientes Toku procede de `government_id`.
+Las tablas de los tres canales filtran en la API local mediante `filter_field` y `query`, preservando el total correcto. Los cargos VirtualPOS se ordenan por `charge_date` descendente y las transacciones de VirtualPOS por `order.authorized_at` descendente, con registros sin fecha al final.
+
+El frontend incluye modales de edicion visual para clientes y cancelacion de suscripciones VirtualPOS. Estos modales no persisten cambios en el proveedor mientras la integracion Sandbox permanezca en modo read-only.
+
+La documentacion del proveedor VirtualPOS (rutas, contratos, autenticacion y estrategia incremental) esta en `docs/Documentacion API VirtualPOS.md`.
 
 ## Seguridad
 
