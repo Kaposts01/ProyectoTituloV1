@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import "./App.css";
 import "./Staging.css";
+import { MonthlySimpleChart, MonthlyStatusChart } from "./MonthlyStatusChart";
+import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 
 const ChannelActivityChart = lazy(() => import("./ChannelActivityChart"));
 
@@ -23,6 +25,14 @@ type StagingResponse = { items: StagingRecord[]; total: number };
 type ProviderSection = { source: string; resource: string; label: string };
 type TableColumn = { label: string; value: (record: StagingRecord) => string };
 type Activity = { year: number; month: number; count: number; amount: number };
+type VpKpis = {
+  mrr: number;
+  active_subscribers: number;
+  active_clients: number;
+  arpu: number;
+  churn_rate: number;
+  ltv: number;
+};
 type ChannelDashboard = {
   source: string;
   records: number;
@@ -33,6 +43,11 @@ type ChannelDashboard = {
   activity: Activity[];
   years: number[];
   last_sync: SyncRun | null;
+  kpis?: VpKpis;
+  charges_monthly?: MonthlyStatusEntry[];
+  payments_monthly?: MonthlyStatusEntry[];
+  activation_monthly?: MonthlyEntry[];
+  churn_monthly?: MonthlyEntry[];
 };
 type VirtualPosClientDetail = {
   client: StagingRecord;
@@ -148,6 +163,28 @@ const months = [
   "Oct",
   "Nov",
   "Dic",
+];
+const METRIC_COLORS: Record<string, string> = {
+  blue: "#4a90c4",
+  violet: "#7b6cc7",
+  gold: "#c49d30",
+  orange: "#d46a2a",
+  green: "#3ba675",
+};
+const CHANNEL_COLORS: Record<string, string> = {
+  virtualpos: "#0A5657",
+  toku: "#8000CC",
+  payku: "#2800D9",
+};
+const STATUS_PALETTE = [
+  "#3ba675",
+  "#4a90c4",
+  "#7b6cc7",
+  "#c49d30",
+  "#d46a2a",
+  "#a53d35",
+  "#728186",
+  "#2d6a4f",
 ];
 const virtualPosClientFields = [
   "uuid",
@@ -774,11 +811,16 @@ function Metric({
   tone: string;
   amount?: number;
 }) {
+  const accent = METRIC_COLORS[tone] ?? "#4a90c4";
   return (
-    <article className="metric-card">
-      <span className={`metric-dot ${tone}`} />
-      <p>{label}</p>
-      <strong>{value}</strong>
+    <article
+      className="metric-card"
+      style={{ "--accent": accent } as React.CSSProperties}
+    >
+      <p className="metric-label">{label}</p>
+      <strong className="metric-value">
+        {value.toLocaleString("es-CL")}
+      </strong>
       {amount !== undefined ? (
         <span className="metric-amount">
           ${amount.toLocaleString("es-CL")}
@@ -788,7 +830,31 @@ function Metric({
   );
 }
 
-function StatusDistribution({
+function KpiCard({
+  label,
+  value,
+  caption,
+  tone,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  tone: string;
+}) {
+  const accent = METRIC_COLORS[tone] ?? "#4a90c4";
+  return (
+    <article
+      className="metric-card kpi-card"
+      style={{ "--accent": accent } as React.CSSProperties}
+    >
+      <p className="metric-label">{label}</p>
+      <strong className="metric-value kpi-value">{value}</strong>
+      {caption ? <span className="metric-amount">{caption}</span> : null}
+    </article>
+  );
+}
+
+function StatusBars({
   source,
   statuses,
   resources,
@@ -797,7 +863,6 @@ function StatusDistribution({
   statuses: { resource: string; status: string; count: number }[];
   resources: Record<string, number>;
 }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({});
   const grouped = new Map<string, { status: string; count: number }[]>();
   for (const entry of statuses) {
     const list = grouped.get(entry.resource) ?? [];
@@ -807,11 +872,10 @@ function StatusDistribution({
   const preferred = statusResourceOrder[source] ?? [];
   const rows = [
     ...preferred,
-    ...[...grouped.keys()].filter((resource) => !preferred.includes(resource)),
+    ...[...grouped.keys()].filter((r) => !preferred.includes(r)),
   ].filter(
-    (resource, index, list) =>
-      list.indexOf(resource) === index &&
-      (grouped.has(resource) || (resources[resource] ?? 0) > 0),
+    (r, i, arr) =>
+      arr.indexOf(r) === i && (grouped.has(r) || (resources[r] ?? 0) > 0),
   );
   if (!rows.length) {
     return (
@@ -819,45 +883,52 @@ function StatusDistribution({
     );
   }
   return (
-    <div className="status-distribution">
+    <div className="status-bars">
       {rows.map((resource) => {
         const items = [...(grouped.get(resource) ?? [])].sort(
           (a, b) => b.count - a.count,
         );
         const total =
-          items.reduce((sum, item) => sum + item.count, 0) ||
+          items.reduce((s, item) => s + item.count, 0) ||
           (resources[resource] ?? 0);
-        const isOpen = open[resource] ?? false;
         return (
-          <div key={resource} className="status-group">
-            <button
-              type="button"
-              className="status-group-head"
-              aria-expanded={isOpen}
-              onClick={() =>
-                setOpen((prev) => ({ ...prev, [resource]: !isOpen }))
-              }
-            >
-              <span className="status-group-toggle">{isOpen ? "−" : "+"}</span>
-              <span className="status-group-name">
-                {statusResourceLabels[resource] ?? resource}
-              </span>
+          <div key={resource} className="status-bar-row">
+            <div className="status-bar-header">
+              <span>{statusResourceLabels[resource] ?? resource}</span>
               <b>{total}</b>
-            </button>
-            {isOpen ? (
-              <div className="status-group-body">
-                {items.length ? (
-                  items.map((item) => (
-                    <div key={item.status}>
-                      <strong>{item.status}</strong>
-                      <b>{item.count}</b>
-                    </div>
-                  ))
-                ) : (
-                  <p className="status-group-empty">Sin estados normalizados.</p>
-                )}
+            </div>
+            <div className="status-bar-track">
+              {items.length ? (
+                items.map((item, i) => (
+                  <div
+                    key={item.status}
+                    className="status-bar-segment"
+                    style={{
+                      width: `${(item.count / total) * 100}%`,
+                      background: STATUS_PALETTE[i % STATUS_PALETTE.length],
+                    }}
+                    title={`${item.status}: ${item.count}`}
+                  />
+                ))
+              ) : (
+                <div className="status-bar-segment status-bar-empty" />
+              )}
+            </div>
+            {items.length > 0 && (
+              <div className="status-bar-legend">
+                {items.map((item, i) => (
+                  <span key={item.status} className="status-legend-item">
+                    <i
+                      style={{
+                        background: STATUS_PALETTE[i % STATUS_PALETTE.length],
+                      }}
+                    />
+                    {item.status}
+                    <b>{item.count}</b>
+                  </span>
+                ))}
               </div>
-            ) : null}
+            )}
           </div>
         );
       })}
@@ -931,6 +1002,34 @@ function ChannelDashboardView({
           />
         ))}
       </section>
+      {data.kpis ? (
+        <section className="metrics kpi-metrics" aria-label="KPIs técnicos">
+          <KpiCard
+            label="MRR"
+            value={`$${data.kpis.mrr.toLocaleString("es-CL")}`}
+            caption="Ingreso mensual recurrente activo"
+            tone="green"
+          />
+          <KpiCard
+            label="ARPU"
+            value={`$${data.kpis.arpu.toLocaleString("es-CL")}`}
+            caption={`${data.kpis.active_clients} cliente${data.kpis.active_clients !== 1 ? "s" : ""} con subs activas`}
+            tone="blue"
+          />
+          <KpiCard
+            label="Churn mensual"
+            value={`${data.kpis.churn_rate}%`}
+            caption={`${data.kpis.active_subscribers} subs activas · ${data.kpis.active_subscribers + (data.churn_monthly?.reduce((s, e) => s + e.count, 0) ?? 0)} total`}
+            tone="orange"
+          />
+          <KpiCard
+            label="LTV estimado"
+            value={data.kpis.ltv > 0 ? `$${data.kpis.ltv.toLocaleString("es-CL")}` : "—"}
+            caption="ARPU / churn rate"
+            tone="violet"
+          />
+        </section>
+      ) : null}
       <section className="channel-workspace">
         <article className="panel chart-panel">
           <div className="panel-heading">
@@ -972,7 +1071,11 @@ function ChannelDashboardView({
             <Suspense
               fallback={<p className="empty-chart">Cargando gráfico...</p>}
             >
-              <ChannelActivityChart data={chartData} mode={dataKey} />
+              <ChannelActivityChart
+                data={chartData}
+                mode={dataKey}
+                color={CHANNEL_COLORS[data.source]}
+              />
             </Suspense>
           ) : (
             <p className="empty-chart">
@@ -983,13 +1086,70 @@ function ChannelDashboardView({
         <article className="panel status-panel">
           <p className="eyebrow">ESTADOS</p>
           <h3>Distribución disponible</h3>
-          <StatusDistribution
+          <StatusBars
             source={data.source}
             statuses={data.statuses}
             resources={data.resources}
           />
         </article>
       </section>
+      {(data.charges_monthly?.length ||
+        data.payments_monthly?.length ||
+        data.activation_monthly?.length ||
+        data.churn_monthly?.length) ? (
+        <section className="extended-charts">
+          {data.charges_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">CARGOS</p>
+                  <h3>Estado mensual</h3>
+                </div>
+                <div className="dashboard-controls">
+                  <div className="mode-switch">
+                    <button className={mode === "count" ? "active" : ""} onClick={() => onMode("count")}>Cantidad</button>
+                    <button className={mode === "amount" ? "active" : ""} onClick={() => onMode("amount")}>Monto</button>
+                  </div>
+                </div>
+              </div>
+              <MonthlyStatusChart data={data.charges_monthly} mode={mode} year={year} />
+            </article>
+          ) : null}
+          {data.payments_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">TRANSACCIONES</p>
+                  <h3>Estado mensual</h3>
+                </div>
+              </div>
+              <MonthlyStatusChart data={data.payments_monthly} mode={mode} year={year} />
+            </article>
+          ) : null}
+          {data.activation_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">SUSCRIPCIONES</p>
+                  <h3>Activación mensual</h3>
+                </div>
+              </div>
+              <MonthlySimpleChart data={data.activation_monthly} color="#3ba675" mode={mode} year={year} />
+            </article>
+          ) : null}
+          {data.churn_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">SUSCRIPCIONES</p>
+                  <h3>Caída mensual</h3>
+                </div>
+              </div>
+              <MonthlySimpleChart data={data.churn_monthly} color="#a53d35" mode={mode} year={year} />
+            </article>
+          ) : null}
+        </section>
+      ) : null}
       <section className="panel channel-resources">
         <div>
           <p className="eyebrow">EXPLORAR STAGING</p>

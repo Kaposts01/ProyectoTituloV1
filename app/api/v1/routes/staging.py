@@ -197,6 +197,103 @@ def _record_order(source: str, resource_type: str):
     return (SourceRecord.last_seen_at.desc(),)
 
 
+def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
+    charges_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
+    payments_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
+    activation_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    mrr = 0.0
+    active_subs = 0
+    active_ruts: set[str] = set()
+
+    for record in records:
+        rtype = record.resource_type
+        payload = record.payload
+
+        if rtype == "charge":
+            month = _month(payload.get("charge_date"))
+            if month:
+                status = str(payload.get("status", "sin_estado")).upper()
+                charges_monthly[month][status]["count"] += 1
+                charges_monthly[month][status]["amount"] += _amount(payload.get("amount"))
+
+        elif rtype == "payment":
+            month = _month(_payload_value(payload, ("order", "authorized_at")))
+            if month:
+                status = str(_payload_value(payload, ("order", "status")) or "sin_estado").upper()
+                payments_monthly[month][status]["count"] += 1
+                payments_monthly[month][status]["amount"] += _amount(_payload_value(payload, ("order", "amount")))
+
+        elif rtype == "subscription":
+            status = str(payload.get("status", "")).upper()
+            amount = _amount(payload.get("amount"))
+
+            start = payload.get("suscription_date") or payload.get("created")
+            month = _month(start)
+            if month:
+                activation_by_month[month]["count"] += 1
+                activation_by_month[month]["amount"] += amount
+
+            canceled_at = payload.get("canceled_at")
+            if canceled_at:
+                month = _month(canceled_at)
+                if month:
+                    churn_by_month[month]["count"] += 1
+                    churn_by_month[month]["amount"] += amount
+
+            if status == "ACTIVA":
+                mrr += amount
+                active_subs += 1
+                social_id = (
+                    _payload_value(payload, ("client", "social_id"))
+                    or payload.get("social_id")
+                )
+                if social_id:
+                    active_ruts.add(str(social_id))
+
+    active_clients = len(active_ruts) or active_subs or 1
+    arpu = round(mrr / active_clients, 0) if active_clients else 0.0
+    total_subs = sum(1 for r in records if r.resource_type == "subscription")
+    total_churned = sum(int(v["count"]) for v in churn_by_month.values())
+    churn_rate = round(total_churned / total_subs * 100, 1) if total_subs > 0 else 0.0
+    ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
+
+    def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for (year, month), statuses in sorted(data.items()):
+            for status, vals in sorted(statuses.items()):
+                rows.append({
+                    "year": year, "month": month, "status": status,
+                    "count": int(vals["count"]), "amount": round(vals["amount"], 2),
+                })
+        return rows
+
+    def _flatten_series(data: dict) -> list[dict[str, Any]]:
+        return [
+            {"year": year, "month": month, "count": int(vals["count"]), "amount": round(vals["amount"], 2)}
+            for (year, month), vals in sorted(data.items())
+        ]
+
+    return {
+        "kpis": {
+            "mrr": round(mrr, 0),
+            "active_subscribers": active_subs,
+            "active_clients": active_clients,
+            "arpu": round(arpu, 0),
+            "churn_rate": churn_rate,
+            "ltv": round(ltv, 0),
+        },
+        "charges_monthly": _flatten_by_status(charges_monthly),
+        "payments_monthly": _flatten_by_status(payments_monthly),
+        "activation_monthly": _flatten_series(activation_by_month),
+        "churn_monthly": _flatten_series(churn_by_month),
+    }
+
+
 @router.get("/records", tags=["Staging"])
 def list_records(
     source: str,
@@ -533,6 +630,7 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
         {"year": year, "month": month, "count": int(values["count"]), "amount": values["amount"]}
         for (year, month), values in sorted(activity_by_month.items())
     ]
+    vp_extended: dict[str, Any] = _vp_extended_data(records) if source == "virtualpos" else {}
     return {
         "source": source,
         "records": len(records),
@@ -555,4 +653,5 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
             if latest_run
             else None
         ),
+        **vp_extended,
     }
