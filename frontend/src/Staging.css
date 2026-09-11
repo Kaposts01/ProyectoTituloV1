@@ -244,6 +244,14 @@
   border-bottom: 1px solid #c8d3d2;
 }
 
+.channel-hero-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .channel-hero h2 {
   margin-bottom: 14px;
 }

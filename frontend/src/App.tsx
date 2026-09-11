@@ -982,11 +982,42 @@ function ChannelDashboardView({
             BD_Central.
           </p>
         </div>
-        <div
-          className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}
-        >
-          <span />
-          {data.last_sync?.status ?? "Sin sincronización"}
+        <div className="channel-hero-controls">
+          <div className="dashboard-controls">
+            <div className="mode-switch">
+              <button
+                className={mode === "count" ? "active" : ""}
+                onClick={() => onMode("count")}
+              >
+                Cantidad
+              </button>
+              <button
+                className={mode === "amount" ? "active" : ""}
+                onClick={() => onMode("amount")}
+              >
+                Monto
+              </button>
+            </div>
+            {data.years.length ? (
+              <select
+                aria-label="Año"
+                value={year ?? data.years[0]}
+                onChange={(event) => onYear(Number(event.target.value))}
+              >
+                {data.years.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {entry}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
+          <div
+            className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}
+          >
+            <span />
+            {data.last_sync?.status ?? "Sin sincronización"}
+          </div>
         </div>
       </header>
       <section
@@ -1041,35 +1072,6 @@ function ChannelDashboardView({
             <div>
               <p className="eyebrow">{activityTitle.toUpperCase()}</p>
               <h3>Serie mensual</h3>
-            </div>
-            <div className="dashboard-controls">
-              <div className="mode-switch">
-                <button
-                  className={mode === "count" ? "active" : ""}
-                  onClick={() => onMode("count")}
-                >
-                  Cantidad
-                </button>
-                <button
-                  className={mode === "amount" ? "active" : ""}
-                  onClick={() => onMode("amount")}
-                >
-                  Monto
-                </button>
-              </div>
-              {data.years.length ? (
-                <select
-                  aria-label="Año"
-                  value={year ?? data.years[0]}
-                  onChange={(event) => onYear(Number(event.target.value))}
-                >
-                  {data.years.map((entry) => (
-                    <option key={entry} value={entry}>
-                      {entry}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
             </div>
           </div>
           {chartData.length ? (
