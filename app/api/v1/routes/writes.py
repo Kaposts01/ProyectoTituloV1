@@ -3,10 +3,12 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import HTTPStatusError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
 from app.core.security import require_csrf, require_permissions
+from app.models.crm import Subscription
 from app.services.write_virtualpos import (
     ClientNotFoundError,
     DuplicateClientError,
@@ -14,6 +16,7 @@ from app.services.write_virtualpos import (
     LocalStateUnavailableError,
     ReconciliationRequiredError,
     WriteDisabledError,
+    create_charge,
     create_client,
     create_plan,
     update_client,
@@ -156,3 +159,43 @@ async def create_virtualpos_plan(
         raise HTTPException(status_code=503, detail="VirtualPOS plan requires local reconciliation") from None
 
     return {"id": str(plan.id), "external_id": plan.external_id, "source": plan.source, "payload": plan.raw_payload or {}}
+
+
+class VirtualPOSChargeCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    charge_date: str = Field(min_length=1, max_length=50)
+    amount: int = Field(ge=1)
+    description: str | None = Field(default=None, max_length=500)
+    internal_code: str | None = Field(default=None, max_length=100)
+
+
+@router.post(
+    "/virtualpos/subscriptions/{subscription_id}/charges",
+    dependencies=[Depends(require_permissions("virtualpos.charges.create")), Depends(require_csrf)],
+    tags=["Writes - VirtualPOS"],
+)
+async def create_virtualpos_charge(
+    subscription_id: str,
+    body: VirtualPOSChargeCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Create a new charge on an active VirtualPOS subscription."""
+    subscription = db.scalar(
+        select(Subscription).where(
+            Subscription.external_id == subscription_id,
+            Subscription.source.like("virtualpos%"),
+        )
+    )
+    platform = subscription.source if subscription else "virtualpos1"
+
+    try:
+        charge = await create_charge(db, subscription_id, body.model_dump(exclude_none=True, mode="json"), platform=platform)
+    except WriteDisabledError:
+        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the charge") from None
+    except ReconciliationRequiredError:
+        raise HTTPException(status_code=503, detail="VirtualPOS charge requires local reconciliation") from None
+
+    return {"id": str(charge.id), "external_id": charge.external_id, "source": charge.source, "payload": charge.raw_payload or {}}

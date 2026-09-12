@@ -1699,6 +1699,11 @@ function App() {
   const [planFieldErrors, setPlanFieldErrors] = useState<Record<string, string>>({});
   const [planSaveNotice, setPlanSaveNotice] = useState<string | null>(null);
   const [cancelingSubscription, setCancelingSubscription] = useState<StagingRecord | null>(null);
+  const [creatingCharge, setCreatingCharge] = useState<StagingRecord | null>(null);
+  const [savingCharge, setSavingCharge] = useState(false);
+  const [chargeFormError, setChargeFormError] = useState<string | null>(null);
+  const [chargeFieldErrors, setChargeFieldErrors] = useState<Record<string, string>>({});
+  const [chargeSaveNotice, setChargeSaveNotice] = useState<string | null>(null);
   const [editingProviderRecord, setEditingProviderRecord] = useState<{
     record: StagingRecord;
     source: string;
@@ -2059,6 +2064,74 @@ function App() {
       setPlanFormError(friendlyError(err, "No se pudo crear el plan."));
     } finally {
       setSavingPlan(false);
+    }
+  }
+
+  async function createVirtualPOSCharge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingCharge || !creatingCharge) return;
+    setChargeFormError(null);
+    setChargeFieldErrors({});
+
+    const formData = new FormData(event.currentTarget);
+    const errors: Record<string, string> = {};
+    const chargeDate = String(formData.get("charge_date") ?? "").trim();
+    const amountRaw = String(formData.get("amount") ?? "").trim();
+    const description = String(formData.get("description") ?? "").trim();
+    const internalCode = String(formData.get("internal_code") ?? "").trim();
+
+    if (!chargeDate) {
+      errors.charge_date = "La fecha del cargo es obligatoria.";
+    } else {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const selected = new Date(chargeDate);
+      if (isNaN(selected.getTime())) {
+        errors.charge_date = "Ingresa una fecha válida.";
+      } else if (selected < today) {
+        errors.charge_date = "La fecha del cargo no puede ser una fecha pasada.";
+      }
+    }
+    const amount = amountRaw === "" ? NaN : Number(amountRaw);
+    if (amountRaw === "" || isNaN(amount) || amount < 1) {
+      errors.amount = "Ingresa un monto válido (número ≥ 1).";
+    }
+
+    if (Object.keys(errors).length) {
+      setChargeFieldErrors(errors);
+      setChargeFormError("Revisa los campos marcados en rojo.");
+      return;
+    }
+
+    const subscriptionId = String(creatingCharge.payload.id ?? creatingCharge.external_id);
+    const body: Record<string, unknown> = { charge_date: chargeDate, amount };
+    if (description) body.description = description;
+    if (internalCode) body.internal_code = internalCode;
+
+    setSavingCharge(true);
+    try {
+      await refreshCsrfToken();
+      const created = await postJson<{ id: string; external_id: string; source: string; payload: Record<string, unknown> }>(
+        `/api/v1/writes/virtualpos/subscriptions/${encodeURIComponent(subscriptionId)}/charges`,
+        body,
+      );
+      setCreatingCharge(null);
+      setChargeSaveNotice(`Cargo creado correctamente (ID: ${created.external_id}).`);
+      if (subscriptionDetail && subscriptionDetail.subscription.external_id === creatingCharge.external_id) {
+        setSubscriptionDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                charges: [{ id: created.id, source: created.source, resource_type: "charge", external_id: created.external_id, payload: created.payload }, ...prev.charges],
+                charge_total: prev.charge_total + 1,
+              }
+            : prev,
+        );
+      }
+    } catch (err) {
+      setChargeFormError(friendlyError(err, "No se pudo crear el cargo."));
+    } finally {
+      setSavingCharge(false);
     }
   }
 
@@ -2472,8 +2545,15 @@ function App() {
           >
             Cancelar Sub
           </button>
+          <button
+            className="create-charge-button"
+            onClick={() => { setChargeFormError(null); setChargeFieldErrors({}); setCreatingCharge(subscriptionDetail.subscription); }}
+          >
+            + Nuevo cargo
+          </button>
         </div>
       ) : null}
+      {chargeSaveNotice ? <p className="save-notice">{chargeSaveNotice}</p> : null}
       <section className="panel">
         <p className="eyebrow">FICHA DE LA SUBSCRIPCIÓN</p>
         <dl className="field-list">
@@ -2863,6 +2943,7 @@ function App() {
         ) : null}
         {clientSaveNotice ? <p className="success-message" role="status">{clientSaveNotice}</p> : null}
         {planSaveNotice ? <p className="success-message" role="status">{planSaveNotice}</p> : null}
+        {chargeSaveNotice ? <p className="success-message" role="status">{chargeSaveNotice}</p> : null}
         {error ? <p className="error-message">{error}</p> : null}
         {!loading && !error && records.items.length === 0 ? (
           <p>Sin registros sincronizados para este recurso.</p>
@@ -2906,12 +2987,20 @@ function App() {
                         activeSection.resource === "subscription" &&
                         column.label === "Acciones" ? (
                           isActiveSubscription(record) ? (
-                            <button
-                              className="cancel-subscription-button cancel-subscription-button-table"
-                              onClick={() => setCancelingSubscription(record)}
-                            >
-                              Cancelar Sub
-                            </button>
+                            <div className="table-actions-group">
+                              <button
+                                className="cancel-subscription-button cancel-subscription-button-table"
+                                onClick={() => setCancelingSubscription(record)}
+                              >
+                                Cancelar Sub
+                              </button>
+                              <button
+                                className="create-charge-button create-charge-button-table"
+                                onClick={() => { setChargeFormError(null); setChargeFieldErrors({}); setChargeSaveNotice(null); setCreatingCharge(record); }}
+                              >
+                                + Cargo
+                              </button>
+                            </div>
                           ) : (
                             "-"
                           )
@@ -3452,6 +3541,71 @@ function App() {
         </div>
       ) : null}
       {subscriptionCancelDialog}
+      {creatingCharge ? (
+        <div className="edit-dialog-backdrop" role="presentation">
+          <form
+            className="edit-dialog"
+            aria-modal="true"
+            aria-label="Crear cargo VirtualPOS"
+            noValidate
+            onSubmit={createVirtualPOSCharge}
+          >
+            <div className="edit-dialog-heading">
+              <div>
+                <p className="eyebrow">VIRTUALPOS / CARGO</p>
+                <h3>Nuevo cargo</h3>
+              </div>
+              <span className="edit-dialog-subtitle">Sub: {text(creatingCharge.payload.id, creatingCharge.external_id)}</span>
+            </div>
+            <p className="edit-dialog-note">
+              Los campos marcados con * son obligatorios. La fecha del cargo no puede ser pasada.
+            </p>
+            <div className="edit-form-grid">
+              <label className={chargeFieldErrors.charge_date ? "field-error" : ""}>
+                Fecha del cargo<span className="field-required" aria-hidden="true"> *</span>
+                <input
+                  name="charge_date"
+                  type="date"
+                  aria-required="true"
+                  aria-invalid={Boolean(chargeFieldErrors.charge_date)}
+                  min={new Date().toISOString().split("T")[0]}
+                />
+                {chargeFieldErrors.charge_date ? <span className="field-error-message">{chargeFieldErrors.charge_date}</span> : null}
+              </label>
+              <label className={chargeFieldErrors.amount ? "field-error" : ""}>
+                Monto<span className="field-required" aria-hidden="true"> *</span>
+                <input
+                  name="amount"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Ej: 9990"
+                  aria-required="true"
+                  aria-invalid={Boolean(chargeFieldErrors.amount)}
+                />
+                {chargeFieldErrors.amount ? <span className="field-error-message">{chargeFieldErrors.amount}</span> : null}
+              </label>
+              <label>
+                Descripción
+                <input name="description" type="text" placeholder="Ej: Cuota agosto 2026" />
+              </label>
+              <label>
+                Código interno
+                <input name="internal_code" type="text" placeholder="Ej: AGO2026" />
+              </label>
+            </div>
+            {chargeFormError ? <p className="error-message form-error">{chargeFormError}</p> : null}
+            <div className="edit-dialog-actions">
+              <button type="submit" className="save-button" disabled={savingCharge}>
+                {savingCharge ? "Creando..." : "Crear cargo"}
+              </button>
+              <button type="button" className="cancel-button" onClick={() => setCreatingCharge(null)}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       {providerEditDialog}
       {providerDeleteDialog}
     </div>

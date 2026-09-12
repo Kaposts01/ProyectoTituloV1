@@ -15,6 +15,7 @@ PERMISSIONS: dict[str, str] = {
     "virtualpos.payments.view": "Ver pagos VirtualPOS",
     "virtualpos.clients.update": "Editar clientes VirtualPOS",
     "virtualpos.plans.update": "Crear y editar planes VirtualPOS",
+    "virtualpos.charges.create": "Crear cargos en suscripciones VirtualPOS",
     "toku.dashboard.view": "Ver dashboard Toku",
     "toku.customers.view": "Ver clientes Toku",
     "toku.subscriptions.view": "Ver suscripciones Toku",

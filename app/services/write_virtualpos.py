@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
-from app.models.crm import Client, Plan
+from app.models.crm import Charge, Client, Plan
 from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
@@ -67,6 +67,16 @@ def _plan_payload(response: Any) -> dict[str, Any] | None:
     if not isinstance(response, dict):
         return None
     for key in ("plan", "data"):
+        value = response.get(key)
+        if isinstance(value, dict):
+            return value
+    return response
+
+
+def _charge_payload(response: Any) -> dict[str, Any] | None:
+    if not isinstance(response, dict):
+        return None
+    for key in ("charge", "data"):
         value = response.get(key)
         if isinstance(value, dict):
             return value
@@ -138,6 +148,16 @@ def _materialize_plan(plan: Plan, payload: dict[str, Any]) -> None:
     plan.plan_type = _as_text(payload.get("type"))
     plan.is_active = _as_text(payload.get("is_active"))
     plan.status = _as_text(payload.get("status"))
+
+
+def _materialize_charge(charge: "Charge", payload: dict[str, Any]) -> None:
+    charge.raw_payload = payload
+    charge.subscription_external_id = _as_text(payload.get("suscription_id"))
+    charge.client_external_id = _as_text(payload.get("client_id") or payload.get("client_uuid"))
+    charge.amount = _as_text(payload.get("amount"))
+    charge.currency = _as_text(payload.get("currency"))
+    charge.status = _as_text(payload.get("status"))
+    charge.charge_date = _as_text(payload.get("charge_date"))
 
 
 def _as_text(value: Any) -> str | None:
@@ -427,3 +447,103 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
         raise ReconciliationRequiredError from exc
 
     return plan
+
+
+def _create_local_charge(charge_id: str, subscription_id: str, payload: dict[str, Any], local_plat: str) -> None:
+    if not settings.virtualpos_db_url:
+        raise RuntimeError("VirtualPOS local database is not configured")
+
+    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
+        cursor.execute("ALTER TABLE cargos ADD COLUMN IF NOT EXISTS suscription_id JSONB")
+        cursor.execute(
+            "INSERT INTO cargos (platform, remote_id, raw_payload, suscription_id, synced_at) "
+            "VALUES (%s, %s, %s, %s, NOW()) "
+            "ON CONFLICT (platform, remote_id) DO UPDATE SET "
+            "raw_payload = EXCLUDED.raw_payload, suscription_id = EXCLUDED.suscription_id, synced_at = EXCLUDED.synced_at",
+            (local_plat, charge_id, Jsonb(payload), Jsonb(subscription_id)),
+        )
+
+
+async def create_charge(db: Session, subscription_id: str, data: dict[str, Any], platform: str = "virtualpos1") -> Charge:
+    """Create a VirtualPOS charge on an active subscription and persist the response locally."""
+    local_plat = _local_platform(platform)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    request_data = {"suscription_id": subscription_id, **data}
+
+    write_run = WriteRun(
+        source=platform,
+        resource_type="charge",
+        external_id="pending",
+        operation="create_charge",
+        status="pending",
+        request_payload=sanitize_record(request_data),
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with VirtualPOSClient(platform=platform) as provider:
+            response = await provider.create_charge(request_data)
+            payload = _charge_payload(response)
+            charge_id = _as_text((payload or {}).get("id") or (payload or {}).get("charge_id"))
+            if not charge_id:
+                raise RuntimeError("VirtualPOS returned no charge identifier")
+            if payload is None or len(payload) <= 1:
+                payload = _charge_payload(await provider.get_charge(charge_id))
+            if payload is None:
+                raise RuntimeError("VirtualPOS returned no charge payload")
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    sanitized_payload = sanitize_record(payload)
+    write_run.external_id = charge_id
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = sanitized_payload
+    db.commit()
+
+    try:
+        _create_local_charge(charge_id, subscription_id, sanitized_payload, local_plat)
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == "virtualpos",
+                SourceRecord.resource_type == "charge",
+                SourceRecord.external_id == charge_id,
+            )
+        )
+        if source_record is None:
+            source_record = SourceRecord(
+                source="virtualpos", resource_type="charge", external_id=charge_id, payload=sanitized_payload
+            )
+            db.add(source_record)
+            db.flush()
+        else:
+            source_record.payload = sanitized_payload
+        charge = Charge(source=platform, external_id=charge_id, source_record_id=source_record.id)
+        _materialize_charge(charge, sanitized_payload)
+        db.add(charge)
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return charge

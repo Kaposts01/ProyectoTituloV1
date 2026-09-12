@@ -75,6 +75,14 @@ class VirtualPOSClient:
     async def list_charges(self, subscription_id: str) -> Any:
         return await self._get(f"/v3/suscription/{subscription_id}/charges")
 
+    async def get_charge(self, charge_id: str) -> Any:
+        return await self._get(f"/v3/charge/{charge_id}")
+
+    async def create_charge(self, data: dict[str, Any]) -> Any:
+        response = await self._client.post("/v3/charge", json=data)
+        response.raise_for_status()
+        return response.json()
+
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         response = await self._client.get(path, params=params)
         response.raise_for_status()
