@@ -7,17 +7,29 @@ from app.integrations.virtualpos.auth import build_signature
 
 
 class VirtualPOSClient:
-    """Client for the VirtualPOS Sandbox API (v3)."""
+    """Client for the VirtualPOS API (v3). Supports both account 1 and account 2."""
 
-    def __init__(self) -> None:
+    def __init__(self, platform: str = "virtualpos1") -> None:
+        if platform == "virtualpos2":
+            base_url = settings.virtualpos2_base_url
+            api_key = settings.virtualpos2_api_key
+            secret_key = settings.virtualpos2_secret_key
+        else:
+            base_url = settings.virtualpos_base_url
+            api_key = settings.virtualpos_api_key
+            secret_key = settings.virtualpos_secret_key
+
+        if not base_url or not api_key:
+            raise RuntimeError(f"VirtualPOS {platform} is not configured")
+
         self._client = httpx.AsyncClient(
-            base_url=settings.virtualpos_base_url.rstrip("/"),
+            base_url=base_url.rstrip("/"),
             timeout=settings.virtualpos_timeout_seconds,
             headers={
                 "Accept": "application/json",
                 "Content-Type": "application/json",
-                "Authorization": settings.virtualpos_api_key,
-                "Signature": build_signature(settings.virtualpos_api_key, settings.virtualpos_secret_key),
+                "Authorization": api_key,
+                "Signature": build_signature(api_key, secret_key),
             },
         )
 

@@ -73,7 +73,7 @@ def _plan_payload(response: Any) -> dict[str, Any] | None:
     return response
 
 
-def _update_local_client(client_id: str, payload: dict[str, Any]) -> None:
+def _update_local_client(client_id: str, payload: dict[str, Any], local_plat: str) -> None:
     if not settings.virtualpos_db_url:
         raise RuntimeError("VirtualPOS local database is not configured")
 
@@ -82,13 +82,13 @@ def _update_local_client(client_id: str, payload: dict[str, Any]) -> None:
         cursor.execute(
             "UPDATE cliente SET raw_payload = %s, synced_at = NOW() "
             "WHERE platform = %s AND remote_id = %s",
-            (Jsonb(payload), "virtualPOS1", client_id),
+            (Jsonb(payload), local_plat, client_id),
         )
         if cursor.rowcount != 1:
             raise RuntimeError("VirtualPOS client was not found in the local database")
 
 
-def _create_local_client(client_id: str, payload: dict[str, Any]) -> None:
+def _create_local_client(client_id: str, payload: dict[str, Any], local_plat: str) -> None:
     if not settings.virtualpos_db_url:
         raise RuntimeError("VirtualPOS local database is not configured")
 
@@ -99,11 +99,11 @@ def _create_local_client(client_id: str, payload: dict[str, Any]) -> None:
             "VALUES (%s, %s, %s, NOW()) "
             "ON CONFLICT (platform, remote_id) DO UPDATE SET "
             "raw_payload = EXCLUDED.raw_payload, synced_at = EXCLUDED.synced_at",
-            ("virtualPOS1", client_id, Jsonb(payload)),
+            (local_plat, client_id, Jsonb(payload)),
         )
 
 
-def _ensure_local_client_exists(client_id: str) -> None:
+def _ensure_local_client_exists(client_id: str, local_plat: str) -> None:
     if not settings.virtualpos_db_url:
         raise RuntimeError("VirtualPOS local database is not configured")
 
@@ -111,7 +111,7 @@ def _ensure_local_client_exists(client_id: str) -> None:
     with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
         cursor.execute(
             "SELECT 1 FROM cliente WHERE platform = %s AND remote_id = %s",
-            ("virtualPOS1", client_id),
+            (local_plat, client_id),
         )
         if cursor.fetchone() is None:
             raise RuntimeError("VirtualPOS client was not found in the local database")
@@ -144,6 +144,10 @@ def _as_text(value: Any) -> str | None:
     return str(value) if value is not None else None
 
 
+def _local_platform(source: str) -> str:
+    return "virtualPOS2" if source == "virtualpos2" else "virtualPOS1"
+
+
 def _check_duplicate_client(db: Session, social_id: str) -> None:
     existing = db.scalar(
         select(Client).where(
@@ -155,7 +159,7 @@ def _check_duplicate_client(db: Session, social_id: str) -> None:
         raise DuplicateClientError
 
 
-def _create_local_plan(plan_id: str, payload: dict[str, Any]) -> None:
+def _create_local_plan(plan_id: str, payload: dict[str, Any], local_plat: str) -> None:
     if not settings.virtualpos_db_url:
         raise RuntimeError("VirtualPOS local database is not configured")
 
@@ -166,17 +170,23 @@ def _create_local_plan(plan_id: str, payload: dict[str, Any]) -> None:
             "VALUES (%s, %s, %s, NOW()) "
             "ON CONFLICT (platform, remote_id) DO UPDATE SET "
             "raw_payload = EXCLUDED.raw_payload, synced_at = EXCLUDED.synced_at",
-            ("virtualPOS1", plan_id, Jsonb(payload)),
+            (local_plat, plan_id, Jsonb(payload)),
         )
 
 
 async def update_client(db: Session, client_id: str, changes: dict[str, Any]) -> Client:
     """Update a VirtualPOS client, then keep its local and canonical copies aligned."""
     client = db.scalar(
-        select(Client).where(Client.external_id == client_id, Client.source == "virtualpos1")
+        select(Client).where(Client.external_id == client_id, Client.source.like("virtualpos%"))
     )
     if client is None:
         raise ClientNotFoundError
+
+    local_plat = _local_platform(client.source)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
 
     private_note = changes.pop("private_note", None)
     if private_note is not None:
@@ -193,7 +203,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
         raise WriteDisabledError
 
     try:
-        _ensure_local_client_exists(client_id)
+        _ensure_local_client_exists(client_id, local_plat)
     except Exception as exc:
         raise LocalStateUnavailableError from exc
 
@@ -209,7 +219,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
     db.commit()
 
     try:
-        async with VirtualPOSClient() as provider:
+        async with VirtualPOSClient(platform=client.source) as provider:
             response = await provider.update_client(client_id, changes)
             payload = _client_payload(response)
             if payload is None or not payload:
@@ -218,9 +228,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
                 raise RuntimeError("VirtualPOS returned no client payload")
     except Exception as exc:
         write_run.status = "failed"
-        write_run.error_message = safe_error_message(
-            exc, (settings.virtualpos_api_key, settings.virtualpos_secret_key)
-        )
+        write_run.error_message = safe_error_message(exc, all_secrets)
         write_run.finished_at = datetime.now(UTC)
         db.commit()
         raise
@@ -231,7 +239,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
     db.commit()
 
     try:
-        _update_local_client(client_id, sanitized_payload)
+        _update_local_client(client_id, sanitized_payload, local_plat)
         _materialize_client(client, sanitized_payload)
         write_run.status = "completed"
         write_run.finished_at = datetime.now(UTC)
@@ -241,9 +249,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
         write_run = db.get(WriteRun, write_run.id)
         if write_run is not None:
             write_run.status = "reconciliation_required"
-            write_run.error_message = safe_error_message(
-                exc, (settings.virtualpos_api_key, settings.virtualpos_secret_key)
-            )
+            write_run.error_message = safe_error_message(exc, all_secrets)
             write_run.finished_at = datetime.now(UTC)
             db.commit()
         raise ReconciliationRequiredError from exc
@@ -253,6 +259,13 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
 
 async def create_client(db: Session, data: dict[str, Any]) -> Client:
     """Create a VirtualPOS client and persist its provider response locally."""
+    platform = data.pop("platform", "virtualpos1")
+    local_plat = _local_platform(platform)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
     private_note = data.pop("private_note", None)
     if data.get("social_id_type") in {"1", "RUT"}:
         data["social_id"] = normalize_rut(str(data.get("social_id", "")))
@@ -262,7 +275,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
         raise WriteDisabledError
 
     write_run = WriteRun(
-        source="virtualpos1",
+        source=platform,
         resource_type="client",
         external_id="pending",
         operation="create_client",
@@ -273,7 +286,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
     db.commit()
 
     try:
-        async with VirtualPOSClient() as provider:
+        async with VirtualPOSClient(platform=platform) as provider:
             response = await provider.create_client(data)
             payload = _client_payload(response)
             client_id = _as_text((payload or {}).get("uuid"))
@@ -285,7 +298,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
                 raise RuntimeError("VirtualPOS returned no client payload")
     except Exception as exc:
         write_run.status = "failed"
-        write_run.error_message = safe_error_message(exc, (settings.virtualpos_api_key, settings.virtualpos_secret_key))
+        write_run.error_message = safe_error_message(exc, all_secrets)
         write_run.finished_at = datetime.now(UTC)
         db.commit()
         raise
@@ -297,7 +310,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
     db.commit()
 
     try:
-        _create_local_client(client_id, sanitized_payload)
+        _create_local_client(client_id, sanitized_payload, local_plat)
         source_record = db.scalar(
             select(SourceRecord).where(
                 SourceRecord.source == "virtualpos",
@@ -313,7 +326,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
             db.flush()
         else:
             source_record.payload = sanitized_payload
-        client = Client(source="virtualpos1", external_id=client_id, source_record_id=source_record.id)
+        client = Client(source=platform, external_id=client_id, source_record_id=source_record.id)
         _materialize_client(client, sanitized_payload)
         client.private_note = private_note or None
         db.add(client)
@@ -325,7 +338,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
         write_run = db.get(WriteRun, write_run.id)
         if write_run is not None:
             write_run.status = "reconciliation_required"
-            write_run.error_message = safe_error_message(exc, (settings.virtualpos_api_key, settings.virtualpos_secret_key))
+            write_run.error_message = safe_error_message(exc, all_secrets)
             write_run.finished_at = datetime.now(UTC)
             db.commit()
         raise ReconciliationRequiredError from exc
@@ -335,11 +348,18 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
 
 async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     """Create a VirtualPOS plan and persist its provider response locally."""
+    platform = data.pop("platform", "virtualpos1")
+    local_plat = _local_platform(platform)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
     write_run = WriteRun(
-        source="virtualpos1",
+        source=platform,
         resource_type="plan",
         external_id="pending",
         operation="create_plan",
@@ -350,7 +370,7 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     db.commit()
 
     try:
-        async with VirtualPOSClient() as provider:
+        async with VirtualPOSClient(platform=platform) as provider:
             response = await provider.create_plan(data)
             payload = _plan_payload(response)
             plan_id = _as_text((payload or {}).get("id") or (payload or {}).get("plan_id"))
@@ -362,7 +382,7 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
                 raise RuntimeError("VirtualPOS returned no plan payload")
     except Exception as exc:
         write_run.status = "failed"
-        write_run.error_message = safe_error_message(exc, (settings.virtualpos_api_key, settings.virtualpos_secret_key))
+        write_run.error_message = safe_error_message(exc, all_secrets)
         write_run.finished_at = datetime.now(UTC)
         db.commit()
         raise
@@ -374,7 +394,7 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     db.commit()
 
     try:
-        _create_local_plan(plan_id, sanitized_payload)
+        _create_local_plan(plan_id, sanitized_payload, local_plat)
         source_record = db.scalar(
             select(SourceRecord).where(
                 SourceRecord.source == "virtualpos",
@@ -390,7 +410,7 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
             db.flush()
         else:
             source_record.payload = sanitized_payload
-        plan = Plan(source="virtualpos1", external_id=plan_id, source_record_id=source_record.id)
+        plan = Plan(source=platform, external_id=plan_id, source_record_id=source_record.id)
         _materialize_plan(plan, sanitized_payload)
         db.add(plan)
         write_run.status = "completed"
@@ -401,7 +421,7 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
         write_run = db.get(WriteRun, write_run.id)
         if write_run is not None:
             write_run.status = "reconciliation_required"
-            write_run.error_message = safe_error_message(exc, (settings.virtualpos_api_key, settings.virtualpos_secret_key))
+            write_run.error_message = safe_error_message(exc, all_secrets)
             write_run.finished_at = datetime.now(UTC)
             db.commit()
         raise ReconciliationRequiredError from exc

@@ -43,11 +43,13 @@ class VirtualPOSClientCreate(VirtualPOSClientUpdate):
     email: EmailStr
     social_id_type: Literal["1", "2"]
     social_id: str = Field(min_length=1, max_length=50)
+    platform: Literal["virtualpos1", "virtualpos2"] = "virtualpos1"
 
 
 class VirtualPOSPlanCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    platform: Literal["virtualpos1", "virtualpos2"] = "virtualpos1"
     name: str = Field(min_length=1, max_length=255)
     amount: int = Field(ge=0)
     currency: Literal["CLP", "UF"] = "CLP"

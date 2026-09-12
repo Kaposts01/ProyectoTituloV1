@@ -1687,11 +1687,13 @@ function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [editingClient, setEditingClient] = useState<StagingRecord | null>(null);
   const [creatingClient, setCreatingClient] = useState(false);
+  const [clientVpPlatform, setClientVpPlatform] = useState<"virtualpos1" | "virtualpos2">("virtualpos1");
   const [savingClient, setSavingClient] = useState(false);
   const [clientFormError, setClientFormError] = useState<string | null>(null);
   const [clientFieldErrors, setClientFieldErrors] = useState<Record<string, string>>({});
   const [clientSaveNotice, setClientSaveNotice] = useState<string | null>(null);
   const [creatingPlan, setCreatingPlan] = useState(false);
+  const [planVpPlatform, setPlanVpPlatform] = useState<"virtualpos1" | "virtualpos2">("virtualpos1");
   const [savingPlan, setSavingPlan] = useState(false);
   const [planFormError, setPlanFormError] = useState<string | null>(null);
   const [planFieldErrors, setPlanFieldErrors] = useState<Record<string, string>>({});
@@ -1964,6 +1966,7 @@ function App() {
     if (client.social_id_type) client.social_id_type = socialIdType;
     const privateNote = String(formData.get("private_note") ?? "").trim();
     if (privateNote) client.private_note = privateNote;
+    client.platform = clientVpPlatform;
 
     setSavingClient(true);
     try {
@@ -2025,7 +2028,7 @@ function App() {
       return;
     }
 
-    const body: Record<string, unknown> = { name: rawValues.name, amount, currency: rawValues.currency, frequency_type: rawValues.frequency_type };
+    const body: Record<string, unknown> = { platform: planVpPlatform, name: rawValues.name, amount, currency: rawValues.currency, frequency_type: rawValues.frequency_type };
     if (rawValues.description) body.description = rawValues.description;
     if (trialDays !== undefined) body.trial_days = trialDays;
     if (numCharges !== undefined) body.num_charges = numCharges;
@@ -3148,6 +3151,19 @@ function App() {
             ? "Los campos marcados con * son obligatorios. El cliente se creará en VirtualPOS y en la base de datos local."
             : "Los cambios se aplican mediante la API interna. VirtualPOS debe estar habilitado localmente para completar el guardado."}
         </p>
+        {creatingClient && (
+          <div className="vp-account-selector">
+            <span className="vp-account-selector-label">Cuenta VirtualPOS:</span>
+            <div className="vp-account-selector-buttons">
+              <button type="button" className={`vp-account-btn${clientVpPlatform === "virtualpos1" ? " active" : ""}`} onClick={() => setClientVpPlatform("virtualpos1")}>
+                Cuenta 1
+              </button>
+              <button type="button" className={`vp-account-btn${clientVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setClientVpPlatform("virtualpos2")}>
+                Cuenta 2
+              </button>
+            </div>
+          </div>
+        )}
         <div className="edit-form-grid">
           {virtualPosClientEditFields.map((field) => {
             const isRequired = creatingClient && createRequiredFields.has(field.name);
@@ -3385,6 +3401,17 @@ function App() {
             <p className="edit-dialog-note">
               Los campos marcados con * son obligatorios. El plan se creará en VirtualPOS y en la base de datos local.
             </p>
+            <div className="vp-account-selector">
+              <span className="vp-account-selector-label">Cuenta VirtualPOS:</span>
+              <div className="vp-account-selector-buttons">
+                <button type="button" className={`vp-account-btn${planVpPlatform === "virtualpos1" ? " active" : ""}`} onClick={() => setPlanVpPlatform("virtualpos1")}>
+                  Cuenta 1
+                </button>
+                <button type="button" className={`vp-account-btn${planVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setPlanVpPlatform("virtualpos2")}>
+                  Cuenta 2
+                </button>
+              </div>
+            </div>
             <div className="edit-form-grid">
               {virtualPosPlanCreateFields.map((field) => {
                 const hasError = Boolean(planFieldErrors[field.name]);
