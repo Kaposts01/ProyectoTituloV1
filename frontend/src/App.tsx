@@ -2855,7 +2855,7 @@ function App() {
         {activeSection.source === "virtualpos" && activeSection.resource === "client" ? (
           <button className="new-client-button" onClick={() => setCreatingClient(true)}>+ Nuevo cliente</button>
         ) : null}
-        {activeSection.source === "virtualpos" && activeSection.resource === "plan" && session?.user.permissions.includes("virtualpos.plans.update") ? (
+        {activeSection.source === "virtualpos" && activeSection.resource === "plan" ? (
           <button className="new-client-button" onClick={() => { setPlanFormError(null); setPlanFieldErrors({}); setPlanSaveNotice(null); setCreatingPlan(true); }}>+ Nuevo plan</button>
         ) : null}
         {clientSaveNotice ? <p className="success-message" role="status">{clientSaveNotice}</p> : null}
