@@ -1,19 +1,10 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { chartStatusColor } from './chartColors'
 
 export type MonthlyStatusEntry = { year: number; month: number; status: string; count: number; amount: number }
 export type MonthlyEntry = { year: number; month: number; count: number; amount: number }
 
 const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-
-const STATUS_COLORS: Record<string, string> = {
-  COBRADO: '#3ba675', PAGADO: '#3ba675', ACTIVA: '#3ba675', ACTIVO: '#3ba675',
-  RECHAZADO: '#a53d35', CANCELADO: '#a53d35', SUSCRIPCION_FALLIDA: '#a53d35',
-  PENDIENTE: '#d46a2a',
-}
-
-function statusColor(s: string): string {
-  return STATUS_COLORS[s.toUpperCase()] ?? '#728186'
-}
 
 function monthLabel(month: number, year: number): string {
   return `${MONTHS[month - 1]} ${year}`
@@ -58,7 +49,7 @@ export function MonthlyStatusChart({
             dataKey={mode === 'count' ? s : `${s}_amount`}
             name={s}
             stackId="a"
-            fill={statusColor(s)}
+            fill={chartStatusColor(s)}
             radius={i === statusSet.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
           />
         ))}

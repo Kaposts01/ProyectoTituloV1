@@ -1,0 +1,193 @@
+{
+  "info": {
+    "_postman_id": "343dcabd-70d5-40bb-aaf8-b0473ebb1e35",
+    "name": "Toku API - Completa",
+    "description": "Referencia publica de Toku. Configura api_key y, cuando aplique, x_account_key. Los cuerpos contienen ejemplos seguros que deben ajustarse antes de enviarlos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://api.trytoku.com" },
+    { "key": "secure_base_url", "value": "https://secure.api.trytoku.com" },
+    { "key": "api_key", "value": "" },
+    { "key": "secure_api_key", "value": "" },
+    { "key": "x_account_key", "value": "", "disabled": true },
+    { "key": "x_org_id", "value": "" },
+    { "key": "country_code", "value": "cl" },
+    { "key": "customer_id", "value": "cus_x" },
+    { "key": "invoice_id", "value": "in_x" },
+    { "key": "subscription_id", "value": "sub_x" },
+    { "key": "payment_method_id", "value": "pm_x" },
+    { "key": "transaction_id", "value": "trs_x" },
+    { "key": "account_id", "value": "acc_x" },
+    { "key": "checkout_session_id", "value": "cs_x" },
+    { "key": "webhook_endpoint_id", "value": "we_x" },
+    { "key": "portal_session_id", "value": "cps_x" },
+    { "key": "adjustment_document_id", "value": "adj_x" },
+    { "key": "report_entity", "value": "invoices" },
+    { "key": "beneficiary_external_id", "value": "BEN-001" },
+    { "key": "beneficiary_id", "value": "ben_x" },
+    { "key": "beneficiary_batch_id", "value": "ben_batch_x" },
+    { "key": "beneficiary_account_id", "value": "ben_acc_x" },
+    { "key": "payout_request_id", "value": "payout_req_x" },
+    { "key": "billing_data_id", "value": "billing_x" },
+    { "key": "invoice_billing_data_id", "value": "invoice_billing_x" },
+    { "key": "billing_document_id", "value": "billing_doc_x" },
+    { "key": "bank_account_verification_id", "value": "bav_x" }
+  ],
+  "auth": { "type": "apikey", "apikey": [{ "key": "key", "value": "x-api-key", "type": "string" }, { "key": "value", "value": "{{api_key}}", "type": "string" }, { "key": "in", "value": "header", "type": "string" }] },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "const accountKey = pm.variables.replaceIn('{{x_account_key}}');",
+          "if (accountKey) pm.request.headers.upsert({ key: 'x-account-key', value: accountKey });"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Checkout Sessions",
+      "item": [
+        { "name": "Crear Checkout Session", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"mode\": \"PAYMENT\",\n  \"billing_data\": {\"id_customer\": \"{{customer_id}}\", \"ids_invoice\": [\"{{invoice_id}}\"]},\n  \"skip_message_trigger\": true\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/{{country_code}}/checkout-sessions" } },
+        { "name": "Obtener Checkout Session", "request": { "method": "GET", "header": [], "url": "{{base_url}}/{{country_code}}/checkout-sessions/{{checkout_session_id}}" } },
+        { "name": "Actualizar Checkout Session", "request": { "method": "PATCH", "header": [], "body": { "mode": "raw", "raw": "{\n  \"expiration_datetime\": \"2026-12-31T23:59:59Z\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/{{country_code}}/checkout-sessions/{{checkout_session_id}}" } },
+        { "name": "Expirar Checkout Session", "request": { "method": "POST", "header": [], "url": "{{base_url}}/{{country_code}}/checkout-sessions/{{checkout_session_id}}/expire" } }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        { "name": "Listar Customers", "request": { "method": "GET", "header": [], "url": "{{base_url}}/customers?page_size=100" } },
+        { "name": "Crear Customer", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"external_id\": \"CUSTOMER-001\",\n  \"name\": \"Cliente de prueba\",\n  \"mail\": \"cliente@example.com\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/customers" } },
+        { "name": "Buscar Customer", "request": { "method": "GET", "header": [], "url": "{{base_url}}/customers/lookup?external_id=CUSTOMER-001" } },
+        { "name": "Obtener Customer", "request": { "method": "GET", "header": [], "url": "{{base_url}}/customers/{{customer_id}}" } },
+        { "name": "Editar Customer", "request": { "method": "PUT", "header": [], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Cliente actualizado\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/customers/{{customer_id}}" } },
+        { "name": "Eliminar Customer", "request": { "method": "DELETE", "header": [], "url": "{{base_url}}/customers/{{customer_id}}" } },
+        { "name": "Listar Invoices del Customer", "request": { "method": "GET", "header": [], "url": "{{base_url}}/customers/{{customer_id}}/invoices" } }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        { "name": "Listar Invoices", "request": { "method": "GET", "header": [], "url": "{{base_url}}/invoices?page_size=100" } },
+        { "name": "Crear o actualizar Invoice", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"customer\": \"{{customer_id}}\",\n  \"product_id\": \"PRODUCT-001\",\n  \"invoice_external_id\": \"INVOICE-001\",\n  \"due_date\": \"2026-12-31\",\n  \"amount\": 1000,\n  \"currency_code\": \"CLP\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/invoices" } },
+        { "name": "Listar Invoices cobrables", "request": { "method": "GET", "header": [], "url": "{{base_url}}/invoices/chargeable?page_size=100" } },
+        { "name": "Listar Invoices por Customer", "request": { "method": "GET", "header": [], "url": "{{base_url}}/invoices/customer/{{customer_id}}" } },
+        { "name": "Buscar Invoice", "request": { "method": "GET", "header": [], "url": "{{base_url}}/invoices/lookup?invoice_external_id=INVOICE-001" } },
+        { "name": "Obtener Invoice", "request": { "method": "GET", "header": [], "url": "{{base_url}}/invoices/{{invoice_id}}" } },
+        { "name": "Editar Invoice", "request": { "method": "PUT", "header": [], "body": { "mode": "raw", "raw": "{\n  \"amount\": 1200\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/invoices/{{invoice_id}}" } },
+        { "name": "Eliminar Invoice", "request": { "method": "DELETE", "header": [], "url": "{{base_url}}/invoices/{{invoice_id}}" } },
+        { "name": "Anular Invoice", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"delete_invoice\": false\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/invoices/{{invoice_id}}/void" } }
+      ]
+    },
+    {
+      "name": "Payment Methods",
+      "item": [
+        { "name": "Listar Payment Methods", "request": { "method": "GET", "header": [], "url": "{{base_url}}/payment-methods?page=1&page_size=100" } },
+        { "name": "Obtener Payment Method", "request": { "method": "GET", "header": [], "url": "{{base_url}}/payment_method?id={{payment_method_id}}" } },
+        { "name": "Eliminar Payment Method", "request": { "method": "DELETE", "header": [], "url": "{{base_url}}/payment-methods?id_payment_method={{payment_method_id}}" } },
+        { "name": "Asociar Payment Method a Subscription", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"id_payment_method\": \"{{payment_method_id}}\",\n  \"id_subscription\": \"{{subscription_id}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/subscriptions/associate/payment-method" } },
+        { "name": "Asociar Payment Methods a Subscriptions", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"data\": [{\"id_payment_method\": \"{{payment_method_id}}\", \"id_subscription\": \"{{subscription_id}}\"}]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/subscriptions/associate/payment-method/batch" } }
+      ]
+    },
+    {
+      "name": "Subscriptions",
+      "item": [
+        { "name": "Listar Subscriptions", "request": { "method": "GET", "header": [], "url": "{{base_url}}/subscriptions?page_size=100" } },
+        { "name": "Crear o actualizar Subscription", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"customer\": \"{{customer_id}}\",\n  \"product_id\": \"PRODUCT-001\",\n  \"amount\": 1000,\n  \"currency_code\": \"CLP\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/subscriptions" } },
+        { "name": "Listar Subscriptions por Customer", "request": { "method": "GET", "header": [], "url": "{{base_url}}/subscriptions/customer/{{customer_id}}" } },
+        { "name": "Buscar Subscription", "request": { "method": "GET", "header": [], "url": "{{base_url}}/subscriptions/lookup?product_id=PRODUCT-001" } },
+        { "name": "Obtener Subscription", "request": { "method": "GET", "header": [], "url": "{{base_url}}/subscriptions/{{subscription_id}}" } },
+        { "name": "Editar Subscription", "request": { "method": "PUT", "header": [], "body": { "mode": "raw", "raw": "{\n  \"amount\": 1200\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/subscriptions/{{subscription_id}}" } },
+        { "name": "Eliminar Subscription", "request": { "method": "DELETE", "header": [], "url": "{{base_url}}/subscriptions/{{subscription_id}}" } },
+        { "name": "Cambiar estado de Subscription", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"status\": \"PAUSED\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/subscriptions/{{subscription_id}}/status" } }
+      ]
+    },
+    {
+      "name": "Transactions y Refunds",
+      "item": [
+        { "name": "Cancelar Preauthorization", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"transaction_reference\": \"{{transaction_id}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/{{country_code}}/preauth/cancel" } },
+        { "name": "Capturar Preauthorization", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"transaction_reference\": \"{{transaction_id}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/{{country_code}}/preauth/capture" } },
+        { "name": "Listar Transactions", "request": { "method": "GET", "header": [], "url": "{{base_url}}/transactions?page=1&page_size=100" } },
+        { "name": "Obtener Transaction", "request": { "method": "GET", "header": [], "url": "{{base_url}}/transactions/{{transaction_id}}" } },
+        { "name": "Obtener fees de Transaction", "request": { "method": "GET", "header": [], "url": "{{base_url}}/transactions/{{transaction_id}}/fees" } },
+        { "name": "Crear Transaction externa", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"id_account\": \"{{account_id}}\",\n  \"currency\": \"CLP\",\n  \"amount\": 1000\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/transactions/external" } },
+        { "name": "Crear Transactions externas en lote", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"transactions\": [{\"id_account\": \"{{account_id}}\", \"currency\": \"CLP\", \"amount\": 1000}]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/transactions/external/bulk" } },
+        { "name": "Actualizar Transaction externa", "request": { "method": "PATCH", "header": [], "body": { "mode": "raw", "raw": "{\n  \"amount\": 1200\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/transactions/external?id_transaction={{transaction_id}}" } },
+        { "name": "Actualizar Transactions externas en lote", "request": { "method": "PATCH", "header": [], "body": { "mode": "raw", "raw": "{\n  \"transactions\": [{\"id_transaction\": \"{{transaction_id}}\", \"amount\": 1200}]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/transactions/external/bulk" } },
+        { "name": "Eliminar Transaction externa", "request": { "method": "DELETE", "header": [], "url": "{{base_url}}/transactions/external?id_transaction={{transaction_id}}" } },
+        { "name": "Eliminar Transactions externas en lote", "request": { "method": "PUT", "header": [], "body": { "mode": "raw", "raw": "{\n  \"id_transactions\": [\"{{transaction_id}}\"]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/transactions/external/bulk/delete" } },
+        { "name": "Crear Refund de Invoice", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"id_invoice\": \"{{invoice_id}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/refund/invoice" } },
+        { "name": "Obtener elegibilidad de Refund", "request": { "method": "GET", "header": [], "url": "{{base_url}}/refund/transaction?id_transaction={{transaction_id}}" } },
+        { "name": "Crear Refund de Transaction", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"id_transaction\": \"{{transaction_id}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/refund/transaction" } }
+      ]
+    },
+    {
+      "name": "Webhooks, Portal y Collection Accounts",
+      "item": [
+        { "name": "Listar Webhook Endpoints", "request": { "method": "GET", "header": [], "url": "{{base_url}}/webhook_endpoints" } },
+        { "name": "Crear Webhook Endpoint", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"url\": \"https://example.com/webhook\",\n  \"enabled_events\": [\"transaction.success\"]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/webhook_endpoints" } },
+        { "name": "Obtener Webhook Endpoint", "request": { "method": "GET", "header": [], "url": "{{base_url}}/webhook_endpoints/{{webhook_endpoint_id}}" } },
+        { "name": "Editar Webhook Endpoint", "request": { "method": "PUT", "header": [], "body": { "mode": "raw", "raw": "{\n  \"status\": \"enabled\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/webhook_endpoints/{{webhook_endpoint_id}}" } },
+        { "name": "Listar Customer Collection Accounts", "request": { "method": "GET", "header": [], "url": "{{base_url}}/customer-collection-accounts?id_customer={{customer_id}}" } },
+        { "name": "Crear Customer Collection Account", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"id_customer\": \"{{customer_id}}\",\n  \"account_number\": \"12345678\",\n  \"account_type\": \"checking_account\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/customer-collection-accounts" } },
+        { "name": "Eliminar Customer Collection Account", "request": { "method": "DELETE", "header": [], "url": "{{base_url}}/customer-collection-accounts?id_customer={{customer_id}}" } },
+        { "name": "Crear Customer Portal Session", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"billing_data\": {\"id_customer\": \"{{customer_id}}\"},\n  \"expiration_datetime\": \"2026-12-31T23:59:59Z\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/v2/customer-portal-sessions" } },
+        { "name": "Obtener Customer Portal Session", "request": { "method": "GET", "header": [], "url": "{{base_url}}/v2/customer-portal-sessions/{{portal_session_id}}" } },
+        { "name": "Validar Customer Portal Session", "request": { "method": "GET", "header": [], "url": "{{base_url}}/v2/customer-portal-sessions/{{portal_session_id}}/validate" } },
+        { "name": "Expirar Customer Portal Session", "request": { "method": "POST", "header": [], "url": "{{base_url}}/v2/customer-portal-sessions/{{portal_session_id}}/expire" } }
+      ]
+    },
+    {
+      "name": "Documentos, Reportes y Autenticacion",
+      "item": [
+        { "name": "Crear documento de ajuste", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"external_id\": \"ADJ-001\",\n  \"id_account\": \"{{account_id}}\",\n  \"amount\": 1000,\n  \"type\": \"credit_note\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/adjustment-documents" } },
+        { "name": "Actualizar documento de ajuste", "request": { "method": "PATCH", "header": [], "body": { "mode": "raw", "raw": "{\n  \"is_void\": true\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/adjustment-documents/{{adjustment_document_id}}" } },
+        { "name": "Obtener Access Token M2M", "request": { "method": "POST", "auth": { "type": "noauth" }, "header": [], "body": { "mode": "raw", "raw": "{\n  \"client_id\": \"\",\n  \"client_secret\": \"\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/auth/login" } },
+        { "name": "Emitir receipt", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"product_id\": \"PRODUCT-001\",\n  \"due_date\": \"2026-12-31\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/receipt" } },
+        { "name": "Obtener receipt", "request": { "method": "GET", "header": [], "url": "{{base_url}}/receipt?id_transaction={{transaction_id}}" } },
+        { "name": "Generar Report", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"export_format\": \"xlsx\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/reports/{{report_entity}}" } },
+        { "name": "Listar columnas de Report", "request": { "method": "GET", "header": [], "url": "{{base_url}}/reports/{{report_entity}}/columns" } },
+        { "name": "Revertir conciliaciones por Invoice", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"id_invoices\": [\"{{invoice_id}}\"]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/debt-reconciliation/undo-by-invoices" } }
+      ]
+    },
+    {
+      "name": "Beneficiaries y Payouts",
+      "item": [
+        { "name": "Crear Beneficiaries", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"beneficiaries\": [{\"external_id\": \"BEN-001\", \"country_code\": \"CL\", \"name\": \"Proveedor\"}]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/payouts-beneficiary" } },
+        { "name": "Listar cuentas de Beneficiary", "request": { "method": "GET", "header": [], "url": "{{base_url}}/payouts-beneficiary/{{beneficiary_external_id}}/accounts" } },
+        { "name": "Fusionar metadata de Beneficiary", "request": { "method": "PATCH", "header": [], "body": { "mode": "raw", "raw": "{\n  \"metadata\": {\"origen\": \"erp\"}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/payouts-beneficiary/{{beneficiary_id}}/metadata" } },
+        { "name": "Verificaciones por lote", "request": { "method": "GET", "header": [], "url": "{{base_url}}/payouts-beneficiary/beneficiary-account/by-batch/{{beneficiary_batch_id}}?page=1&limit=100" } },
+        { "name": "Actualizar datos bancarios de Beneficiary Account", "request": { "method": "PATCH", "header": [], "body": { "mode": "raw", "raw": "{\n  \"account_number\": \"1234567890\",\n  \"type\": \"BANK_ACCOUNT\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/payouts-beneficiary/beneficiary-account/{{beneficiary_account_id}}/account-data" } },
+        { "name": "Actualizar external ID de Beneficiary Account", "request": { "method": "PATCH", "header": [], "body": { "mode": "raw", "raw": "{\n  \"external_id\": \"ACCOUNT-001\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/payouts-beneficiary/beneficiary-account/{{beneficiary_account_id}}/external-id" } },
+        { "name": "Listar Payouts", "request": { "method": "GET", "header": [], "url": "{{base_url}}/payouts-payout/payouts" } },
+        { "name": "Ingestar Accounts Payable", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"accounts_payable\": []\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/payouts-data-ingestion/ingest-payouts-request/on-demand" } },
+        { "name": "Listar Payout Request Items", "request": { "method": "GET", "header": [], "url": "{{base_url}}/payouts-data-ingestion/payout-request-items/{{payout_request_id}}" } }
+      ]
+    },
+    {
+      "name": "Operaciones adicionales",
+      "item": [
+        { "name": "Crear documento para firma", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"document\": \"BASE64_DOCUMENT\",\n  \"redirection_url\": \"https://example.com/ok\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/document" } },
+        { "name": "Crear ejecucion de validador de riesgo", "request": { "method": "POST", "header": [], "body": { "mode": "raw", "raw": "{\n  \"validator_config\": \"CONFIG_ID\",\n  \"id_customer\": \"{{customer_id}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/public/risk-flow-validator-executions" } }
+      ]
+    },
+    {
+      "name": "Secure API (PCI)",
+      "description": "Requiere secure_api_key y x_org_id. No uses datos reales de tarjeta fuera de un entorno PCI autorizado.",
+      "auth": { "type": "apikey", "apikey": [{ "key": "key", "value": "x-api-key", "type": "string" }, { "key": "value", "value": "{{secure_api_key}}", "type": "string" }, { "key": "in", "value": "header", "type": "string" }] },
+      "item": [
+        { "name": "Generar llave de cifrado", "request": { "method": "POST", "header": [{ "key": "x-org-id", "value": "{{x_org_id}}" }], "url": "{{secure_base_url}}/public-encryption-keys?encryption_key=true" } },
+        { "name": "Cobrar con tarjeta", "request": { "method": "POST", "header": [{ "key": "x-org-id", "value": "{{x_org_id}}" }], "body": { "mode": "raw", "raw": "{\n  \"toku_product\": \"payment_orchestration_onetime\",\n  \"id_account\": \"{{account_id}}\",\n  \"engine\": \"GATEWAY\",\n  \"amount\": \"100.00\",\n  \"card_information\": {\"full_name\": \"Jane Doe\", \"number\": \"4242424242424242\", \"month\": \"12\", \"year\": \"2030\", \"verification_value\": \"123\"}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{secure_base_url}}/cards/onetime/entry-point" } },
+        { "name": "Inscribir tarjeta asincrona", "request": { "method": "POST", "header": [{ "key": "x-org-id", "value": "{{x_org_id}}" }], "body": { "mode": "raw", "raw": "{\n  \"id_account\": \"{{account_id}}\",\n  \"inscriptions\": []\n}", "options": { "raw": { "language": "json" } } }, "url": "{{secure_base_url}}/cards/recurring/inscription/bulk/entry-point" } },
+        { "name": "Inscribir tarjeta sincrona", "request": { "method": "POST", "header": [{ "key": "x-org-id", "value": "{{x_org_id}}" }], "body": { "mode": "raw", "raw": "{\n  \"id_account\": \"{{account_id}}\",\n  \"inscription\": {}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{secure_base_url}}/cards/recurring/inscription/sync/entry-point" } },
+        { "name": "Crear Payment Method Card", "request": { "method": "POST", "header": [{ "key": "x-org-id", "value": "{{x_org_id}}" }], "body": { "mode": "raw", "raw": "{\n  \"account_id\": \"{{account_id}}\",\n  \"customer_id\": \"{{customer_id}}\",\n  \"toku_product\": \"cards_batch_recurring_pst\",\n  \"card_information\": {\"full_name\": \"Jane Doe\", \"number\": \"4242424242424242\", \"month\": \"12\", \"year\": \"2030\", \"verification_value\": \"123\"}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{secure_base_url}}/payment-methods" } }
+      ]
+    }
+  ]
+}

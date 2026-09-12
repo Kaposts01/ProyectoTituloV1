@@ -1,0 +1,35 @@
+export const CHART_PRIMARY = "#2563EB";
+
+const STATUS_COLORS: Record<string, string> = {
+  ACTIVE: "#16A34A",
+  ACTIVA: "#16A34A",
+  ACTIVO: "#16A34A",
+  CHARGEABLE: "#16A34A",
+  COBRADO: "#16A34A",
+  PAID: "#16A34A",
+  PAGADO: "#16A34A",
+  SUCCESS: "#16A34A",
+  PENDING: "#D97706",
+  PENDIENTE: "#D97706",
+  REGISTER: "#D97706",
+  INITIALIZED: "#D97706",
+  PROCESSING: "#0891B2",
+  PROCESANDO: "#0891B2",
+  SUSCRIBIENDO: "#2563EB",
+  PAUSED: "#64748B",
+  SUSPENDED: "#64748B",
+  ABORTED: "#DC2626",
+  CANCELADO: "#DC2626",
+  CANCELED: "#DC2626",
+  DELETE: "#DC2626",
+  FAILED: "#DC2626",
+  PERMANENT_FAILED: "#DC2626",
+  RECHAZADO: "#DC2626",
+  REJECTED: "#DC2626",
+  SUSCRIPCION_FALLIDA: "#DC2626",
+  VOID: "#DC2626",
+};
+
+export function chartStatusColor(status: string): string {
+  return STATUS_COLORS[status.trim().toUpperCase()] ?? "#64748B";
+}

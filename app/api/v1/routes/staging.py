@@ -1,14 +1,22 @@
 import re
 from collections import Counter, defaultdict
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
+from app.models.crm import Charge as CCharge
+from app.models.crm import Client as CClient
+from app.models.crm import Payment as CPayment
+from app.models.crm import PaymentMethod as CPaymentMethod
+from app.models.crm import Plan as CPlan
+from app.models.crm import Subscription as CSub
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
+from app.services.etl_consolidation import materialize_payku, materialize_toku
+from app.services.virtualpos_sync import sync_virtualpos
 
 router = APIRouter()
 SOURCES = ("virtualpos", "toku", "payku")
@@ -204,7 +212,9 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     payments_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     )
-    activation_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    activation_by_month: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
     churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     mrr = 0.0
     active_subs = 0
@@ -235,8 +245,8 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             start = payload.get("suscription_date") or payload.get("created")
             month = _month(start)
             if month:
-                activation_by_month[month]["count"] += 1
-                activation_by_month[month]["amount"] += amount
+                activation_by_month[month][status or "SIN_ESTADO"]["count"] += 1
+                activation_by_month[month][status or "SIN_ESTADO"]["amount"] += amount
 
             canceled_at = payload.get("canceled_at")
             if canceled_at:
@@ -289,7 +299,7 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         },
         "charges_monthly": _flatten_by_status(charges_monthly),
         "payments_monthly": _flatten_by_status(payments_monthly),
-        "activation_monthly": _flatten_series(activation_by_month),
+        "activation_monthly": _flatten_by_status(activation_by_month),
         "churn_monthly": _flatten_series(churn_by_month),
     }
 
@@ -298,8 +308,12 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     invoices_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     )
-    transactions_monthly: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
-    activation_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    transactions_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
+    activation_by_month: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
     churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     mrr = 0.0
     active_subs = 0
@@ -319,8 +333,9 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         elif rtype == "transaction":
             month = _month(payload.get("transaction_date"))
             if month:
-                transactions_monthly[month]["count"] += 1
-                transactions_monthly[month]["amount"] += _amount(payload.get("amount"))
+                status = str(payload.get("status") or "SIN_ESTADO").upper()
+                transactions_monthly[month][status]["count"] += 1
+                transactions_monthly[month][status]["amount"] += _amount(payload.get("amount"))
 
         elif rtype == "subscription":
             status = str(payload.get("status", "")).lower()
@@ -329,8 +344,8 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             anchor = payload.get("anchor")
             month = _month(anchor)
             if month:
-                activation_by_month[month]["count"] += 1
-                activation_by_month[month]["amount"] += amount
+                activation_by_month[month][status.upper() or "SIN_ESTADO"]["count"] += 1
+                activation_by_month[month][status.upper() or "SIN_ESTADO"]["amount"] += amount
 
             end_date = payload.get("end_date")
             if end_date:
@@ -380,8 +395,8 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             "ltv": round(ltv, 0),
         },
         "invoices_monthly": _flatten_by_status(invoices_monthly),
-        "transactions_monthly": _flatten_series(transactions_monthly),
-        "activation_monthly": _flatten_series(activation_by_month),
+        "transactions_monthly": _flatten_by_status(transactions_monthly),
+        "activation_monthly": _flatten_by_status(activation_by_month),
         "churn_monthly": _flatten_series(churn_by_month),
     }
 
@@ -390,7 +405,9 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     transactions_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     )
-    activation_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    activation_by_month: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
     churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     mrr = 0.0
     active_subs = 0
@@ -413,7 +430,7 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             start = payload.get("start")
             month = _month(start)
             if month:
-                activation_by_month[month]["count"] += 1
+                activation_by_month[month][status.upper() or "SIN_ESTADO"]["count"] += 1
 
             end = payload.get("end")
             if end:
@@ -460,8 +477,659 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             "ltv": round(ltv, 0),
         },
         "transactions_monthly": _flatten_by_status(transactions_monthly),
-        "activation_monthly": _flatten_series(activation_by_month),
+        "activation_monthly": _flatten_by_status(activation_by_month),
         "churn_monthly": _flatten_series(churn_by_month),
+    }
+
+
+# ── Canonical VirtualPOS helpers ─────────────────────────────────────────────
+
+_VP_SRCS = ("virtualpos1", "virtualpos2")
+_VP_MODEL: dict[str, Any] = {
+    "client": CClient,
+    "plan": CPlan,
+    "subscription": CSub,
+    "charge": CCharge,
+    "payment": CPayment,
+}
+_TOKU_MODEL: dict[str, Any] = {
+    "customer": CClient,
+    "payment_method": CPaymentMethod,
+    "subscription": CSub,
+    "invoice": CCharge,
+    "transaction": CPayment,
+}
+_PAYKU_MODEL: dict[str, Any] = {
+    "client": CClient,
+    "plan": CPlan,
+    "subscription": CSub,
+    "transaction": CPayment,
+}
+
+
+def _vp_src(source: str) -> list[str]:
+    return [source] if source in _VP_SRCS else list(_VP_SRCS)
+
+
+def _cstg(record: Any, rtype: str) -> dict[str, Any]:
+    return {
+        "id": str(record.id),
+        "source": record.source,
+        "resource_type": rtype,
+        "external_id": record.external_id,
+        "payload": record.raw_payload or {},
+        "sync_context": {},
+        "first_seen_at": None,
+        "last_seen_at": str(record.updated_at) if record.updated_at else None,
+    }
+
+
+def _vp_filter(model: Any, rtype: str, ff: str, q: str):
+    """Build a JSONB search expression on raw_payload for canonical VirtualPOS records."""
+    r = model.raw_payload
+    fm: dict[str, dict[str, Any]] = {
+        "client": {
+            "uuid": func.coalesce(r["uuid"].astext, model.external_id),
+            "social_id": r["social_id"].astext,
+            "name": func.concat_ws(" ", r["first_name"].astext, r["last_name"].astext),
+            "email": r["email"].astext,
+            "phone_number": r["phone_number"].astext,
+            "status": r["status"].astext,
+        },
+        "plan": {
+            "id": func.coalesce(r["id"].astext, model.external_id),
+            "name": r["name"].astext,
+            "amount": r["amount"].astext,
+            "automatic_renewal": r["automatic_renewal"].astext,
+            "is_active": r["is_active"].astext,
+            "show_in_terminal": r["show_in_terminal"].astext,
+        },
+        "subscription": {
+            "id": func.coalesce(r["id"].astext, model.external_id),
+            "status": r["status"].astext,
+            "social_id": r["client"]["social_id"].astext,
+            "amount": r["amount"].astext,
+            "suscription_date": r["suscription_date"].astext,
+            "canceled_at": r["canceled_at"].astext,
+        },
+        "charge": {
+            "id": func.coalesce(r["id"].astext, model.external_id),
+            "status": r["status"].astext,
+            "subscription_id": r["suscription_id"].astext,
+            "amount": r["amount"].astext,
+            "charge_date": r["charge_date"].astext,
+        },
+        "payment": {
+            "uuid": func.coalesce(r["order"]["uuid"].astext, model.external_id),
+            "status": r["order"]["status"].astext,
+            "social_id": r["client"]["social_id"].astext,
+            "amount": r["order"]["amount"].astext,
+            "authorized_at": r["order"]["authorized_at"].astext,
+        },
+    }
+    field = fm.get(rtype, {}).get(ff)
+    if field is None:
+        raise HTTPException(status_code=422, detail="Invalid filter field")
+    lo = q.strip().lower()
+    if ff in {"automatic_renewal", "is_active", "show_in_terminal"}:
+        if lo in {"activo", "activa", "true", "t", "1", "si", "sí"}:
+            return cast(field, String).ilike("%true%") | cast(field, String).ilike("%t%")
+        if lo in {"inactivo", "inactiva", "false", "f", "0", "no"}:
+            return cast(field, String).ilike("%false%") | cast(field, String).ilike("%f%")
+    return cast(field, String).ilike(f"%{q.strip()}%")
+
+
+def _list_vp(
+    source: str,
+    db: Session,
+    resource_type: str | None,
+    filter_field: str | None,
+    query: str | None,
+    sort_field: str | None,
+    sort_direction: Literal["asc", "desc"],
+    offset: int,
+    limit: int,
+) -> dict[str, Any]:
+    if not resource_type or resource_type not in _VP_MODEL:
+        return {"items": [], "total": 0, "offset": offset, "limit": limit}
+    model = _VP_MODEL[resource_type]
+    sources = _vp_src(source)
+    stmt = select(model).where(model.source.in_(sources))
+    cnt = select(func.count()).select_from(model).where(model.source.in_(sources))
+    if filter_field and query and resource_type:
+        expr = _vp_filter(model, resource_type, filter_field, query)
+        stmt = stmt.where(expr)
+        cnt = cnt.where(expr)
+    if sort_field:
+        expression = _vp_sort_field(model, resource_type, sort_field)
+        stmt = stmt.order_by(
+            (expression.asc() if sort_direction == "asc" else expression.desc()).nullslast(),
+            model.updated_at.desc(),
+        )
+    elif resource_type == "charge":
+        stmt = stmt.order_by(model.charge_date.desc().nullslast(), model.updated_at.desc())
+    elif resource_type == "payment":
+        stmt = stmt.order_by(model.payment_date.desc().nullslast(), model.updated_at.desc())
+    else:
+        stmt = stmt.order_by(model.updated_at.desc())
+    records = db.scalars(stmt.offset(offset).limit(limit)).all()
+    return {
+        "items": [_cstg(r, resource_type) for r in records],
+        "total": db.scalar(cnt) or 0,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _toku_filter(model: Any, rtype: str, ff: str, q: str):
+    raw = model.raw_payload
+    fields: dict[str, dict[str, Any]] = {
+        "customer": {
+            "id": model.external_id,
+            "government_id": CClient.social_id,
+            "name": CClient.first_name,
+            "mail": CClient.email,
+            "phone_number": CClient.phone_number,
+        },
+        "subscription": {
+            "id": model.external_id,
+            "customer": CSub.client_external_id,
+            "amount": CSub.amount,
+            "status": CSub.status,
+            "anchor": CSub.suscription_date,
+            "end_date": CSub.canceled_at,
+        },
+        "payment_method": {
+            "id": model.external_id,
+            "status": CPaymentMethod.status,
+            "created_at": func.coalesce(raw["created_at"].astext, raw["payment_method"]["created_at"].astext),
+            "bank_name": func.coalesce(raw["bank_name"].astext, raw["payment_method"]["card"]["bank_name"].astext),
+            "card_brand": func.coalesce(raw["card_brand"].astext, raw["payment_method"]["card"]["card_brand"].astext),
+            "last_digits": func.coalesce(raw["last_digits"].astext, raw["payment_method"]["card"]["last_digits"].astext),
+            "card_type": func.coalesce(raw["card_type"].astext, raw["payment_method"]["card"]["card_type"].astext),
+            "customer_id": CPaymentMethod.client_external_id,
+        },
+        "invoice": {
+            "id": model.external_id,
+            "customer": CCharge.client_external_id,
+            "subscription": CCharge.subscription_external_id,
+            "amount": CCharge.amount,
+            "is_paid": raw["is_paid"].astext,
+            "status": CCharge.status,
+            "due_date": CCharge.charge_date,
+        },
+        "transaction": {
+            "id": model.external_id,
+            "customer_id": CPayment.client_external_id,
+            "subscription_id": func.coalesce(raw["subscription_id"].astext, raw["transaction"]["subscription_id"].astext),
+            "amount": CPayment.amount,
+            "transaction_date": CPayment.payment_date,
+        },
+    }
+    field = fields.get(rtype, {}).get(ff)
+    if field is None:
+        raise HTTPException(status_code=422, detail="Invalid staging filter field")
+    return cast(field, String).ilike(f"%{q.strip()}%")
+
+
+def _toku_sort_field(model: Any, rtype: str, field_name: str):
+    raw = model.raw_payload
+    fields = {
+        "customer": {"id": model.external_id, "government_id": CClient.social_id, "name": CClient.first_name, "mail": CClient.email, "phone_number": CClient.phone_number},
+        "subscription": {"id": model.external_id, "customer": CSub.client_external_id, "amount": CSub.amount, "status": CSub.status, "anchor": CSub.suscription_date, "end_date": CSub.canceled_at},
+        "payment_method": {"id": model.external_id, "status": CPaymentMethod.status, "created_at": func.coalesce(raw["created_at"].astext, raw["payment_method"]["created_at"].astext), "bank_name": func.coalesce(raw["bank_name"].astext, raw["payment_method"]["card"]["bank_name"].astext), "card_brand": func.coalesce(raw["card_brand"].astext, raw["payment_method"]["card"]["card_brand"].astext), "last_digits": func.coalesce(raw["last_digits"].astext, raw["payment_method"]["card"]["last_digits"].astext), "card_type": func.coalesce(raw["card_type"].astext, raw["payment_method"]["card"]["card_type"].astext), "customer_id": CPaymentMethod.client_external_id},
+        "invoice": {"id": model.external_id, "customer": CCharge.client_external_id, "subscription": CCharge.subscription_external_id, "amount": CCharge.amount, "is_paid": raw["is_paid"].astext, "status": CCharge.status, "due_date": CCharge.charge_date},
+        "transaction": {"id": model.external_id, "customer_id": CPayment.client_external_id, "subscription_id": func.coalesce(raw["subscription_id"].astext, raw["transaction"]["subscription_id"].astext), "amount": CPayment.amount, "transaction_date": CPayment.payment_date},
+    }
+    field = fields.get(rtype, {}).get(field_name)
+    if field is None:
+        raise HTTPException(status_code=422, detail="Invalid sort field")
+    return field
+
+
+def _vp_sort_field(model: Any, rtype: str, field_name: str):
+    raw = model.raw_payload
+    fields = {
+        "client": {"uuid": func.coalesce(raw["uuid"].astext, model.external_id), "social_id": raw["social_id"].astext, "name": func.concat_ws(" ", raw["first_name"].astext, raw["last_name"].astext), "email": raw["email"].astext, "phone_number": raw["phone_number"].astext, "status": raw["status"].astext},
+        "plan": {"id": func.coalesce(raw["id"].astext, model.external_id), "name": raw["name"].astext, "amount": raw["amount"].astext, "automatic_renewal": raw["automatic_renewal"].astext, "is_active": raw["is_active"].astext, "show_in_terminal": raw["show_in_terminal"].astext},
+        "subscription": {"id": func.coalesce(raw["id"].astext, model.external_id), "status": raw["status"].astext, "social_id": raw["client"]["social_id"].astext, "amount": raw["amount"].astext, "suscription_date": raw["suscription_date"].astext, "canceled_at": raw["canceled_at"].astext},
+        "charge": {"id": func.coalesce(raw["id"].astext, model.external_id), "status": raw["status"].astext, "subscription_id": raw["suscription_id"].astext, "amount": raw["amount"].astext, "charge_date": raw["charge_date"].astext},
+        "payment": {"uuid": func.coalesce(raw["order"]["uuid"].astext, model.external_id), "status": raw["order"]["status"].astext, "social_id": raw["client"]["social_id"].astext, "amount": raw["order"]["amount"].astext, "authorized_at": raw["order"]["authorized_at"].astext},
+    }
+    field = fields.get(rtype, {}).get(field_name)
+    if field is None:
+        raise HTTPException(status_code=422, detail="Invalid sort field")
+    return field
+
+
+def _list_toku(
+    db: Session,
+    resource_type: str | None,
+    filter_field: str | None,
+    query: str | None,
+    sort_field: str | None,
+    sort_direction: Literal["asc", "desc"],
+    offset: int,
+    limit: int,
+) -> dict[str, Any]:
+    if not resource_type or resource_type not in _TOKU_MODEL:
+        return {"items": [], "total": 0, "offset": offset, "limit": limit}
+    model = _TOKU_MODEL[resource_type]
+    statement = select(model).where(model.source == "toku")
+    count_statement = select(func.count()).select_from(model).where(model.source == "toku")
+    if filter_field and query:
+        expression = _toku_filter(model, resource_type, filter_field, query)
+        statement = statement.where(expression)
+        count_statement = count_statement.where(expression)
+    if sort_field:
+        expression = _toku_sort_field(model, resource_type, sort_field)
+        statement = statement.order_by((expression.asc() if sort_direction == "asc" else expression.desc()).nullslast(), model.updated_at.desc())
+    else:
+        date_fields = {
+        "subscription": CSub.suscription_date,
+        "invoice": CCharge.charge_date,
+        "transaction": CPayment.payment_date,
+    }
+        date_field = date_fields.get(resource_type)
+        if date_field is not None:
+            statement = statement.order_by(date_field.desc().nullslast(), model.updated_at.desc())
+        elif resource_type == "payment_method":
+            created_at = func.coalesce(model.raw_payload["created_at"].astext, model.raw_payload["payment_method"]["created_at"].astext)
+            statement = statement.order_by(created_at.desc().nullslast(), model.updated_at.desc())
+        else:
+            statement = statement.order_by(model.updated_at.desc())
+    records = db.scalars(statement.offset(offset).limit(limit)).all()
+    return {
+        "items": [_cstg(record, resource_type) for record in records],
+        "total": db.scalar(count_statement) or 0,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _payku_filter(model: Any, rtype: str, ff: str, q: str):
+    raw = model.raw_payload
+    fields: dict[str, dict[str, Any]] = {
+        "client": {
+            "id": model.external_id,
+            "rut": CClient.social_id,
+            "name": func.coalesce(func.nullif(func.concat_ws(" ", CClient.first_name, CClient.last_name), ""), raw["name"].astext),
+            "email": CClient.email,
+            "phone": CClient.phone_number,
+        },
+        "plan": {"id": model.external_id, "status": CPlan.status, "name": CPlan.name},
+        "subscription": {
+            "id": model.external_id,
+            "status": CSub.status,
+            "rut": CSub.client_social_id,
+            "start": CSub.suscription_date,
+            "end": CSub.canceled_at,
+        },
+        "transaction": {
+            "id": model.external_id,
+            "status": CPayment.status,
+            "subscriptions": func.coalesce(raw["subscriptions"].astext, raw["transaction"]["subscriptions"].astext),
+            "amount": CPayment.amount,
+            "created_at": CPayment.payment_date,
+        },
+    }
+    field = fields.get(rtype, {}).get(ff)
+    if field is None:
+        raise HTTPException(status_code=422, detail="Invalid staging filter field")
+    return cast(field, String).ilike(f"%{q.strip()}%")
+
+
+def _payku_sort_field(model: Any, rtype: str, field_name: str):
+    raw = model.raw_payload
+    fields = {
+        "client": {"id": model.external_id, "rut": CClient.social_id, "name": func.coalesce(func.nullif(func.concat_ws(" ", CClient.first_name, CClient.last_name), ""), raw["name"].astext), "email": CClient.email, "phone": CClient.phone_number},
+        "plan": {"id": model.external_id, "status": CPlan.status, "name": CPlan.name},
+        "subscription": {"id": model.external_id, "status": CSub.status, "rut": CSub.client_social_id, "start": CSub.suscription_date, "end": CSub.canceled_at},
+        "transaction": {"id": model.external_id, "status": CPayment.status, "subscriptions": func.coalesce(raw["subscriptions"].astext, raw["transaction"]["subscriptions"].astext), "amount": CPayment.amount, "created_at": CPayment.payment_date},
+    }
+    field = fields.get(rtype, {}).get(field_name)
+    if field is None:
+        raise HTTPException(status_code=422, detail="Invalid sort field")
+    return field
+
+
+def _list_payku(
+    db: Session,
+    resource_type: str | None,
+    filter_field: str | None,
+    query: str | None,
+    sort_field: str | None,
+    sort_direction: Literal["asc", "desc"],
+    offset: int,
+    limit: int,
+) -> dict[str, Any]:
+    if not resource_type or resource_type not in _PAYKU_MODEL:
+        return {"items": [], "total": 0, "offset": offset, "limit": limit}
+    model = _PAYKU_MODEL[resource_type]
+    statement = select(model).where(model.source == "payku")
+    count_statement = select(func.count()).select_from(model).where(model.source == "payku")
+    if filter_field and query:
+        expression = _payku_filter(model, resource_type, filter_field, query)
+        statement = statement.where(expression)
+        count_statement = count_statement.where(expression)
+    if sort_field:
+        expression = _payku_sort_field(model, resource_type, sort_field)
+        statement = statement.order_by((expression.asc() if sort_direction == "asc" else expression.desc()).nullslast(), model.updated_at.desc())
+    else:
+        date_field = {"subscription": CSub.suscription_date, "transaction": CPayment.payment_date}.get(resource_type)
+        if date_field is not None:
+            statement = statement.order_by(date_field.desc().nullslast(), model.updated_at.desc())
+        else:
+            statement = statement.order_by(model.updated_at.desc())
+    records = db.scalars(statement.offset(offset).limit(limit)).all()
+    return {
+        "items": [_cstg(record, resource_type) for record in records],
+        "total": db.scalar(count_statement) or 0,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
+    """Build channel dashboard from canonical CRM tables for VirtualPOS."""
+    sources = _vp_src(source)
+
+    paid_statuses = ("pagado", "aceptado", "accepted", "paid")
+    metric_filters = {
+        "client": (func.lower(CClient.status) == "activo",),
+        "plan": (func.lower(CPlan.is_active).in_(("true", "t", "1")),),
+        "subscription": (func.lower(CSub.status) == "activa",),
+        "charge": (func.lower(CCharge.status).in_(paid_statuses),),
+        "payment": (func.lower(CPayment.status).in_(paid_statuses),),
+    }
+
+
+    resource_counts = {
+        rtype: db.scalar(
+            select(func.count()).select_from(model).where(model.source.in_(sources), *metric_filters[rtype])
+        ) or 0
+        for rtype, model in _VP_MODEL.items()
+    }
+
+    # Status distribution using canonical status columns
+    statuses: list[dict[str, Any]] = []
+    for rtype, model in _VP_MODEL.items():
+        rows = db.execute(
+            select(model.status, func.count().label("n"))
+            .where(model.source.in_(sources), model.status.isnot(None))
+            .group_by(model.status)
+        ).all()
+        for row in rows:
+            statuses.append({"resource": rtype, "status": str(row[0]), "count": row[1]})
+
+    # Resource amounts from canonical amount columns
+    resource_amounts: dict[str, float] = {}
+    for rtype, model in _VP_MODEL.items():
+        if hasattr(model, "amount"):
+            rows = db.execute(
+                select(model.amount).where(
+                    model.source.in_(sources), model.amount.isnot(None), *metric_filters[rtype]
+                )
+            ).scalars().all()
+            total_amount = sum(_amount(v) for v in rows)
+            if total_amount:
+                resource_amounts[rtype] = round(total_amount, 2)
+
+    # Activity: charges grouped by month using canonical charge_date
+    activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
+    charge_rows = db.execute(
+        select(CCharge.charge_date, CCharge.amount).where(CCharge.source.in_(sources))
+    ).all()
+    for charge_date, amount in charge_rows:
+        month = _month(charge_date)
+        if month:
+            activity_by_month[month]["count"] += 1
+            activity_by_month[month]["amount"] += _amount(amount)
+    activity = [
+        {"year": yr, "month": mo, "count": int(v["count"]), "amount": round(v["amount"], 2)}
+        for (yr, mo), v in sorted(activity_by_month.items())
+    ]
+
+    # Extended data: load subscriptions (small set ~8k) for KPIs and monthly charts
+    subs = db.scalars(select(CSub).where(CSub.source.in_(sources))).all()
+    payments_rows = db.execute(
+        select(CPayment.payment_date, CPayment.amount, CPayment.status).where(CPayment.source.in_(sources))
+    ).all()
+    charges_rows = db.execute(
+        select(CCharge.charge_date, CCharge.amount, CCharge.status).where(CCharge.source.in_(sources))
+    ).all()
+
+    # Build adapter objects for _vp_extended_data reuse
+    class _Rec:
+        __slots__ = ("payload", "resource_type")
+        def __init__(self, rt: str, p: dict):
+            self.resource_type = rt
+            self.payload = p
+
+    vp_records: list[Any] = []
+    for s in subs:
+        raw = s.raw_payload or {}
+        vp_records.append(_Rec("subscription", raw))
+    for cd, amt, st in charges_rows:
+        vp_records.append(_Rec("charge", {"charge_date": cd, "amount": amt, "status": st}))
+    for pd, amt, st in payments_rows:
+        vp_records.append(_Rec("payment", {"order": {"authorized_at": pd, "amount": amt, "status": st}}))
+
+    extended = _vp_extended_data(vp_records)  # type: ignore[arg-type]
+
+    return {
+        "source": source,
+        "records": sum(resource_counts.values()),
+        "resources": resource_counts,
+        "resource_amounts": resource_amounts,
+        "statuses": statuses,
+        "activity_resource": "charge",
+        "activity": activity,
+        "years": sorted({e["year"] for e in activity}, reverse=True),
+        "last_sync": None,
+        **extended,
+    }
+
+
+def _toku_canonical_dashboard(db: Session) -> dict[str, Any]:
+    chargeable_subscription_ids = {
+        subscription_id
+        for method in db.scalars(
+            select(CPaymentMethod).where(
+                CPaymentMethod.source == "toku",
+                func.lower(CPaymentMethod.status) == "chargeable",
+            )
+        )
+        for subscription_id in _toku_subscription_ids(method)
+    }
+    active_subscriptions = [
+        subscription
+        for subscription in db.scalars(
+            select(CSub).where(CSub.source == "toku", func.lower(CSub.status) == "active")
+        )
+        if subscription.external_id in chargeable_subscription_ids
+    ]
+    resource_counts = {
+        rtype: db.scalar(select(func.count()).select_from(model).where(model.source == "toku")) or 0
+        for rtype, model in _TOKU_MODEL.items()
+    }
+    resource_counts["subscription"] = len(active_subscriptions)
+    resource_counts["invoice"] = db.scalar(
+        select(func.count()).select_from(CCharge).where(
+            CCharge.source == "toku", func.upper(CCharge.status) == "PAID"
+        )
+    ) or 0
+    resource_counts["transaction"] = db.scalar(
+        select(func.count()).select_from(CPayment).where(
+            CPayment.source == "toku", func.upper(CPayment.status) == "SUCCESS"
+        )
+    ) or 0
+    statuses: list[dict[str, Any]] = []
+    for rtype, model in _TOKU_MODEL.items():
+        rows = db.execute(
+            select(model.status, func.count())
+            .where(model.source == "toku", model.status.isnot(None))
+            .group_by(model.status)
+        ).all()
+        statuses.extend({"resource": rtype, "status": str(status), "count": count} for status, count in rows)
+
+    resource_amounts: dict[str, float] = {}
+    for rtype, model in _TOKU_MODEL.items():
+        if hasattr(model, "amount"):
+            values = db.scalars(select(model.amount).where(model.source == "toku")).all()
+            total = sum(_amount(value) for value in values)
+            if total:
+                resource_amounts[rtype] = round(total, 2)
+    resource_amounts["subscription"] = round(sum(_amount(subscription.amount) for subscription in active_subscriptions), 2)
+    resource_amounts["invoice"] = round(sum(
+        _amount(amount)
+        for amount in db.scalars(
+            select(CCharge.amount).where(CCharge.source == "toku", func.upper(CCharge.status) == "PAID")
+        )
+    ), 2)
+    resource_amounts["transaction"] = round(sum(
+        _amount(amount)
+        for amount in db.scalars(
+            select(CPayment.amount).where(CPayment.source == "toku", func.upper(CPayment.status) == "SUCCESS")
+        )
+    ), 2)
+
+    activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
+    invoice_rows = db.execute(select(CCharge.charge_date, CCharge.amount).where(CCharge.source == "toku"))
+    for due_date, amount in invoice_rows:
+        month = _month(due_date)
+        if month:
+            activity_by_month[month]["count"] += 1
+            activity_by_month[month]["amount"] += _amount(amount)
+    activity = [
+        {"year": year, "month": month, "count": int(values["count"]), "amount": round(values["amount"], 2)}
+        for (year, month), values in sorted(activity_by_month.items())
+    ]
+
+    class _Record:
+        __slots__ = ("payload", "resource_type")
+
+        def __init__(self, resource_type: str, payload: dict[str, Any]):
+            self.resource_type = resource_type
+            self.payload = payload
+
+    records: list[Any] = []
+    for subscription in db.scalars(select(CSub).where(CSub.source == "toku")):
+        records.append(_Record("subscription", {
+            **(subscription.raw_payload or {}), "customer": subscription.client_external_id,
+            "amount": subscription.amount, "status": subscription.status,
+            "anchor": subscription.suscription_date, "end_date": subscription.canceled_at,
+        }))
+    for invoice in db.scalars(select(CCharge).where(CCharge.source == "toku")):
+        records.append(_Record("invoice", {
+            **(invoice.raw_payload or {}), "amount": invoice.amount, "status": invoice.status,
+            "due_date": invoice.charge_date,
+        }))
+    for transaction in db.scalars(select(CPayment).where(CPayment.source == "toku")):
+        records.append(_Record("transaction", {
+            **(transaction.raw_payload or {}), "amount": transaction.amount, "status": transaction.status,
+            "transaction_date": transaction.payment_date,
+        }))
+    latest_run = db.scalars(
+        select(SyncRun).where(SyncRun.source == "toku").order_by(SyncRun.started_at.desc()).limit(1)
+    ).first()
+    return {
+        "source": "toku",
+        "records": sum(resource_counts.values()),
+        "resources": resource_counts,
+        "resource_amounts": resource_amounts,
+        "statuses": sorted(statuses, key=lambda item: (item["resource"], item["status"])),
+        "activity_resource": "invoice",
+        "activity": activity,
+        "years": sorted({entry["year"] for entry in activity}, reverse=True),
+        "last_sync": (
+            {
+                "status": latest_run.status,
+                "started_at": latest_run.started_at,
+                "finished_at": latest_run.finished_at,
+                "records_processed": latest_run.records_processed,
+            }
+            if latest_run else None
+        ),
+        **_toku_extended_data(records),
+    }
+
+
+def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
+    resource_counts = {
+        rtype: db.scalar(select(func.count()).select_from(model).where(model.source == "payku")) or 0
+        for rtype, model in _PAYKU_MODEL.items()
+    }
+    statuses: list[dict[str, Any]] = []
+    for rtype, model in _PAYKU_MODEL.items():
+        rows = db.execute(
+            select(model.status, func.count())
+            .where(model.source == "payku", model.status.isnot(None))
+            .group_by(model.status)
+        ).all()
+        statuses.extend({"resource": rtype, "status": str(status), "count": count} for status, count in rows)
+
+    resource_amounts: dict[str, float] = {}
+    for rtype, model in _PAYKU_MODEL.items():
+        if hasattr(model, "amount"):
+            total = sum(_amount(value) for value in db.scalars(select(model.amount).where(model.source == "payku")).all())
+            if total:
+                resource_amounts[rtype] = round(total, 2)
+
+    activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
+    for created_at, amount in db.execute(
+        select(CPayment.payment_date, CPayment.amount).where(CPayment.source == "payku")
+    ).all():
+        month = _month(created_at)
+        if month:
+            activity_by_month[month]["count"] += 1
+            activity_by_month[month]["amount"] += _amount(amount)
+    activity = [
+        {"year": year, "month": month, "count": int(values["count"]), "amount": round(values["amount"], 2)}
+        for (year, month), values in sorted(activity_by_month.items())
+    ]
+
+    class _Record:
+        __slots__ = ("payload", "resource_type")
+
+        def __init__(self, resource_type: str, payload: dict[str, Any]):
+            self.resource_type = resource_type
+            self.payload = payload
+
+    records: list[Any] = []
+    for subscription in db.scalars(select(CSub).where(CSub.source == "payku")):
+        records.append(_Record("subscription", {
+            **(subscription.raw_payload or {}), "status": subscription.status,
+            "start": subscription.suscription_date, "end": subscription.canceled_at,
+            "client": {"rut": subscription.client_social_id},
+        }))
+    for transaction in db.scalars(select(CPayment).where(CPayment.source == "payku")):
+        records.append(_Record("transaction", {
+            **(transaction.raw_payload or {}), "status": transaction.status,
+            "amount": transaction.amount, "created_at": transaction.payment_date,
+        }))
+    latest_run = db.scalars(
+        select(SyncRun).where(SyncRun.source == "payku").order_by(SyncRun.started_at.desc()).limit(1)
+    ).first()
+    return {
+        "source": "payku",
+        "records": sum(resource_counts.values()),
+        "resources": resource_counts,
+        "resource_amounts": resource_amounts,
+        "statuses": sorted(statuses, key=lambda item: (item["resource"], item["status"])),
+        "activity_resource": "transaction",
+        "activity": activity,
+        "years": sorted({entry["year"] for entry in activity}, reverse=True),
+        "last_sync": (
+            {
+                "status": latest_run.status,
+                "started_at": latest_run.started_at,
+                "finished_at": latest_run.finished_at,
+                "records_processed": latest_run.records_processed,
+            }
+            if latest_run else None
+        ),
+        **_payku_extended_data(records),
     }
 
 
@@ -472,9 +1140,17 @@ def list_records(
     resource_type: str | None = None,
     filter_field: str | None = None,
     query: str | None = None,
+    sort_field: str | None = None,
+    sort_direction: Literal["asc", "desc"] = "asc",
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
+    if source.startswith("virtualpos"):
+        return _list_vp(source, db, resource_type, filter_field, query, sort_field, sort_direction, offset, limit)
+    if source == "toku":
+        return _list_toku(db, resource_type, filter_field, query, sort_field, sort_direction, offset, limit)
+    if source == "payku":
+        return _list_payku(db, resource_type, filter_field, query, sort_field, sort_direction, offset, limit)
     statement = select(SourceRecord).where(SourceRecord.source == source)
     count_statement = select(func.count()).select_from(SourceRecord).where(SourceRecord.source == source)
     if resource_type:
@@ -501,31 +1177,21 @@ def virtualpos_client_detail(
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
     client = db.scalar(
-        select(SourceRecord).where(
-            SourceRecord.source == "virtualpos",
-            SourceRecord.resource_type == "client",
-            SourceRecord.external_id == external_id,
-        )
+        select(CClient).where(CClient.source.in_(_VP_SRCS), CClient.external_id == external_id)
     )
     if client is None:
         raise HTTPException(status_code=404, detail="VirtualPOS client not found")
-
-    social_id = client.payload.get("social_id")
-    if social_id is None:
-        return {"client": _serialize(client), "subscriptions": [], "subscription_total": 0}
-
-    filters = (
-        SourceRecord.source == "virtualpos",
-        SourceRecord.resource_type == "subscription",
-        SourceRecord.payload["client"]["social_id"].astext == str(social_id),
-    )
+    social_id = client.social_id
+    if not social_id:
+        return {"client": _cstg(client, "client"), "subscriptions": [], "subscription_total": 0}
+    filters = (CSub.source == client.source, CSub.client_social_id == client.social_id)
     subscriptions = db.scalars(
-        select(SourceRecord).where(*filters).order_by(SourceRecord.last_seen_at.desc()).offset(offset).limit(limit)
+        select(CSub).where(*filters).order_by(CSub.updated_at.desc()).offset(offset).limit(limit)
     ).all()
-    total = db.scalar(select(func.count()).select_from(SourceRecord).where(*filters)) or 0
+    total = db.scalar(select(func.count()).select_from(CSub).where(*filters)) or 0
     return {
-        "client": _serialize(client),
-        "subscriptions": [_serialize(subscription) for subscription in subscriptions],
+        "client": _cstg(client, "client"),
+        "subscriptions": [_cstg(s, "subscription") for s in subscriptions],
         "subscription_total": total,
     }
 
@@ -538,31 +1204,18 @@ def virtualpos_plan_detail(
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
     plan = db.scalar(
-        select(SourceRecord).where(
-            SourceRecord.source == "virtualpos",
-            SourceRecord.resource_type == "plan",
-            SourceRecord.external_id == external_id,
-        )
+        select(CPlan).where(CPlan.source.in_(_VP_SRCS), CPlan.external_id == external_id)
     )
     if plan is None:
         raise HTTPException(status_code=404, detail="VirtualPOS plan not found")
-
-    plan_id = str(plan.payload.get("id", plan.external_id))
-    filters = (
-        SourceRecord.source == "virtualpos",
-        SourceRecord.resource_type == "subscription",
-        or_(
-            SourceRecord.payload["plan_id"].astext == plan_id,
-            SourceRecord.payload["plan_id"].astext == plan.external_id,
-        ),
-    )
+    filters = (CSub.source == plan.source, CSub.plan_external_id == plan.external_id)
     subscriptions = db.scalars(
-        select(SourceRecord).where(*filters).order_by(SourceRecord.last_seen_at.desc()).offset(offset).limit(limit)
+        select(CSub).where(*filters).order_by(CSub.updated_at.desc()).offset(offset).limit(limit)
     ).all()
-    total = db.scalar(select(func.count()).select_from(SourceRecord).where(*filters)) or 0
+    total = db.scalar(select(func.count()).select_from(CSub).where(*filters)) or 0
     return {
-        "plan": _serialize(plan),
-        "subscriptions": [_serialize(subscription) for subscription in subscriptions],
+        "plan": _cstg(plan, "plan"),
+        "subscriptions": [_cstg(s, "subscription") for s in subscriptions],
         "subscription_total": total,
     }
 
@@ -575,32 +1228,24 @@ def virtualpos_subscription_detail(
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
     subscription = db.scalar(
-        select(SourceRecord).where(
-            SourceRecord.source == "virtualpos",
-            SourceRecord.resource_type == "subscription",
-            SourceRecord.external_id == external_id,
-        )
+        select(CSub).where(CSub.source.in_(_VP_SRCS), CSub.external_id == external_id)
     )
     if subscription is None:
         raise HTTPException(status_code=404, detail="VirtualPOS subscription not found")
-
-    filters = (
-        SourceRecord.source == "virtualpos",
-        SourceRecord.resource_type == "charge",
-        SourceRecord.sync_context["subscription_external_id"].astext == subscription.external_id,
-    )
+    filters = (CCharge.source == subscription.source, CCharge.subscription_external_id == subscription.external_id)
     charges = db.scalars(
-        select(SourceRecord)
+        select(CCharge)
         .where(*filters)
-        .order_by(SourceRecord.payload["charge_date"].astext.desc().nullslast(), SourceRecord.last_seen_at.desc())
+        .order_by(CCharge.charge_date.desc().nullslast(), CCharge.updated_at.desc())
         .offset(offset)
         .limit(limit)
     ).all()
-    total = db.scalar(select(func.count()).select_from(SourceRecord).where(*filters)) or 0
+    total = db.scalar(select(func.count()).select_from(CCharge).where(*filters)) or 0
+    raw = subscription.raw_payload or {}
     return {
-        "subscription": _serialize(subscription),
-        "payment_method": subscription.payload.get("payment_method"),
-        "charges": [_serialize(charge) for charge in charges],
+        "subscription": _cstg(subscription, "subscription"),
+        "payment_method": raw.get("payment_method"),
+        "charges": [_cstg(c, "charge") for c in charges],
         "charge_total": total,
     }
 
@@ -611,15 +1256,11 @@ def virtualpos_charge_detail(
     db: Session = Depends(get_db),  # noqa: B008
 ) -> dict[str, Any]:
     charge = db.scalar(
-        select(SourceRecord).where(
-            SourceRecord.source == "virtualpos",
-            SourceRecord.resource_type == "charge",
-            SourceRecord.external_id == external_id,
-        )
+        select(CCharge).where(CCharge.source.in_(_VP_SRCS), CCharge.external_id == external_id)
     )
     if charge is None:
         raise HTTPException(status_code=404, detail="VirtualPOS charge not found")
-    return {"charge": _serialize(charge)}
+    return {"charge": _cstg(charge, "charge")}
 
 
 @router.get("/virtualpos/payments/{external_id}", tags=["Staging"])
@@ -628,15 +1269,11 @@ def virtualpos_payment_detail(
     db: Session = Depends(get_db),  # noqa: B008
 ) -> dict[str, Any]:
     payment = db.scalar(
-        select(SourceRecord).where(
-            SourceRecord.source == "virtualpos",
-            SourceRecord.resource_type == "payment",
-            SourceRecord.external_id == external_id,
-        )
+        select(CPayment).where(CPayment.source.in_(_VP_SRCS), CPayment.external_id == external_id)
     )
     if payment is None:
         raise HTTPException(status_code=404, detail="VirtualPOS payment not found")
-    return {"payment": _serialize(payment)}
+    return {"payment": _cstg(payment, "payment")}
 
 
 def _record_value(record: SourceRecord) -> str:
@@ -692,6 +1329,69 @@ def _toku_related(record: SourceRecord, records: list[SourceRecord]) -> list[dic
     return []
 
 
+def _toku_subscription_ids(record: CPaymentMethod) -> list[str]:
+    payload = record.raw_payload or {}
+    values = payload.get("subscription_ids")
+    if not isinstance(values, list):
+        method = payload.get("payment_method")
+        values = method.get("subscription_ids") if isinstance(method, dict) else []
+    return [str(value) for value in values if value is not None] if isinstance(values, list) else []
+
+
+def _toku_transaction_subscription_id(record: CPayment) -> str | None:
+    payload = record.raw_payload or {}
+    value = payload.get("subscription_id")
+    if value is None and isinstance(payload.get("transaction"), dict):
+        value = payload["transaction"].get("subscription_id")
+    return _relationship_id(value)
+
+
+def _canonical_items(records: list[Any], resource_type: str) -> list[dict[str, Any]]:
+    return [_cstg(record, resource_type) for record in records]
+
+
+def _toku_canonical_related(record: Any, resource_type: str, db: Session) -> list[dict[str, Any]]:
+    customers = db.scalars(select(CClient).where(CClient.source == "toku")).all()
+    subscriptions = db.scalars(select(CSub).where(CSub.source == "toku")).all()
+    methods = db.scalars(select(CPaymentMethod).where(CPaymentMethod.source == "toku")).all()
+    invoices = db.scalars(select(CCharge).where(CCharge.source == "toku")).all()
+    transactions = db.scalars(select(CPayment).where(CPayment.source == "toku")).all()
+    record_id = record.external_id
+
+    if resource_type == "customer":
+        return [
+            _related("Subscripciones", "subscription", _canonical_items([item for item in subscriptions if item.client_external_id == record_id], "subscription")),
+            _related("Métodos de pago", "payment_method", _canonical_items([item for item in methods if item.client_external_id == record_id], "payment_method")),
+            _related("Deudas", "invoice", _canonical_items([item for item in invoices if item.client_external_id == record_id], "invoice")),
+            _related("Transacciones", "transaction", _canonical_items([item for item in transactions if item.client_external_id == record_id], "transaction")),
+        ]
+    if resource_type == "subscription":
+        return [
+            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Métodos de pago", "payment_method", _canonical_items([item for item in methods if record_id in _toku_subscription_ids(item)], "payment_method")),
+            _related("Deudas", "invoice", _canonical_items([item for item in invoices if item.subscription_external_id == record_id], "invoice")),
+            _related("Transacciones", "transaction", _canonical_items([item for item in transactions if _toku_transaction_subscription_id(item) == record_id], "transaction")),
+        ]
+    if resource_type == "payment_method":
+        subscription_ids = _toku_subscription_ids(record)
+        return [
+            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Subscripciones", "subscription", _canonical_items([item for item in subscriptions if item.external_id in subscription_ids], "subscription")),
+        ]
+    if resource_type == "invoice":
+        return [
+            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Subscripción", "subscription", _canonical_items([item for item in subscriptions if item.external_id == record.subscription_external_id], "subscription")),
+        ]
+    if resource_type == "transaction":
+        subscription_id = _toku_transaction_subscription_id(record)
+        return [
+            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Subscripción", "subscription", _canonical_items([item for item in subscriptions if item.external_id == subscription_id], "subscription")),
+        ]
+    return []
+
+
 def _payku_related(record: SourceRecord, records: list[SourceRecord]) -> list[dict[str, Any]]:
     record_id = _record_value(record)
     if record.resource_type == "client":
@@ -703,6 +1403,55 @@ def _payku_related(record: SourceRecord, records: list[SourceRecord]) -> list[di
             _related("Cliente", "client", _matching_records(records, "client", lambda item: _record_value(item) == _relationship_id(record.payload.get("client")))),
             _related("Plan", "plan", _matching_records(records, "plan", lambda item: _record_value(item) == _relationship_id(record.payload.get("plan")))),
         ]
+    return []
+
+
+def _payku_transaction_subscription_ids(record: CPayment) -> list[str]:
+    payload = record.raw_payload or {}
+    values = payload.get("subscriptions")
+    if values is None and isinstance(payload.get("transaction"), dict):
+        values = payload["transaction"].get("subscriptions")
+    if values is None:
+        values = payload.get("subscription")
+    if values is None:
+        values = payload.get("subscription_id")
+    if not isinstance(values, list):
+        values = [values]
+    return [item_id for value in values if (item_id := _relationship_id(value)) is not None]
+
+
+def _payku_canonical_related(record: Any, resource_type: str, db: Session) -> list[dict[str, Any]]:
+    clients = db.scalars(select(CClient).where(CClient.source == "payku")).all()
+    plans = db.scalars(select(CPlan).where(CPlan.source == "payku")).all()
+    subscriptions = db.scalars(select(CSub).where(CSub.source == "payku")).all()
+    transactions = db.scalars(select(CPayment).where(CPayment.source == "payku")).all()
+    record_id = record.external_id
+
+    if resource_type == "client":
+        return [_related("Suscripciones", "subscription", _canonical_items(
+            [item for item in subscriptions if item.client_external_id == record_id], "subscription"
+        ))]
+    if resource_type == "plan":
+        return [_related("Suscripciones", "subscription", _canonical_items(
+            [item for item in subscriptions if item.plan_external_id == record_id], "subscription"
+        ))]
+    if resource_type == "subscription":
+        return [
+            _related("Cliente", "client", _canonical_items(
+                [item for item in clients if item.external_id == record.client_external_id], "client"
+            )),
+            _related("Plan", "plan", _canonical_items(
+                [item for item in plans if item.external_id == record.plan_external_id], "plan"
+            )),
+            _related("Transacciones", "transaction", _canonical_items(
+                [item for item in transactions if record_id in _payku_transaction_subscription_ids(item)], "transaction"
+            )),
+        ]
+    if resource_type == "transaction":
+        subscription_ids = _payku_transaction_subscription_ids(record)
+        return [_related("Suscripciones", "subscription", _canonical_items(
+            [item for item in subscriptions if item.external_id in subscription_ids], "subscription"
+        ))]
     return []
 
 
@@ -719,6 +1468,18 @@ def provider_record_detail(
     }
     if resource_type not in allowed_resources.get(source, set()):
         raise HTTPException(status_code=404, detail="Unknown staging resource")
+    if source == "toku":
+        model = _TOKU_MODEL[resource_type]
+        record = db.scalar(select(model).where(model.source == "toku", model.external_id == external_id))
+        if record is None:
+            raise HTTPException(status_code=404, detail="Staging record not found")
+        return {"record": _cstg(record, resource_type), "related": _toku_canonical_related(record, resource_type, db)}
+    if source == "payku":
+        model = _PAYKU_MODEL[resource_type]
+        record = db.scalar(select(model).where(model.source == "payku", model.external_id == external_id))
+        if record is None:
+            raise HTTPException(status_code=404, detail="Staging record not found")
+        return {"record": _cstg(record, resource_type), "related": _payku_canonical_related(record, resource_type, db)}
     records = db.scalars(select(SourceRecord).where(SourceRecord.source == source)).all()
     record = next((item for item in records if item.resource_type == resource_type and item.external_id == external_id), None)
     if record is None:
@@ -731,13 +1492,20 @@ def provider_record_detail(
 def staging_summary(db: Session = Depends(get_db)) -> dict[str, list[dict[str, Any]]]:  # noqa: B008
     sources = []
     for source in SOURCES:
-        resource_counts = dict(
-            db.execute(
-                select(SourceRecord.resource_type, func.count())
-                .where(SourceRecord.source == source)
-                .group_by(SourceRecord.resource_type)
-            ).all()
-        )
+        if source in {"toku", "payku"}:
+            models = _TOKU_MODEL if source == "toku" else _PAYKU_MODEL
+            resource_counts = {
+                resource: db.scalar(select(func.count()).select_from(model).where(model.source == source)) or 0
+                for resource, model in models.items()
+            }
+        else:
+            resource_counts = dict(
+                db.execute(
+                    select(SourceRecord.resource_type, func.count())
+                    .where(SourceRecord.source == source)
+                    .group_by(SourceRecord.resource_type)
+                ).all()
+            )
         latest_run = db.scalars(
             select(SyncRun).where(SyncRun.source == source).order_by(SyncRun.started_at.desc()).limit(1)
         ).first()
@@ -764,6 +1532,12 @@ def staging_summary(db: Session = Depends(get_db)) -> dict[str, list[dict[str, A
 
 @router.get("/dashboard/{source}", tags=["Staging"])
 def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+    if source.startswith("virtualpos"):
+        return _vp_canonical_dashboard(source, db)
+    if source == "toku":
+        return _toku_canonical_dashboard(db)
+    if source == "payku":
+        return _payku_canonical_dashboard(db)
     if source not in SOURCES:
         raise HTTPException(status_code=404, detail="Unknown staging source")
 
@@ -831,4 +1605,44 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
             else None
         ),
         **extended,
+    }
+
+
+@router.post("/sync/{source}", tags=["Staging"])
+async def trigger_channel_sync(source: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+    if source not in SOURCES:
+        raise HTTPException(status_code=404, detail="Unknown staging source")
+
+    if source == "virtualpos":
+        run = await sync_virtualpos(db)
+    elif source == "toku":
+        records_processed = materialize_toku(db)
+        db.commit()
+        return {
+            "run_id": None,
+            "status": "completed",
+            "records_processed": records_processed,
+            "started_at": None,
+            "finished_at": None,
+            "error_message": None,
+        }
+    else:
+        records_processed = materialize_payku(db)
+        db.commit()
+        return {
+            "run_id": None,
+            "status": "completed",
+            "records_processed": records_processed,
+            "started_at": None,
+            "finished_at": None,
+            "error_message": None,
+        }
+
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "records_processed": run.records_processed,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "error_message": run.error_message,
     }

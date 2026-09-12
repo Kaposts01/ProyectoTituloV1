@@ -1,0 +1,1426 @@
+{
+  "info": {
+    "_postman_id": "86a1229b-6522-47a0-8269-45c6c20551d2",
+    "name": "VirtualPOS API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "50626299"
+  },
+  "item": [
+    {
+      "name": "Cliente",
+      "item": [
+        {
+          "name": "Crear un Client",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"type\": \"PERSONA\",\r\n  \"first_name\": \"Usuario\",\r\n  \"last_name\": \"TEST\",\r\n  \"email\": \"estebanbravo0905@gmail.com\",\r\n  \"phone_number\": \"56972039356\",\r\n  \"social_id_type\": \"1\",\r\n  \"social_id\": \"18746702-0\",\r\n  \"birth_date\": \"1997-09-09\",\r\n  \"gender_id\": \"1\",\r\n  \"private_note\": \"Cliente TEST\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/client",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "client"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar un objeto Client",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/client/:client_uuid",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "client",
+                ":client_uuid"
+              ],
+              "variable": [
+                {
+                  "key": "client_uuid",
+                  "value": "cli_121226a9335999bb"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar objetos Client",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/clients",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "clients"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar un objeto Client",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"phone_number\": \"56972039356\",\r\n  \"email\": \"estebanbravo0905@gmail.com\",\r\n  \"private_note\": \"Cliente actualizado\"\r\n  // \"first_name\": \"\"\r\n  // \"last_name\": \"\"\r\n  // \"birth_date\": \"\"\r\n  // \"gender_id\": \"\" // 1 Masculino 2 Femenino 4 Otro\r\n  // \"private_note\": \"\"\r\n  // \"status\": \"\" // \"ACTIVO\" o \"BLOQUEADO\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/client/:client_uuid}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "client",
+                ":client_uuid}"
+              ],
+              "variable": [
+                {
+                  "key": "client_uuid}",
+                  "value": "cli_121226a9335999bb"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Plan",
+      "item": [
+        {
+          "name": "Recuperar un Plan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/plan/:plan_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "plan",
+                ":plan_id"
+              ],
+              "variable": [
+                {
+                  "key": "plan_id",
+                  "value": "f8fdd39665f5bcd7e6330e8e9f5fac4f"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar plans",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/plans",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "plans"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear un Plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"name\": \"Plan Básico\",\r\n  \"description\": \"Plan de entrada\",\r\n  \"currency\": \"CLP\",\r\n  \"type\": \"MONTO_FIJO\", //\"MONTO_VARIABLE\"\"PROGRAMA_DE_PAGOS\":\r\n  \"amount\": 9990,\r\n  \"trial_days\": 0,\r\n  \"num_charges\": 12,\r\n  \"frequency_type\": \"Mensual\",\r\n  \"fixed_amount_day_charge\": \"05\", //\"0\", \"01\", \"05\", \"10\", \"15\", \"20\", \"25\", \"28\", \"30\"\r\n  \"return_url\": \"https://www.tuempresa.com/suscripciones/exito\",\r\n  \"automatic_renewal\": \"T\", // \"T o F\" renovar automáticamente\r\n  \"show_in_terminal\": \"T\", // \"T o F\" visible en el terminal\r\n  \"shipping_address\": \"F\" // \"T o F\" Sí, pedir dirección de envío\r\n\r\n\r\n}\r\n\r\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/plan",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "plan"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Suscription",
+      "item": [
+        {
+          "name": "Crear una Suscription",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"email\": \"estebanbravo0905@gmail.com\",\r\n  \"first_name\": \"Usuario\",\r\n  \"last_name\": \"TEST\",\r\n  \"social_id\": \"19780113-1\",\r\n  \"phone_number\": \"56972039356\",\r\n  \"plan_id\": \"f8fdd39665f5bcd7e6330e8e9f5fac4f\",\r\n  \"service_id\": \"suscripcion-test-002-rechazo\",\r\n  \"channel\": \"WEB\",\r\n  \"automatic_renewal\": \"F\",\r\n  \"return_url\": \"aHR0cHM6Ly93d3cudGVjaG8ub3JnL2dyYWNpYXM=\",\r\n  \"callback_url\": \"aHR0cHM6Ly9hcGkudGVjaG8ub3JnL3dlYmhvb2sv\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/suscription",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "suscription"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar una Suscription",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/suscription/:suscription_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "suscription",
+                ":suscription_id"
+              ],
+              "variable": [
+                {
+                  "key": "suscription_id",
+                  "value": "a7c5fd80d0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar una Suscription",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/suscription/:suscription_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "suscription",
+                ":suscription_id"
+              ],
+              "variable": [
+                {
+                  "key": "suscription_id",
+                  "value": "a7c5fd80d0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Suscriptions",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/suscriptions?limit=10&page=1&status=ACTIVA",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "suscriptions"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVA"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generar link de cambio de tarjeta",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/suscription/:suscription_id/changecard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "suscription",
+                ":suscription_id",
+                "changecard"
+              ],
+              "variable": [
+                {
+                  "key": "suscription_id",
+                  "value": "a7c5fd80d0"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Charge",
+      "item": [
+        {
+          "name": "Crear un Charge",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"suscription_id\": \"a7c5fd80d0\",\r\n  \"charge_date\": \"2026-08-30\",\r\n  \"amount\": 10000,\r\n  \"description\": \"Test Charge\",\r\n  \"internal_code\": \"Agosto2026\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/charge",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "charge"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear un Charge Online",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"suscription_id\": \"a7c5fd80d0\",\r\n  \"amount\": 5000,\r\n  \"description\": \"test Cargo online\",\r\n  \"internal_code\": \"internalcode\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/charge/online",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "charge",
+                "online"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar Charge",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/charge/:charge_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "charge",
+                ":charge_id"
+              ],
+              "variable": [
+                {
+                  "key": "charge_id",
+                  "value": "cid_015a94819046ee8e146038468e96e881"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar Charge",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/charge/:charge_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "charge",
+                ":charge_id"
+              ],
+              "variable": [
+                {
+                  "key": "charge_id",
+                  "value": "cid_015a94819046ee8e146038468e96e881"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reintentar Charge",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/charge/{{charge_id}}/retry",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "charge",
+                "{{charge_id}}",
+                "retry"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar Cargos Futuros",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/charges/:suscription_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "charges",
+                ":suscription_id"
+              ],
+              "variable": [
+                {
+                  "key": "suscription_id",
+                  "value": "a7c5fd80d0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Charges",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/suscription/:suscription_id/charges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "suscription",
+                ":suscription_id",
+                "charges"
+              ],
+              "variable": [
+                {
+                  "key": "suscription_id",
+                  "value": "a7c5fd80d0"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payment",
+      "item": [
+        {
+          "name": "Crear un objeto Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"email\": \"estebanbravo0905@gmail.com\",\r\n  \"first_name\": \"Esteban\",\r\n  \"last_name\": \"Bravo\",\r\n  \"social_id\": \"19780113-1\",\r\n  \"phone\": \"56972039356\",\r\n  \"amount\": 19990,\r\n  \"merchant_internal_code\": \"PAGOTEST-002\",\r\n  \"merchant_internal_channel\": \"web\",\r\n  \"description\": \"Testeo de creracion de Pago\",\r\n  \"payment_type_code\": \"VN\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/payment/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ""
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener link Web Checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"return_url\": \"aHR0cHM6Ly93d3cudHVlbXByZXNhLmNvbS9wYWdvcy9leGl0bw==\",\r\n  \"callback_url\": \"aHR0cHM6Ly9hcGkudHVlbXByZXNhLmNvbS93ZWJob29rcy9wYWdv\",\r\n  \"payment_method\": \"all\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/payment/:payment_uuid/webcheckout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ":payment_uuid",
+                "webcheckout"
+              ],
+              "variable": [
+                {
+                  "key": "payment_uuid",
+                  "value": "74727886a936ebe8"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar un objeto Payment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/payment/:payment_uuid",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ":payment_uuid"
+              ],
+              "variable": [
+                {
+                  "key": "payment_uuid",
+                  "value": "74727886a936ebe8"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar un objeto Payment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/payment/:payment_uuid",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ":payment_uuid"
+              ],
+              "variable": [
+                {
+                  "key": "payment_uuid",
+                  "value": "74727886a936ebe8"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener el logs transaccional de un objeto Payment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/payment/:payment_uuid/logs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ":payment_uuid",
+                "logs"
+              ],
+              "variable": [
+                {
+                  "key": "payment_uuid",
+                  "value": "74727886a936ebe8"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar objetos Payment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/payments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Autorizar un objeto Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"payment_method_type\": \"CREDIT_CARD\",\r\n  \"credit_card\": {\r\n    \"card_number\": \"4051 8856 0044 6623\",\r\n    \"cardholder_name\": \"esteban test\",\r\n    \"expiration_date\": \"08/28\",\r\n    \"cvv\": \"123\"\r\n  },\r\n  \"installments_number\": 3\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/payment/:payment_uuid/authorize",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ":payment_uuid",
+                "authorize"
+              ],
+              "variable": [
+                {
+                  "key": "payment_uuid",
+                  "value": "74727886a936ebe8"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Envio de una solicitud de pago por Email, Whatsapp o SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"channel\": \"SMS\", // EMAIL - SMS - WHATSAPP\r\n  \"receiver\": \"56972039356\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/payment/:payment_uuid/send",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ":payment_uuid",
+                "send"
+              ],
+              "variable": [
+                {
+                  "key": "payment_uuid",
+                  "value": "74727886a936ebe8"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar el abono o deposito de un día",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/deposit/:date",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "deposit",
+                ":date"
+              ],
+              "variable": [
+                {
+                  "key": "date",
+                  "value": "2026-08-29"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar el listado de transacciones autorizadas incluidas en el abono del día",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/deposit/:date/sales",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "deposit",
+                ":date",
+                "sales"
+              ],
+              "variable": [
+                {
+                  "key": "date",
+                  "value": "2026-08-29"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar el listado de las retenciones incluidas en el abono del día",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/deposit/:date/withholdings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "deposit",
+                ":date",
+                "withholdings"
+              ],
+              "variable": [
+                {
+                  "key": "date",
+                  "value": "2026-08-29"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener los intentos de pago un objeto Payment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/payment/:payment_uuid/attempts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v3",
+                "payment",
+                ":payment_uuid",
+                "attempts"
+              ],
+              "variable": [
+                {
+                  "key": "payment_uuid",
+                  "value": "2026-08-29"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          "const CryptoJS = require('crypto-js');\r",
+          "\r",
+          "const apiKey    = pm.environment.get('api_key');\r",
+          "const secretKey = pm.environment.get('secret_key');\r",
+          "\r",
+          "function base64url(source) {\r",
+          "    let encoded = CryptoJS.enc.Base64.stringify(source);\r",
+          "    encoded = encoded.replace(/=+$/, '');\r",
+          "    encoded = encoded.replace(/\\+/g, '-');\r",
+          "    encoded = encoded.replace(/\\//g, '_');\r",
+          "    return encoded;\r",
+          "}\r",
+          "\r",
+          "const header  = { alg: 'HS256', typ: 'JWT' };\r",
+          "const encodedHeader = base64url(\r",
+          "    CryptoJS.enc.Utf8.parse(JSON.stringify(header))\r",
+          ");\r",
+          "\r",
+          "const payload = { api_key: apiKey };\r",
+          "const encodedPayload = base64url(\r",
+          "    CryptoJS.enc.Utf8.parse(JSON.stringify(payload))\r",
+          ");\r",
+          "\r",
+          "const token     = `${encodedHeader}.${encodedPayload}`;\r",
+          "const signature = CryptoJS.HmacSHA256(token, secretKey);\r",
+          "const encodedSignature = base64url(signature);\r",
+          "\r",
+          "const jwt = `${token}.${encodedSignature}`;\r",
+          "pm.request.headers.add({key: 'Signature', value: jwt});\r",
+          "\r",
+          "console.log('✅ JWT Agregado');"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ]
+}

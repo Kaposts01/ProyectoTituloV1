@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.models.crm import Charge, Client, Payment, Plan, Subscription
+from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscription
 from app.models.source_record import SourceRecord
 
 
@@ -63,7 +63,8 @@ def _values(record: SourceRecord) -> dict[str, Any]:
         "birth_date": _text(payload, "birth_date"),
         "provider_created_at": _text(payload, "created"),
         "cards": _card_summaries(payload),
-        "client_external_id": _text(payload, "client_id", "client_uuid"),
+        "client_external_id": _text(payload, "client_id", "client_uuid") or _nested_text(payload, "customer", "id", "external_id"),
+        "client_social_id": _nested_text(payload, "client", "social_id") or _text(payload, "social_id"),
         "plan_external_id": _text(payload, "plan_id"),
         "service_id": _text(payload, "service_id"),
         "automatic_renewal": _text(payload, "automatic_renewal"),
@@ -83,7 +84,7 @@ def _values(record: SourceRecord) -> dict[str, Any]:
     }
 
 
-def _upsert(db: Session, model: type[Charge | Client | Payment | Plan | Subscription], record: SourceRecord) -> None:
+def _upsert(db: Session, model: type[Charge | Client | Payment | PaymentMethod | Plan | Subscription], record: SourceRecord) -> None:
     values = _values(record)
     allowed = {column.name for column in model.__table__.columns}
     row = {
@@ -113,6 +114,7 @@ def materialize_records(db: Session, records: Iterable[SourceRecord]) -> int:
         "subscription": Subscription,
         "charge": Charge,
         "payment": Payment,
+        "payment_method": PaymentMethod,
     }
     processed = 0
     for record in records:

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.routes import staging
 from app.db.session import engine
+from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscription
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 
@@ -27,34 +28,36 @@ def test_list_staging_records_isolated_by_source_and_resource_type(db_session) -
         [
             SourceRecord(source="toku", resource_type="test_customer", external_id="toku-1", payload={"name": "Toku"}),
             SourceRecord(source="toku", resource_type="test_invoice", external_id="toku-2", payload={"amount": 100}),
-            SourceRecord(source="payku", resource_type="client", external_id="payku-1", payload={"name": "Payku"}),
+            Client(source="payku", external_id="payku-1", raw_payload={"name": "Payku"}),
         ]
     )
     db_session.flush()
 
-    response = staging.list_records(source="toku", resource_type="test_customer", db=db_session, limit=50)
+    response = staging.list_records(
+        source="payku", resource_type="client", filter_field="id", query="payku-1", db=db_session, limit=50
+    )
 
     assert response["total"] == 1
-    assert response["items"][0]["external_id"] == "toku-1"
-    assert response["items"][0]["payload"] == {"name": "Toku"}
+    assert response["items"][0]["external_id"] == "payku-1"
+    assert response["items"][0]["payload"] == {"name": "Payku"}
 
 
 def test_virtualpos_records_filter_by_operational_fields_and_order_dates(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(source="virtualpos", resource_type="client", external_id="client-1", payload={"uuid": "client-1", "first_name": "Ana", "last_name": "Rios", "status": "ACTIVO"}),
-            SourceRecord(source="virtualpos", resource_type="client", external_id="client-2", payload={"uuid": "client-2", "first_name": "Bruno", "last_name": "Rios", "status": "INACTIVO"}),
-            SourceRecord(source="virtualpos", resource_type="plan", external_id="plan-1", payload={"id": "plan-1", "automatic_renewal": "T"}),
-            SourceRecord(source="virtualpos", resource_type="plan", external_id="plan-2", payload={"id": "plan-2", "automatic_renewal": "F"}),
-            SourceRecord(source="virtualpos", resource_type="charge", external_id="charge-old", payload={"charge_date": "9999-01-01"}),
-            SourceRecord(source="virtualpos", resource_type="charge", external_id="charge-new", payload={"charge_date": "9999-02-01"}),
-            SourceRecord(source="virtualpos", resource_type="payment", external_id="payment-old", payload={"order": {"authorized_at": "9999-01-01"}}),
-            SourceRecord(source="virtualpos", resource_type="payment", external_id="payment-new", payload={"order": {"authorized_at": "9999-02-01"}}),
+            Client(source="virtualpos1", external_id="client-1", raw_payload={"uuid": "client-1", "first_name": "Ana exclusiva", "last_name": "Rios", "status": "ACTIVO"}),
+            Client(source="virtualpos1", external_id="client-2", raw_payload={"uuid": "client-2", "first_name": "Bruno", "last_name": "Rios", "status": "INACTIVO"}),
+            Plan(source="virtualpos1", external_id="plan-1", raw_payload={"id": "plan-1", "automatic_renewal": "T"}),
+            Plan(source="virtualpos1", external_id="plan-2", raw_payload={"id": "plan-2", "automatic_renewal": "F"}),
+            Charge(source="virtualpos1", external_id="charge-old", charge_date="9999-01-01", raw_payload={"charge_date": "9999-01-01"}),
+            Charge(source="virtualpos1", external_id="charge-new", charge_date="9999-02-01", raw_payload={"charge_date": "9999-02-01"}),
+            Payment(source="virtualpos1", external_id="payment-old", payment_date="9999-01-01", raw_payload={"order": {"authorized_at": "9999-01-01"}}),
+            Payment(source="virtualpos1", external_id="payment-new", payment_date="9999-02-01", raw_payload={"order": {"authorized_at": "9999-02-01"}}),
         ]
     )
     db_session.flush()
 
-    clients = staging.list_records(source="virtualpos", resource_type="client", filter_field="name", query="ana", db=db_session)
+    clients = staging.list_records(source="virtualpos", resource_type="client", filter_field="name", query="ana exclusiva", db=db_session)
     active_plans = staging.list_records(source="virtualpos", resource_type="plan", filter_field="automatic_renewal", query="activo", db=db_session)
     charges = staging.list_records(source="virtualpos", resource_type="charge", db=db_session)
     payments = staging.list_records(source="virtualpos", resource_type="payment", db=db_session)
@@ -73,9 +76,9 @@ def test_virtualpos_records_filter_by_operational_fields_and_order_dates(db_sess
 def test_toku_and_payku_records_filter_by_visible_columns(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(source="toku", resource_type="customer", external_id="toku-customer-filter", payload={"id": "customer-filter", "government_id": "11.222.333-4"}),
-            SourceRecord(source="toku", resource_type="subscription", external_id="toku-subscription-filter", payload={"id": "subscription-filter", "customer": "customer-filter"}),
-            SourceRecord(source="payku", resource_type="plan", external_id="payku-plan-filter", payload={"id": "payku-plan-filter", "name": "Plan Filtro Exclusivo"}),
+            Client(source="toku", external_id="customer-filter", social_id="11.222.333-4", raw_payload={"id": "customer-filter"}),
+            Subscription(source="toku", external_id="subscription-filter", client_external_id="customer-filter", raw_payload={"id": "subscription-filter"}),
+            Plan(source="payku", external_id="payku-plan-filter", name="Plan Filtro Exclusivo", raw_payload={"id": "payku-plan-filter"}),
         ]
     )
     db_session.flush()
@@ -84,23 +87,24 @@ def test_toku_and_payku_records_filter_by_visible_columns(db_session) -> None:
     subscriptions = staging.list_records(source="toku", resource_type="subscription", filter_field="customer", query="customer-filter", db=db_session)
     plans = staging.list_records(source="payku", resource_type="plan", filter_field="name", query="filtro exclusivo", db=db_session)
 
-    assert [record["external_id"] for record in customers["items"]] == ["toku-customer-filter"]
-    assert [record["external_id"] for record in subscriptions["items"]] == ["toku-subscription-filter"]
+    assert [record["external_id"] for record in customers["items"]] == ["customer-filter"]
+    assert [record["external_id"] for record in subscriptions["items"]] == ["subscription-filter"]
     assert [record["external_id"] for record in plans["items"]] == ["payku-plan-filter"]
 
 
 def test_staging_summary_groups_records_and_latest_sync_by_source(db_session) -> None:
     before = staging.staging_summary(db=db_session)
     before_toku = next(source for source in before["sources"] if source["source"] == "toku")
+    before_payku = next(source for source in before["sources"] if source["source"] == "payku")
     db_session.add_all(
         [
             SourceRecord(source="virtualpos", resource_type="client", external_id="vp-1", payload={}),
-            SourceRecord(source="toku", resource_type="test_transaction", external_id="summary-toku-1", payload={}),
-            SourceRecord(source="toku", resource_type="test_customer", external_id="summary-toku-2", payload={}),
+            Client(source="toku", external_id="summary-toku-customer", raw_payload={"id": "summary-toku-customer"}),
+            Client(source="payku", external_id="summary-payku-client", raw_payload={"id": "summary-payku-client"}),
             SyncRun(
                 source="toku",
                 status="completed",
-                records_processed=2,
+                    records_processed=1,
                 finished_at=datetime.now(UTC),
             ),
         ]
@@ -109,29 +113,21 @@ def test_staging_summary_groups_records_and_latest_sync_by_source(db_session) ->
 
     response = staging.staging_summary(db=db_session)
     toku = next(source for source in response["sources"] if source["source"] == "toku")
+    payku = next(source for source in response["sources"] if source["source"] == "payku")
 
-    assert toku["records"] == before_toku["records"] + 2
-    assert toku["resources"]["test_customer"] == 1
-    assert toku["resources"]["test_transaction"] == 1
+    assert toku["records"] == before_toku["records"] + 1
+    assert toku["resources"]["customer"] == before_toku["resources"]["customer"] + 1
     assert toku["last_sync"] is not None
-    assert toku["last_sync"]["records_processed"] == 2
+    assert toku["last_sync"]["records_processed"] == 1
+    assert payku["records"] == before_payku["records"] + 1
+    assert payku["resources"]["client"] == before_payku["resources"]["client"] + 1
 
 
 def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(
-                source="payku",
-                resource_type="transaction",
-                external_id="dashboard-payku-1",
-                payload={"id": "dashboard-payku-1", "status": "success", "amount": "1200", "created_at": "2099-02-03"},
-            ),
-            SourceRecord(
-                source="payku",
-                resource_type="subscription",
-                external_id="dashboard-payku-2",
-                payload={"id": "dashboard-payku-2", "status": "active"},
-            ),
+            Payment(source="payku", external_id="dashboard-payku-1", status="success", amount="1200", payment_date="2099-02-03", raw_payload={"id": "dashboard-payku-1"}),
+            Subscription(source="payku", external_id="dashboard-payku-2", status="active", raw_payload={"id": "dashboard-payku-2"}),
         ]
     )
     db_session.flush()
@@ -146,29 +142,29 @@ def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) ->
 def test_virtualpos_client_detail_lists_all_subscriptions_by_social_id(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(
-                source="virtualpos",
-                resource_type="client",
+            Client(
+                source="virtualpos1",
                 external_id="detail-client-1",
-                payload={"uuid": "detail-client-1", "social_id": "12.345.678-9"},
+                social_id="12.345.678-9",
+                raw_payload={"uuid": "detail-client-1", "social_id": "12.345.678-9"},
             ),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="subscription",
+            Subscription(
+                source="virtualpos1",
                 external_id="detail-subscription-1",
-                payload={"id": "detail-subscription-1", "client": {"social_id": "12.345.678-9"}},
+                client_social_id="12.345.678-9",
+                raw_payload={"id": "detail-subscription-1", "client": {"social_id": "12.345.678-9"}},
             ),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="subscription",
+            Subscription(
+                source="virtualpos1",
                 external_id="detail-subscription-2",
-                payload={"id": "detail-subscription-2", "client": {"social_id": "12.345.678-9"}},
+                client_social_id="12.345.678-9",
+                raw_payload={"id": "detail-subscription-2", "client": {"social_id": "12.345.678-9"}},
             ),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="subscription",
+            Subscription(
+                source="virtualpos1",
                 external_id="other-subscription",
-                payload={"id": "other-subscription", "client": {"social_id": "98.765.432-1"}},
+                client_social_id="98.765.432-1",
+                raw_payload={"id": "other-subscription", "client": {"social_id": "98.765.432-1"}},
             ),
         ]
     )
@@ -187,18 +183,18 @@ def test_virtualpos_client_detail_lists_all_subscriptions_by_social_id(db_sessio
 def test_virtualpos_plan_detail_lists_subscriptions_by_plan_id(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(source="virtualpos", resource_type="plan", external_id="detail-plan-1", payload={"id": "plan-1"}),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="subscription",
+            Plan(source="virtualpos1", external_id="detail-plan-1", raw_payload={"id": "detail-plan-1"}),
+            Subscription(
+                source="virtualpos1",
                 external_id="plan-subscription-1",
-                payload={"plan_id": "plan-1"},
+                plan_external_id="detail-plan-1",
+                raw_payload={"plan_id": "detail-plan-1"},
             ),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="subscription",
+            Subscription(
+                source="virtualpos1",
                 external_id="other-plan-subscription",
-                payload={"plan_id": "plan-2"},
+                plan_external_id="plan-2",
+                raw_payload={"plan_id": "plan-2"},
             ),
         ]
     )
@@ -213,32 +209,27 @@ def test_virtualpos_plan_detail_lists_subscriptions_by_plan_id(db_session) -> No
 def test_virtualpos_subscription_detail_returns_payment_method_and_charges(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(
-                source="virtualpos",
-                resource_type="subscription",
+            Subscription(
+                source="virtualpos1",
                 external_id="detail-subscription-3",
-                payload={"payment_method": {"brand": "Visa", "last4": "1234"}},
+                raw_payload={"payment_method": {"brand": "Visa", "last4": "1234"}},
             ),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="charge",
+            Charge(
+                source="virtualpos1",
                 external_id="detail-charge-1",
-                payload={"amount": 1000, "charge_date": "2026-01-01"},
-                sync_context={"subscription_external_id": "detail-subscription-3"},
+                subscription_external_id="detail-subscription-3", charge_date="2026-01-01",
+                raw_payload={"amount": 1000, "charge_date": "2026-01-01"},
             ),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="charge",
+            Charge(
+                source="virtualpos1",
                 external_id="detail-charge-2",
-                payload={"amount": 2000, "charge_date": "2026-02-01"},
-                sync_context={"subscription_external_id": "detail-subscription-3"},
+                subscription_external_id="detail-subscription-3", charge_date="2026-02-01",
+                raw_payload={"amount": 2000, "charge_date": "2026-02-01"},
             ),
-            SourceRecord(
-                source="virtualpos",
-                resource_type="charge",
+            Charge(
+                source="virtualpos1",
                 external_id="other-charge",
-                payload={"amount": 2000},
-                sync_context={"subscription_external_id": "other-subscription"},
+                subscription_external_id="other-subscription", raw_payload={"amount": 2000},
             ),
         ]
     )
@@ -256,11 +247,10 @@ def test_virtualpos_subscription_detail_returns_payment_method_and_charges(db_se
 
 def test_virtualpos_charge_detail_returns_local_staging_record(db_session) -> None:
     db_session.add(
-        SourceRecord(
-            source="virtualpos",
-            resource_type="charge",
+        Charge(
+            source="virtualpos1",
             external_id="detail-charge-record",
-            payload={"id": "detail-charge-record", "charge_date": "2026-01-01"},
+            charge_date="2026-01-01", raw_payload={"id": "detail-charge-record", "charge_date": "2026-01-01"},
         )
     )
     db_session.flush()
@@ -272,11 +262,10 @@ def test_virtualpos_charge_detail_returns_local_staging_record(db_session) -> No
 
 def test_virtualpos_payment_detail_returns_local_staging_record(db_session) -> None:
     db_session.add(
-        SourceRecord(
-            source="virtualpos",
-            resource_type="payment",
+        Payment(
+            source="virtualpos1",
             external_id="detail-payment-record",
-            payload={"order": {"uuid": "payment-uuid"}},
+            raw_payload={"order": {"uuid": "payment-uuid"}},
         )
     )
     db_session.flush()
@@ -286,37 +275,142 @@ def test_virtualpos_payment_detail_returns_local_staging_record(db_session) -> N
     assert response["payment"]["external_id"] == "detail-payment-record"
 
 
-def test_toku_detail_returns_only_explicit_related_records(db_session) -> None:
+def test_toku_canonical_records_use_visible_fields_and_date_ordering(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(source="toku", resource_type="customer", external_id="toku-customer-1", payload={"id": "customer-1"}),
-            SourceRecord(source="toku", resource_type="subscription", external_id="toku-subscription-1", payload={"customer": "customer-1"}),
-            SourceRecord(source="toku", resource_type="invoice", external_id="toku-invoice-1", payload={"customer": "customer-1"}),
-            SourceRecord(source="toku", resource_type="transaction", external_id="toku-transaction-1", payload={"customer_id": "customer-1"}),
-            SourceRecord(source="toku", resource_type="subscription", external_id="toku-other-subscription", payload={"customer": "customer-2"}),
+            Charge(source="toku", external_id="invoice-old", charge_date="2099-01-01", raw_payload={"due_date": "2099-01-01"}),
+            Charge(source="toku", external_id="invoice-new", charge_date="2099-02-01", raw_payload={"due_date": "2099-02-01"}),
+            Payment(source="toku", external_id="transaction-old", payment_date="2099-01-01", raw_payload={"transaction_date": "2099-01-01"}),
+            Payment(source="toku", external_id="transaction-new", payment_date="2099-02-01", raw_payload={"transaction_date": "2099-02-01"}),
         ]
     )
     db_session.flush()
 
-    response = staging.provider_record_detail("toku", "customer", "toku-customer-1", db=db_session)
+    invoices = staging.list_records(source="toku", resource_type="invoice", db=db_session)
+    transactions = staging.list_records(source="toku", resource_type="transaction", db=db_session)
 
-    related = {group["resource_type"]: group["items"] for group in response["related"]}
-    assert {item["external_id"] for item in related["subscription"]} == {"toku-subscription-1"}
-    assert {item["external_id"] for item in related["invoice"]} == {"toku-invoice-1"}
-    assert {item["external_id"] for item in related["transaction"]} == {"toku-transaction-1"}
+    invoice_ids = [record["external_id"] for record in invoices["items"]]
+    transaction_ids = [record["external_id"] for record in transactions["items"]]
+    assert invoice_ids.index("invoice-new") < invoice_ids.index("invoice-old")
+    assert transaction_ids.index("transaction-new") < transaction_ids.index("transaction-old")
 
 
-def test_payku_detail_returns_subscriptions_by_explicit_client_id(db_session) -> None:
+def test_toku_payment_method_filters_use_nested_card_fields(db_session) -> None:
+    db_session.add(
+        PaymentMethod(
+            source="toku",
+            external_id="method-card-1",
+            client_external_id="customer-1",
+            status="chargeable",
+            raw_payload={
+                "payment_method": {
+                    "card": {
+                        "bank_name": "Banco de Prueba",
+                        "card_brand": "Visa",
+                        "card_type": "TC",
+                        "last_digits": "1234",
+                    }
+                }
+            },
+        )
+    )
+    db_session.flush()
+
+    response = staging.list_records(
+        source="toku",
+        resource_type="payment_method",
+        filter_field="bank_name",
+        query="Prueba",
+        db=db_session,
+    )
+
+    assert [item["external_id"] for item in response["items"]] == ["method-card-1"]
+
+
+def test_toku_payment_methods_sort_by_nested_card_field(db_session) -> None:
     db_session.add_all(
         [
-            SourceRecord(source="payku", resource_type="client", external_id="payku-client-1", payload={"id": "client-1"}),
-            SourceRecord(source="payku", resource_type="subscription", external_id="payku-subscription-1", payload={"client": {"id": "client-1"}}),
-            SourceRecord(source="payku", resource_type="subscription", external_id="payku-other-subscription", payload={"client": {"id": "client-2"}}),
+            PaymentMethod(
+                source="toku",
+                external_id="method-bank-z",
+                raw_payload={"payment_method": {"card": {"bank_name": "Zeta"}}},
+            ),
+            PaymentMethod(
+                source="toku",
+                external_id="method-bank-a",
+                raw_payload={"payment_method": {"card": {"bank_name": "Alfa"}}},
+            ),
         ]
     )
     db_session.flush()
 
-    response = staging.provider_record_detail("payku", "client", "payku-client-1", db=db_session)
+    response = staging.list_records(
+        source="toku",
+        resource_type="payment_method",
+        sort_field="bank_name",
+        sort_direction="asc",
+        db=db_session,
+    )
 
-    assert response["related"][0]["resource_type"] == "subscription"
-    assert [item["external_id"] for item in response["related"][0]["items"]] == ["payku-subscription-1"]
+    ids = [item["external_id"] for item in response["items"]]
+    assert ids.index("method-bank-a") < ids.index("method-bank-z")
+
+
+def test_toku_detail_and_dashboard_use_canonical_records(db_session) -> None:
+    before = staging.channel_dashboard("toku", db=db_session)
+    db_session.add_all(
+        [
+            Client(source="toku", external_id="customer-1", social_id="11.222.333-4", raw_payload={"id": "customer-1"}),
+            Subscription(source="toku", external_id="subscription-1", client_external_id="customer-1", status="active", amount="1000", suscription_date="2099-02-01", raw_payload={"id": "subscription-1"}),
+            PaymentMethod(source="toku", external_id="method-1", client_external_id="customer-1", status="chargeable", raw_payload={"subscription_ids": ["subscription-1"]}),
+            Charge(source="toku", external_id="invoice-1", client_external_id="customer-1", subscription_external_id="subscription-1", status="PAID", amount="2000", charge_date="2099-03-01", raw_payload={"id": "invoice-1"}),
+            Payment(source="toku", external_id="transaction-1", client_external_id="customer-1", status="SUCCESS", amount="1500", payment_date="2099-03-02", raw_payload={"subscription_id": "subscription-1"}),
+            SourceRecord(source="toku", resource_type="customer", external_id="stale-source-record", payload={"id": "stale-source-record"}),
+        ]
+    )
+    db_session.flush()
+
+    detail = staging.provider_record_detail("toku", "customer", "customer-1", db=db_session)
+    dashboard = staging.channel_dashboard("toku", db=db_session)
+
+    related = {group["resource_type"]: group["items"] for group in detail["related"]}
+    assert detail["record"]["payload"] == {"id": "customer-1"}
+    assert {item["external_id"] for item in related["subscription"]} == {"subscription-1"}
+    assert {item["external_id"] for item in related["payment_method"]} == {"method-1"}
+    assert {item["external_id"] for item in related["invoice"]} == {"invoice-1"}
+    assert {item["external_id"] for item in related["transaction"]} == {"transaction-1"}
+    assert dashboard["records"] == before["records"] + 5
+    for resource in ("customer", "payment_method", "subscription", "invoice", "transaction"):
+        assert dashboard["resources"][resource] == before["resources"][resource] + 1
+    assert dashboard["resource_amounts"]["subscription"] == before["resource_amounts"]["subscription"] + 1000.0
+    assert dashboard["resource_amounts"]["invoice"] == before["resource_amounts"]["invoice"] + 2000.0
+    assert dashboard["resource_amounts"]["transaction"] == before["resource_amounts"]["transaction"] + 1500.0
+    assert {entry["year"] for entry in dashboard["activity"]} >= {2099}
+
+
+def test_payku_canonical_detail_links_clients_plans_subscriptions_and_transactions(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(source="payku", external_id="client-1", raw_payload={"id": "client-1"}),
+            Plan(source="payku", external_id="plan-1", raw_payload={"id": "plan-1"}),
+            Subscription(source="payku", external_id="subscription-1", client_external_id="client-1", plan_external_id="plan-1", raw_payload={"id": "subscription-1"}),
+            Subscription(source="payku", external_id="other-subscription", client_external_id="client-2", raw_payload={"id": "other-subscription"}),
+            Payment(source="payku", external_id="transaction-1", raw_payload={"subscriptions": [{"id": "subscription-1"}]}),
+            SourceRecord(source="payku", resource_type="client", external_id="stale-source-record", payload={"id": "stale-source-record"}),
+        ]
+    )
+    db_session.flush()
+
+    client = staging.provider_record_detail("payku", "client", "client-1", db=db_session)
+    subscription = staging.provider_record_detail("payku", "subscription", "subscription-1", db=db_session)
+    transaction = staging.provider_record_detail("payku", "transaction", "transaction-1", db=db_session)
+
+    client_related = {group["resource_type"]: group["items"] for group in client["related"]}
+    subscription_related = {group["resource_type"]: group["items"] for group in subscription["related"]}
+    transaction_related = {group["resource_type"]: group["items"] for group in transaction["related"]}
+    assert client["record"]["payload"] == {"id": "client-1"}
+    assert [item["external_id"] for item in client_related["subscription"]] == ["subscription-1"]
+    assert [item["external_id"] for item in subscription_related["client"]] == ["client-1"]
+    assert [item["external_id"] for item in subscription_related["plan"]] == ["plan-1"]
+    assert [item["external_id"] for item in subscription_related["transaction"]] == ["transaction-1"]
+    assert [item["external_id"] for item in transaction_related["subscription"]] == ["subscription-1"]

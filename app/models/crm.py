@@ -15,9 +15,10 @@ class CanonicalRecord(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source: Mapped[str] = mapped_column(String(50), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    source_record_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("source_records.id"), nullable=False, unique=True
+    source_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_records.id"), nullable=True, unique=True
     )
+    raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -58,12 +59,15 @@ class Subscription(CanonicalRecord):
     __table_args__ = (UniqueConstraint("source", "external_id", name="uq_subscription_source_external_id"),)
 
     client_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    client_social_id: Mapped[str | None] = mapped_column(String(50), index=True)
     plan_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     service_id: Mapped[str | None] = mapped_column(String(255), index=True)
     status: Mapped[str | None] = mapped_column(String(50), index=True)
     automatic_renewal: Mapped[str | None] = mapped_column(String(10))
     suscription_date: Mapped[str | None] = mapped_column(String(50))
     canceled_at: Mapped[str | None] = mapped_column(String(50))
+    amount: Mapped[str | None] = mapped_column(String(50))
+    currency: Mapped[str | None] = mapped_column(String(10))
 
 
 class Charge(CanonicalRecord):
@@ -71,6 +75,7 @@ class Charge(CanonicalRecord):
     __table_args__ = (UniqueConstraint("source", "external_id", name="uq_charge_source_external_id"),)
 
     subscription_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    client_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     amount: Mapped[str | None] = mapped_column(String(50))
     currency: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[str | None] = mapped_column(String(50), index=True)
@@ -82,7 +87,16 @@ class Payment(CanonicalRecord):
     __table_args__ = (UniqueConstraint("source", "external_id", name="uq_payment_source_external_id"),)
 
     charge_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    client_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     amount: Mapped[str | None] = mapped_column(String(50))
     currency: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[str | None] = mapped_column(String(50), index=True)
     payment_date: Mapped[str | None] = mapped_column(String(50))
+
+
+class PaymentMethod(CanonicalRecord):
+    __tablename__ = "payment_methods"
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_payment_method_source_external_id"),)
+
+    client_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    status: Mapped[str | None] = mapped_column(String(50), index=True)

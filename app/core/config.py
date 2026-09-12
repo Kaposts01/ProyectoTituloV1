@@ -10,17 +10,33 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = False
     database_url: str
+    # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str
     virtualpos_api_key: str
     virtualpos_secret_key: str
     virtualpos_timeout_seconds: float = 30
+    # VirtualPOS cuenta 2 (producción)
+    virtualpos2_base_url: str = ""
+    virtualpos2_api_key: str = ""
+    virtualpos2_secret_key: str = ""
+    # Toku
     toku_base_url: str = ""
     toku_api_key: str = ""
+    toku_account_key: str = ""
     toku_timeout_seconds: float = 30
+    # Payku
     payku_base_url: str = ""
     payku_api_key: str = ""
     payku_secret_key: str = ""
+    payku_public_token: str = ""
+    payku_private_token: str = ""
+    payku_date_init: str = "2020-08-04"
+    payku_date_end: str = ""
     payku_timeout_seconds: float = 30
+    # BDlocales — bases de datos locales configuradas únicamente en .env
+    virtualpos_db_url: str = ""
+    toku_db_url: str = ""
+    payku_db_url: str = ""
 
 
 @lru_cache

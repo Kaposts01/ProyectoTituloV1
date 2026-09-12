@@ -64,7 +64,14 @@
 }
 
 /* ── Shell ───────────────────────────────────────────────────────── */
-.app-shell { flex: 1; max-width: 1280px; margin: 0 auto; padding: 26px 42px 52px; }
+.app-shell {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  max-width: none;
+  margin: 0;
+  padding: 26px clamp(24px, 3vw, 48px) 52px;
+}
 .sidebar-config { margin-top: 24px; }
 .topbar, .hero-panel, .workspace { display: flex; justify-content: space-between; gap: 24px; }
 .topbar { align-items: center; margin-bottom: 44px; }
@@ -130,8 +137,8 @@ h3 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
 .panel-heading > span { color: var(--text-3); font-size: 13px; }
 
 /* ── Table ───────────────────────────────────────────────────────── */
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; text-align: left; }
+.table-wrap { width: 100%; overflow-x: auto; }
+table { width: 100%; min-width: max-content; border-collapse: collapse; text-align: left; }
 th { color: var(--text-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
 th, td { padding: 13px 8px; border-bottom: 1px solid var(--border-subtle); font-size: 14px; color: var(--text-1); }
 td:first-child { font-weight: 700; }
@@ -156,6 +163,7 @@ td:first-child { font-weight: 700; }
 .field-list div { min-width: 0; }
 .field-list dt { color: var(--text-3); font-size: 12px; }
 .field-list dd { margin: 4px 0 0; font-weight: 700; overflow-wrap: anywhere; color: var(--text-1); }
+.payment-method-fields { margin-top: 16px; }
 .resource-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 24px; }
 .resource-tabs button, .primary-button, .text-button { border: 0; cursor: pointer; font: inherit; font-weight: 800; }
 .resource-tabs button { display: flex; gap: 8px; align-items: center; padding: 9px 12px; border-radius: 9px; color: var(--text-2); background: var(--bg-muted); }

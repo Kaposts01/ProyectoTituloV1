@@ -5,7 +5,14 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.core.config import settings
 from app.db.session import Base
-from app.models.crm import Charge, Client, Payment, Plan, Subscription  # noqa: F401
+from app.models.crm import (  # noqa: F401
+    Charge,
+    Client,
+    Payment,
+    PaymentMethod,
+    Plan,
+    Subscription,
+)
 from app.models.source_record import SourceRecord  # noqa: F401
 from app.models.sync_run import SyncRun  # noqa: F401
 

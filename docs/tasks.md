@@ -93,6 +93,22 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
 | DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
 | DOC-02 | Documentar API VirtualPOS | Completada | `docs/Documentacion API VirtualPOS.md` cubre rutas, contratos, autenticación, paginación y estrategia incremental. |
+| OPS-01 | Corregir configuración de sincronización local | Completada | VirtualPOS confirmó una sincronización idempotente; Toku se sincronizó correctamente con 21 registros y una segunda ejecución idempotente de 0 registros usando `api.trytoku.com`. No se expusieron credenciales. |
+| MT-02 | Corregir relaciones y métricas VirtualPOS desde BD local | Completada | Clientes relacionan suscripciones por RUT; cargos muestran suscripción; KPIs filtran estados operativos y el monto de suscripciones se materializa desde la BD local. |
+| MT-03 | Desglosar gráficos mensuales por estado | Completada | Actividad, cargos, transacciones y activaciones muestran barras apiladas por estado. |
+| TK-03 | Migrar vistas Toku a BD local | Completada | Menú, tablas, fichas y dashboard Toku consultan las entidades canónicas materializadas desde Toku_Local; sincronizar Toku rematerializa solo desde esa BD. |
+| PK-03 | Migrar vistas Payku a BD local | Completada | Menú, tablas, fichas y dashboard Payku consultan las entidades canónicas materializadas desde Payku_Local; sincronizar Payku rematerializa solo desde esa BD. |
+| TK-04 | Ajustar suscripciones activas Toku | Completada | El resumen operativo cuenta y suma solo suscripciones `ACTIVE` vinculadas a un método `chargeable`. |
+| TK-05 | Ajustar deudas y transacciones Toku | Completada | El resumen filtra deudas `PAID` y transacciones `SUCCESS`, muestra sus montos y desglosa los gráficos por estado. |
+| UI-01 | Unificar paleta de gráficos | Completada | Todos los canales usan colores semánticos consistentes para sus estados y series. |
+| TK-06 | Mejorar ficha de método de pago Toku | Completada | La ficha agrupa información útil y omite tokens, BIN y metadatos técnicos. |
+| TK-07 | Mejorar tabla de métodos de pago Toku | Completada | La tabla muestra cliente, tarjeta, banco y asociaciones como valores escalares, sin objetos ni RUT incorrecto. |
+| UI-02 | Ajustar anchos y márgenes de vistas | Completada | El contenido usa todo el ancho disponible y las tablas conservan sus columnas sin recortarse. |
+| UI-03 | Mejorar filtros y orden de tablas | Completada | Los filtros son claros y cada columna de datos permite ordenar ascendente o descendente. |
+| UI-04 | Hacer visibles los controles de tabla | Completada | El orden es evidente y los campos de estado usan un selector de valores disponibles. |
+| UI-05 | Ordenar registros completos desde la tabla | Completada | El orden usa campos seguros, incluidos anidados, y se aplica antes de paginar los registros. |
+| ETL-01 | Consolidar BDlocales en entidades canónicas | Completada | VirtualPOS, Toku y Payku se materializan de forma idempotente desde sus BDlocales; los payloads saneados mantienen trazabilidad. |
+| ETL-02 | Orquestar sync read-only y ETL en segundo plano | Completada | Las rutas `/api/v1/etl/run` y `/api/v1/etl/full-sync` registran estado y fase sin exponer credenciales. |
 
 ## Avance 2026-08-30
 
@@ -122,3 +138,60 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 - Se incorporaron VP-18 a VP-27: fichas de cargo y pago VirtualPOS, filtros avanzados por campo, modales de edicion y cancelacion visual (escritura remota pendiente), mejoras de etiquetas y navegacion en fichas de los tres canales.
 - Se agrego DOC-02: guia completa de la API VirtualPOS en `docs/Documentacion API VirtualPOS.md`.
 - `Dashboard_referencia.py` se incluye como template Streamlit de referencia para futuros dashboards analiticos; no es codigo productivo.
+
+## Hito 2: Operaciones de escritura
+
+Cada tarea sigue el mismo patrón de tres capas:
+1. **Backend** — Nueva ruta en `app/api/v1/routes/`; llama al endpoint externo con las credenciales del proveedor.
+2. **Servicio** — Tras respuesta exitosa: actualiza `source_records` en bdlocal y re-materializa el registro canónico (patrón ya establecido en `app/services/crm_materialization.py`).
+3. **Frontend** — Habilita el botón existente en `frontend/src/App.tsx` (ya presente pero `disabled`) y conecta el `onClick` al nuevo endpoint interno.
+
+### WR-VP: Escritura VirtualPOS
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| WR-VP-01 | Habilitar edición real de clientes VirtualPOS | Pendiente | `PUT /v3/client/:uuid` ejecutado desde el modal; bdlocal actualizada; botón "Guardar cambios" operativo. |
+| WR-VP-02 | Habilitar cancelación real de suscripciones VirtualPOS | Pendiente | `DELETE /v3/suscription/:id` ejecutado desde el modal de confirmación; estado en bdlocal cambia a CANCELADA. |
+| WR-VP-03 | Habilitar cancelación real de cargos VirtualPOS | Pendiente | `DELETE /v3/charge/:id` ejecutado desde ficha y tabla; cargo actualizado en bdlocal. |
+| WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Pendiente | `DELETE /v3/payment/:uuid` ejecutado desde ficha y tabla; pago actualizado en bdlocal. |
+| WR-VP-05 | Flujo especial: reasignar monto o fecha de cargos de suscripción | Pendiente | Nuevo modal en ficha de suscripción con campo de monto y/o fecha; flujo: (1) listar cargos pendientes `GET /v3/suscription/:id/charges`, (2) cancelar cada pendiente `DELETE /v3/charge/:id`, (3) crear nuevos cargos `POST /v3/charge` con los valores indicados; bdlocal refleja el resultado. VirtualPOS no expone PUT directo sobre suscripciones; este es el flujo equivalente. |
+
+### WR-TK: Escritura Toku
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| WR-TK-01 | Habilitar edición real de clientes Toku | Pendiente | `PUT /customers/:id` ejecutado desde modal; bdlocal actualizada; botón "Guardar cambios" operativo. |
+| WR-TK-02 | Habilitar edición de invoices Toku | Pendiente | `PUT /invoices/:id` ejecutado con monto y/o fecha límite; bdlocal actualizada. |
+| WR-TK-03 | Habilitar edición de suscripciones Toku | Pendiente | `PUT /subscriptions/:id` ejecutado desde modal; bdlocal actualizada. |
+| WR-TK-04 | Habilitar eliminación de clientes Toku | Pendiente | `DELETE /customers/:id` ejecutado desde fila y ficha; registro marcado en bdlocal. |
+| WR-TK-05 | Habilitar eliminación de invoices Toku | Pendiente | `DELETE /invoices/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
+| WR-TK-06 | Habilitar eliminación de suscripciones Toku | Pendiente | `DELETE /subscriptions/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
+
+### WR-PK: Escritura Payku
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| WR-PK-01 | Habilitar edición de clientes Payku | Pendiente | `PUT /api/suclient/:id` ejecutado desde modal; campos de nombre, email y teléfono actualizados en bdlocal. |
+| WR-PK-02 | Habilitar eliminación de suscripciones Payku | Pendiente | `DELETE /api/sususcription/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
+| WR-PK-03 | Habilitar eliminación de clientes suscripción Payku | Pendiente | `DELETE /api/suclient/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
+
+### WR-INF: Infraestructura transversal de escritura
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| WR-INF-01 | Crear capa de servicio de escritura por proveedor | Pendiente | Módulos `app/services/write_virtualpos.py`, `write_toku.py`, `write_payku.py` con manejo de errores HTTP y rollback en bdlocal si la plataforma rechaza la operación. |
+| WR-INF-02 | Añadir rutas de escritura a la API interna | Pendiente | Endpoints PUT/DELETE internos documentados en Swagger; pruebas unitarias con respuestas simuladas cubren éxito, error de plataforma y conflicto de estado. |
+
+## Actualización documental 2026-09-11 (hito escritura)
+
+- Se añadió el Hito 2: Operaciones de escritura con 13 tareas de escritura por proveedor (WR-VP-01 a WR-VP-05, WR-TK-01 a WR-TK-06, WR-PK-01 a WR-PK-03) y 2 tareas de infraestructura transversal (WR-INF-01, WR-INF-02).
+- Las plataformas soportan: VirtualPOS (PUT cliente, DELETE suscripción/cargo/pago), Toku (PUT y DELETE sobre cliente/invoice/suscripción), Payku (PUT y DELETE sobre cliente/suscripción).
+
+## Actualización documental 2026-09-11 (consolidación y tablas)
+
+- Se añadieron migraciones `20260911_0007` a `20260911_0010`: soporte para payloads canónicos, relaciones de cliente, ejecuciones ETL y métodos de pago Toku.
+- El ETL consolida las tres BDlocales en las entidades canónicas; la sincronización completa mantiene operaciones contra proveedores exclusivamente en modo read-only.
+- Las tablas aprovechan el ancho disponible, filtran por columnas operativas, ofrecen selector de estados y ordenan globalmente antes de paginar, incluidos campos anidados visibles de Toku.
+- La escritura remota continúa pendiente de autorización e implementación de las tareas `WR-*`; los botones visuales no realizan llamadas de escritura.
+- WR-VP-05 documenta el flujo especial de reasignación de monto/fecha en VirtualPOS: no existe PUT directo sobre suscripciones; el flujo equivalente es cancelar los cargos pendientes y recrearlos con los valores nuevos.
+- Todos los botones de escritura del frontend ya existen visualmente (disabled); se habilitarán conforme se implementen los endpoints internos correspondientes.

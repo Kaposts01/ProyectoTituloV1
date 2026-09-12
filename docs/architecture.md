@@ -4,15 +4,15 @@
 
 El CRM integra VirtualPOS Sandbox, Toku y Payku en modo read-only. Los sincronizadores configurados usan consultas `GET`; la interfaz consume unicamente la API local y nunca se conecta directamente a un proveedor.
 
-`Proveedor -> cliente HTTP -> sync_runs / source_records -> futuro ETL -> BD_Central -> dashboard React`
+`Proveedor -> BDlocal por proveedor -> ETL -> entidades canónicas CRM -> API local -> dashboard React`
 
-La capa canonica actual corresponde a VirtualPOS. Toku y Payku se consultan desde sus registros staging, sin mezclarlos con el modelo canonico hasta que exista el ETL hacia `BD_Central`.
+Las entidades canónicas se materializan desde las BDlocales de VirtualPOS, Toku y Payku. Toku incluye métodos de pago canónicos; los payloads saneados permanecen como respaldo de trazabilidad.
 
 ## Staging y sincronizacion
 
 Cada ejecucion crea o actualiza un `sync_run`. Las respuestas se sanean y se persisten en `source_records` con fuente, tipo de recurso, identificador externo, payload y marcas de tiempo. La restriccion unica `(source, resource_type, external_id)` mantiene la sincronizacion idempotente; los payloads sin cambios no se reescriben.
 
-Los recursos sincronizados son:
+Los recursos sincronizados y materializados son:
 
 - VirtualPOS: clientes, planes, suscripciones, cargos y pagos.
 - Toku: clientes, deudas, metodos de pago, suscripciones y transacciones.
@@ -20,11 +20,11 @@ Los recursos sincronizados son:
 
 Los errores de sincronizacion eliminan secretos configurados y secuencias con formato de tarjeta antes de guardarse.
 
-## API y frontend
+## Consolidación y API
 
-La API FastAPI se publica bajo `/api/v1`. Los endpoints CRM consultan el modelo canonico de VirtualPOS; `/staging` ofrece resumen, listas, mini dashboards y fichas de los tres canales.
+La API FastAPI se publica bajo `/api/v1`. `/staging` ofrece resumen, listas, mini dashboards y fichas desde las entidades canónicas de los tres canales. `/etl/run` ejecuta solo la consolidación desde BDlocales; `/etl/full-sync` ejecuta lectura read-only de proveedores, actualiza BDlocales y consolida en segundo plano.
 
-El frontend React usa el proxy de Vite hacia la API local. Sus mini dashboards calculan metricas, estados y actividad mensual a partir del staging de cada fuente. Esas metricas no son consolidadas mientras no exista `BD_Central`.
+El frontend React usa el proxy de Vite hacia la API local. Sus mini dashboards calculan métricas, estados y actividad mensual desde entidades canónicas. Las tablas filtran por columnas operativas, ofrecen estados como selector cuando corresponde y ordenan globalmente mediante la API antes de paginar.
 
 Las relaciones se limitan a identificadores que entrega cada proveedor:
 
@@ -32,7 +32,7 @@ Las relaciones se limitan a identificadores que entrega cada proveedor:
 - Toku usa sus IDs de cliente, suscripcion, metodo de pago, deuda y transaccion. El RUT del cliente procede de `government_id`.
 - Payku enlaza clientes, planes y suscripciones mediante los IDs declarados en la suscripcion. Las transacciones sin identificador comprobable quedan sin relacion.
 
-Las tablas de los tres canales filtran en la API local mediante `filter_field` y `query`, preservando el total correcto. Los cargos VirtualPOS se ordenan por `charge_date` descendente y las transacciones de VirtualPOS por `order.authorized_at` descendente, con registros sin fecha al final.
+Las tablas de los tres canales filtran en la API local mediante `filter_field` y `query`, preservando el total correcto. `sort_field` y `sort_direction` admiten solo campos visibles permitidos y aplican el orden global antes de la paginación; los métodos de pago Toku incluyen campos anidados de tarjeta saneados.
 
 El frontend incluye modales de edicion visual para clientes y cancelacion de suscripciones VirtualPOS. Estos modales no persisten cambios en el proveedor mientras la integracion Sandbox permanezca en modo read-only.
 

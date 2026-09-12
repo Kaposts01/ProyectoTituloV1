@@ -56,3 +56,20 @@ def test_extracts_payment_date_from_the_payment_order() -> None:
     )
 
     assert _values(record)["payment_date"] == "2026-01-01T00:00:00Z"  # type: ignore[arg-type]
+
+
+def test_extracts_virtualpos_subscription_rut_and_amount() -> None:
+    record = SimpleNamespace(
+        payload={
+            "client": {"social_id": "11.111.111-1"},
+            "amount": 12500,
+            "currency": "CLP",
+        },
+        sync_context={},
+    )
+
+    values = _values(record)  # type: ignore[arg-type]
+
+    assert values["client_social_id"] == "11.111.111-1"
+    assert values["amount"] == "12500"
+    assert values["currency"] == "CLP"

@@ -3,6 +3,7 @@ import "./App.css";
 import "./Staging.css";
 import { MonthlySimpleChart, MonthlyStatusChart } from "./MonthlyStatusChart";
 import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
+import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 
 const ChannelActivityChart = lazy(() => import("./ChannelActivityChart"));
 
@@ -51,7 +52,7 @@ type ChannelDashboard = {
   invoices_monthly?: MonthlyStatusEntry[];
   transactions_monthly?: MonthlyEntry[] | MonthlyStatusEntry[];
   // Shared
-  activation_monthly?: MonthlyEntry[];
+  activation_monthly?: MonthlyStatusEntry[];
   churn_monthly?: MonthlyEntry[];
 };
 type VirtualPosClientDetail = {
@@ -82,6 +83,17 @@ type ProviderRecordDetail = {
   related: RelatedRecords[];
 };
 type FilterOption = { value: string; label: string };
+type SortDirection = "asc" | "desc";
+type EtlRun = {
+  id: string;
+  status: string;
+  phase: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  records_upserted: number;
+  channels_processed: string[] | null;
+  error_message: string | null;
+};
 type ClientEditField = { name: string; label: string; type?: string };
 
 const providerGroups: { name: string; sections: ProviderSection[] }[] = [
@@ -128,10 +140,10 @@ const virtualPosMetrics = [
 ];
 const tokuMetrics = [
   { resource: "customer", label: "Clientes", tone: "blue" },
-  { resource: "subscription", label: "Subscripciones", tone: "violet" },
+  { resource: "subscription", label: "Subscripciones", tone: "violet", amount: true },
   { resource: "payment_method", label: "Metodos de pago", tone: "gold" },
-  { resource: "invoice", label: "Deudas", tone: "orange" },
-  { resource: "transaction", label: "Transacciones", tone: "green" },
+  { resource: "invoice", label: "Deudas", tone: "orange", amount: true },
+  { resource: "transaction", label: "Transacciones", tone: "green", amount: true },
 ];
 const paykuMetrics = [
   { resource: "client", label: "Clientes", tone: "blue" },
@@ -177,20 +189,10 @@ const METRIC_COLORS: Record<string, string> = {
   green: "#3ba675",
 };
 const CHANNEL_COLORS: Record<string, string> = {
-  virtualpos: "#0A5657",
-  toku: "#8000CC",
-  payku: "#2800D9",
+  virtualpos: CHART_PRIMARY,
+  toku: CHART_PRIMARY,
+  payku: CHART_PRIMARY,
 };
-const STATUS_PALETTE = [
-  "#3ba675",
-  "#4a90c4",
-  "#7b6cc7",
-  "#c49d30",
-  "#d46a2a",
-  "#a53d35",
-  "#728186",
-  "#2d6a4f",
-];
 const virtualPosClientFields = [
   "uuid",
   "status",
@@ -203,6 +205,7 @@ const virtualPosClientFields = [
   "social_id",
   "birth_date",
   "gender_id",
+  "private_note",
   "created",
   "updated",
 ];
@@ -218,6 +221,7 @@ const virtualPosClientFieldLabels: Record<string, string> = {
   social_id: "RUT documento",
   birth_date: "Fecha nacimiento",
   gender_id: "Genero",
+  private_note: "Nota privada",
   created: "Creado",
   updated: "Actualizado",
 };
@@ -265,6 +269,7 @@ const fieldLabels: Record<string, string> = {
   channel: "Canal",
   customer: "Cliente",
   customer_id: "ID cliente",
+  service_id: "ID servicio",
   subscription: "Subscripcion",
   subscription_id: "ID subscripcion",
   subscription_ids: "IDs subscripciones",
@@ -321,6 +326,7 @@ const virtualPosPlanFields = [
 const virtualPosSubscriptionFields = [
   "status",
   "id",
+  "service_id",
   "plan_name",
   "suscription_date",
   "canceled_at",
@@ -341,18 +347,69 @@ const virtualPosClientEditFields: ClientEditField[] = [
   { name: "birth_date", label: "Fecha de nacimiento", type: "date" },
   { name: "gender_id", label: "Género" },
 ];
+const providerEditFields: Record<string, Record<string, ClientEditField[]>> = {
+  toku: {
+    customer: [
+      { name: "name", label: "Nombre" },
+      { name: "mail", label: "Correo electrónico", type: "email" },
+    ],
+    invoice: [
+      { name: "amount", label: "Monto", type: "number" },
+      { name: "due_date", label: "Fecha límite", type: "date" },
+    ],
+    subscription: [{ name: "amount", label: "Monto", type: "number" }],
+  },
+  payku: {
+    client: [
+      { name: "name", label: "Nombre" },
+      { name: "email", label: "Correo electrónico", type: "email" },
+      { name: "phone", label: "Teléfono", type: "tel" },
+      { name: "address", label: "Dirección" },
+      { name: "country", label: "País" },
+      { name: "region", label: "Región" },
+      { name: "city", label: "Ciudad" },
+      { name: "postal_code", label: "Código postal" },
+    ],
+  },
+};
+const deletableResources: Record<string, string[]> = {
+  virtualpos: ["charge", "payment"],
+  toku: ["customer", "invoice", "subscription", "payment_method"],
+  payku: ["client", "subscription"],
+};
+function deleteEndpoint(
+  source: string,
+  resourceType: string,
+  record: StagingRecord,
+): string {
+  const id = text(record.payload.id, record.external_id);
+  if (source === "virtualpos" && resourceType === "charge")
+    return `/v3/charge/${id}`;
+  if (source === "virtualpos" && resourceType === "payment")
+    return `/v3/payment/${text(nested(record.payload, "order", "uuid") ?? record.payload.uuid, id)}`;
+  if (source === "toku" && resourceType === "customer") return `/customers/${id}`;
+  if (source === "toku" && resourceType === "invoice") return `/invoices/${id}`;
+  if (source === "toku" && resourceType === "subscription")
+    return `/subscriptions/${id}`;
+  if (source === "toku" && resourceType === "payment_method")
+    return `/payment-methods?id_payment_method=${id}`;
+  if (source === "payku" && resourceType === "client") return `/api/suclient/${id}`;
+  if (source === "payku" && resourceType === "subscription")
+    return `/api/sususcription/${id}`;
+  return `/${resourceType}/${id}`;
+}
 const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
   virtualpos: {
     client: [{ value: "uuid", label: "UUID" }, { value: "social_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Email" }, { value: "phone_number", label: "Teléfono" }, { value: "status", label: "Estado" }],
     plan: [{ value: "id", label: "ID" }, { value: "name", label: "Nombre" }, { value: "amount", label: "Monto" }, { value: "automatic_renewal", label: "Renovación" }, { value: "is_active", label: "Estado" }, { value: "show_in_terminal", label: "Activo en POS" }],
     subscription: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "suscription_date", label: "F. Inicio" }, { value: "canceled_at", label: "F. Cancelación" }],
-    charge: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "charge_date", label: "Fecha de cargo" }],
+    charge: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscription_id", label: "ID subscripción" }, { value: "amount", label: "Monto" }, { value: "charge_date", label: "Fecha de cargo" }],
     payment: [{ value: "uuid", label: "UUID" }, { value: "status", label: "Estado" }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "authorized_at", label: "F. Pago" }],
   },
   toku: {
     customer: [{ value: "id", label: "ID" }, { value: "government_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "mail", label: "Mail" }, { value: "phone_number", label: "Teléfono" }],
     subscription: [{ value: "id", label: "ID" }, { value: "customer", label: "ID cliente" }, { value: "amount", label: "Monto" }, { value: "status", label: "Estado" }, { value: "anchor", label: "F. Inicio" }, { value: "end_date", label: "F. Cancelación" }],
-    payment_method: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "created_at", label: "F. Creación" }, { value: "bank_name", label: "Banco" }, { value: "card_type", label: "Tipo tarjeta" }, { value: "customer_id", label: "ID cliente" }, { value: "external_id", label: "RUT" }, { value: "subscription_ids", label: "Subscripciones" }],
+    payment_method: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "customer_id", label: "Cliente" }, { value: "card_brand", label: "Marca" }, { value: "last_digits", label: "Terminación" }, { value: "bank_name", label: "Banco" }, { value: "card_type", label: "Tipo tarjeta" }, { value: "created_at", label: "F. Creación" }],
     invoice: [{ value: "id", label: "ID" }, { value: "customer", label: "Cliente" }, { value: "subscription", label: "Subscripción" }, { value: "amount", label: "Monto" }, { value: "is_paid", label: "Pagado" }, { value: "status", label: "Estado" }, { value: "due_date", label: "Fecha límite" }],
     transaction: [{ value: "id", label: "ID" }, { value: "customer_id", label: "ID cliente" }, { value: "subscription_id", label: "ID subscripción" }, { value: "amount", label: "Monto" }, { value: "transaction_date", label: "Fecha transacción" }],
   },
@@ -364,8 +421,29 @@ const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
   },
 };
 
+function filterFieldForColumn(source: string, resource: string, label: string): string | null {
+  const normalize = (value: string) => value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+  return stagingFilters[source]?.[resource]?.find(
+    (option) => normalize(option.label) === normalize(label),
+  )?.value ?? null;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path);
+  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  return response.json() as Promise<T>;
+}
+
+async function postJson<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json() as Promise<T>;
 }
@@ -432,6 +510,86 @@ function objectEntries(value: unknown): [string, unknown][] {
     : [];
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function identifierList(value: unknown): string {
+  if (!Array.isArray(value)) return text(value);
+  return value
+    .map((item) => text(typeof item === "object" ? record(item).id : item, ""))
+    .filter(Boolean)
+    .join(", ") || "Sin dato";
+}
+
+function TokuPaymentMethodProfile({ payload }: { payload: Record<string, unknown> }) {
+  const customer = record(payload.customer);
+  const method = record(payload.payment_method);
+  const card = record(method.card);
+  const fields = (items: [string, unknown][]) => (
+    <dl className="field-list payment-method-fields">
+      {items.filter(([, value]) => value !== null && value !== undefined && value !== "").map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{text(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+
+  return (
+    <>
+      <section className="panel">
+        <p className="eyebrow">MÉTODO DE PAGO</p>
+        <h3>{text(method.type, "Método sin tipo")}</h3>
+        {fields([
+          ["Estado", method.status],
+          ["Gateway", payload.gateway],
+          ["Creado", method.created_at],
+          ["ID método", method.id],
+          ["ID externo", method.external_id],
+          ["Cuenta", payload.id_account],
+          ["Sesión de checkout", payload.id_checkout_session],
+        ])}
+      </section>
+      <section className="panel client-subscriptions">
+        <p className="eyebrow">CLIENTE</p>
+        {fields([
+          ["Nombre", customer.name],
+          ["RUT", customer.government_id],
+          ["Correo electrónico", customer.email],
+          ["Teléfono", customer.phone_number],
+          ["ID cliente", customer.id ?? customer.external_id],
+        ])}
+      </section>
+      {Object.keys(card).length ? (
+        <section className="panel client-subscriptions">
+          <p className="eyebrow">TARJETA</p>
+          {fields([
+            ["Marca", card.card_brand],
+            ["Tipo", card.card_type],
+            ["Titular", card.card_holder],
+            ["Últimos dígitos", card.last_digits],
+            ["Banco", card.bank_name],
+            ["Vencimiento", card.expiration_month && card.expiration_year ? `${card.expiration_month}/${card.expiration_year}` : null],
+            ["País emisor", card.institution_country],
+            ["3D Secure", card.three_d_secure === true ? "Sí" : card.three_d_secure === false ? "No" : null],
+          ])}
+        </section>
+      ) : null}
+      <section className="panel client-subscriptions">
+        <p className="eyebrow">ASOCIACIONES</p>
+        {fields([
+          ["IDs de suscripciones", identifierList(payload.subscription_ids)],
+          ["IDs de productos", identifierList(payload.product_ids)],
+        ])}
+      </section>
+    </>
+  );
+}
+
 function virtualPosClientName(record: StagingRecord): string {
   const client = record.payload.client;
   if (!client || typeof client !== "object") return "Sin dato";
@@ -473,13 +631,18 @@ function resourceTitle(resource: string): string {
   );
 }
 
+const vpPlatformLabel = (record: StagingRecord) =>
+  record.source === "virtualpos1" ? "VP 1" : record.source === "virtualpos2" ? "VP 2" : record.source;
+
 function virtualPosColumns(resource: string): TableColumn[] {
   const clientRut = (record: StagingRecord) =>
     text(
       nested(record.payload, "client", "social_id") ?? record.payload.social_id,
     );
+  const plataforma: TableColumn = { label: "Plataforma", value: vpPlatformLabel };
   if (resource === "client")
     return [
+      plataforma,
       {
         label: "UUID",
         value: (record) => text(record.payload.uuid, record.external_id),
@@ -501,6 +664,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
     ];
   if (resource === "plan")
     return [
+      plataforma,
       {
         label: "ID",
         value: (record) => text(record.payload.id, record.external_id),
@@ -519,6 +683,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
     ];
   if (resource === "subscription")
     return [
+      plataforma,
       {
         label: "ID",
         value: (record) => text(record.payload.id, record.external_id),
@@ -538,6 +703,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
     ];
   if (resource === "charge")
     return [
+      plataforma,
       {
         label: "Fecha de cargo",
         value: (record) => text(record.payload.charge_date),
@@ -547,10 +713,12 @@ function virtualPosColumns(resource: string): TableColumn[] {
         value: (record) => text(record.payload.id, record.external_id),
       },
       { label: "Estado", value: (record) => text(record.payload.status) },
-      { label: "RUT cliente", value: clientRut },
+      { label: "ID subscripción", value: (record) => text(record.payload.suscription_id) },
       { label: "Monto", value: (record) => text(record.payload.amount) },
+      { label: "Acciones", value: () => "Eliminar" },
     ];
   return [
+    plataforma,
     {
       label: "F. Pago",
       value: (record) => text(nested(record.payload, "order", "authorized_at")),
@@ -569,6 +737,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
       label: "Monto",
       value: (record) => text(nested(record.payload, "order", "amount")),
     },
+    { label: "Acciones", value: () => "Eliminar" },
   ];
 }
 
@@ -586,6 +755,7 @@ function tokuColumns(resource: string): TableColumn[] {
         label: "Telefono",
         value: (record) => text(record.payload.phone_number),
       },
+      { label: "Acciones", value: () => "Acciones" },
     ];
   if (resource === "subscription")
     return [
@@ -593,41 +763,52 @@ function tokuColumns(resource: string): TableColumn[] {
         label: "ID",
         value: (record) => text(record.payload.id, record.external_id),
       },
-      { label: "ID cliente", value: (record) => text(record.payload.customer) },
+      { label: "ID cliente", value: (record) => text(nested(record.payload, "customer", "id") ?? record.payload.customer) },
       { label: "Monto", value: (record) => text(record.payload.amount) },
-      { label: "Estado", value: (record) => text(record.payload.status) },
-      { label: "F. Inicio", value: (record) => text(record.payload.anchor) },
+      { label: "Estado", value: (record) => text(record.payload.status ?? nested(record.payload, "recurring", "status")) },
+      { label: "F. Inicio", value: (record) => text(record.payload.anchor ?? nested(record.payload, "recurring", "anchor")) },
       {
         label: "F. Cancelacion",
-        value: (record) => text(record.payload.end_date),
+        value: (record) => text(record.payload.end_date ?? nested(record.payload, "recurring", "end_date")),
       },
+      { label: "Acciones", value: () => "Acciones" },
     ];
-  if (resource === "payment_method")
+  if (resource === "payment_method") {
+    const method = (item: StagingRecord) => record(item.payload.payment_method);
+    const card = (item: StagingRecord) => record(method(item).card);
+    const customer = (item: StagingRecord) => record(item.payload.customer);
+    const subscriptionCount = (item: StagingRecord) => {
+      const subscriptions = item.payload.subscription_ids ?? method(item).subscription_ids;
+      return Array.isArray(subscriptions) ? String(subscriptions.length) : "0";
+    };
     return [
       {
         label: "ID",
-        value: (record) => text(record.payload.id, record.external_id),
+        value: (item) => text(method(item).id ?? item.payload.id, item.external_id),
       },
-      { label: "Estado", value: (record) => text(record.payload.status) },
+      { label: "Estado", value: (item) => text(method(item).status ?? item.payload.status) },
       {
         label: "F. Creacion",
-        value: (record) => text(record.payload.created_at),
-      },
-      { label: "Banco", value: (record) => text(record.payload.bank_name) },
-      {
-        label: "Tipo tarjeta",
-        value: (record) => text(record.payload.card_type),
+        value: (item) => text(method(item).created_at ?? item.payload.created_at),
       },
       {
-        label: "ID cliente",
-        value: (record) => text(record.payload.customer_id),
+        label: "Cliente",
+        value: (item) => text(customer(item).name ?? customer(item).id ?? item.payload.customer_id ?? item.payload.customer),
       },
-      { label: "RUT", value: (record) => record.external_id },
+      {
+        label: "Marca",
+        value: (item) => text(card(item).card_brand ?? method(item).card_brand),
+      },
+      { label: "Terminacion", value: (item) => text(card(item).last_digits ?? method(item).last_digits) },
+      { label: "Banco", value: (item) => text(card(item).bank_name ?? method(item).bank_name) },
+      { label: "Tipo tarjeta", value: (item) => cardTypeText(card(item).card_type ?? method(item).card_type) },
       {
         label: "Subscripciones",
-        value: (record) => text(record.payload.subscription_ids),
+        value: subscriptionCount,
       },
+      { label: "Acciones", value: () => "Eliminar" },
     ];
+  }
   if (resource === "invoice")
     return [
       {
@@ -646,24 +827,25 @@ function tokuColumns(resource: string): TableColumn[] {
         label: "Fecha limite",
         value: (record) => text(record.payload.due_date),
       },
+      { label: "Acciones", value: () => "Acciones" },
     ];
   return [
     {
       label: "ID",
-      value: (record) => text(record.payload.id, record.external_id),
+      value: (record) => text(nested(record.payload, "transaction", "id") ?? record.payload.id, record.external_id),
     },
     {
       label: "ID cliente",
-      value: (record) => text(record.payload.customer_id),
+      value: (record) => text(nested(record.payload, "customer", "id") ?? record.payload.customer_id),
     },
     {
       label: "ID subscripcion",
       value: (record) => text(record.payload.subscription_id),
     },
-    { label: "Monto", value: (record) => text(record.payload.amount) },
+    { label: "Monto", value: (record) => text(nested(record.payload, "transaction", "amount") ?? record.payload.amount) },
     {
       label: "Fecha transaccion",
-      value: (record) => text(record.payload.transaction_date),
+        value: (record) => text(nested(record.payload, "transaction", "transaction_date") ?? record.payload.transaction_date),
     },
   ];
 }
@@ -684,6 +866,7 @@ function paykuColumns(resource: string): TableColumn[] {
       },
       { label: "Email", value: (record) => text(record.payload.email) },
       { label: "Telefono", value: (record) => text(record.payload.phone) },
+      { label: "Acciones", value: () => "Acciones" },
     ];
   if (resource === "plan")
     return [
@@ -707,6 +890,7 @@ function paykuColumns(resource: string): TableColumn[] {
       },
       { label: "F. Inicio", value: (record) => text(record.payload.start) },
       { label: "F. Cancelacion", value: (record) => text(record.payload.end) },
+      { label: "Acciones", value: () => "Eliminar" },
     ];
   return [
     {
@@ -722,6 +906,7 @@ function paykuColumns(resource: string): TableColumn[] {
     { label: "F. Pago", value: (record) => text(record.payload.created_at) },
   ];
 }
+
 
 function Sidebar({
   activeSection,
@@ -752,9 +937,7 @@ function Sidebar({
       </button>
       <nav className="sidebar-nav" aria-label="Navegacion principal">
         <button
-          className={
-            !activeSection && !channel ? "sidebar-item active" : "sidebar-item"
-          }
+          className={!activeSection && !channel ? "sidebar-item active" : "sidebar-item"}
           onClick={onDashboard}
         >
           Dashboard
@@ -914,13 +1097,13 @@ function StatusBars({
             </div>
             <div className="status-bar-track">
               {items.length ? (
-                items.map((item, i) => (
+                items.map((item) => (
                   <div
                     key={item.status}
                     className="status-bar-segment"
                     style={{
                       width: `${(item.count / total) * 100}%`,
-                      background: STATUS_PALETTE[i % STATUS_PALETTE.length],
+                      background: chartStatusColor(item.status),
                     }}
                     title={`${item.status}: ${item.count}`}
                   />
@@ -931,11 +1114,11 @@ function StatusBars({
             </div>
             {items.length > 0 && (
               <div className="status-bar-legend">
-                {items.map((item, i) => (
+                {items.map((item) => (
                   <span key={item.status} className="status-legend-item">
                     <i
                       style={{
-                        background: STATUS_PALETTE[i % STATUS_PALETTE.length],
+                        background: chartStatusColor(item.status),
                       }}
                     />
                     {item.status}
@@ -955,16 +1138,20 @@ function ChannelDashboardView({
   data,
   mode,
   year,
+  syncing,
   onMode,
   onYear,
   onOpenResource,
+  onSync,
 }: {
   data: ChannelDashboard;
   mode: "count" | "amount";
   year: number | null;
+  syncing: boolean;
   onMode: (mode: "count" | "amount") => void;
   onYear: (year: number) => void;
   onOpenResource: (resource: string) => void;
+  onSync: (source: string) => void;
 }) {
   const metrics =
     data.source === "virtualpos"
@@ -1022,11 +1209,20 @@ function ChannelDashboardView({
               </select>
             ) : null}
           </div>
-          <div
-            className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}
-          >
-            <span />
-            {data.last_sync?.status ?? "Sin sincronización"}
+          <div className="channel-hero-bottom-row">
+            <div
+              className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}
+            >
+              <span />
+              {data.last_sync?.status ?? "Sin sincronización"}
+            </div>
+            <button
+              className={`sync-btn ${syncing ? "syncing" : ""}`}
+              disabled={syncing}
+              onClick={() => onSync(data.source)}
+            >
+              {syncing ? "Sincronizando…" : "↻ Sincronizar"}
+            </button>
           </div>
         </div>
       </header>
@@ -1084,7 +1280,11 @@ function ChannelDashboardView({
               <h3>Serie mensual</h3>
             </div>
           </div>
-          {chartData.length ? (
+          {data.source === "virtualpos" && data.charges_monthly?.length ? (
+            <MonthlyStatusChart data={data.charges_monthly} mode={dataKey} year={year} />
+          ) : data.source === "toku" && data.invoices_monthly?.length ? (
+            <MonthlyStatusChart data={data.invoices_monthly} mode={dataKey} year={year} />
+          ) : chartData.length ? (
             <Suspense
               fallback={<p className="empty-chart">Cargando gráfico...</p>}
             >
@@ -1179,7 +1379,7 @@ function ChannelDashboardView({
                   <h3>Activación mensual</h3>
                 </div>
               </div>
-              <MonthlySimpleChart data={data.activation_monthly} color="#3ba675" mode={mode} year={year} />
+              <MonthlyStatusChart data={data.activation_monthly} mode={mode} year={year} />
             </article>
           ) : null}
           {data.churn_monthly?.length ? (
@@ -1230,6 +1430,7 @@ function App() {
   });
   const [loading, setLoading] = useState(true);
   const [channelLoading, setChannelLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [clientDetail, setClientDetail] =
     useState<VirtualPosClientDetail | null>(null);
   const [planDetail, setPlanDetail] = useState<VirtualPosPlanDetail | null>(
@@ -1244,14 +1445,30 @@ function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [editingClient, setEditingClient] = useState<StagingRecord | null>(null);
   const [cancelingSubscription, setCancelingSubscription] = useState<StagingRecord | null>(null);
+  const [editingProviderRecord, setEditingProviderRecord] = useState<{
+    record: StagingRecord;
+    source: string;
+    resourceType: string;
+  } | null>(null);
+  const [deletingRecord, setDeletingRecord] = useState<{
+    record: StagingRecord;
+    source: string;
+    resourceType: string;
+  } | null>(null);
   const [filterField, setFilterField] = useState("");
   const [filterQuery, setFilterQuery] = useState("");
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"count" | "amount">("count");
   const [year, setYear] = useState<number | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
+  const [etlRunning, setEtlRunning] = useState(false);
+  const [lastEtlRun, setLastEtlRun] = useState<EtlRun | null>(null);
+  const [etlError, setEtlError] = useState<string | null>(null);
+  const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -1280,14 +1497,25 @@ function App() {
   useEffect(() => {
     if (!activeSection) return;
     let mounted = true;
+    const effectiveSource =
+      activeSection.source === "virtualpos" && vpPlatform !== "all"
+        ? vpPlatform
+        : activeSection.source;
     const params = new URLSearchParams({
-      source: activeSection.source,
+      source: effectiveSource,
       resource_type: activeSection.resource,
       limit: "100",
     });
     if (filterField && filterQuery.trim()) {
       params.set("filter_field", filterField);
       params.set("query", filterQuery.trim());
+    }
+    const sortField = sortColumn
+      ? filterFieldForColumn(activeSection.source, activeSection.resource, sortColumn)
+      : null;
+    if (sortField) {
+      params.set("sort_field", sortField);
+      params.set("sort_direction", sortDirection);
     }
     const path = `/api/v1/staging/records?${params}`;
     getJson<StagingResponse>(path)
@@ -1304,7 +1532,7 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [activeSection, filterField, filterQuery]);
+  }, [activeSection, filterField, filterQuery, sortColumn, sortDirection, vpPlatform]);
 
   useEffect(() => {
     if (!channel) return;
@@ -1341,6 +1569,7 @@ function App() {
     setChannel(null);
     setError(null);
   }
+
   function showChannel(source: string) {
     clearDetails();
     setActiveSection(null);
@@ -1351,13 +1580,74 @@ function App() {
     setChannel(source);
     setOpenProvider(title(source));
   }
+  function _pollEtlRun(run_id: string) {
+    const poll = setInterval(() => {
+      getJson<EtlRun>(`/api/v1/etl/runs/${run_id}`)
+        .then((run) => {
+          setLastEtlRun(run);
+          if (run.status !== "running") {
+            clearInterval(poll);
+            setEtlRunning(false);
+          }
+        })
+        .catch(() => {
+          clearInterval(poll);
+          setEtlRunning(false);
+          setEtlError("Error al consultar el estado del ETL.");
+        });
+    }, 3000);
+  }
+  function runEtl() {
+    if (etlRunning) return;
+    setEtlRunning(true);
+    setEtlError(null);
+    postJson<{ run_id: string }>("/api/v1/etl/run")
+      .then(({ run_id }) => _pollEtlRun(run_id))
+      .catch(() => {
+        setEtlRunning(false);
+        setEtlError("Error al iniciar el ETL.");
+      });
+  }
+  function runFullSync() {
+    if (etlRunning) return;
+    setEtlRunning(true);
+    setEtlError(null);
+    postJson<{ run_id: string }>("/api/v1/etl/full-sync", {
+      providers: ["virtualpos", "toku", "payku"],
+    })
+      .then(({ run_id }) => _pollEtlRun(run_id))
+      .catch(() => {
+        setEtlRunning(false);
+        setEtlError("Error al iniciar el Sync completo.");
+      });
+  }
+  function syncChannel(source: string) {
+    if (syncing) return;
+    setSyncing(true);
+    setError(null);
+    postJson<{ status: string }>(`/api/v1/staging/sync/${source}`)
+      .then(() => {
+        setChannelData(null);
+        setChannelLoading(true);
+        return getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${source}`);
+      })
+      .then((data) => {
+        setChannelData(data);
+        setYear(data.years[0] ?? null);
+      })
+      .catch(() => setError("Error al sincronizar el canal."))
+      .finally(() => setSyncing(false));
+  }
   function showSection(section: ProviderSection) {
     clearDetails();
     setChannel(null);
     setLoading(true);
     setError(null);
-      setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
+    setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
     setFilterQuery("");
+    setSortColumn(null);
+    setSortDirection("asc");
+    if (section.source === "virtualpos") setVpPlatform("all");
     setActiveSection(section);
     setOpenProvider(title(section.source));
   }
@@ -1491,6 +1781,15 @@ function App() {
         : activeSection?.source === "payku"
           ? paykuColumns(activeSection.resource)
           : [];
+  function toggleColumnSort(column: TableColumn) {
+    if (!activeSection || !filterFieldForColumn(activeSection.source, activeSection.resource, column.label)) return;
+    if (sortColumn === column.label) {
+      setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+      return;
+    }
+    setSortColumn(column.label);
+    setSortDirection("asc");
+  }
   const clientDetailView = clientDetail ? (
     <main className="app-shell detail-page">
       <button className="back-button" onClick={() => setClientDetail(null)}>
@@ -1755,6 +2054,14 @@ function App() {
       </button>
       <p className="eyebrow">VIRTUALPOS / CARGO</p>
       <h2>{text(chargeDetail.charge.payload.id, chargeDetail.charge.external_id)}</h2>
+      <div className="client-detail-actions">
+        <button
+          className="delete-button"
+          onClick={() => setDeletingRecord({ record: chargeDetail.charge, source: "virtualpos", resourceType: "charge" })}
+        >
+          Eliminar
+        </button>
+      </div>
       <section className="panel">
         <p className="eyebrow">FICHA DEL CARGO</p>
         <dl className="field-list">
@@ -1775,6 +2082,14 @@ function App() {
       </button>
       <p className="eyebrow">VIRTUALPOS / TRANSACCIÓN</p>
       <h2>{text(nested(paymentDetail.payment.payload, "order", "uuid"), paymentDetail.payment.external_id)}</h2>
+      <div className="client-detail-actions">
+        <button
+          className="delete-button"
+          onClick={() => setDeletingRecord({ record: paymentDetail.payment, source: "virtualpos", resourceType: "payment" })}
+        >
+          Eliminar
+        </button>
+      </div>
       <section className="panel">
         <p className="eyebrow">FICHA DE LA TRANSACCIÓN</p>
         <dl className="field-list">
@@ -1811,32 +2126,64 @@ function App() {
         {resourceTitle(providerRecordDetail.record.resource_type).toUpperCase()}
       </p>
       <h2>{providerRecordHeading(providerRecordDetail.record)}</h2>
-      <section className="panel">
-        <p className="eyebrow">FICHA COMPLETA</p>
-        <dl className="field-list">
-          {Object.entries(providerRecordDetail.record.payload).flatMap(
-            ([field, value]) => {
-              if (field === "recurring" && objectEntries(value).length) {
-                return objectEntries(value).map(([subField, subValue]) => (
-                  <div key={`recurring-${subField}`}>
-                    <dt>
-                      Recurrencia{" "}
-                      {recurringFieldLabels[subField] ?? fieldLabel(subField)}
-                    </dt>
-                    <dd>{text(subValue)}</dd>
-                  </div>
-                ));
-              }
-              return [
-                <div key={field}>
-                  <dt>{fieldLabel(field)}</dt>
-                  <dd>{text(value)}</dd>
-                </div>,
-              ];
-            },
-          )}
-        </dl>
-      </section>
+      <div className="client-detail-actions">
+        {(providerEditFields[providerRecordDetail.record.source]?.[providerRecordDetail.record.resource_type] ?? []).length > 0 ? (
+          <button
+            className="edit-button"
+            onClick={() => setEditingProviderRecord({
+              record: providerRecordDetail.record,
+              source: providerRecordDetail.record.source,
+              resourceType: providerRecordDetail.record.resource_type,
+            })}
+          >
+            Editar
+          </button>
+        ) : null}
+        {(deletableResources[providerRecordDetail.record.source] ?? []).includes(providerRecordDetail.record.resource_type) ? (
+          <button
+            className="delete-button"
+            onClick={() => setDeletingRecord({
+              record: providerRecordDetail.record,
+              source: providerRecordDetail.record.source,
+              resourceType: providerRecordDetail.record.resource_type,
+            })}
+          >
+            Eliminar
+          </button>
+        ) : null}
+      </div>
+      {providerRecordDetail.record.source === "toku" && providerRecordDetail.record.resource_type === "payment_method" ? (
+        <TokuPaymentMethodProfile payload={providerRecordDetail.record.payload} />
+      ) : (
+        <section className="panel">
+          <p className="eyebrow">FICHA COMPLETA</p>
+          <dl className="field-list">
+            {Object.entries(providerRecordDetail.record.payload).flatMap(
+              ([field, value]) => {
+                const entries = objectEntries(value);
+                if (entries.length) {
+                  return entries.map(([subField, subValue]) => (
+                    <div key={`${field}-${subField}`}>
+                      <dt>
+                        {field === "recurring"
+                          ? `Recurrencia ${recurringFieldLabels[subField] ?? fieldLabel(subField)}`
+                          : `${fieldLabel(field)} — ${fieldLabel(subField)}`}
+                      </dt>
+                      <dd>{text(subValue)}</dd>
+                    </div>
+                  ));
+                }
+                return [
+                  <div key={field}>
+                    <dt>{fieldLabel(field)}</dt>
+                    <dd>{text(value)}</dd>
+                  </div>,
+                ];
+              },
+            )}
+          </dl>
+        </section>
+      )}
       {providerRecordDetail.related.map((group) => (
         <section
           className="panel client-subscriptions"
@@ -1900,16 +2247,32 @@ function App() {
   const filterOptions = activeSection
     ? (stagingFilters[activeSection.source]?.[activeSection.resource] ?? [])
     : [];
+  const statusColumn = columns.find((column) => column.label === "Estado");
+  const availableStatuses = filterField === "status" && statusColumn
+    ? [...new Set(
+        records.items
+          .map((item) => statusColumn.value(item))
+          .filter((value) => value !== "Sin dato"),
+      )].sort((left, right) => left.localeCompare(right, "es"))
+    : [];
+  const isStatusFilter = filterField === "status";
   const filterControls = filterOptions.length ? (
     <section
       className="record-filters"
       aria-label={`Filtros ${activeSection?.label}`}
     >
+      <div className="record-filters-copy">
+        <p className="eyebrow">BÚSQUEDA</p>
+        <strong>Filtrar registros</strong>
+      </div>
       <label>
-        Filtrar por
+        Campo
         <select
           value={filterField}
-          onChange={(event) => setFilterField(event.target.value)}
+          onChange={(event) => {
+            setFilterField(event.target.value);
+            setFilterQuery("");
+          }}
         >
           {filterOptions.map((option) => (
             <option key={option.value} value={option.value}>
@@ -1918,17 +2281,36 @@ function App() {
           ))}
         </select>
       </label>
-      <label>
-        Buscar
-        <input
-          value={filterQuery}
-          onChange={(event) => setFilterQuery(event.target.value)}
-          placeholder={`Buscar por ${filterOptions.find((option) => option.value === filterField)?.label ?? "campo"}`}
-        />
+      <label className="record-filter-query">
+        {isStatusFilter ? "Estado" : "Buscar"}
+        {isStatusFilter ? (
+          <select
+            value={filterQuery}
+            onChange={(event) => setFilterQuery(event.target.value)}
+          >
+            <option value="">Todos los estados</option>
+            {availableStatuses.map((status) => (
+              <option key={status} value={status}>{status}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={filterQuery}
+            onChange={(event) => setFilterQuery(event.target.value)}
+            placeholder={`Buscar por ${filterOptions.find((option) => option.value === filterField)?.label ?? "campo"}`}
+          />
+        )}
       </label>
-      {filterQuery ? (
-        <button onClick={() => setFilterQuery("")}>Limpiar</button>
-      ) : null}
+      <button
+        className="clear-filter-button"
+        disabled={!filterQuery && filterField === filterOptions[0]?.value}
+        onClick={() => {
+          setFilterField(filterOptions[0]?.value ?? "");
+          setFilterQuery("");
+        }}
+      >
+        Restablecer
+      </button>
     </section>
   ) : null;
   const providerDetail = activeSection ? (
@@ -1944,13 +2326,26 @@ function App() {
       </p>
       <h2>{activeSection.label}</h2>
       {filterControls}
+      {activeSection.source === "virtualpos" ? (
+        <div className="vp-platform-filter">
+          {(["all", "virtualpos1", "virtualpos2"] as const).map((p) => (
+            <button
+              key={p}
+              className={`vp-platform-btn${vpPlatform === p ? " active" : ""}`}
+              onClick={() => setVpPlatform(p)}
+            >
+              {p === "all" ? "Todas" : p === "virtualpos1" ? "VP 1" : "VP 2"}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <section className="panel provider-panel">
         <div className="panel-heading">
           <div>
             <p className="eyebrow">SOURCE RECORDS</p>
             <h3>Payloads saneados almacenados localmente</h3>
           </div>
-          <span>{loading ? "Cargando" : `${records.total} registros`}</span>
+          <span aria-live="polite">{loading ? "Cargando" : `${records.total} registros`}</span>
         </div>
         {error ? <p className="error-message">{error}</p> : null}
         {!loading && !error && records.items.length === 0 ? (
@@ -1961,9 +2356,29 @@ function App() {
             <table>
               <thead>
                 <tr>
-                  {columns.map((column) => (
-                    <th key={column.label}>{column.label}</th>
-                  ))}
+                  {columns.map((column) => {
+                    const sortable = Boolean(activeSection && filterFieldForColumn(activeSection.source, activeSection.resource, column.label));
+                    const activeSort = sortColumn === column.label;
+                    return (
+                      <th
+                        key={column.label}
+                        aria-sort={activeSort ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
+                      >
+                        {sortable ? (
+                          <button
+                            className={`table-sort-button${activeSort ? " active" : ""}`}
+                            title={`Ordenar por ${column.label}${activeSort ? " en sentido inverso" : ""}`}
+                            onClick={() => toggleColumnSort(column)}
+                          >
+                            {column.label}
+                            <span className="table-sort-indicator" aria-hidden="true">
+                              {activeSort ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
+                            </span>
+                          </button>
+                        ) : column.label}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -2061,6 +2476,23 @@ function App() {
                           >
                             {column.value(record)}
                           </button>
+                        ) : column.label === "Acciones" ? (
+                          <div className="table-actions">
+                            {(providerEditFields[activeSection.source]?.[activeSection.resource] ?? []).length > 0 ? (
+                              <button
+                                className="edit-button edit-button-table"
+                                onClick={() => setEditingProviderRecord({ record, source: activeSection.source, resourceType: activeSection.resource })}
+                              >
+                                Editar
+                              </button>
+                            ) : null}
+                            <button
+                              className="delete-button delete-button-table"
+                              onClick={() => setDeletingRecord({ record, source: activeSection.source, resourceType: activeSection.resource })}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
                         ) : (
                           column.value(record)
                         )}
@@ -2105,6 +2537,53 @@ function App() {
         </p>
       </section>
       {error ? <p className="error-message">{error}</p> : null}
+      <section className="etl-panel">
+        <div className="etl-panel-heading">
+          <div>
+            <p className="eyebrow">CONSOLIDACIÓN</p>
+            <h3>Base de datos unificada</h3>
+          </div>
+          <button
+            className={`sync-btn ${etlRunning ? "syncing" : ""}`}
+            disabled={etlRunning}
+            onClick={runFullSync}
+          >
+            {etlRunning
+              ? lastEtlRun?.phase
+                ? `Sincronizando ${lastEtlRun.phase.replace("sync_", "")}…`
+                : "Procesando…"
+              : "↻ Sync completo"}
+          </button>
+          <button
+            className="sync-btn sync-btn-secondary"
+            disabled={etlRunning}
+            onClick={runEtl}
+            title="Solo ETL: consolida BDlocales → canonical sin re-sync desde APIs"
+          >
+            Solo ETL
+          </button>
+        </div>
+        {etlError ? <p className="error-message">{etlError}</p> : null}
+        {lastEtlRun ? (
+          <div className="etl-status">
+            <span className={`status-pill ${lastEtlRun.status === "completed" ? "" : lastEtlRun.status === "failed" ? "status-attention" : ""}`}>
+              {lastEtlRun.status}
+            </span>
+            {lastEtlRun.phase && lastEtlRun.status === "running" ? (
+              <span className="etl-phase-badge">{lastEtlRun.phase}</span>
+            ) : null}
+            <span className="muted-copy">
+              {lastEtlRun.records_upserted.toLocaleString()} registros
+              {lastEtlRun.finished_at
+                ? ` · ${new Date(lastEtlRun.finished_at).toLocaleString("es-CL")}`
+                : " · en progreso…"}
+            </span>
+            {lastEtlRun.error_message ? (
+              <p className="error-message">{lastEtlRun.error_message}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
       <section className="metrics" aria-label="Resumen de staging">
         {summary.sources.map((source, index) => (
           <Metric
@@ -2203,6 +2682,94 @@ function App() {
       </section>
     </div>
   ) : null;
+  const providerEditDialog = editingProviderRecord ? (
+    <div className="edit-dialog-backdrop" role="presentation">
+      <form
+        className="edit-dialog"
+        aria-modal="true"
+        aria-label={`Editar ${resourceTitle(editingProviderRecord.resourceType)}`}
+      >
+        <div className="edit-dialog-heading">
+          <div>
+            <p className="eyebrow">
+              {title(editingProviderRecord.source).toUpperCase()} / EDICIÓN
+            </p>
+            <h3>Editar {resourceTitle(editingProviderRecord.resourceType).toLowerCase()}</h3>
+          </div>
+          <span>
+            {text(editingProviderRecord.record.payload.id, editingProviderRecord.record.external_id)}
+          </span>
+        </div>
+        <p className="edit-dialog-note">
+          Formulario visual. El guardado remoto permanece deshabilitado mientras{" "}
+          {title(editingProviderRecord.source)} opere en modo solo lectura.
+        </p>
+        <div className="edit-form-grid">
+          {(providerEditFields[editingProviderRecord.source]?.[editingProviderRecord.resourceType] ?? []).map(
+            (field) => (
+              <label key={field.name}>
+                {field.label}
+                <input
+                  name={field.name}
+                  type={field.type ?? "text"}
+                  defaultValue={text(editingProviderRecord.record.payload[field.name], "")}
+                />
+              </label>
+            ),
+          )}
+        </div>
+        <div className="edit-dialog-actions">
+          <button type="button" className="save-button" disabled title="Guardado remoto no habilitado">
+            Guardar cambios
+          </button>
+          <button type="button" className="cancel-button" onClick={() => setEditingProviderRecord(null)}>
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  ) : null;
+  const providerDeleteDialog = deletingRecord ? (
+    <div className="edit-dialog-backdrop" role="presentation">
+      <section
+        className="edit-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Eliminar ${resourceTitle(deletingRecord.resourceType)}`}
+      >
+        <div className="edit-dialog-heading">
+          <div>
+            <p className="eyebrow">
+              {title(deletingRecord.source).toUpperCase()} / ELIMINACIÓN
+            </p>
+            <h3>Eliminar {resourceTitle(deletingRecord.resourceType).toLowerCase()}</h3>
+          </div>
+          <span>
+            {text(deletingRecord.record.payload.id, deletingRecord.record.external_id)}
+          </span>
+        </div>
+        <p className="edit-dialog-note">
+          Esta acción utilizará DELETE `
+          {deleteEndpoint(deletingRecord.source, deletingRecord.resourceType, deletingRecord.record)}
+          ` cuando se habilite la escritura. Actualmente {title(deletingRecord.source)} permanece
+          en modo solo lectura.
+        </p>
+        <div className="edit-dialog-actions">
+          <button
+            type="button"
+            className="cancel-subscription-button"
+            disabled
+            title="Eliminación remota no habilitada"
+          >
+            Confirmar eliminación
+          </button>
+          <button type="button" className="cancel-button" onClick={() => setDeletingRecord(null)}>
+            Volver
+          </button>
+        </div>
+      </section>
+    </div>
+  ) : null;
   const content = detailLoading ? (
     <main className="app-shell">
       <p className="muted-copy">Cargando ficha...</p>
@@ -2225,9 +2792,11 @@ function App() {
           data={channelData}
           mode={mode}
           year={year}
+          syncing={syncing}
           onMode={setMode}
           onYear={setYear}
           onOpenResource={openChannelResource}
+          onSync={syncChannel}
         />
       )
     ) : (
@@ -2253,6 +2822,8 @@ function App() {
       {content}
       {clientEditDialog}
       {subscriptionCancelDialog}
+      {providerEditDialog}
+      {providerDeleteDialog}
     </div>
   );
 }

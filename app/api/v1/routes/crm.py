@@ -55,6 +55,28 @@ PaginationOffset = Annotated[int, Query(ge=0)]
 PaginationLimit = Annotated[int, Query(ge=1, le=100)]
 
 
+@router.get("/counts", tags=["CRM"])
+def get_counts(
+    source: str | None = None,
+    db: Session = Depends(get_db),  # noqa: B008
+) -> dict[str, int]:
+    """Conteo de registros canónicos por entidad, opcionalmente filtrado por source."""
+    models = {
+        "clients": Client,
+        "plans": Plan,
+        "subscriptions": Subscription,
+        "charges": Charge,
+        "payments": Payment,
+    }
+    result: dict[str, int] = {}
+    for name, model in models.items():
+        stmt = select(func.count()).select_from(model)
+        if source:
+            stmt = stmt.where(model.source == source)
+        result[name] = db.scalar(stmt) or 0
+    return result
+
+
 @router.get("/clients", tags=["Cliente"])
 def list_clients(
     db: Session = Depends(get_db),  # noqa: B008

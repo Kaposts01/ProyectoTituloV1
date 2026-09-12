@@ -7,7 +7,7 @@ CRM interno read-only para consultar datos de suscripciones, clientes y cobros. 
 - VirtualPOS Sandbox: sincronizacion read-only validada para clientes, planes, suscripciones, cargos y pagos.
 - Toku: sincronizacion read-only validada para clientes, deudas, metodos de pago, suscripciones y transacciones.
 - Payku: autenticacion y sincronizacion de clientes, planes y suscripciones validadas. La coleccion de transacciones requiere aumentar `PAYKU_TIMEOUT_SECONDS` antes de una ejecucion completa.
-- Dashboard: muestra los datos de staging por canal. No es aun un dashboard consolidado: `BD_Central` y su ETL son trabajo futuro.
+- Dashboard: consulta entidades canónicas consolidadas desde las BDlocales de cada canal. El origen y los payloads saneados se conservan para trazabilidad.
 
 ## Inicio local
 
@@ -15,6 +15,7 @@ CRM interno read-only para consultar datos de suscripciones, clientes y cobros. 
 2. Instala dependencias: `python -m pip install -r requirements.txt`.
 3. Crea la configuracion local: `Copy-Item .env.example .env`.
 4. Configura en `.env` solo las credenciales de los proveedores que vayas a sincronizar.
+   Para Toku, usa `TOKU_BASE_URL=https://api.trytoku.com`.
 5. Inicia PostgreSQL: `docker compose up -d postgres`. Se expone en `localhost:5433`.
 6. Aplica el esquema: `alembic upgrade head`.
 7. Inicia la API: `uvicorn app.main:app --reload`.
@@ -32,7 +33,11 @@ Con PostgreSQL iniciado y las migraciones aplicadas, ejecuta desde la raiz:
 .\.venv\Scripts\python.exe scripts\sync_payku.py
 ```
 
+Ejecuta cada comando por separado. El prefijo `>>` es el indicador de continuación de PowerShell, no forma parte de un comando.
+
 Los sincronizadores configurados usan exclusivamente consultas `GET`. Cada ejecucion se registra en `sync_runs`; sus respuestas saneadas se guardan de forma idempotente en `source_records` mediante la clave `(source, resource_type, external_id)`.
+
+La interfaz también permite ejecutar un ETL local o una sincronización completa read-only. Esta última consulta los proveedores, actualiza las BDlocales y rematerializa las entidades canónicas. Configura `VIRTUALPOS_DB_URL`, `TOKU_DB_URL` y `PAYKU_DB_URL` exclusivamente en `.env` antes de usarla.
 
 ## API local
 
@@ -43,12 +48,13 @@ Los sincronizadores configurados usan exclusivamente consultas `GET`. Cada ejecu
 - Mini dashboard por canal: `/api/v1/staging/dashboard/{virtualpos|toku|payku}`.
 - Fichas VirtualPOS: `/api/v1/staging/virtualpos/clients/{uuid}`, `/plans/{id}`, `/subscriptions/{id}`, `/charges/{id}` y `/payments/{id}`.
 - Fichas Toku y Payku: `/api/v1/staging/{toku|payku}/{resource}/{id}`.
+- ETL local: `POST /api/v1/etl/run`; sincronización completa read-only: `POST /api/v1/etl/full-sync`; estado: `/api/v1/etl/runs/{run_id}`.
 
 Consulta `docs/architecture.md` para el flujo de datos y `docs/tasks.md` para el estado de las tareas.
 
 Los clientes VirtualPOS disponen de una interfaz visual de edición desde la tabla y su ficha. El formulario no envía actualizaciones al proveedor mientras la integración Sandbox permanezca en modo solo lectura.
 
-`/api/v1/staging/records` acepta `filter_field` y `query` con las columnas operativas mostradas en cada tabla de VirtualPOS, Toku y Payku. Cargos y transacciones de VirtualPOS se ordenan por fecha de cargo o pago descendente.
+`/api/v1/staging/records` acepta `filter_field` y `query` con las columnas operativas mostradas en cada tabla de VirtualPOS, Toku y Payku. También admite `sort_field` y `sort_direction=asc|desc`; los campos permitidos incluyen valores anidados visibles, y el orden se aplica antes de paginar.
 
 ## Seguridad
 
