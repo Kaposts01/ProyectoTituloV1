@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
 import "./App.css";
 import "./Staging.css";
 import { MonthlySimpleChart, MonthlyStatusChart } from "./MonthlyStatusChart";
@@ -94,7 +94,12 @@ type EtlRun = {
   channels_processed: string[] | null;
   error_message: string | null;
 };
-type ClientEditField = { name: string; label: string; type?: string };
+type ClientEditField = { name: string; label: string; type?: string; options?: { value: string; label: string }[] };
+type AuthUser = { id: string; username: string; is_active: boolean; roles: { id: string; name: string }[]; permissions: string[] };
+type AuthSession = { user: AuthUser; csrf_token: string };
+type AdminRole = { id: string; name: string; description: string | null; permission_codes: string[] };
+
+let csrfToken = "";
 
 const providerGroups: { name: string; sections: ProviderSection[] }[] = [
   {
@@ -336,17 +341,109 @@ const virtualPosSubscriptionFields = [
   "channel",
 ];
 const virtualPosClientEditFields: ClientEditField[] = [
-  { name: "status", label: "Estado" },
-  { name: "type", label: "Tipo" },
+  {
+    name: "status",
+    label: "Estado",
+    options: [
+      { value: "ACTIVO", label: "Activo" },
+      { value: "BLOQUEADO", label: "Bloqueado" },
+    ],
+  },
+  {
+    name: "type",
+    label: "Tipo",
+    options: [
+      { value: "PERSONA", label: "Persona" },
+      { value: "EMPRESA", label: "Empresa" },
+    ],
+  },
   { name: "first_name", label: "Nombre" },
   { name: "last_name", label: "Apellido" },
   { name: "email", label: "Email", type: "email" },
   { name: "phone_number", label: "Teléfono", type: "tel" },
-  { name: "social_id_type", label: "Tipo de documento" },
+  {
+    name: "social_id_type",
+    label: "Tipo de documento",
+    options: [
+      { value: "1", label: "RUT" },
+      { value: "2", label: "DNI" },
+    ],
+  },
   { name: "social_id", label: "RUT / documento" },
   { name: "birth_date", label: "Fecha de nacimiento", type: "date" },
-  { name: "gender_id", label: "Género" },
+  {
+    name: "gender_id",
+    label: "Género",
+    options: [
+      { value: "", label: "Sin especificar" },
+      { value: "Masculino", label: "Masculino" },
+      { value: "Femenino", label: "Femenino" },
+    ],
+  },
 ];
+type PlanCreateField = { name: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] };
+const virtualPosPlanCreateFields: PlanCreateField[] = [
+  { name: "name", label: "Nombre del plan", required: true },
+  { name: "amount", label: "Monto", type: "number", required: true },
+  {
+    name: "currency",
+    label: "Moneda",
+    required: true,
+    options: [
+      { value: "CLP", label: "CLP — Peso chileno" },
+      { value: "UF", label: "UF — Unidad de fomento" },
+    ],
+  },
+  {
+    name: "frequency_type",
+    label: "Frecuencia de cobro",
+    required: true,
+    options: [
+      { value: "monthly", label: "Mensual" },
+      { value: "weekly", label: "Semanal" },
+      { value: "bimonthly", label: "Bimestral" },
+      { value: "quarterly", label: "Trimestral" },
+      { value: "biannual", label: "Semestral" },
+      { value: "annual", label: "Anual" },
+      { value: "daily", label: "Diario" },
+    ],
+  },
+  { name: "description", label: "Descripción" },
+  { name: "trial_days", label: "Días de prueba", type: "number" },
+  { name: "num_charges", label: "N° de cobros (0 = ilimitado)", type: "number" },
+  { name: "activation_amount", label: "Monto de activación", type: "number" },
+  { name: "fixed_amount_day_charge", label: "Día de cobro del mes (1-28)", type: "number" },
+  {
+    name: "automatic_renewal",
+    label: "Renovación automática",
+    options: [
+      { value: "true", label: "Sí" },
+      { value: "false", label: "No" },
+    ],
+  },
+  {
+    name: "show_in_terminal",
+    label: "Visible en terminal",
+    options: [
+      { value: "false", label: "No" },
+      { value: "true", label: "Sí" },
+    ],
+  },
+  {
+    name: "is_active",
+    label: "Activo",
+    options: [
+      { value: "true", label: "Sí" },
+      { value: "false", label: "No" },
+    ],
+  },
+  { name: "return_url", label: "URL de retorno", type: "url" },
+  { name: "suscription_url", label: "URL de suscripción", type: "url" },
+  { name: "type", label: "Tipo de plan" },
+];
+const planRequiredFields = new Set(["name", "amount", "currency", "frequency_type"]);
+const planDefaultValues: Record<string, string> = { currency: "CLP", frequency_type: "monthly", automatic_renewal: "true", show_in_terminal: "false", is_active: "true" };
+
 const providerEditFields: Record<string, Record<string, ClientEditField[]>> = {
   toku: {
     customer: [
@@ -432,25 +529,109 @@ function filterFieldForColumn(source: string, resource: string, label: string): 
   )?.value ?? null;
 }
 
+function extractErrorDetail(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const detail = (data as Record<string, unknown>).detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail
+      .map((item) => {
+        if (typeof item !== "object" || item === null) return String(item);
+        const err = item as Record<string, unknown>;
+        const loc = Array.isArray(err.loc)
+          ? (err.loc as string[]).filter((l) => l !== "body").join(" → ")
+          : "";
+        const msg = typeof err.msg === "string" ? err.msg : "";
+        return loc ? `${loc}: ${msg}` : msg;
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return null;
+}
+
+function httpErrorMessage(status: number, detail: string | null): string {
+  if (detail) return detail;
+  if (status === 400) return "Solicitud inválida. Verifica los datos ingresados.";
+  if (status === 401) return "Sesión expirada. Vuelve a iniciar sesión.";
+  if (status === 403) return "No tienes permiso para realizar esta acción.";
+  if (status === 404) return "El recurso solicitado no fue encontrado.";
+  if (status === 422) return "Los datos enviados no son válidos. Revisa los campos e inténtalo de nuevo.";
+  if (status === 500) return "Error interno del servidor. Inténtalo de nuevo en unos momentos.";
+  if (status === 503) return "El servicio no está disponible temporalmente. Inténtalo más tarde.";
+  return `Error inesperado del servidor (${status}).`;
+}
+
+function friendlyError(error: unknown, fallback = "Ocurrió un error inesperado."): string {
+  if (error instanceof TypeError && error.message.toLowerCase().includes("fetch")) {
+    return "No se pudo conectar con el servidor. Verifica tu conexión.";
+  }
+  if (error instanceof Error) return error.message || fallback;
+  return fallback;
+}
+
+async function checkResponse(response: Response): Promise<void> {
+  if (response.ok) return;
+  const data = await response.json().catch(() => null);
+  const detail = extractErrorDetail(data);
+  throw new Error(httpErrorMessage(response.status, detail));
+}
+
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  const response = await fetch(path, { credentials: "include" });
+  await checkResponse(response);
   return response.json() as Promise<T>;
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    credentials: "include",
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  await checkResponse(response);
   return response.json() as Promise<T>;
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
+    body: JSON.stringify(body),
+  });
+  await checkResponse(response);
+  return response.json() as Promise<T>;
+}
+
+async function refreshCsrfToken(): Promise<void> {
+  const session = await getJson<AuthSession>("/api/v1/auth/me");
+  csrfToken = session.csrf_token;
 }
 
 function text(value: unknown, fallback = "Sin dato"): string {
   if (value === null || value === undefined || value === "") return fallback;
   return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function documentType(value: unknown): string {
+  const normalized = String(value ?? "").toUpperCase();
+  return normalized === "RUT" ? "1" : normalized === "DNI" ? "2" : normalized;
+}
+
+function normalizeRut(value: string): string | null {
+  const compact = value.toUpperCase().replace(/[.\-\s]/g, "");
+  if (!/^[0-9]+[0-9K]$/.test(compact)) return null;
+  const body = compact.slice(0, -1).replace(/^0+/, "") || "0";
+  const checkDigit = compact.at(-1)!;
+  const total = [...body].reverse().reduce((sum, digit, index) => sum + Number(digit) * (2 + index % 6), 0);
+  const remainder = total % 11;
+  const expected = remainder === 0 ? "0" : remainder === 1 ? "K" : String(11 - remainder);
+  return checkDigit === expected ? `${body}-${checkDigit}` : null;
 }
 
 function fieldLabel(field: string): string {
@@ -918,6 +1099,9 @@ function Sidebar({
   onSection,
   onToggle,
   onTheme,
+  permissions,
+  onAdmin,
+  onLogout,
 }: {
   activeSection: ProviderSection | null;
   channel: string | null;
@@ -928,7 +1112,15 @@ function Sidebar({
   onSection: (section: ProviderSection) => void;
   onToggle: (provider: string) => void;
   onTheme: () => void;
+  permissions: string[];
+  onAdmin: () => void;
+  onLogout: () => void;
 }) {
+  const can = (permission: string) => permissions.includes(permission);
+  const visibleGroups = providerGroups.map((group) => ({
+    ...group,
+    sections: group.sections.filter((section) => can(resourcePermission(section.source, section.resource))),
+  })).filter((group) => group.sections.length > 0);
   return (
     <aside className="sidebar">
       <button className="sidebar-brand" onClick={onDashboard}>
@@ -936,13 +1128,13 @@ function Sidebar({
         <strong>Suscripciones</strong>
       </button>
       <nav className="sidebar-nav" aria-label="Navegacion principal">
-        <button
+        {can("dashboard.view") ? <button
           className={!activeSection && !channel ? "sidebar-item active" : "sidebar-item"}
           onClick={onDashboard}
         >
           Dashboard
-        </button>
-        {providerGroups.map((group) => (
+        </button> : null}
+        {visibleGroups.map((group) => (
           <section className="sidebar-group" key={group.name}>
             <div className="channel-heading">
               <button
@@ -987,15 +1179,63 @@ function Sidebar({
             TCH <span>+</span>
           </button>
         </section>
+        {can("users.manage") || can("roles.manage") ? <button className="sidebar-item" onClick={onAdmin}>Administración</button> : null}
       </nav>
       <div className="sidebar-footer">
         <button className="theme-btn" onClick={onTheme} aria-label="Cambiar tema">
           <span className="theme-btn-icon">{theme === "dark" ? "☀" : "◐"}</span>
           {theme === "dark" ? "Modo claro" : "Modo oscuro"}
         </button>
+        <button className="theme-btn" onClick={onLogout}>Cerrar sesión</button>
       </div>
     </aside>
   );
+}
+
+function resourcePermission(source: string, resource: string): string {
+  const names: Record<string, Record<string, string>> = {
+    virtualpos: { client: "clients", plan: "plans", subscription: "subscriptions", charge: "charges", payment: "payments" },
+    toku: { customer: "customers", subscription: "subscriptions", payment_method: "payment_methods", invoice: "invoices", transaction: "transactions" },
+    payku: { client: "clients", plan: "plans", subscription: "subscriptions", transaction: "transactions" },
+  };
+  return `${source}.${names[source]?.[resource] ?? resource}.view`;
+}
+
+function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/v1/auth/login", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: form.get("username"), password: form.get("password") }) });
+      const payload = await response.json() as AuthSession | { detail?: string };
+      if (!response.ok || !("user" in payload)) throw new Error("detail" in payload ? payload.detail : "No se pudo iniciar sesión");
+      csrfToken = payload.csrf_token;
+      onLogin(payload);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "No se pudo iniciar sesión");
+    } finally { setSubmitting(false); }
+  }
+  return <main className="login-shell"><section className="panel login-panel"><p className="eyebrow">CRM SUSCRIPCIONES</p><h1>Iniciar sesión</h1><form className="login-form" onSubmit={submit}><label>Usuario<input name="username" required autoComplete="username" /></label><label>Contraseña<input name="password" type="password" required autoComplete="current-password" /></label><button className="save-button" disabled={submitting}>{submitting ? "Ingresando..." : "Ingresar"}</button></form>{error ? <p className="error-message">{error}</p> : null}</section></main>;
+}
+
+function AdminUsers({ canManageUsers }: { canManageUsers: boolean }) {
+  const [roles, setRoles] = useState<AdminRole[]>([]);
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => { getJson<AdminRole[]>("/api/v1/admin/roles").then(setRoles).catch(() => setMessage("No se pudieron cargar los roles.")); }, []);
+  async function createUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await postJson("/api/v1/admin/users", { username: form.get("username"), password: form.get("password"), role_ids: form.getAll("role_ids") });
+      event.currentTarget.reset();
+      setMessage("Usuario creado.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo crear el usuario."); }
+  }
+  return <main className="app-shell"><section className="panel"><p className="eyebrow">ADMINISTRACIÓN</p><h1>Usuarios y roles</h1>{canManageUsers ? <form className="edit-form-grid" onSubmit={createUser}><label>Usuario<input name="username" required minLength={3} /></label><label>Contraseña temporal<input name="password" type="password" required minLength={12} /></label><fieldset className="edit-form-wide"><legend>Roles</legend>{roles.map((role) => <label key={role.id}><input type="checkbox" name="role_ids" value={role.id} /> {role.name}</label>)}</fieldset><button className="save-button">Crear usuario</button></form> : <p className="muted-copy">No tiene permiso para crear usuarios.</p>}{message ? <p className="resource-copy">{message}</p> : null}</section></main>;
 }
 
 function Metric({
@@ -1417,6 +1657,8 @@ function ChannelDashboardView({
 }
 
 function App() {
+  const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
+  const [adminOpen, setAdminOpen] = useState(false);
   const [summary, setSummary] = useState<Summary>({ sources: [] });
   const [activeSection, setActiveSection] = useState<ProviderSection | null>(
     null,
@@ -1444,6 +1686,16 @@ function App() {
     useState<ProviderRecordDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [editingClient, setEditingClient] = useState<StagingRecord | null>(null);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [savingClient, setSavingClient] = useState(false);
+  const [clientFormError, setClientFormError] = useState<string | null>(null);
+  const [clientFieldErrors, setClientFieldErrors] = useState<Record<string, string>>({});
+  const [clientSaveNotice, setClientSaveNotice] = useState<string | null>(null);
+  const [creatingPlan, setCreatingPlan] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [planFormError, setPlanFormError] = useState<string | null>(null);
+  const [planFieldErrors, setPlanFieldErrors] = useState<Record<string, string>>({});
+  const [planSaveNotice, setPlanSaveNotice] = useState<string | null>(null);
   const [cancelingSubscription, setCancelingSubscription] = useState<StagingRecord | null>(null);
   const [editingProviderRecord, setEditingProviderRecord] = useState<{
     record: StagingRecord;
@@ -1471,6 +1723,13 @@ function App() {
   const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
 
   useEffect(() => {
+    getJson<AuthSession>("/api/v1/auth/me")
+      .then((current) => { csrfToken = current.csrf_token; setSession(current); })
+      .catch(() => setSession(null));
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("crm-theme", theme);
   }, [theme]);
@@ -1478,13 +1737,14 @@ function App() {
   const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
 
   useEffect(() => {
+    if (!session) return;
     let mounted = true;
     getJson<Summary>("/api/v1/staging/summary")
       .then((data) => {
         if (mounted) setSummary(data);
       })
-      .catch(() => {
-        if (mounted) setError("No se pudo cargar el resumen de staging local.");
+      .catch((err: unknown) => {
+        if (mounted) setError(friendlyError(err, "No se pudo cargar el resumen de staging."));
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -1492,10 +1752,10 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [session]);
 
   useEffect(() => {
-    if (!activeSection) return;
+    if (!session || !activeSection) return;
     let mounted = true;
     const effectiveSource =
       activeSection.source === "virtualpos" && vpPlatform !== "all"
@@ -1522,9 +1782,8 @@ function App() {
       .then((data) => {
         if (mounted) setRecords(data);
       })
-      .catch(() => {
-        if (mounted)
-          setError("No se pudieron cargar los registros de staging local.");
+      .catch((err: unknown) => {
+        if (mounted) setError(friendlyError(err, "No se pudieron cargar los registros."));
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -1532,10 +1791,10 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [activeSection, filterField, filterQuery, sortColumn, sortDirection, vpPlatform]);
+  }, [session, activeSection, filterField, filterQuery, sortColumn, sortDirection, vpPlatform]);
 
   useEffect(() => {
-    if (!channel) return;
+    if (!session || !channel) return;
     let mounted = true;
     getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${channel}`)
       .then((data) => {
@@ -1544,8 +1803,8 @@ function App() {
           setYear(data.years[0] ?? null);
         }
       })
-      .catch(() => {
-        if (mounted) setError("No se pudo cargar el mini dashboard del canal.");
+      .catch((err: unknown) => {
+        if (mounted) setError(friendlyError(err, "No se pudo cargar el dashboard del canal."));
       })
       .finally(() => {
         if (mounted) setChannelLoading(false);
@@ -1553,7 +1812,13 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [channel]);
+  }, [session, channel]);
+
+  useEffect(() => {
+    setClientFormError(null);
+    setClientFieldErrors({});
+    setClientSaveNotice(null);
+  }, [editingClient?.id, creatingClient]);
 
   function clearDetails() {
     setClientDetail(null);
@@ -1563,7 +1828,239 @@ function App() {
     setPaymentDetail(null);
     setProviderRecordDetail(null);
   }
+
+  async function saveVirtualPOSClient(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingClient || savingClient) return;
+    setClientFormError(null);
+    setClientFieldErrors({});
+
+    const formData = new FormData(event.currentTarget);
+    const changes: Record<string, string> = {};
+    for (const field of virtualPosClientEditFields) {
+      const rawValue = String(formData.get(field.name) ?? "").trim();
+      const value = field.name === "social_id_type" ? documentType(rawValue) : rawValue;
+      const current = field.name === "social_id_type"
+        ? documentType(editingClient.payload[field.name])
+        : text(editingClient.payload[field.name], "");
+      if (value !== current) changes[field.name] = value;
+    }
+    const selectedDocumentType = documentType(formData.get("social_id_type"));
+    if (selectedDocumentType === "1" && (changes.social_id || changes.social_id_type)) {
+      const rut = normalizeRut(String(formData.get("social_id") ?? ""));
+      if (!rut) {
+        setClientFieldErrors({ social_id: "El RUT no es válido." });
+        setClientFormError("Revisa los campos marcados.");
+        return;
+      }
+      if (changes.social_id) changes.social_id = rut;
+    }
+    if (changes.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(changes.email)) {
+      setClientFieldErrors({ email: "Ingresa un correo electrónico válido." });
+      setClientFormError("Revisa los campos marcados.");
+      return;
+    }
+    const privateNote = String(formData.get("private_note") ?? "").trim();
+    if (privateNote !== text(editingClient.payload.private_note, "")) changes.private_note = privateNote;
+    if (!Object.keys(changes).length) {
+      setClientFormError("No hay cambios para guardar.");
+      return;
+    }
+
+    const clientId = text(editingClient.payload.uuid, editingClient.external_id);
+    setSavingClient(true);
+    try {
+      await refreshCsrfToken();
+      const updated = await putJson<{ payload: Record<string, unknown> }>(
+        `/api/v1/writes/virtualpos/clients/${encodeURIComponent(clientId)}`,
+        changes,
+      );
+      setRecords((current) => ({
+        ...current,
+        items: current.items.map((record) => (
+          record.id === editingClient.id ? { ...record, payload: updated.payload } : record
+        )),
+      }));
+      setClientDetail((current) => current && current.client.id === editingClient.id
+        ? { ...current, client: { ...current.client, payload: updated.payload } }
+        : current);
+      setEditingClient(null);
+      setClientSaveNotice("Cambios guardados correctamente.");
+    } catch (saveError) {
+      const message = friendlyError(saveError, "No se pudo guardar el cliente.");
+      if (message === "Invalid RUT") {
+        setClientFieldErrors({ social_id: "El RUT no es válido." });
+        setClientFormError("Revisa los campos marcados en rojo.");
+      } else {
+        setClientFormError(message);
+      }
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  async function createVirtualPOSClient(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingClient) return;
+    setClientFormError(null);
+    setClientFieldErrors({});
+
+    const formData = new FormData(event.currentTarget);
+    const fieldErrors: Record<string, string> = {};
+
+    const rawValues = Object.fromEntries(
+      virtualPosClientEditFields.map((field) => [field.name, String(formData.get(field.name) ?? "").trim()] as const),
+    ) as Record<string, string>;
+
+    if (!rawValues.first_name) fieldErrors.first_name = "El nombre es obligatorio.";
+    if (!rawValues.email) {
+      fieldErrors.email = "El correo electrónico es obligatorio.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawValues.email)) {
+      fieldErrors.email = "Ingresa un correo electrónico válido.";
+    }
+    if (!rawValues.social_id_type) {
+      fieldErrors.social_id_type = "Selecciona el tipo de documento.";
+    }
+    if (!rawValues.social_id) {
+      fieldErrors.social_id = "El número de documento es obligatorio.";
+    }
+
+    const socialIdType = documentType(rawValues.social_id_type);
+    if (!fieldErrors.social_id && rawValues.social_id) {
+      if (socialIdType === "1") {
+        const rut = normalizeRut(rawValues.social_id);
+        if (!rut) fieldErrors.social_id = "El RUT no es válido. Ejemplo: 12345678-9";
+        else rawValues.social_id = rut;
+      } else if (socialIdType === "2") {
+        if (rawValues.social_id.length < 5) fieldErrors.social_id = "El DNI debe tener al menos 5 caracteres.";
+      }
+    }
+
+    if (rawValues.phone_number && !/^\+?[\d\s\-()]{7,20}$/.test(rawValues.phone_number)) {
+      fieldErrors.phone_number = "Ingresa un teléfono válido.";
+    }
+
+    if (Object.keys(fieldErrors).length) {
+      setClientFieldErrors(fieldErrors);
+      setClientFormError("Revisa los campos marcados en rojo.");
+      return;
+    }
+
+    const normalizedSocialId = socialIdType === "1" ? normalizeRut(rawValues.social_id) ?? rawValues.social_id : rawValues.social_id;
+    const duplicate = records.items.find((item) => {
+      const itemSocial = String(item.payload.social_id ?? "");
+      return itemSocial && itemSocial === normalizedSocialId;
+    });
+    if (duplicate) {
+      setClientFieldErrors({ social_id: "Ya existe un cliente con este documento en el listado actual." });
+      setClientFormError("Ya existe un cliente con ese documento de identidad en VirtualPOS.");
+      return;
+    }
+
+    const client: Record<string, string> = {};
+    for (const [key, value] of Object.entries(rawValues)) {
+      if (value !== "") client[key] = value;
+    }
+    if (client.social_id_type) client.social_id_type = socialIdType;
+    const privateNote = String(formData.get("private_note") ?? "").trim();
+    if (privateNote) client.private_note = privateNote;
+
+    setSavingClient(true);
+    try {
+      await refreshCsrfToken();
+      const created = await postJson<{ id: string; external_id: string; source: string; payload: Record<string, unknown> }>(
+        "/api/v1/writes/virtualpos/clients",
+        client,
+      );
+      setRecords((current) => ({
+        ...current,
+        total: current.total + 1,
+        items: [{ id: created.id, source: created.source, resource_type: "client", external_id: created.external_id, payload: created.payload }, ...current.items],
+      }));
+      setCreatingClient(false);
+      setClientSaveNotice("Cliente creado correctamente.");
+    } catch (createError) {
+      const message = friendlyError(createError, "No se pudo crear el cliente.");
+      if (message === "Invalid RUT") {
+        setClientFieldErrors({ social_id: "El RUT no es válido." });
+        setClientFormError("Revisa los campos marcados en rojo.");
+      } else {
+        setClientFormError(message);
+      }
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  async function createVirtualPOSPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingPlan) return;
+    setPlanFormError(null);
+    setPlanFieldErrors({});
+
+    const formData = new FormData(event.currentTarget);
+    const errors: Record<string, string> = {};
+    const rawValues = Object.fromEntries(
+      virtualPosPlanCreateFields.map((f) => [f.name, String(formData.get(f.name) ?? "").trim()] as const),
+    ) as Record<string, string>;
+
+    if (!rawValues.name) errors.name = "El nombre del plan es obligatorio.";
+    const amount = rawValues.amount === "" ? NaN : Number(rawValues.amount);
+    if (rawValues.amount === "" || isNaN(amount) || amount < 0) errors.amount = "Ingresa un monto válido (número ≥ 0).";
+    if (!rawValues.currency) errors.currency = "Selecciona una moneda.";
+    if (!rawValues.frequency_type) errors.frequency_type = "Selecciona la frecuencia de cobro.";
+
+    const trialDays = rawValues.trial_days ? Number(rawValues.trial_days) : undefined;
+    if (rawValues.trial_days && (isNaN(trialDays!) || trialDays! < 0)) errors.trial_days = "Los días de prueba deben ser un número ≥ 0.";
+    const numCharges = rawValues.num_charges ? Number(rawValues.num_charges) : undefined;
+    if (rawValues.num_charges && (isNaN(numCharges!) || numCharges! < 0)) errors.num_charges = "El número de cobros debe ser ≥ 0.";
+    const fixedDay = rawValues.fixed_amount_day_charge ? Number(rawValues.fixed_amount_day_charge) : undefined;
+    if (rawValues.fixed_amount_day_charge && (isNaN(fixedDay!) || fixedDay! < 1 || fixedDay! > 28)) errors.fixed_amount_day_charge = "El día de cobro debe ser entre 1 y 28.";
+    const activationAmount = rawValues.activation_amount ? Number(rawValues.activation_amount) : undefined;
+    if (rawValues.activation_amount && (isNaN(activationAmount!) || activationAmount! < 0)) errors.activation_amount = "El monto de activación debe ser ≥ 0.";
+
+    if (Object.keys(errors).length) {
+      setPlanFieldErrors(errors);
+      setPlanFormError("Revisa los campos marcados en rojo.");
+      return;
+    }
+
+    const body: Record<string, unknown> = { name: rawValues.name, amount, currency: rawValues.currency, frequency_type: rawValues.frequency_type };
+    if (rawValues.description) body.description = rawValues.description;
+    if (trialDays !== undefined) body.trial_days = trialDays;
+    if (numCharges !== undefined) body.num_charges = numCharges;
+    if (fixedDay !== undefined) body.fixed_amount_day_charge = fixedDay;
+    if (activationAmount !== undefined) body.activation_amount = activationAmount;
+    if (rawValues.automatic_renewal) body.automatic_renewal = rawValues.automatic_renewal === "true";
+    if (rawValues.show_in_terminal) body.show_in_terminal = rawValues.show_in_terminal === "true";
+    if (rawValues.is_active) body.is_active = rawValues.is_active === "true";
+    if (rawValues.return_url) body.return_url = rawValues.return_url;
+    if (rawValues.suscription_url) body.suscription_url = rawValues.suscription_url;
+    if (rawValues.type) body.type = rawValues.type;
+
+    setSavingPlan(true);
+    try {
+      await refreshCsrfToken();
+      const created = await postJson<{ id: string; external_id: string; source: string; payload: Record<string, unknown> }>(
+        "/api/v1/writes/virtualpos/plans",
+        body,
+      );
+      setRecords((current) => ({
+        ...current,
+        total: current.total + 1,
+        items: [{ id: created.id, source: created.source, resource_type: "plan", external_id: created.external_id, payload: created.payload }, ...current.items],
+      }));
+      setCreatingPlan(false);
+      setPlanSaveNotice("Plan creado correctamente.");
+    } catch (err) {
+      setPlanFormError(friendlyError(err, "No se pudo crear el plan."));
+    } finally {
+      setSavingPlan(false);
+    }
+  }
+
   function showDashboard() {
+    setAdminOpen(false);
     clearDetails();
     setActiveSection(null);
     setChannel(null);
@@ -1590,10 +2087,10 @@ function App() {
             setEtlRunning(false);
           }
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           clearInterval(poll);
           setEtlRunning(false);
-          setEtlError("Error al consultar el estado del ETL.");
+          setEtlError(friendlyError(err, "Error al consultar el estado del ETL."));
         });
     }, 3000);
   }
@@ -1603,9 +2100,9 @@ function App() {
     setEtlError(null);
     postJson<{ run_id: string }>("/api/v1/etl/run")
       .then(({ run_id }) => _pollEtlRun(run_id))
-      .catch(() => {
+      .catch((err: unknown) => {
         setEtlRunning(false);
-        setEtlError("Error al iniciar el ETL.");
+        setEtlError(friendlyError(err, "Error al iniciar el ETL."));
       });
   }
   function runFullSync() {
@@ -1616,9 +2113,9 @@ function App() {
       providers: ["virtualpos", "toku", "payku"],
     })
       .then(({ run_id }) => _pollEtlRun(run_id))
-      .catch(() => {
+      .catch((err: unknown) => {
         setEtlRunning(false);
-        setEtlError("Error al iniciar el Sync completo.");
+        setEtlError(friendlyError(err, "Error al iniciar el Sync completo."));
       });
   }
   function syncChannel(source: string) {
@@ -1635,7 +2132,7 @@ function App() {
         setChannelData(data);
         setYear(data.years[0] ?? null);
       })
-      .catch(() => setError("Error al sincronizar el canal."))
+      .catch((err: unknown) => setError(friendlyError(err, "Error al sincronizar el canal.")))
       .finally(() => setSyncing(false));
   }
   function showSection(section: ProviderSection) {
@@ -1670,8 +2167,8 @@ function App() {
           `/api/v1/staging/virtualpos/clients/${encodeURIComponent(record.external_id)}`,
         ),
       );
-    } catch {
-      setError("No se pudo cargar la ficha del cliente.");
+    } catch (err) {
+      setError(friendlyError(err, "No se pudo cargar la ficha del cliente."));
     } finally {
       setDetailLoading(false);
     }
@@ -1689,8 +2186,8 @@ function App() {
           `/api/v1/staging/virtualpos/plans/${encodeURIComponent(record.external_id)}`,
         ),
       );
-    } catch {
-      setError("No se pudo cargar la ficha del plan.");
+    } catch (err) {
+      setError(friendlyError(err, "No se pudo cargar la ficha del plan."));
     } finally {
       setDetailLoading(false);
     }
@@ -1708,8 +2205,8 @@ function App() {
           `/api/v1/staging/virtualpos/subscriptions/${encodeURIComponent(record.external_id)}`,
         ),
       );
-    } catch {
-      setError("No se pudo cargar la ficha de la subscripción.");
+    } catch (err) {
+      setError(friendlyError(err, "No se pudo cargar la ficha de la subscripción."));
     } finally {
       setDetailLoading(false);
     }
@@ -1727,8 +2224,8 @@ function App() {
           `/api/v1/staging/virtualpos/charges/${encodeURIComponent(record.external_id)}`,
         ),
       );
-    } catch {
-      setError("No se pudo cargar la ficha del cargo.");
+    } catch (err) {
+      setError(friendlyError(err, "No se pudo cargar la ficha del cargo."));
     } finally {
       setDetailLoading(false);
     }
@@ -1746,8 +2243,8 @@ function App() {
           `/api/v1/staging/virtualpos/payments/${encodeURIComponent(record.external_id)}`,
         ),
       );
-    } catch {
-      setError("No se pudo cargar la ficha del pago.");
+    } catch (err) {
+      setError(friendlyError(err, "No se pudo cargar la ficha del pago."));
     } finally {
       setDetailLoading(false);
     }
@@ -1766,8 +2263,8 @@ function App() {
           `/api/v1/staging/${source}/${resource}/${encodeURIComponent(record.external_id)}`,
         ),
       );
-    } catch {
-      setError("No se pudo cargar la ficha del registro.");
+    } catch (err) {
+      setError(friendlyError(err, "No se pudo cargar la ficha del registro."));
     } finally {
       setDetailLoading(false);
     }
@@ -1789,6 +2286,14 @@ function App() {
     }
     setSortColumn(column.label);
     setSortDirection("asc");
+  }
+
+  async function logout() {
+    try { await postJson("/api/v1/auth/logout"); } finally {
+      csrfToken = "";
+      setSession(null);
+      setAdminOpen(false);
+    }
   }
   const clientDetailView = clientDetail ? (
     <main className="app-shell detail-page">
@@ -2347,6 +2852,14 @@ function App() {
           </div>
           <span aria-live="polite">{loading ? "Cargando" : `${records.total} registros`}</span>
         </div>
+        {activeSection.source === "virtualpos" && activeSection.resource === "client" ? (
+          <button className="new-client-button" onClick={() => setCreatingClient(true)}>+ Nuevo cliente</button>
+        ) : null}
+        {activeSection.source === "virtualpos" && activeSection.resource === "plan" && session?.user.permissions.includes("virtualpos.plans.update") ? (
+          <button className="new-client-button" onClick={() => { setPlanFormError(null); setPlanFieldErrors({}); setPlanSaveNotice(null); setCreatingPlan(true); }}>+ Nuevo plan</button>
+        ) : null}
+        {clientSaveNotice ? <p className="success-message" role="status">{clientSaveNotice}</p> : null}
+        {planSaveNotice ? <p className="success-message" role="status">{planSaveNotice}</p> : null}
         {error ? <p className="error-message">{error}</p> : null}
         {!loading && !error && records.items.length === 0 ? (
           <p>Sin registros sincronizados para este recurso.</p>
@@ -2618,40 +3131,67 @@ function App() {
       </section>
     </main>
   );
-  const clientEditDialog = editingClient ? (
+  const createRequiredFields = new Set(["first_name", "email", "social_id", "social_id_type"]);
+  const createDefaultValues: Record<string, string> = { status: "ACTIVO", type: "PERSONA", social_id_type: "1" };
+  const clientEditDialog = editingClient || creatingClient ? (
     <div className="edit-dialog-backdrop" role="presentation">
-      <form className="edit-dialog" aria-modal="true" aria-label="Editar cliente VirtualPOS">
+      <form className="edit-dialog" aria-modal="true" aria-label={creatingClient ? "Crear cliente VirtualPOS" : "Editar cliente VirtualPOS"} noValidate onSubmit={creatingClient ? createVirtualPOSClient : saveVirtualPOSClient}>
         <div className="edit-dialog-heading">
           <div>
-            <p className="eyebrow">VIRTUALPOS / EDICIÓN</p>
-            <h3>Editar cliente</h3>
+            <p className="eyebrow">VIRTUALPOS / {creatingClient ? "CREACIÓN" : "EDICIÓN"}</p>
+            <h3>{creatingClient ? "Nuevo cliente" : "Editar cliente"}</h3>
           </div>
-          <span>{text(editingClient.payload.uuid, editingClient.external_id)}</span>
+          {!creatingClient && editingClient ? <span>{text(editingClient.payload.uuid, editingClient.external_id)}</span> : null}
         </div>
         <p className="edit-dialog-note">
-          Formulario visual. El guardado remoto permanece deshabilitado mientras VirtualPOS opere en modo solo lectura.
+          {creatingClient
+            ? "Los campos marcados con * son obligatorios. El cliente se creará en VirtualPOS y en la base de datos local."
+            : "Los cambios se aplican mediante la API interna. VirtualPOS debe estar habilitado localmente para completar el guardado."}
         </p>
         <div className="edit-form-grid">
-          {virtualPosClientEditFields.map((field) => (
-            <label key={field.name}>
-              {field.label}
-              <input
-                name={field.name}
-                type={field.type ?? "text"}
-                defaultValue={text(editingClient.payload[field.name], "")}
-              />
-            </label>
-          ))}
+          {virtualPosClientEditFields.map((field) => {
+            const isRequired = creatingClient && createRequiredFields.has(field.name);
+            const hasError = Boolean(clientFieldErrors[field.name]);
+            const defaultVal = creatingClient
+              ? (createDefaultValues[field.name] ?? "")
+              : (field.name === "social_id_type" ? documentType(editingClient!.payload[field.name]) : text(editingClient!.payload[field.name], ""));
+            return (
+              <label className={hasError ? "field-error" : ""} key={field.name}>
+                {field.label}{isRequired ? <span className="field-required" aria-hidden="true"> *</span> : null}
+                {field.options ? (
+                  <select
+                    aria-invalid={hasError}
+                    aria-required={isRequired}
+                    name={field.name}
+                    defaultValue={defaultVal}
+                  >
+                    {field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    name={field.name}
+                    type={field.type ?? "text"}
+                    defaultValue={defaultVal}
+                    aria-invalid={hasError}
+                    aria-required={isRequired}
+                    placeholder={field.name === "social_id" ? (creatingClient ? "Ej: 12345678-9" : undefined) : undefined}
+                  />
+                )}
+                {hasError ? <span className="field-error-message">{clientFieldErrors[field.name]}</span> : null}
+              </label>
+            );
+          })}
           <label className="edit-form-wide">
             Nota privada
-            <textarea name="private_note" defaultValue={text(editingClient.payload.private_note, "")} />
+            <textarea name="private_note" defaultValue={creatingClient ? "" : text(editingClient!.payload.private_note, "")} />
           </label>
         </div>
+        {clientFormError ? <p className="error-message form-error">{clientFormError}</p> : null}
         <div className="edit-dialog-actions">
-          <button type="button" className="save-button" disabled title="Guardado remoto no habilitado">
-            Guardar cambios
+          <button type="submit" className="save-button" disabled={savingClient}>
+            {savingClient ? "Guardando..." : creatingClient ? "Crear cliente" : "Guardar cambios"}
           </button>
-          <button type="button" className="cancel-button" onClick={() => setEditingClient(null)}>
+          <button type="button" className="cancel-button" onClick={() => { setEditingClient(null); setCreatingClient(false); }}>
             Cancelar
           </button>
         </div>
@@ -2804,6 +3344,9 @@ function App() {
     )))
   );
 
+  if (session === undefined) return <main className="app-shell"><p className="muted-copy">Verificando sesión...</p></main>;
+  if (session === null) return <LoginScreen onLogin={setSession} />;
+
   return (
     <div className="app-layout">
       <Sidebar
@@ -2818,9 +3361,69 @@ function App() {
           setOpenProvider((open) => (open === provider ? null : provider))
         }
         onTheme={toggleTheme}
+        permissions={session.user.permissions}
+        onAdmin={() => { clearDetails(); setChannel(null); setActiveSection(null); setAdminOpen(true); }}
+        onLogout={logout}
       />
-      {content}
+      {adminOpen ? <AdminUsers canManageUsers={session.user.permissions.includes("users.manage")} /> : content}
       {clientEditDialog}
+      {creatingPlan ? (
+        <div className="edit-dialog-backdrop" role="presentation">
+          <form
+            className="edit-dialog edit-dialog-wide"
+            aria-modal="true"
+            aria-label="Crear plan VirtualPOS"
+            noValidate
+            onSubmit={createVirtualPOSPlan}
+          >
+            <div className="edit-dialog-heading">
+              <div>
+                <p className="eyebrow">VIRTUALPOS / PLANES</p>
+                <h3>Nuevo plan</h3>
+              </div>
+            </div>
+            <p className="edit-dialog-note">
+              Los campos marcados con * son obligatorios. El plan se creará en VirtualPOS y en la base de datos local.
+            </p>
+            <div className="edit-form-grid">
+              {virtualPosPlanCreateFields.map((field) => {
+                const hasError = Boolean(planFieldErrors[field.name]);
+                const defaultVal = planDefaultValues[field.name] ?? "";
+                return (
+                  <label className={hasError ? "field-error" : ""} key={field.name}>
+                    {field.label}{field.required ? <span className="field-required" aria-hidden="true"> *</span> : null}
+                    {field.options ? (
+                      <select name={field.name} defaultValue={defaultVal} aria-invalid={hasError} aria-required={field.required}>
+                        {!field.required && <option value="">Sin especificar</option>}
+                        {field.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        name={field.name}
+                        type={field.type ?? "text"}
+                        defaultValue={defaultVal}
+                        aria-invalid={hasError}
+                        aria-required={field.required}
+                        placeholder={field.name === "amount" ? "Ej: 9990" : field.name === "num_charges" ? "0 = ilimitado" : undefined}
+                      />
+                    )}
+                    {hasError ? <span className="field-error-message">{planFieldErrors[field.name]}</span> : null}
+                  </label>
+                );
+              })}
+            </div>
+            {planFormError ? <p className="error-message form-error">{planFormError}</p> : null}
+            <div className="edit-dialog-actions">
+              <button type="submit" className="save-button" disabled={savingPlan}>
+                {savingPlan ? "Creando..." : "Crear plan"}
+              </button>
+              <button type="button" className="cancel-button" onClick={() => setCreatingPlan(false)}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       {subscriptionCancelDialog}
       {providerEditDialog}
       {providerDeleteDialog}

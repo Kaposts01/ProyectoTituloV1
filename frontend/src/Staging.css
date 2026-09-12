@@ -693,6 +693,10 @@
   background: var(--bg-surface);
 }
 
+.edit-dialog-wide {
+  width: min(960px, 100%);
+}
+
 .edit-dialog-heading,
 .edit-dialog-actions {
   display: flex;
@@ -729,6 +733,7 @@
 }
 
 .edit-form-grid input,
+.edit-form-grid select,
 .edit-form-grid textarea {
   width: 100%;
   box-sizing: border-box;
@@ -742,6 +747,28 @@
   letter-spacing: 0;
   text-transform: none;
 }
+
+.edit-form-grid .field-error input,
+.edit-form-grid .field-error select,
+.edit-form-grid .field-error textarea {
+  border-color: var(--error-border);
+  box-shadow: 0 0 0 1px var(--error-border);
+}
+
+.field-error-message {
+  color: var(--error-text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.field-required {
+  color: var(--error-text);
+  font-weight: 700;
+}
+
+.form-error { margin: 16px 0 0; }
 
 .edit-form-grid textarea {
   min-height: 90px;
@@ -884,25 +911,42 @@
 }
 
 .vp-platform-btn {
-  padding: 6px 16px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  background: var(--surface-1);
-  color: var(--text);
-  font-size: 13px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-primary);
+  color: var(--text-on-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .vp-platform-btn:hover {
-  background: var(--bg-hover);
+  filter: brightness(.9);
 }
 
 .vp-platform-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 55%);
 }
+
+.new-client-button {
+  min-height: 36px;
+  margin: 0 0 14px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 13px;
+  cursor: pointer;
+  color: #fff;
+  background: #238636;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.new-client-button:hover { background: #1a6b2a; }
 
 @media (max-width: 800px) {
   .source-summary { grid-template-columns: 1fr; }
