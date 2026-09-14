@@ -334,6 +334,8 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
     for p in db.scalars(select(PaykuSubscription)).all():
         payload = p.raw_payload or {}
         client = payload.get("client") if isinstance(payload.get("client"), dict) else {}
+        if not p.amount:
+            p.amount = latest_successful_amounts.get(p.external_id, ("", None))[1]
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
@@ -346,7 +348,7 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
             "automatic_renewal": None,
             "suscription_date": payload.get("start"),
             "canceled_at": payload.get("end"),
-            "amount": p.amount or latest_successful_amounts.get(p.external_id, ("", None))[1],
+            "amount": p.amount,
             "currency": p.currency,
             "raw_payload": p.raw_payload,
         })

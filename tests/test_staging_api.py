@@ -218,7 +218,7 @@ def test_payku_consolidation_preserves_subscription_dates_and_rut(db_session) ->
         client_id="client-1",
         plan_id="plan-1",
         status="cancel",
-        amount="2500",
+        amount=None,
         currency="CLP",
         raw_payload={"start": "2099-01-01", "end": "2099-02-01", "client": {"rut": "12.345.678-9"}},
     )
@@ -242,6 +242,7 @@ def test_payku_consolidation_preserves_subscription_dates_and_rut(db_session) ->
     assert canonical.canceled_at == "2099-02-01"
     assert canonical.client_social_id == "12.345.678-9"
     assert canonical.amount == "2500"
+    assert subscription.amount == "2500"
 
 
 def test_virtualpos_client_detail_lists_all_subscriptions_by_social_id(db_session) -> None:

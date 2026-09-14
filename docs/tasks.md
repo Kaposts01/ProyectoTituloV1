@@ -122,6 +122,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 - Se corrigió el dashboard Payku: las activaciones usan `start`; las caídas consideran `cancel`, `delete` y `suspended` con `end`. Los payloads actuales no contienen fecha de reactivación ni historial fechado de estados.
 - Se rematerializaron las 58.338 filas Payku: las 5.699 suscripciones canónicas ya tienen inicio y 1.441 término. Como Payku no entrega monto recurrente en la suscripción, se usa la última transacción `success` asociada como monto operativo para KPIs y gráficos.
 - Los KPIs de Payku cuentan solo suscripciones `active` y transacciones `success`, mostrando sus montos cuando el proveedor los entrega.
+- La consolidación ahora persiste en `p_subscriptions.amount` el monto de la última transacción `success` asociada; 2.283 suscripciones y las 484 activas ya tienen monto materializado.
 
 ## Avance 2026-08-30
 
