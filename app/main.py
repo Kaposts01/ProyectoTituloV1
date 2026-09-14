@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api.v1.router import api_router
+from app.api.v1.routes import auth
 from app.core.config import settings
 
 OPENAPI_TAGS = [
@@ -11,10 +12,14 @@ OPENAPI_TAGS = [
     {"name": "Payment", "description": "Consultas CRM para pagos de VirtualPOS."},
     {"name": "Sync runs", "description": "Ejecuciones de sincronizacion read-only."},
     {"name": "Staging", "description": "Registros saneados almacenados por canal."},
+    {"name": "Writes - VirtualPOS", "description": "Operaciones internas autorizadas de VirtualPOS."},
+    {"name": "Authentication", "description": "Sesión del CRM."},
+    {"name": "Administration", "description": "Usuarios, roles y permisos."},
     {"name": "health", "description": "Estado de la API."},
 ]
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0", openapi_tags=OPENAPI_TAGS)
+app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(api_router, prefix="/api/v1")
 
 

@@ -6,8 +6,13 @@ from sqlalchemy.orm import Session
 from app.api.v1.routes import staging
 from app.db.session import engine
 from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscription
+from app.models.payku_channel import PaykuSubscription, PaykuTransaction
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
+from app.services.channel_store import (
+    extract_payku_subscription,
+    extract_payku_transaction,
+)
 
 
 @pytest.fixture
@@ -124,10 +129,13 @@ def test_staging_summary_groups_records_and_latest_sync_by_source(db_session) ->
 
 
 def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) -> None:
+    before = staging.channel_dashboard(source="payku", db=db_session)
     db_session.add_all(
         [
             Payment(source="payku", external_id="dashboard-payku-1", status="success", amount="1200", payment_date="2099-02-03", raw_payload={"id": "dashboard-payku-1"}),
-            Subscription(source="payku", external_id="dashboard-payku-2", status="active", raw_payload={"id": "dashboard-payku-2"}),
+            Payment(source="payku", external_id="dashboard-payku-failed", status="failed", amount="900", payment_date="2099-02-03", raw_payload={"id": "dashboard-payku-failed"}),
+            Subscription(source="payku", external_id="dashboard-payku-2", status="active", amount="1000", raw_payload={"id": "dashboard-payku-2"}),
+            Subscription(source="payku", external_id="dashboard-payku-suspended", status="suspended", amount="500", raw_payload={"id": "dashboard-payku-suspended"}),
         ]
     )
     db_session.flush()
@@ -137,6 +145,103 @@ def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) ->
     assert {entry["year"] for entry in response["activity"]} >= {2099}
     assert {entry["status"] for entry in response["statuses"]} >= {"success", "active"}
     assert response["activity_resource"] == "transaction"
+    assert response["resources"]["subscription"] == before["resources"]["subscription"] + 1
+    assert response["resources"]["transaction"] == before["resources"]["transaction"] + 1
+    assert response["resource_amounts"]["subscription"] == before["resource_amounts"]["subscription"] + 1000.0
+    assert response["resource_amounts"]["transaction"] == before["resource_amounts"]["transaction"] + 1200.0
+
+
+def test_payku_dashboard_uses_subscription_dates_amounts_and_terminal_churn() -> None:
+    records = [
+        SourceRecord(
+            source="payku",
+            resource_type="subscription",
+            external_id="active-subscription",
+            payload={"status": "active", "start": "2099-01-02", "amount": "1000", "client": {"rut": "1"}},
+        ),
+        SourceRecord(
+            source="payku",
+            resource_type="subscription",
+            external_id="cancelled-subscription",
+            payload={"status": "cancel", "start": "2099-01-03", "end": "2099-02-04", "amount": "2000"},
+        ),
+        SourceRecord(
+            source="payku",
+            resource_type="subscription",
+            external_id="suspended-subscription",
+            payload={"status": "suspended", "start": "2099-01-04", "end": "2099-02-05", "amount": "3000"},
+        ),
+    ]
+
+    dashboard = staging._payku_extended_data(records)
+
+    assert dashboard["kpis"]["mrr"] == 1000
+    assert dashboard["kpis"]["active_subscribers"] == 1
+    assert dashboard["activation_monthly"] == [
+        {"year": 2099, "month": 1, "status": "ACTIVE", "count": 1, "amount": 1000.0},
+        {"year": 2099, "month": 1, "status": "CANCEL", "count": 1, "amount": 2000.0},
+        {"year": 2099, "month": 1, "status": "SUSPENDED", "count": 1, "amount": 3000.0},
+    ]
+    assert dashboard["churn_monthly"] == [
+        {"year": 2099, "month": 2, "status": "CANCEL", "count": 1, "amount": 2000.0},
+        {"year": 2099, "month": 2, "status": "SUSPENDED", "count": 1, "amount": 3000.0},
+    ]
+
+
+def test_payku_subscription_uses_latest_successful_transaction_amount() -> None:
+    subscription = extract_payku_subscription({
+        "id": "subscription-1",
+        "transactions": [
+            {"status": "success", "amount": "1000", "created_at": "2099-01-01"},
+            {"status": "failed", "amount": "9999", "created_at": "2099-02-01"},
+            {"status": "success", "amount": "1200", "created_at": "2099-03-01"},
+        ],
+    })
+
+    assert subscription["amount"] == "1200"
+
+
+def test_payku_transaction_reads_subscription_object() -> None:
+    transaction = extract_payku_transaction({
+        "id": "transaction-1",
+        "subscriptions": {"id": "subscription-1"},
+        "amount": "1200",
+        "status": "success",
+    })
+
+    assert transaction["subscription_id"] == "subscription-1"
+
+
+def test_payku_consolidation_preserves_subscription_dates_and_rut(db_session) -> None:
+    subscription = PaykuSubscription(
+        external_id="payku-dashboard-date-test",
+        client_id="client-1",
+        plan_id="plan-1",
+        status="cancel",
+        amount="2500",
+        currency="CLP",
+        raw_payload={"start": "2099-01-01", "end": "2099-02-01", "client": {"rut": "12.345.678-9"}},
+    )
+    transaction = PaykuTransaction(
+        external_id="payku-dashboard-date-transaction",
+        subscription_id="payku-dashboard-date-test",
+        status="success",
+        amount="2500",
+        created_at_api="2099-01-15",
+        raw_payload={},
+    )
+    db_session.add_all([subscription, transaction])
+    db_session.flush()
+
+    from app.services.channel_consolidation import _consolidate_payku_subscriptions
+
+    _consolidate_payku_subscriptions(db_session)
+    canonical = db_session.query(Subscription).filter_by(source="payku", external_id=subscription.external_id).one()
+
+    assert canonical.suscription_date == "2099-01-01"
+    assert canonical.canceled_at == "2099-02-01"
+    assert canonical.client_social_id == "12.345.678-9"
+    assert canonical.amount == "2500"
 
 
 def test_virtualpos_client_detail_lists_all_subscriptions_by_social_id(db_session) -> None:

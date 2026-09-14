@@ -109,6 +109,19 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | UI-05 | Ordenar registros completos desde la tabla | Completada | El orden usa campos seguros, incluidos anidados, y se aplica antes de paginar los registros. |
 | ETL-01 | Consolidar BDlocales en entidades canónicas | Completada | VirtualPOS, Toku y Payku se materializan de forma idempotente desde sus BDlocales; los payloads saneados mantienen trazabilidad. |
 | ETL-02 | Orquestar sync read-only y ETL en segundo plano | Completada | Las rutas `/api/v1/etl/run` y `/api/v1/etl/full-sync` registran estado y fase sin exponer credenciales. |
+| DB-01 | Consolidar BDlocales en una sola base por tablas de canal | Completada | Los datos existentes se migran idempotentemente a las tablas prefijadas, sin nueva lectura completa de proveedores; CRM conserva filtros, orden y fichas. |
+| PK-04 | Corregir métricas y gráficos de ciclo de vida Payku | Completada | Transacciones, activaciones y bajas se agrupan por estado; activación usa `start` y caída usa `cancel`/`delete`/`suspended` con `end`. |
+
+## Plan de consolidacion 2026-09-13
+
+- Se inventariaron las BDlocales: VirtualPOS tiene 260.179 registros, Payku 58.338 y Toku 36.404. Se eligio migrar estos datos existentes en vez de ejecutar una sincronizacion completa contra los proveedores.
+- El plan operativo, los riesgos de identidad de las dos cuentas VirtualPOS y la validacion de datos sensibles estan en `docs/PLAN_CONSOLIDACION_BDLOCAL.md`.
+- Se aplico la migracion `20260913_0020`: las tablas de canal usan `vp_*`, `tk_*` y `p_*`; VirtualPOS conserva la plataforma en su identidad unica.
+- La importacion usa la clave remota de cada BDlocal, procesa lotes saneados y no rematerializa TCH durante la carga de proveedores.
+- Se cargaron las 354.921 filas historicas de VirtualPOS, Toku y Payku en `crm`; las sincronizaciones read-only para datos del dia estan en ejecucion y se validan por canal.
+- Se corrigió el dashboard Payku: las activaciones usan `start`; las caídas consideran `cancel`, `delete` y `suspended` con `end`. Los payloads actuales no contienen fecha de reactivación ni historial fechado de estados.
+- Se rematerializaron las 58.338 filas Payku: las 5.699 suscripciones canónicas ya tienen inicio y 1.441 término. Como Payku no entrega monto recurrente en la suscripción, se usa la última transacción `success` asociada como monto operativo para KPIs y gráficos.
+- Los KPIs de Payku cuentan solo suscripciones `active` y transacciones `success`, mostrando sus montos cuando el proveedor los entrega.
 
 ## Avance 2026-08-30
 
@@ -150,20 +163,20 @@ Cada tarea sigue el mismo patrón de tres capas:
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| WR-VP-01 | Habilitar edición real de clientes VirtualPOS | Pendiente | `PUT /v3/client/:uuid` ejecutado desde el modal; bdlocal actualizada; botón "Guardar cambios" operativo. |
-| WR-VP-02 | Habilitar cancelación real de suscripciones VirtualPOS | Pendiente | `DELETE /v3/suscription/:id` ejecutado desde el modal de confirmación; estado en bdlocal cambia a CANCELADA. |
-| WR-VP-03 | Habilitar cancelación real de cargos VirtualPOS | Pendiente | `DELETE /v3/charge/:id` ejecutado desde ficha y tabla; cargo actualizado en bdlocal. |
+| WR-VP-01 | Habilitar edición y creación real de clientes VirtualPOS | Completada | `PUT /v3/client/:uuid` y `POST /v3/client` se ejecutan desde modales internos con selector VP1/VP2; bdlocal actualizada; edición y creación operativas. |
+| WR-VP-02 | Habilitar cancelación real de suscripciones VirtualPOS | Completada | `DELETE /v3/suscription/:id` ejecutado desde el modal de confirmación; estado en bdlocal cambia a CANCELADA. |
+| WR-VP-03 | Habilitar cancelación real de cargos VirtualPOS | Completada | `DELETE /v3/charge/:id` ejecutado desde ficha y tabla; cargo actualizado en bdlocal. |
 | WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Pendiente | `DELETE /v3/payment/:uuid` ejecutado desde ficha y tabla; pago actualizado en bdlocal. |
-| WR-VP-05 | Flujo especial: reasignar monto o fecha de cargos de suscripción | Pendiente | Nuevo modal en ficha de suscripción con campo de monto y/o fecha; flujo: (1) listar cargos pendientes `GET /v3/suscription/:id/charges`, (2) cancelar cada pendiente `DELETE /v3/charge/:id`, (3) crear nuevos cargos `POST /v3/charge` con los valores indicados; bdlocal refleja el resultado. VirtualPOS no expone PUT directo sobre suscripciones; este es el flujo equivalente. |
+| WR-VP-05 | Flujo especial: crear cargo en suscripción activa y reasignar | En curso | `POST /v3/charge` disponible desde ficha de suscripción activa; modal de monto/fecha operativo. El flujo de reasignación completo (cancelar pendientes + recrear) requiere integración frontend pendiente. |
 
 ### WR-TK: Escritura Toku
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| WR-TK-01 | Habilitar edición real de clientes Toku | Pendiente | `PUT /customers/:id` ejecutado desde modal; bdlocal actualizada; botón "Guardar cambios" operativo. |
+| WR-TK-01 | Habilitar edición real de clientes Toku | Completada | `PUT /customers/:id` ejecutado desde modal; bdlocal actualizada; botón "Guardar cambios" operativo. |
 | WR-TK-02 | Habilitar edición de invoices Toku | Pendiente | `PUT /invoices/:id` ejecutado con monto y/o fecha límite; bdlocal actualizada. |
-| WR-TK-03 | Habilitar edición de suscripciones Toku | Pendiente | `PUT /subscriptions/:id` ejecutado desde modal; bdlocal actualizada. |
-| WR-TK-04 | Habilitar eliminación de clientes Toku | Pendiente | `DELETE /customers/:id` ejecutado desde fila y ficha; registro marcado en bdlocal. |
+| WR-TK-03 | Habilitar cambio de estado de suscripciones Toku | Completada | `POST /subscriptions/:id/status` ejecutado desde modal; bdlocal actualizada con nuevo estado. |
+| WR-TK-04 | Habilitar eliminación de clientes Toku | Completada | `DELETE /customers/:id` ejecutado desde fila y ficha; registro marcado en bdlocal. |
 | WR-TK-05 | Habilitar eliminación de invoices Toku | Pendiente | `DELETE /invoices/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
 | WR-TK-06 | Habilitar eliminación de suscripciones Toku | Pendiente | `DELETE /subscriptions/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
 
@@ -171,16 +184,16 @@ Cada tarea sigue el mismo patrón de tres capas:
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| WR-PK-01 | Habilitar edición de clientes Payku | Pendiente | `PUT /api/suclient/:id` ejecutado desde modal; campos de nombre, email y teléfono actualizados en bdlocal. |
-| WR-PK-02 | Habilitar eliminación de suscripciones Payku | Pendiente | `DELETE /api/sususcription/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
-| WR-PK-03 | Habilitar eliminación de clientes suscripción Payku | Pendiente | `DELETE /api/suclient/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
+| WR-PK-01 | Habilitar edición de clientes Payku | Completada | `PUT /api/suclient/:id` ejecutado desde modal; campos de nombre, email y teléfono actualizados en bdlocal. |
+| WR-PK-02 | Habilitar eliminación de suscripciones Payku | Completada | `DELETE /api/sususcription/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
+| WR-PK-03 | Habilitar eliminación de clientes suscripción Payku | Completada | `DELETE /api/suclient/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
 
 ### WR-INF: Infraestructura transversal de escritura
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| WR-INF-01 | Crear capa de servicio de escritura por proveedor | Pendiente | Módulos `app/services/write_virtualpos.py`, `write_toku.py`, `write_payku.py` con manejo de errores HTTP y rollback en bdlocal si la plataforma rechaza la operación. |
-| WR-INF-02 | Añadir rutas de escritura a la API interna | Pendiente | Endpoints PUT/DELETE internos documentados en Swagger; pruebas unitarias con respuestas simuladas cubren éxito, error de plataforma y conflicto de estado. |
+| WR-INF-01 | Crear capa de servicio de escritura por proveedor | Completada | Módulos `app/services/write_virtualpos.py`, `write_toku.py`, `write_payku.py` implementados con manejo de errores HTTP, rollback local si la plataforma rechaza y registro durable en `write_runs`. |
+| WR-INF-02 | Añadir rutas de escritura a la API interna | Completada | Endpoints POST/PUT/DELETE internos disponibles para VirtualPOS, Toku y Payku, documentados en Swagger y protegidos por CSRF y permisos. |
 
 ## Actualización documental 2026-09-11 (hito escritura)
 
@@ -195,3 +208,61 @@ Cada tarea sigue el mismo patrón de tres capas:
 - La escritura remota continúa pendiente de autorización e implementación de las tareas `WR-*`; los botones visuales no realizan llamadas de escritura.
 - WR-VP-05 documenta el flujo especial de reasignación de monto/fecha en VirtualPOS: no existe PUT directo sobre suscripciones; el flujo equivalente es cancelar los cargos pendientes y recrearlos con los valores nuevos.
 - Todos los botones de escritura del frontend ya existen visualmente (disabled); se habilitarán conforme se implementen los endpoints internos correspondientes.
+
+## Inicio de escritura controlada 2026-09-12
+
+- Se reemplazó la política global de solo lectura por escritura controlada: las sincronizaciones y ETL siguen usando exclusivamente `GET`.
+- Cada proveedor requiere una bandera local explícita (`VIRTUALPOS_WRITES_ENABLED`, `TOKU_WRITES_ENABLED` o `PAYKU_WRITES_ENABLED`) y permanece denegado por defecto.
+- Se iniciaron `WR-INF-01` y `WR-INF-02`. Las operaciones remotas se limitarán a los flujos PUT/DELETE documentados; no se implementarán creaciones de pago, autorizaciones, reintentos, enlaces de pago, wallets ni payouts sin una nueva tarea aprobada.
+- Se inició `WR-VP-01`: el backend cuenta con el registro durable `write_runs`, el cliente PUT de VirtualPOS y la ruta interna protegida. El modal de cliente ya utiliza la ruta interna; falta validar la operación contra Sandbox con la bandera local habilitada.
+
+## Hito 3: Identidad y permisos
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| AUTH-01 | Implementar autenticación, roles y permisos por módulo | Completada | Login con cookie HttpOnly y CSRF; usuarios con varios roles; backend protege rutas y React oculta canales/tablas no autorizados. |
+| AUTH-02 | Administración de usuarios y roles | En curso | `admin` crea usuarios, asigna múltiples roles y administra roles sobre el catálogo fijo de permisos. |
+| TCH-01 | Restaurar canal TCH y cargar reportes Excel | Completada | El menú respeta los permisos asignados, las tablas TCH están migradas y los reportes locales se cargan de forma idempotente. |
+| TCH-02 | Añadir gráficos operativos al dashboard TCH | Completada | El resumen muestra series mensuales de cargos y altas, filtrables por año, cantidad y monto. |
+| TCH-03 | Corregir histórico, fichas y navegación TCH | Completada | Fechas se reconstruyen desde reportes, cargos históricos son idempotentes, TCH abre su dashboard y sus objetos tienen ficha local. |
+| TCH-04 | Añadir clientes TCH | Completada | El menú expone clientes TCH, la tabla permite buscar y paginar, y la ficha muestra mandatos asociados. |
+| TCH-05 | Añadir contacto y equivalente TCH | Completada | Fichas de clientes muestran contacto y dirección; suscripciones muestran el equivalente en pesos del mandato. |
+
+## Actualización 2026-09-12 (identidad)
+
+- Se agregaron usuarios, roles, permisos y relaciones muchos-a-muchos mediante la migración `20260912_0012`.
+- El administrador inicial se crea de forma explícita con `scripts/bootstrap_admin.py` y valores no versionados de `.env`.
+- Las sesiones usan cookie HttpOnly, JWT con secreto de al menos 32 caracteres y token CSRF para operaciones mutables.
+- Las rutas CRM, staging, ETL, sincronización y escritura requieren sesión. Staging comprueba permisos por canal y recurso antes de devolver datos.
+- Se corrigió el lanzador `scripts/bootstrap_admin.py` para ejecutarse desde la raíz con `python scripts\bootstrap_admin.py`.
+- El formulario de edición VirtualPOS presenta `gender_id` como selector con los valores observados en `VirtualPOS_Local`: Masculino y Femenino.
+- La migración `20260912_0013` agrega `clients.private_note`: la nota se guarda únicamente en el CRM y no se envía a VirtualPOS.
+- La edición de clientes VirtualPOS valida Estado, Tipo, Tipo de documento y correo; los RUT se validan con módulo 11 y se guardan normalizados sin puntos y con guion.
+- Los errores de validación de la edición de clientes se muestran dentro del modal, junto al campo marcado; la tabla solo confirma el guardado exitoso.
+- Los filtros de plataforma VirtualPOS usan la estética de los botones de acción. La tabla de clientes incluye `Nuevo cliente`, que abre el formulario de creación y usa `POST /v3/client` mediante la API interna.
+
+## Actualización 2026-09-12 (TCH)
+
+- Las tablas TCH ya contienen 28.982 clientes, 29.295 suscripciones y 255.914 transacciones cargadas desde los reportes Excel locales.
+- Se añadió la migración `20260912_0015`: crea los permisos del canal TCH y los asigna al rol `admin` existente.
+- El menú TCH ofrece resumen, suscripciones y transacciones; el resumen consulta correctamente la última carga ETL de TCH.
+- El dashboard TCH muestra cargos mensuales aceptados/rechazados y altas mensuales de mandatos, con selector de año y alternancia entre cantidad y monto.
+- La recarga histórica procesó 29 reportes desde enero de 2017 hasta agosto de 2026. Los cargos de `BK:CT` se desnormalizan y no se repiten entre ventanas mensuales; las hojas de cargos aportan el detalle de fecha y rechazo.
+- La suscripción usa `Fecha Activación` como inicio y `Fecha Eliminado` o `Fecha Rechazo` como término. TCH abre su dashboard al pulsar el canal y sus tablas enlazan a fichas locales de suscripción y transacción.
+- Se agregó Clientes TCH: `28.982` socios disponibles en tabla paginada por RUT/nombre y ficha local con suscripciones relacionadas. La migración `20260912_0018` asigna su permiso de lectura al rol administrador.
+- La migración `20260912_0019` incorpora contacto de cliente y equivalente en pesos. El backfill local completó teléfono para 28.962 clientes, email para 25.372 y el equivalente para las 29.295 suscripciones TCH.
+
+## Actualización 2026-09-14
+
+- DB-01 marcada Completada: la migración `20260913_0020` consolidó las tablas de canal con prefijos `vp_*`, `tk_*` y `p_*`; las 354.921 filas históricas de los tres proveedores fueron importadas y validadas.
+- WR-VP-01 marcada Completada: edición y creación de clientes VirtualPOS operativas desde modales internos con selector VP1/VP2.
+- WR-VP-02 marcada Completada: cancelación real de suscripciones VirtualPOS operativa; `DELETE /v3/suscription/:id` ejecutado desde modal de confirmación.
+- WR-VP-03 marcada Completada: cancelación real de cargos VirtualPOS operativa; `DELETE /v3/charge/:id` ejecutado desde ficha y tabla.
+- WR-VP-05 actualizada a En curso: `POST /v3/charge` disponible desde ficha de suscripción activa; el flujo de reasignación completo (cancelar pendientes + recrear) permanece pendiente en el frontend.
+- WR-TK-01 marcada Completada: edición de clientes Toku operativa mediante `PUT /customers/:id`.
+- WR-TK-03 renombrada y marcada Completada: cambio de estado de suscripciones Toku operativo mediante `POST /subscriptions/:id/status`.
+- WR-TK-04 marcada Completada: eliminación de clientes Toku operativa mediante `DELETE /customers/:id`.
+- WR-PK-01, WR-PK-02 y WR-PK-03 marcadas Completadas: edición de clientes, eliminación de suscripciones y eliminación de clientes Payku operativas.
+- WR-INF-01 y WR-INF-02 marcadas Completadas: servicios de escritura para los tres proveedores implementados con `write_runs`, manejo de errores HTTP y rollback local.
+- Los formularios de creación de cliente y plan VirtualPOS incluyen selector de cuenta (VP1/VP2) con validación y comprobación de duplicados.
+- Se añadió la ruta `POST /api/v1/writes/virtualpos/plans` para crear planes VirtualPOS desde la interfaz.

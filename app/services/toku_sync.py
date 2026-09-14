@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.integrations.toku.client import TokuClient
 from app.models.sync_run import SyncRun
+from app.services.channel_store import store_toku_resources
 from app.services.read_only_provider_sync import Resource, sync_read_only_provider
 
 SOURCE = "toku"
@@ -22,4 +23,5 @@ async def sync_toku(db: Session) -> SyncRun:
         client_factory=TokuClient,
         resources=resources,
         secrets=(settings.toku_api_key,),
+        channel_store_fn=store_toku_resources,
     )

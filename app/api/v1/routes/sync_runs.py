@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.security import require_permissions
 from app.db.session import SessionLocal
 from app.models.sync_run import SyncRun
 
@@ -16,7 +17,7 @@ def get_db():
         db.close()
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permissions("sync_runs.view"))])
 def list_sync_runs(db: Session = Depends(get_db)) -> list[dict[str, object]]:  # noqa: B008
     runs = db.scalars(select(SyncRun).order_by(SyncRun.started_at.desc()).limit(50)).all()
     return [

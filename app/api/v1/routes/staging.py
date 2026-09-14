@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
+from app.core.security import get_current_user, require_csrf, require_permissions
 from app.db.session import SessionLocal
+from app.models.auth import User
 from app.models.crm import Charge as CCharge
 from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment
@@ -15,7 +17,10 @@ from app.models.crm import Plan as CPlan
 from app.models.crm import Subscription as CSub
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
-from app.services.etl_consolidation import materialize_payku, materialize_toku
+from app.services.channel_consolidation import consolidate_to_canonical
+from app.services.payku_sync import sync_payku
+from app.services.rbac import permission_codes, source_permission
+from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
 
 router = APIRouter()
@@ -408,7 +413,9 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     activation_by_month: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     )
-    churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    churn_by_month: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
     mrr = 0.0
     active_subs = 0
     active_ruts: set[str] = set()
@@ -431,15 +438,18 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             month = _month(start)
             if month:
                 activation_by_month[month][status.upper() or "SIN_ESTADO"]["count"] += 1
+                activation_by_month[month][status.upper() or "SIN_ESTADO"]["amount"] += _amount(payload.get("amount"))
 
             end = payload.get("end")
-            if end:
+            if end and status in {"cancel", "delete", "suspended"}:
                 month = _month(end)
                 if month:
-                    churn_by_month[month]["count"] += 1
+                    churn_by_month[month][status.upper()]["count"] += 1
+                    churn_by_month[month][status.upper()]["amount"] += _amount(payload.get("amount"))
 
             if status in ("active", "activa", "activo"):
                 active_subs += 1
+                mrr += _amount(payload.get("amount"))
                 rut = _payload_value(payload, ("client", "rut")) or payload.get("rut")
                 if rut:
                     active_ruts.add(str(rut))
@@ -447,7 +457,7 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     active_clients = len(active_ruts) or active_subs or 1
     arpu = round(mrr / active_clients, 0) if active_clients else 0.0
     total_subs = sum(1 for r in records if r.resource_type == "subscription")
-    total_churned = sum(int(v["count"]) for v in churn_by_month.values())
+    total_churned = sum(int(values["count"]) for statuses in churn_by_month.values() for values in statuses.values())
     churn_rate = round(total_churned / total_subs * 100, 1) if total_subs > 0 else 0.0
     ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
 
@@ -478,7 +488,7 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         },
         "transactions_monthly": _flatten_by_status(transactions_monthly),
         "activation_monthly": _flatten_by_status(activation_by_month),
-        "churn_monthly": _flatten_series(churn_by_month),
+        "churn_monthly": _flatten_by_status(churn_by_month),
     }
 
 
@@ -492,6 +502,29 @@ _VP_MODEL: dict[str, Any] = {
     "charge": CCharge,
     "payment": CPayment,
 }
+
+
+def _require_source_access(user: User, source: str, resource_type: str | None = None) -> None:
+    # Unit tests call handlers directly; HTTP requests always receive a resolved user dependency.
+    if not isinstance(user, User):
+        return
+    try:
+        required = source_permission(source, resource_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Provider resource not found") from exc
+    if required not in permission_codes(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+
+def _permitted_related(user: User, source: str, related: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(user, User):
+        return related
+    codes = permission_codes(user)
+    return [
+        group
+        for group in related
+        if source_permission(source, group["resource_type"]) in codes
+    ]
 _TOKU_MODEL: dict[str, Any] = {
     "customer": CClient,
     "payment_method": CPaymentMethod,
@@ -512,12 +545,15 @@ def _vp_src(source: str) -> list[str]:
 
 
 def _cstg(record: Any, rtype: str) -> dict[str, Any]:
+    payload = dict(record.raw_payload or {})
+    if rtype == "client" and getattr(record, "private_note", None):
+        payload["private_note"] = record.private_note
     return {
         "id": str(record.id),
         "source": record.source,
         "resource_type": rtype,
         "external_id": record.external_id,
-        "payload": record.raw_payload or {},
+        "payload": payload,
         "sync_context": {},
         "first_seen_at": None,
         "last_seen_at": str(record.updated_at) if record.updated_at else None,
@@ -1056,10 +1092,18 @@ def _toku_canonical_dashboard(db: Session) -> dict[str, Any]:
 
 
 def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
+    active_subscriptions = db.scalars(
+        select(CSub).where(CSub.source == "payku", func.lower(CSub.status) == "active")
+    ).all()
+    successful_transactions = db.execute(
+        select(CPayment.amount).where(CPayment.source == "payku", func.lower(CPayment.status) == "success")
+    ).all()
     resource_counts = {
         rtype: db.scalar(select(func.count()).select_from(model).where(model.source == "payku")) or 0
         for rtype, model in _PAYKU_MODEL.items()
     }
+    resource_counts["subscription"] = len(active_subscriptions)
+    resource_counts["transaction"] = len(successful_transactions)
     statuses: list[dict[str, Any]] = []
     for rtype, model in _PAYKU_MODEL.items():
         rows = db.execute(
@@ -1075,6 +1119,8 @@ def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
             total = sum(_amount(value) for value in db.scalars(select(model.amount).where(model.source == "payku")).all())
             if total:
                 resource_amounts[rtype] = round(total, 2)
+    resource_amounts["subscription"] = round(sum(_amount(subscription.amount) for subscription in active_subscriptions), 2)
+    resource_amounts["transaction"] = round(sum(_amount(amount) for amount, in successful_transactions), 2)
 
     activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
     for created_at, amount in db.execute(
@@ -1101,6 +1147,7 @@ def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
         records.append(_Record("subscription", {
             **(subscription.raw_payload or {}), "status": subscription.status,
             "start": subscription.suscription_date, "end": subscription.canceled_at,
+            "amount": subscription.amount,
             "client": {"rut": subscription.client_social_id},
         }))
     for transaction in db.scalars(select(CPayment).where(CPayment.source == "payku")):
@@ -1137,6 +1184,7 @@ def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
 def list_records(
     source: str,
     db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
     resource_type: str | None = None,
     filter_field: str | None = None,
     query: str | None = None,
@@ -1145,6 +1193,7 @@ def list_records(
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
+    _require_source_access(current_user, source, resource_type)
     if source.startswith("virtualpos"):
         return _list_vp(source, db, resource_type, filter_field, query, sort_field, sort_direction, offset, limit)
     if source == "toku":
@@ -1173,9 +1222,11 @@ def list_records(
 def virtualpos_client_detail(
     external_id: str,
     db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
+    _require_source_access(current_user, "virtualpos", "client")
     client = db.scalar(
         select(CClient).where(CClient.source.in_(_VP_SRCS), CClient.external_id == external_id)
     )
@@ -1200,9 +1251,11 @@ def virtualpos_client_detail(
 def virtualpos_plan_detail(
     external_id: str,
     db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
+    _require_source_access(current_user, "virtualpos", "plan")
     plan = db.scalar(
         select(CPlan).where(CPlan.source.in_(_VP_SRCS), CPlan.external_id == external_id)
     )
@@ -1224,9 +1277,11 @@ def virtualpos_plan_detail(
 def virtualpos_subscription_detail(
     external_id: str,
     db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
 ) -> dict[str, Any]:
+    _require_source_access(current_user, "virtualpos", "subscription")
     subscription = db.scalar(
         select(CSub).where(CSub.source.in_(_VP_SRCS), CSub.external_id == external_id)
     )
@@ -1254,7 +1309,9 @@ def virtualpos_subscription_detail(
 def virtualpos_charge_detail(
     external_id: str,
     db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, Any]:
+    _require_source_access(current_user, "virtualpos", "charge")
     charge = db.scalar(
         select(CCharge).where(CCharge.source.in_(_VP_SRCS), CCharge.external_id == external_id)
     )
@@ -1267,7 +1324,9 @@ def virtualpos_charge_detail(
 def virtualpos_payment_detail(
     external_id: str,
     db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, Any]:
+    _require_source_access(current_user, "virtualpos", "payment")
     payment = db.scalar(
         select(CPayment).where(CPayment.source.in_(_VP_SRCS), CPayment.external_id == external_id)
     )
@@ -1461,6 +1520,7 @@ def provider_record_detail(
     resource_type: str,
     external_id: str,
     db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, Any]:
     allowed_resources = {
         "toku": {"customer", "subscription", "payment_method", "invoice", "transaction"},
@@ -1468,46 +1528,53 @@ def provider_record_detail(
     }
     if resource_type not in allowed_resources.get(source, set()):
         raise HTTPException(status_code=404, detail="Unknown staging resource")
+    _require_source_access(current_user, source, resource_type)
     if source == "toku":
         model = _TOKU_MODEL[resource_type]
         record = db.scalar(select(model).where(model.source == "toku", model.external_id == external_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Staging record not found")
-        return {"record": _cstg(record, resource_type), "related": _toku_canonical_related(record, resource_type, db)}
+        related = _toku_canonical_related(record, resource_type, db)
+        return {"record": _cstg(record, resource_type), "related": _permitted_related(current_user, source, related)}
     if source == "payku":
         model = _PAYKU_MODEL[resource_type]
         record = db.scalar(select(model).where(model.source == "payku", model.external_id == external_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Staging record not found")
-        return {"record": _cstg(record, resource_type), "related": _payku_canonical_related(record, resource_type, db)}
+        related = _payku_canonical_related(record, resource_type, db)
+        return {"record": _cstg(record, resource_type), "related": _permitted_related(current_user, source, related)}
     records = db.scalars(select(SourceRecord).where(SourceRecord.source == source)).all()
     record = next((item for item in records if item.resource_type == resource_type and item.external_id == external_id), None)
     if record is None:
         raise HTTPException(status_code=404, detail="Staging record not found")
     related = _toku_related(record, records) if source == "toku" else _payku_related(record, records)
-    return {"record": _serialize(record), "related": related}
+    return {"record": _serialize(record), "related": _permitted_related(current_user, source, related)}
 
 
-@router.get("/summary", tags=["Staging"])
+@router.get("/summary", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
 def staging_summary(db: Session = Depends(get_db)) -> dict[str, list[dict[str, Any]]]:  # noqa: B008
     sources = []
     for source in SOURCES:
-        if source in {"toku", "payku"}:
-            models = _TOKU_MODEL if source == "toku" else _PAYKU_MODEL
+        if source == "toku":
             resource_counts = {
                 resource: db.scalar(select(func.count()).select_from(model).where(model.source == source)) or 0
-                for resource, model in models.items()
+                for resource, model in _TOKU_MODEL.items()
             }
-        else:
-            resource_counts = dict(
-                db.execute(
-                    select(SourceRecord.resource_type, func.count())
-                    .where(SourceRecord.source == source)
-                    .group_by(SourceRecord.resource_type)
-                ).all()
-            )
+        elif source == "payku":
+            resource_counts = {
+                resource: db.scalar(select(func.count()).select_from(model).where(model.source == source)) or 0
+                for resource, model in _PAYKU_MODEL.items()
+            }
+        else:  # virtualpos
+            resource_counts = {
+                rtype: db.scalar(
+                    select(func.count()).select_from(model).where(model.source.in_(_VP_SRCS))
+                ) or 0
+                for rtype, model in _VP_MODEL.items()
+            }
+        vp_sources = _VP_SRCS if source == "virtualpos" else (source,)
         latest_run = db.scalars(
-            select(SyncRun).where(SyncRun.source == source).order_by(SyncRun.started_at.desc()).limit(1)
+            select(SyncRun).where(SyncRun.source.in_(vp_sources)).order_by(SyncRun.started_at.desc()).limit(1)
         ).first()
         sources.append(
             {
@@ -1531,7 +1598,12 @@ def staging_summary(db: Session = Depends(get_db)) -> dict[str, list[dict[str, A
 
 
 @router.get("/dashboard/{source}", tags=["Staging"])
-def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+def channel_dashboard(
+    source: str,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> dict[str, Any]:
+    _require_source_access(current_user, source)
     if source.startswith("virtualpos"):
         return _vp_canonical_dashboard(source, db)
     if source == "toku":
@@ -1608,36 +1680,23 @@ def channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, A
     }
 
 
-@router.post("/sync/{source}", tags=["Staging"])
-async def trigger_channel_sync(source: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+@router.post(
+    "/sync/{source}",
+    dependencies=[Depends(require_permissions("sync.run")), Depends(require_csrf)],
+    tags=["Staging"],
+)
+async def trigger_channel_sync(
+    source: str,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> dict[str, Any]:
+    _require_source_access(current_user, source)
     if source not in SOURCES:
         raise HTTPException(status_code=404, detail="Unknown staging source")
 
-    if source == "virtualpos":
-        run = await sync_virtualpos(db)
-    elif source == "toku":
-        records_processed = materialize_toku(db)
-        db.commit()
-        return {
-            "run_id": None,
-            "status": "completed",
-            "records_processed": records_processed,
-            "started_at": None,
-            "finished_at": None,
-            "error_message": None,
-        }
-    else:
-        records_processed = materialize_payku(db)
-        db.commit()
-        return {
-            "run_id": None,
-            "status": "completed",
-            "records_processed": records_processed,
-            "started_at": None,
-            "finished_at": None,
-            "error_message": None,
-        }
-
+    _sync_fn = {"virtualpos": sync_virtualpos, "toku": sync_toku, "payku": sync_payku}
+    run = await _sync_fn[source](db)
+    consolidate_to_canonical(db, [source])
     return {
         "run_id": str(run.id),
         "status": run.status,

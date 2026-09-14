@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.integrations.payku.client import PaykuClient
 from app.models.sync_run import SyncRun
+from app.services.channel_store import store_payku_resources
 from app.services.read_only_provider_sync import Resource, sync_read_only_provider
 
 SOURCE = "payku"
@@ -21,4 +22,5 @@ async def sync_payku(db: Session) -> SyncRun:
         client_factory=PaykuClient,
         resources=resources,
         secrets=(settings.payku_api_key, settings.payku_secret_key),
+        channel_store_fn=store_payku_resources,
     )

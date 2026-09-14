@@ -53,7 +53,7 @@ type ChannelDashboard = {
   transactions_monthly?: MonthlyEntry[] | MonthlyStatusEntry[];
   // Shared
   activation_monthly?: MonthlyStatusEntry[];
-  churn_monthly?: MonthlyEntry[];
+  churn_monthly?: MonthlyStatusEntry[];
 };
 type VirtualPosClientDetail = {
   client: StagingRecord;
@@ -98,6 +98,37 @@ type ClientEditField = { name: string; label: string; type?: string; options?: {
 type AuthUser = { id: string; username: string; is_active: boolean; roles: { id: string; name: string }[]; permissions: string[] };
 type AuthSession = { user: AuthUser; csrf_token: string };
 type AdminRole = { id: string; name: string; description: string | null; permission_codes: string[] };
+type TchSummary = {
+  suscripciones: { vigentes: number; eliminadas: number; total: number };
+  transacciones: { total: number; aceptadas: number; rechazadas: number; tasa_rechazo_pct: number };
+  years: number[];
+  transacciones_mensuales: MonthlyStatusEntry[];
+  activaciones_mensuales: MonthlyStatusEntry[];
+  ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
+};
+type TchSuscripcion = {
+  id: string; numero_ficha: number; numero_mandato: number | null;
+  cliente_rut: string | null; banco_nombre: string | null; tipo_mandato: string | null;
+  tipo_cuenta: string | null; origen: string | null; centro_costo: string | null;
+  captador: string | null; monto: string | null; fecha_activacion: string | null;
+  equivalente_pesos: string | null;
+  fecha_rechazo: string | null; fecha_eliminacion: string | null; fecha_fin: string | null;
+  razon_baja: string | null; estado: string;
+  created_at: string | null; updated_at: string | null;
+};
+type TchSuscripcionesResp = { total: number; page: number; limit: number; pages: number; items: TchSuscripcion[] };
+type TchTransaccion = {
+  id: string; numero_ficha: number; periodo: string | null; numero_cuota: string | null;
+  total_cuotas: string | null; monto: string | null; fecha_cargo: string | null;
+  tipo_transaccion: string | null; estado: string; entidad_recaudadora: string | null;
+  razon_rechazo: string | null; archivo_origen: string | null;
+};
+type TchTransaccionesResp = { total: number; page: number; limit: number; pages: number; items: TchTransaccion[] };
+type TchSuscripcionDetail = TchSuscripcion & { transacciones: TchTransaccion[] };
+type TchTransaccionDetail = TchTransaccion & { suscripcion: TchSuscripcion | null };
+type TchCliente = { id: string; rut: string; nombre: string | null; apellido: string | null; fecha_nacimiento: string | null; profesion: string | null; tipo_persona: string | null; tipo_socio: string | null; telefono: string | null; email: string | null; direccion: string | null; comuna: string | null; ciudad: string | null };
+type TchClientesResp = { total: number; page: number; limit: number; pages: number; items: TchCliente[] };
+type TchClienteDetail = TchCliente & { suscripciones: TchSuscripcion[] };
 
 let csrfToken = "";
 
@@ -153,8 +184,8 @@ const tokuMetrics = [
 const paykuMetrics = [
   { resource: "client", label: "Clientes", tone: "blue" },
   { resource: "plan", label: "Planes", tone: "violet" },
-  { resource: "subscription", label: "Suscripciones", tone: "gold" },
-  { resource: "transaction", label: "Transacciones", tone: "green" },
+  { resource: "subscription", label: "Suscripciones", tone: "gold", amount: true },
+  { resource: "transaction", label: "Transacciones", tone: "green", amount: true },
 ];
 const statusResourceOrder: Record<string, string[]> = {
   virtualpos: ["client", "subscription", "charge", "payment", "plan"],
@@ -441,8 +472,38 @@ const virtualPosPlanCreateFields: PlanCreateField[] = [
   { name: "suscription_url", label: "URL de suscripción", type: "url" },
   { name: "type", label: "Tipo de plan" },
 ];
-const planRequiredFields = new Set(["name", "amount", "currency", "frequency_type"]);
 const planDefaultValues: Record<string, string> = { currency: "CLP", frequency_type: "monthly", automatic_renewal: "true", show_in_terminal: "false", is_active: "true" };
+
+type SubscriptionCreateField = { name: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] };
+const virtualPosSubscriptionCreateFields: SubscriptionCreateField[] = [
+  { name: "plan_id", label: "ID del plan", required: true },
+  { name: "email", label: "Email del cliente", type: "email", required: true },
+  { name: "first_name", label: "Nombre", required: true },
+  { name: "last_name", label: "Apellido", required: true },
+  { name: "social_id", label: "RUT", required: true },
+  { name: "phone_number", label: "Teléfono", type: "tel" },
+  { name: "service_id", label: "ID de servicio (interno)" },
+  {
+    name: "channel",
+    label: "Canal",
+    options: [
+      { value: "WEB", label: "WEB" },
+      { value: "CALL_CENTER", label: "Call center" },
+      { value: "PRESENCIAL", label: "Presencial" },
+    ],
+  },
+  {
+    name: "automatic_renewal",
+    label: "Renovación automática",
+    options: [
+      { value: "T", label: "Sí" },
+      { value: "F", label: "No" },
+    ],
+  },
+  { name: "return_url", label: "URL de retorno", type: "url" },
+  { name: "callback_url", label: "URL de callback", type: "url" },
+];
+const subscriptionRequiredFields = new Set(["plan_id", "email", "first_name", "last_name", "social_id"]);
 
 const providerEditFields: Record<string, Record<string, ClientEditField[]>> = {
   toku: {
@@ -470,7 +531,7 @@ const providerEditFields: Record<string, Record<string, ClientEditField[]>> = {
   },
 };
 const deletableResources: Record<string, string[]> = {
-  virtualpos: ["charge", "payment"],
+  virtualpos: ["payment"],
   toku: ["customer", "invoice", "subscription", "payment_method"],
   payku: ["client", "subscription"],
 };
@@ -608,6 +669,16 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
+  });
+  await checkResponse(response);
+  return response.json() as Promise<T>;
+}
+
 async function refreshCsrfToken(): Promise<void> {
   const session = await getJson<AuthSession>("/api/v1/auth/me");
   csrfToken = session.csrf_token;
@@ -672,6 +743,14 @@ function cardTypeText(value: unknown): string {
 
 function isActiveSubscription(record: StagingRecord): boolean {
   return String(record.payload.status).toLowerCase() === "activa";
+}
+
+function isPendingCharge(record: StagingRecord): boolean {
+  return String(record.payload.status ?? "").toLowerCase() === "pendiente";
+}
+
+function isRejectedCharge(record: StagingRecord): boolean {
+  return String(record.payload.status ?? "").toLowerCase() === "rechazado";
 }
 
 function nested(
@@ -1092,6 +1171,7 @@ function paykuColumns(resource: string): TableColumn[] {
 function Sidebar({
   activeSection,
   channel,
+  tchView,
   openProvider,
   theme,
   onDashboard,
@@ -1099,12 +1179,14 @@ function Sidebar({
   onSection,
   onToggle,
   onTheme,
+  onTch,
   permissions,
   onAdmin,
   onLogout,
 }: {
   activeSection: ProviderSection | null;
   channel: string | null;
+  tchView: string | null;
   openProvider: string | null;
   theme: "light" | "dark";
   onDashboard: () => void;
@@ -1112,6 +1194,7 @@ function Sidebar({
   onSection: (section: ProviderSection) => void;
   onToggle: (provider: string) => void;
   onTheme: () => void;
+  onTch: (view: "summary" | "clientes" | "suscripciones" | "transacciones") => void;
   permissions: string[];
   onAdmin: () => void;
   onLogout: () => void;
@@ -1129,7 +1212,7 @@ function Sidebar({
       </button>
       <nav className="sidebar-nav" aria-label="Navegacion principal">
         {can("dashboard.view") ? <button
-          className={!activeSection && !channel ? "sidebar-item active" : "sidebar-item"}
+          className={!activeSection && !channel && !tchView ? "sidebar-item active" : "sidebar-item"}
           onClick={onDashboard}
         >
           Dashboard
@@ -1174,11 +1257,33 @@ function Sidebar({
               : null}
           </section>
         ))}
-        <section className="sidebar-group">
-          <button className="sidebar-toggle" disabled>
-            TCH <span>+</span>
-          </button>
-        </section>
+        {can("tch.dashboard.view") ? (
+          <section className="sidebar-group">
+            <div className="channel-heading">
+              <button
+                className={tchView ? "channel-dashboard active" : "channel-dashboard"}
+                onClick={() => onTch("summary")}
+              >
+                TCH
+              </button>
+              <button
+                className="sidebar-expand"
+                aria-label="Expandir TCH"
+                aria-expanded={openProvider === "TCH"}
+                onClick={() => onToggle("TCH")}
+              >
+                {openProvider === "TCH" ? "-" : "+"}
+              </button>
+            </div>
+            {openProvider === "TCH" ? (
+              <>
+                {can("tch.clientes.view") ? <button className={tchView === "clientes" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={() => onTch("clientes")}>Clientes</button> : null}
+                <button className={tchView === "suscripciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={() => onTch("suscripciones")}>Suscripciones</button>
+                <button className={tchView === "transacciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={() => onTch("transacciones")}>Transacciones</button>
+              </>
+            ) : null}
+          </section>
+        ) : null}
         {can("users.manage") || can("roles.manage") ? <button className="sidebar-item" onClick={onAdmin}>Administración</button> : null}
       </nav>
       <div className="sidebar-footer">
@@ -1524,6 +1629,8 @@ function ChannelDashboardView({
             <MonthlyStatusChart data={data.charges_monthly} mode={dataKey} year={year} />
           ) : data.source === "toku" && data.invoices_monthly?.length ? (
             <MonthlyStatusChart data={data.invoices_monthly} mode={dataKey} year={year} />
+          ) : data.source === "payku" && (data.transactions_monthly as MonthlyStatusEntry[] | undefined)?.length ? (
+            <MonthlyStatusChart data={data.transactions_monthly as MonthlyStatusEntry[]} mode={dataKey} year={year} />
           ) : chartData.length ? (
             <Suspense
               fallback={<p className="empty-chart">Cargando gráfico...</p>}
@@ -1630,7 +1737,7 @@ function ChannelDashboardView({
                   <h3>Caída mensual</h3>
                 </div>
               </div>
-              <MonthlySimpleChart data={data.churn_monthly} color="#a53d35" mode={mode} year={year} />
+              <MonthlyStatusChart data={data.churn_monthly} mode={mode} year={year} />
             </article>
           ) : null}
         </section>
@@ -1698,22 +1805,43 @@ function App() {
   const [planFormError, setPlanFormError] = useState<string | null>(null);
   const [planFieldErrors, setPlanFieldErrors] = useState<Record<string, string>>({});
   const [planSaveNotice, setPlanSaveNotice] = useState<string | null>(null);
+  const [creatingSubscription, setCreatingSubscription] = useState(false);
+  const [subVpPlatform, setSubVpPlatform] = useState<"virtualpos1" | "virtualpos2">("virtualpos1");
+  const [savingSubscription, setSavingSubscription] = useState(false);
+  const [subscriptionFormError, setSubscriptionFormError] = useState<string | null>(null);
+  const [subscriptionFieldErrors, setSubscriptionFieldErrors] = useState<Record<string, string>>({});
+  const [subscriptionSaveNotice, setSubscriptionSaveNotice] = useState<string | null>(null);
   const [cancelingSubscription, setCancelingSubscription] = useState<StagingRecord | null>(null);
+  const [savingCancelSubscription, setSavingCancelSubscription] = useState(false);
+  const [cancelSubscriptionError, setCancelSubscriptionError] = useState<string | null>(null);
   const [creatingCharge, setCreatingCharge] = useState<StagingRecord | null>(null);
   const [savingCharge, setSavingCharge] = useState(false);
   const [chargeFormError, setChargeFormError] = useState<string | null>(null);
   const [chargeFieldErrors, setChargeFieldErrors] = useState<Record<string, string>>({});
   const [chargeSaveNotice, setChargeSaveNotice] = useState<string | null>(null);
+  const [cancelingCharge, setCancelingCharge] = useState<StagingRecord | null>(null);
+  const [savingCancelCharge, setSavingCancelCharge] = useState(false);
+  const [cancelChargeError, setCancelChargeError] = useState<string | null>(null);
+  const [retryingCharge, setRetryingCharge] = useState<StagingRecord | null>(null);
+  const [savingRetryCharge, setSavingRetryCharge] = useState(false);
+  const [retryChargeError, setRetryChargeError] = useState<string | null>(null);
   const [editingProviderRecord, setEditingProviderRecord] = useState<{
     record: StagingRecord;
     source: string;
     resourceType: string;
   } | null>(null);
+  const [savingProviderEdit, setSavingProviderEdit] = useState(false);
+  const [providerEditError, setProviderEditError] = useState<string | null>(null);
   const [deletingRecord, setDeletingRecord] = useState<{
     record: StagingRecord;
     source: string;
     resourceType: string;
   } | null>(null);
+  const [savingProviderDelete, setSavingProviderDelete] = useState(false);
+  const [providerDeleteError, setProviderDeleteError] = useState<string | null>(null);
+  const [managingTokuSub, setManagingTokuSub] = useState<StagingRecord | null>(null);
+  const [savingTokuSubStatus, setSavingTokuSubStatus] = useState(false);
+  const [tokuSubStatusError, setTokuSubStatusError] = useState<string | null>(null);
   const [filterField, setFilterField] = useState("");
   const [filterQuery, setFilterQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
@@ -1728,6 +1856,24 @@ function App() {
   const [lastEtlRun, setLastEtlRun] = useState<EtlRun | null>(null);
   const [etlError, setEtlError] = useState<string | null>(null);
   const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
+  const [tchView, setTchView] = useState<"summary" | "clientes" | "suscripciones" | "transacciones" | "cliente-detalle" | "suscripcion-detalle" | "transaccion-detalle" | null>(null);
+  const [tchSummary, setTchSummary] = useState<TchSummary | null>(null);
+  const [tchSuscripciones, setTchSuscripciones] = useState<TchSuscripcionesResp | null>(null);
+  const [tchTransacciones, setTchTransacciones] = useState<TchTransaccionesResp | null>(null);
+  const [tchClientes, setTchClientes] = useState<TchClientesResp | null>(null);
+  const [tchLoading, setTchLoading] = useState(false);
+  const [tchError, setTchError] = useState<string | null>(null);
+  const [tchSusPage, setTchSusPage] = useState(1);
+  const [tchTransPage, setTchTransPage] = useState(1);
+  const [tchSusFiltroEstado, setTchSusFiltroEstado] = useState("");
+  const [tchClienteFiltro, setTchClienteFiltro] = useState("");
+  const [tchClientesPage, setTchClientesPage] = useState(1);
+  const [tchTransFiltroPeriodo, setTchTransFiltroPeriodo] = useState("");
+  const [tchMode, setTchMode] = useState<"count" | "amount">("count");
+  const [tchYear, setTchYear] = useState<number | null>(null);
+  const [tchSuscripcionDetail, setTchSuscripcionDetail] = useState<TchSuscripcionDetail | null>(null);
+  const [tchTransaccionDetail, setTchTransaccionDetail] = useState<TchTransaccionDetail | null>(null);
+  const [tchClienteDetail, setTchClienteDetail] = useState<TchClienteDetail | null>(null);
 
   useEffect(() => {
     getJson<AuthSession>("/api/v1/auth/me")
@@ -1820,6 +1966,61 @@ function App() {
       mounted = false;
     };
   }, [session, channel]);
+
+  useEffect(() => {
+    if (!session || !tchView) return;
+    let mounted = true;
+    setTchLoading(true);
+    setTchError(null);
+    if (tchView === "summary") {
+      getJson<TchSummary>("/api/v1/tch/summary")
+        .then((d) => {
+          if (mounted) {
+            setTchSummary(d);
+            setTchYear((current) => current ?? d.years[0] ?? null);
+          }
+        })
+        .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar el resumen TCH.")); })
+        .finally(() => { if (mounted) setTchLoading(false); });
+    } else if (tchView === "clientes") {
+      const params = new URLSearchParams({ limit: "50", page: String(tchClientesPage) });
+      if (tchClienteFiltro) params.set("nombre", tchClienteFiltro);
+      getJson<TchClientesResp>(`/api/v1/tch/clientes?${params}`)
+        .then((d) => { if (mounted) setTchClientes(d); })
+        .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar los clientes TCH.")); })
+        .finally(() => { if (mounted) setTchLoading(false); });
+    } else if (tchView === "suscripciones") {
+      const params = new URLSearchParams({ limit: "50", page: String(tchSusPage) });
+      if (tchSusFiltroEstado) params.set("estado", tchSusFiltroEstado);
+      getJson<TchSuscripcionesResp>(`/api/v1/tch/suscripciones?${params}`)
+        .then((d) => { if (mounted) setTchSuscripciones(d); })
+        .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar las suscripciones TCH.")); })
+        .finally(() => { if (mounted) setTchLoading(false); });
+    } else if (tchView === "transacciones") {
+      const params = new URLSearchParams({ limit: "100", page: String(tchTransPage) });
+      if (tchTransFiltroPeriodo) params.set("periodo", tchTransFiltroPeriodo);
+      getJson<TchTransaccionesResp>(`/api/v1/tch/transacciones?${params}`)
+        .then((d) => { if (mounted) setTchTransacciones(d); })
+        .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar las transacciones TCH.")); })
+        .finally(() => { if (mounted) setTchLoading(false); });
+    } else if (tchView === "suscripcion-detalle" && tchSuscripcionDetail) {
+      getJson<TchSuscripcionDetail>(`/api/v1/tch/suscripciones/${tchSuscripcionDetail.numero_ficha}`)
+        .then((d) => { if (mounted) setTchSuscripcionDetail(d); })
+        .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha TCH.")); })
+        .finally(() => { if (mounted) setTchLoading(false); });
+    } else if (tchView === "transaccion-detalle" && tchTransaccionDetail) {
+      getJson<TchTransaccionDetail>(`/api/v1/tch/transacciones/${tchTransaccionDetail.id}`)
+        .then((d) => { if (mounted) setTchTransaccionDetail(d); })
+        .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha TCH.")); })
+        .finally(() => { if (mounted) setTchLoading(false); });
+    } else if (tchView === "cliente-detalle" && tchClienteDetail) {
+      getJson<TchClienteDetail>(`/api/v1/tch/clientes/${encodeURIComponent(tchClienteDetail.rut)}`)
+        .then((d) => { if (mounted) setTchClienteDetail(d); })
+        .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha del cliente TCH.")); })
+        .finally(() => { if (mounted) setTchLoading(false); });
+    }
+    return () => { mounted = false; };
+  }, [session, tchView, tchClientesPage, tchClienteFiltro, tchSusPage, tchSusFiltroEstado, tchTransPage, tchTransFiltroPeriodo, tchSuscripcionDetail?.numero_ficha, tchTransaccionDetail?.id, tchClienteDetail?.rut]);
 
   useEffect(() => {
     setClientFormError(null);
@@ -2067,6 +2268,66 @@ function App() {
     }
   }
 
+  async function createVirtualPOSSubscription(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingSubscription) return;
+    setSubscriptionFormError(null);
+    setSubscriptionFieldErrors({});
+
+    const formData = new FormData(event.currentTarget);
+    const rawValues = Object.fromEntries(
+      virtualPosSubscriptionCreateFields.map((f) => [f.name, String(formData.get(f.name) ?? "").trim()] as const),
+    ) as Record<string, string>;
+
+    const errors: Record<string, string> = {};
+    if (!rawValues.plan_id) errors.plan_id = "El ID del plan es obligatorio.";
+    if (!rawValues.email) errors.email = "El email es obligatorio.";
+    if (!rawValues.first_name) errors.first_name = "El nombre es obligatorio.";
+    if (!rawValues.last_name) errors.last_name = "El apellido es obligatorio.";
+    if (!rawValues.social_id) errors.social_id = "El RUT es obligatorio.";
+
+    if (Object.keys(errors).length) {
+      setSubscriptionFieldErrors(errors);
+      setSubscriptionFormError("Revisa los campos marcados en rojo.");
+      return;
+    }
+
+    const body: Record<string, unknown> = {
+      platform: subVpPlatform,
+      plan_id: rawValues.plan_id,
+      email: rawValues.email,
+      first_name: rawValues.first_name,
+      last_name: rawValues.last_name,
+      social_id: rawValues.social_id,
+    };
+    if (rawValues.phone_number) body.phone_number = rawValues.phone_number;
+    if (rawValues.service_id) body.service_id = rawValues.service_id;
+    if (rawValues.channel) body.channel = rawValues.channel;
+    if (rawValues.automatic_renewal) body.automatic_renewal = rawValues.automatic_renewal;
+    if (rawValues.return_url) body.return_url = rawValues.return_url;
+    if (rawValues.callback_url) body.callback_url = rawValues.callback_url;
+
+    setSavingSubscription(true);
+    try {
+      await refreshCsrfToken();
+      const created = await postJson<{ id: string; external_id: string; source: string; payload: Record<string, unknown> }>(
+        "/api/v1/writes/virtualpos/subscriptions",
+        body,
+      );
+      setRecords((current) => ({
+        ...current,
+        total: current.total + 1,
+        items: [{ id: created.id, source: created.source, resource_type: "subscription", external_id: created.external_id, payload: created.payload }, ...current.items],
+      }));
+      setCreatingSubscription(false);
+      setSubscriptionSaveNotice("Suscripción creada correctamente.");
+    } catch (err) {
+      setSubscriptionFormError(friendlyError(err, "No se pudo crear la suscripción."));
+    } finally {
+      setSavingSubscription(false);
+    }
+  }
+
   async function createVirtualPOSCharge(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (savingCharge || !creatingCharge) return;
@@ -2135,17 +2396,316 @@ function App() {
     }
   }
 
+  async function cancelVirtualPOSSubscription() {
+    if (savingCancelSubscription || !cancelingSubscription) return;
+    setSavingCancelSubscription(true);
+    setCancelSubscriptionError(null);
+    const subExternalId = String(cancelingSubscription.payload.id ?? cancelingSubscription.external_id);
+    try {
+      await refreshCsrfToken();
+      const result = await deleteJson<{ external_id: string; status: string }>(
+        `/api/v1/writes/virtualpos/subscriptions/${encodeURIComponent(subExternalId)}`,
+      );
+      const updatedStatus = result.status ?? "CANCELADA";
+      setCancelingSubscription(null);
+      if (subscriptionDetail && subscriptionDetail.subscription.external_id === subExternalId) {
+        setSubscriptionDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                subscription: {
+                  ...prev.subscription,
+                  payload: { ...prev.subscription.payload, status: updatedStatus },
+                },
+              }
+            : prev,
+        );
+      }
+      if (clientDetail) {
+        setClientDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                subscriptions: prev.subscriptions.map((s) =>
+                  s.external_id === subExternalId
+                    ? { ...s, payload: { ...s.payload, status: updatedStatus } }
+                    : s,
+                ),
+              }
+            : prev,
+        );
+      }
+    } catch (err) {
+      setCancelSubscriptionError(friendlyError(err, "No se pudo cancelar la suscripción."));
+    } finally {
+      setSavingCancelSubscription(false);
+    }
+  }
+
+  async function cancelVirtualPOSCharge() {
+    if (savingCancelCharge || !cancelingCharge) return;
+    setSavingCancelCharge(true);
+    setCancelChargeError(null);
+    const chargeExternalId = String(cancelingCharge.payload.id ?? cancelingCharge.external_id);
+    try {
+      await refreshCsrfToken();
+      const result = await deleteJson<{ external_id: string; status: string }>(
+        `/api/v1/writes/virtualpos/charges/${encodeURIComponent(chargeExternalId)}`,
+      );
+      const updatedStatus = result.status ?? "cancelado";
+      setCancelingCharge(null);
+      setChargeSaveNotice(`Cargo ${chargeExternalId} cancelado.`);
+      if (subscriptionDetail) {
+        setSubscriptionDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                charges: prev.charges.map((c) =>
+                  c.external_id === chargeExternalId
+                    ? { ...c, payload: { ...c.payload, status: updatedStatus } }
+                    : c,
+                ),
+              }
+            : prev,
+        );
+      }
+      if (chargeDetail && chargeDetail.charge.external_id === chargeExternalId) {
+        setChargeDetail((prev) =>
+          prev
+            ? { ...prev, charge: { ...prev.charge, payload: { ...prev.charge.payload, status: updatedStatus } } }
+            : prev,
+        );
+      }
+    } catch (err) {
+      setCancelChargeError(friendlyError(err, "No se pudo cancelar el cargo."));
+    } finally {
+      setSavingCancelCharge(false);
+    }
+  }
+
+  async function retryVirtualPOSCharge() {
+    if (savingRetryCharge || !retryingCharge) return;
+    setSavingRetryCharge(true);
+    setRetryChargeError(null);
+    const chargeExternalId = String(retryingCharge.payload.id ?? retryingCharge.external_id);
+    try {
+      await refreshCsrfToken();
+      const result = await postJson<{ external_id: string; status: string; payload: Record<string, unknown> }>(
+        `/api/v1/writes/virtualpos/charges/${encodeURIComponent(chargeExternalId)}/retry`,
+      );
+      const rawStatus = result.status ?? "procesando";
+      const updatedStatus = rawStatus.toLowerCase() === "rechazado" ? "procesando" : rawStatus;
+      const updatedPayload = result.payload ?? retryingCharge.payload;
+      setRetryingCharge(null);
+      setChargeSaveNotice(`Cargo ${chargeExternalId} reintentado.`);
+      if (subscriptionDetail) {
+        setSubscriptionDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                charges: prev.charges.map((c) =>
+                  c.external_id === chargeExternalId
+                    ? { ...c, payload: { ...c.payload, ...updatedPayload, status: updatedStatus } }
+                    : c,
+                ),
+              }
+            : prev,
+        );
+      }
+      if (chargeDetail && chargeDetail.charge.external_id === chargeExternalId) {
+        setChargeDetail((prev) =>
+          prev
+            ? { ...prev, charge: { ...prev.charge, payload: { ...prev.charge.payload, ...updatedPayload, status: updatedStatus } } }
+            : prev,
+        );
+      }
+    } catch (err) {
+      setRetryChargeError(friendlyError(err, "No se pudo reintentar el cargo."));
+    } finally {
+      setSavingRetryCharge(false);
+    }
+  }
+
+  async function saveProviderEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingProviderRecord || savingProviderEdit) return;
+    setProviderEditError(null);
+    const { record, source, resourceType } = editingProviderRecord;
+    const formData = new FormData(event.currentTarget);
+    const fields = providerEditFields[source]?.[resourceType] ?? [];
+    const changes: Record<string, unknown> = {};
+    for (const field of fields) {
+      const val = String(formData.get(field.name) ?? "").trim();
+      const current = String(record.payload[field.name] ?? "").trim();
+      if (val !== "" && val !== current) changes[field.name] = field.type === "number" ? Number(val) : val;
+    }
+    if (Object.keys(changes).length === 0) { setEditingProviderRecord(null); return; }
+    setSavingProviderEdit(true);
+    try {
+      await refreshCsrfToken();
+      let updatedPayload: Record<string, unknown> = record.payload;
+      if (source === "toku" && resourceType === "customer") {
+        const result = await putJson<{ external_id: string; payload: Record<string, unknown> }>(
+          `/api/v1/writes/toku/customers/${encodeURIComponent(record.external_id)}`,
+          changes,
+        );
+        updatedPayload = result.payload;
+      } else if (source === "payku" && resourceType === "client") {
+        const result = await putJson<{ external_id: string; payload: Record<string, unknown> }>(
+          `/api/v1/writes/payku/clients/${encodeURIComponent(record.external_id)}`,
+          changes,
+        );
+        updatedPayload = result.payload;
+      }
+      setEditingProviderRecord(null);
+      setRecords((prev) => ({
+        ...prev,
+        items: prev.items.map((item) =>
+          item.external_id === record.external_id && item.source === source
+            ? { ...item, payload: updatedPayload }
+            : item,
+        ),
+      }));
+    } catch (err) {
+      setProviderEditError(friendlyError(err, "No se pudo guardar el cambio."));
+    } finally {
+      setSavingProviderEdit(false);
+    }
+  }
+
+  async function confirmProviderDelete() {
+    if (!deletingRecord || savingProviderDelete) return;
+    setProviderDeleteError(null);
+    const { record, source, resourceType } = deletingRecord;
+    setSavingProviderDelete(true);
+    try {
+      await refreshCsrfToken();
+      if (source === "toku" && resourceType === "customer") {
+        await deleteJson<{ external_id: string; status: string }>(
+          `/api/v1/writes/toku/customers/${encodeURIComponent(record.external_id)}`,
+        );
+        setDeletingRecord(null);
+        setRecords((prev) => ({
+          ...prev,
+          items: prev.items.map((item) =>
+            item.external_id === record.external_id && item.source === source
+              ? { ...item, payload: { ...item.payload, status: "deleted" } }
+              : item,
+          ),
+        }));
+      } else if (source === "payku" && resourceType === "client") {
+        await deleteJson<{ external_id: string; status: string }>(
+          `/api/v1/writes/payku/clients/${encodeURIComponent(record.external_id)}`,
+        );
+        setDeletingRecord(null);
+        setRecords((prev) => ({
+          ...prev,
+          items: prev.items.map((item) =>
+            item.external_id === record.external_id && item.source === source
+              ? { ...item, payload: { ...item.payload, status: "deleted" } }
+              : item,
+          ),
+        }));
+      } else if (source === "payku" && resourceType === "subscription") {
+        await deleteJson<{ external_id: string; status: string }>(
+          `/api/v1/writes/payku/subscriptions/${encodeURIComponent(record.external_id)}`,
+        );
+        setDeletingRecord(null);
+        setRecords((prev) => ({
+          ...prev,
+          items: prev.items.map((item) =>
+            item.external_id === record.external_id && item.source === source
+              ? { ...item, payload: { ...item.payload, status: "cancelled" } }
+              : item,
+          ),
+        }));
+      }
+    } catch (err) {
+      setProviderDeleteError(friendlyError(err, "No se pudo eliminar el registro."));
+    } finally {
+      setSavingProviderDelete(false);
+    }
+  }
+
+  async function changeTokuSubscriptionStatus(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!managingTokuSub || savingTokuSubStatus) return;
+    setTokuSubStatusError(null);
+    const formData = new FormData(event.currentTarget);
+    const status = String(formData.get("status") ?? "").trim();
+    if (!status) { setTokuSubStatusError("Selecciona un estado."); return; }
+    const subId = String(managingTokuSub.payload.id ?? managingTokuSub.external_id);
+    setSavingTokuSubStatus(true);
+    try {
+      await refreshCsrfToken();
+      const result = await postJson<{ external_id: string; status: string; payload: Record<string, unknown> }>(
+        `/api/v1/writes/toku/subscriptions/${encodeURIComponent(subId)}/status`,
+        { status },
+      );
+      const updatedPayload = result.payload;
+      setManagingTokuSub(null);
+      setRecords((prev) => ({
+        ...prev,
+        items: prev.items.map((item) =>
+          item.external_id === managingTokuSub.external_id && item.source === "toku"
+            ? { ...item, payload: { ...item.payload, ...updatedPayload, status: result.status } }
+            : item,
+        ),
+      }));
+    } catch (err) {
+      setTokuSubStatusError(friendlyError(err, "No se pudo cambiar el estado."));
+    } finally {
+      setSavingTokuSubStatus(false);
+    }
+  }
+
   function showDashboard() {
     setAdminOpen(false);
     clearDetails();
     setActiveSection(null);
     setChannel(null);
+    setTchView(null);
     setError(null);
+  }
+
+  function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones") {
+    clearDetails();
+    setChannel(null);
+    setActiveSection(null);
+    setAdminOpen(false);
+    setError(null);
+    setTchSuscripcionDetail(null);
+    setTchTransaccionDetail(null);
+    setTchClienteDetail(null);
+    setTchView(view);
+    setOpenProvider("TCH");
+  }
+
+  function showTchSuscripcion(numeroFicha: number) {
+    setTchClienteDetail(null);
+    setTchTransaccionDetail(null);
+    setTchSuscripcionDetail({ numero_ficha: numeroFicha } as TchSuscripcionDetail);
+    setTchView("suscripcion-detalle");
+  }
+
+  function showTchTransaccion(id: string) {
+    setTchClienteDetail(null);
+    setTchSuscripcionDetail(null);
+    setTchTransaccionDetail({ id } as TchTransaccionDetail);
+    setTchView("transaccion-detalle");
+  }
+
+  function showTchCliente(rut: string) {
+    setTchSuscripcionDetail(null);
+    setTchTransaccionDetail(null);
+    setTchClienteDetail({ rut, suscripciones: [] } as unknown as TchClienteDetail);
+    setTchView("cliente-detalle");
   }
 
   function showChannel(source: string) {
     clearDetails();
     setActiveSection(null);
+    setTchView(null);
     setChannelData(null);
     setChannelLoading(true);
     setError(null);
@@ -2422,6 +2982,7 @@ function App() {
                 <th>Status</th>
                 <th>Monto</th>
                 <th>F. Inicio</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody>
@@ -2435,11 +2996,21 @@ function App() {
                   <td>{text(subscription.payload.status)}</td>
                   <td>{text(subscription.payload.amount)}</td>
                   <td>{text(subscription.payload.suscription_date)}</td>
+                  <td>
+                    {isActiveSubscription(subscription) ? (
+                      <button
+                        className="cancel-subscription-button"
+                        onClick={() => { setCancelSubscriptionError(null); setCancelingSubscription(subscription); }}
+                      >
+                        Cancelar
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
               {clientDetail.subscriptions.length === 0 ? (
                 <tr>
-                  <td colSpan={4}>Sin suscripciones asociadas por RUT.</td>
+                  <td colSpan={5}>Sin suscripciones asociadas por RUT.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -2609,6 +3180,7 @@ function App() {
                 <th>ID Cargo</th>
                 <th>Estado</th>
                 <th>Monto</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody>
@@ -2622,11 +3194,28 @@ function App() {
                   </td>
                   <td>{text(charge.payload.status)}</td>
                   <td>{text(charge.payload.amount)}</td>
+                  <td>
+                    {isPendingCharge(charge) ? (
+                      <button
+                        className="cancel-charge-button"
+                        onClick={() => { setCancelChargeError(null); setCancelingCharge(charge); }}
+                      >
+                        Cancelar
+                      </button>
+                    ) : isRejectedCharge(charge) ? (
+                      <button
+                        className="retry-charge-button"
+                        onClick={() => { setRetryChargeError(null); setRetryingCharge(charge); }}
+                      >
+                        Reintentar
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
               {subscriptionDetail.charges.length === 0 ? (
                 <tr>
-                  <td colSpan={4}>Sin cargos asociados a la subscripción.</td>
+                  <td colSpan={5}>Sin cargos asociados a la subscripción.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -2643,12 +3232,22 @@ function App() {
       <p className="eyebrow">VIRTUALPOS / CARGO</p>
       <h2>{text(chargeDetail.charge.payload.id, chargeDetail.charge.external_id)}</h2>
       <div className="client-detail-actions">
-        <button
-          className="delete-button"
-          onClick={() => setDeletingRecord({ record: chargeDetail.charge, source: "virtualpos", resourceType: "charge" })}
-        >
-          Eliminar
-        </button>
+        {isPendingCharge(chargeDetail.charge) ? (
+          <button
+            className="cancel-charge-button"
+            onClick={() => { setCancelChargeError(null); setCancelingCharge(chargeDetail.charge); }}
+          >
+            Cancelar en VP
+          </button>
+        ) : null}
+        {isRejectedCharge(chargeDetail.charge) ? (
+          <button
+            className="retry-charge-button"
+            onClick={() => { setRetryChargeError(null); setRetryingCharge(chargeDetail.charge); }}
+          >
+            Reintentar en VP
+          </button>
+        ) : null}
       </div>
       <section className="panel">
         <p className="eyebrow">FICHA DEL CARGO</p>
@@ -2718,23 +3317,31 @@ function App() {
         {(providerEditFields[providerRecordDetail.record.source]?.[providerRecordDetail.record.resource_type] ?? []).length > 0 ? (
           <button
             className="edit-button"
-            onClick={() => setEditingProviderRecord({
+            onClick={() => { setProviderEditError(null); setEditingProviderRecord({
               record: providerRecordDetail.record,
               source: providerRecordDetail.record.source,
               resourceType: providerRecordDetail.record.resource_type,
-            })}
+            }); }}
           >
             Editar
+          </button>
+        ) : null}
+        {providerRecordDetail.record.source === "toku" && providerRecordDetail.record.resource_type === "subscription" ? (
+          <button
+            className="edit-button"
+            onClick={() => { setTokuSubStatusError(null); setManagingTokuSub(providerRecordDetail.record); }}
+          >
+            Gestionar estado
           </button>
         ) : null}
         {(deletableResources[providerRecordDetail.record.source] ?? []).includes(providerRecordDetail.record.resource_type) ? (
           <button
             className="delete-button"
-            onClick={() => setDeletingRecord({
+            onClick={() => { setProviderDeleteError(null); setDeletingRecord({
               record: providerRecordDetail.record,
               source: providerRecordDetail.record.source,
               resourceType: providerRecordDetail.record.resource_type,
-            })}
+            }); }}
           >
             Eliminar
           </button>
@@ -2793,6 +3400,7 @@ function App() {
                     <th>Nombre</th>
                     <th>Estado</th>
                     <th>Monto</th>
+                    <th>Acción</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2820,6 +3428,32 @@ function App() {
                       </td>
                       <td>{text(item.payload.status)}</td>
                       <td>{text(item.payload.amount)}</td>
+                      <td className="action-cell">
+                        {item.source === "toku" && group.resource_type === "subscription" ? (
+                          <button
+                            className="edit-button"
+                            onClick={() => { setTokuSubStatusError(null); setManagingTokuSub(item); }}
+                          >
+                            Gestionar estado
+                          </button>
+                        ) : null}
+                        {(providerEditFields[item.source]?.[group.resource_type] ?? []).length > 0 && !(item.source === "toku" && group.resource_type === "subscription") ? (
+                          <button
+                            className="edit-button"
+                            onClick={() => { setProviderEditError(null); setEditingProviderRecord({ record: item, source: item.source, resourceType: group.resource_type }); }}
+                          >
+                            Editar
+                          </button>
+                        ) : null}
+                        {(deletableResources[item.source] ?? []).includes(group.resource_type) && !(item.source === "toku" && group.resource_type === "subscription") ? (
+                          <button
+                            className="delete-button"
+                            onClick={() => { setProviderDeleteError(null); setDeletingRecord({ record: item, source: item.source, resourceType: group.resource_type }); }}
+                          >
+                            Eliminar
+                          </button>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2941,8 +3575,12 @@ function App() {
         {activeSection.source === "virtualpos" && activeSection.resource === "plan" ? (
           <button className="new-client-button" onClick={() => { setPlanFormError(null); setPlanFieldErrors({}); setPlanSaveNotice(null); setCreatingPlan(true); }}>+ Nuevo plan</button>
         ) : null}
+        {activeSection.source === "virtualpos" && activeSection.resource === "subscription" ? (
+          <button className="new-client-button" onClick={() => { setSubscriptionFormError(null); setSubscriptionFieldErrors({}); setSubscriptionSaveNotice(null); setCreatingSubscription(true); }}>+ Nueva suscripción</button>
+        ) : null}
         {clientSaveNotice ? <p className="success-message" role="status">{clientSaveNotice}</p> : null}
         {planSaveNotice ? <p className="success-message" role="status">{planSaveNotice}</p> : null}
+        {subscriptionSaveNotice ? <p className="success-message" role="status">{subscriptionSaveNotice}</p> : null}
         {chargeSaveNotice ? <p className="success-message" role="status">{chargeSaveNotice}</p> : null}
         {error ? <p className="error-message">{error}</p> : null}
         {!loading && !error && records.items.length === 0 ? (
@@ -3024,6 +3662,26 @@ function App() {
                           >
                             {column.value(record)}
                           </button>
+                        ) : activeSection.source === "virtualpos" &&
+                          activeSection.resource === "charge" &&
+                          column.label === "Acciones" ? (
+                          <div className="table-actions-group">
+                            {isPendingCharge(record) ? (
+                              <button
+                                className="cancel-charge-button"
+                                onClick={() => { setCancelChargeError(null); setCancelingCharge(record); }}
+                              >
+                                Cancelar
+                              </button>
+                            ) : isRejectedCharge(record) ? (
+                              <button
+                                className="retry-charge-button"
+                                onClick={() => { setRetryChargeError(null); setRetryingCharge(record); }}
+                              >
+                                Reintentar
+                              </button>
+                            ) : null}
+                          </div>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "client" &&
                           column.label === "Acciones" ? (
@@ -3314,25 +3972,36 @@ function App() {
           <span>{text(cancelingSubscription.payload.id, cancelingSubscription.external_id)}</span>
         </div>
         <p className="edit-dialog-note">
-          Esta acción utilizará DELETE `/v3/suscription/{text(cancelingSubscription.payload.id, cancelingSubscription.external_id)}` cuando se habilite la escritura. Actualmente VirtualPOS permanece en modo solo lectura.
+          Esta acción cancelará la suscripción en VirtualPOS (DELETE /v3/suscription/…). Los cargos futuros se detendrán.
         </p>
+        {cancelSubscriptionError && <p className="edit-dialog-error">{cancelSubscriptionError}</p>}
         <div className="edit-dialog-actions">
-          <button type="button" className="cancel-subscription-button" disabled title="Cancelación remota no habilitada">
-            Confirmar cancelación
+          <button
+            type="button"
+            className="cancel-subscription-button"
+            disabled={savingCancelSubscription}
+            onClick={() => void cancelVirtualPOSSubscription()}
+          >
+            {savingCancelSubscription ? "Cancelando..." : "Confirmar cancelación"}
           </button>
-          <button type="button" className="cancel-button" onClick={() => setCancelingSubscription(null)}>
+          <button type="button" className="cancel-button" onClick={() => { setCancelingSubscription(null); setCancelSubscriptionError(null); }}>
             Volver
           </button>
         </div>
       </section>
     </div>
   ) : null;
+  const isTokuWritable = editingProviderRecord?.source === "toku" && editingProviderRecord?.resourceType === "customer";
+  const isPaykuWritable = editingProviderRecord?.source === "payku" && editingProviderRecord?.resourceType === "client";
+  const isProviderWritable = isTokuWritable || isPaykuWritable;
   const providerEditDialog = editingProviderRecord ? (
     <div className="edit-dialog-backdrop" role="presentation">
       <form
         className="edit-dialog"
         aria-modal="true"
         aria-label={`Editar ${resourceTitle(editingProviderRecord.resourceType)}`}
+        noValidate
+        onSubmit={isProviderWritable ? saveProviderEdit : (e) => e.preventDefault()}
       >
         <div className="edit-dialog-heading">
           <div>
@@ -3345,10 +4014,12 @@ function App() {
             {text(editingProviderRecord.record.payload.id, editingProviderRecord.record.external_id)}
           </span>
         </div>
-        <p className="edit-dialog-note">
-          Formulario visual. El guardado remoto permanece deshabilitado mientras{" "}
-          {title(editingProviderRecord.source)} opere en modo solo lectura.
-        </p>
+        {!isProviderWritable ? (
+          <p className="edit-dialog-note">
+            Formulario visual. El guardado remoto permanece deshabilitado mientras{" "}
+            {title(editingProviderRecord.source)} opere en modo solo lectura.
+          </p>
+        ) : null}
         <div className="edit-form-grid">
           {(providerEditFields[editingProviderRecord.source]?.[editingProviderRecord.resourceType] ?? []).map(
             (field) => (
@@ -3363,10 +4034,17 @@ function App() {
             ),
           )}
         </div>
+        {providerEditError ? <p className="error-message form-error">{providerEditError}</p> : null}
         <div className="edit-dialog-actions">
-          <button type="button" className="save-button" disabled title="Guardado remoto no habilitado">
-            Guardar cambios
-          </button>
+          {isProviderWritable ? (
+            <button type="submit" className="save-button" disabled={savingProviderEdit}>
+              {savingProviderEdit ? "Guardando..." : "Guardar cambios"}
+            </button>
+          ) : (
+            <button type="button" className="save-button" disabled title="Guardado remoto no habilitado">
+              Guardar cambios
+            </button>
+          )}
           <button type="button" className="cancel-button" onClick={() => setEditingProviderRecord(null)}>
             Cancelar
           </button>
@@ -3394,20 +4072,33 @@ function App() {
           </span>
         </div>
         <p className="edit-dialog-note">
-          Esta acción utilizará DELETE `
-          {deleteEndpoint(deletingRecord.source, deletingRecord.resourceType, deletingRecord.record)}
-          ` cuando se habilite la escritura. Actualmente {title(deletingRecord.source)} permanece
-          en modo solo lectura.
+          {(deletingRecord.source === "toku" && deletingRecord.resourceType === "customer") ||
+           (deletingRecord.source === "payku" && (deletingRecord.resourceType === "client" || deletingRecord.resourceType === "subscription"))
+            ? `Se enviará DELETE ${deleteEndpoint(deletingRecord.source, deletingRecord.resourceType, deletingRecord.record)} a ${title(deletingRecord.source)}. Esta acción no se puede deshacer.`
+            : `Esta acción utilizará DELETE \`${deleteEndpoint(deletingRecord.source, deletingRecord.resourceType, deletingRecord.record)}\` cuando se habilite la escritura. Actualmente ${title(deletingRecord.source)} permanece en modo solo lectura.`}
         </p>
+        {providerDeleteError ? <p className="error-message form-error">{providerDeleteError}</p> : null}
         <div className="edit-dialog-actions">
-          <button
-            type="button"
-            className="cancel-subscription-button"
-            disabled
-            title="Eliminación remota no habilitada"
-          >
-            Confirmar eliminación
-          </button>
+          {(deletingRecord.source === "toku" && deletingRecord.resourceType === "customer") ||
+           (deletingRecord.source === "payku" && (deletingRecord.resourceType === "client" || deletingRecord.resourceType === "subscription")) ? (
+            <button
+              type="button"
+              className="cancel-subscription-button"
+              disabled={savingProviderDelete}
+              onClick={() => void confirmProviderDelete()}
+            >
+              {savingProviderDelete ? "Eliminando..." : "Confirmar eliminación"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="cancel-subscription-button"
+              disabled
+              title="Eliminación remota no habilitada"
+            >
+              Confirmar eliminación
+            </button>
+          )}
           <button type="button" className="cancel-button" onClick={() => setDeletingRecord(null)}>
             Volver
           </button>
@@ -3415,6 +4106,193 @@ function App() {
       </section>
     </div>
   ) : null;
+  const tchContent = tchView ? (
+    tchLoading ? (
+      <main className="app-shell"><p className="muted-copy">Cargando datos TCH...</p></main>
+    ) : tchError ? (
+      <main className="app-shell"><p className="error-message">{tchError}</p></main>
+    ) : tchView === "summary" && tchSummary ? (
+      <main className="app-shell channel-dashboard-page">
+        <p className="eyebrow">TCH / CANAL</p>
+        <header className="channel-hero">
+          <div>
+            <h2>Resumen operativo</h2>
+            <p>Datos cargados desde reportes Excel mensuales vía ETL.</p>
+          </div>
+          <div className="channel-hero-controls">
+            <div className="dashboard-controls">
+              <div className="mode-switch">
+                <button className={tchMode === "count" ? "active" : ""} onClick={() => setTchMode("count")}>Cantidad</button>
+                <button className={tchMode === "amount" ? "active" : ""} onClick={() => setTchMode("amount")}>Monto</button>
+              </div>
+              {tchSummary.years.length ? (
+                <select aria-label="Año TCH" value={tchYear ?? tchSummary.years[0]} onChange={(event) => setTchYear(Number(event.target.value))}>
+                  {tchSummary.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </select>
+              ) : null}
+            </div>
+            {tchSummary.ultimo_etl.started_at ? (
+              <>
+              <div className={`sync-state ${tchSummary.ultimo_etl.status === "completed" ? "ready" : "attention"}`}>
+                <span />{tchSummary.ultimo_etl.status ?? "Sin ETL"}
+              </div>
+              <p className="muted-copy" style={{ fontSize: "0.78rem" }}>
+                Último ETL: {tchSummary.ultimo_etl.started_at?.slice(0, 10)} · {(tchSummary.ultimo_etl.records_upserted ?? 0).toLocaleString("es-CL")} registros
+              </p>
+              </>
+            ) : null}
+          </div>
+        </header>
+        <section className="metrics provider-metrics" aria-label="KPIs TCH">
+          <Metric label="Suscripciones vigentes" value={tchSummary.suscripciones.vigentes} tone="green" />
+          <Metric label="Suscripciones eliminadas" value={tchSummary.suscripciones.eliminadas} tone="orange" />
+          <Metric label="Total suscripciones" value={tchSummary.suscripciones.total} tone="blue" />
+          <Metric label="Total transacciones" value={tchSummary.transacciones.total} tone="violet" />
+        </section>
+        <section className="metrics kpi-metrics" aria-label="KPIs transacciones TCH">
+          <KpiCard label="Aceptadas" value={tchSummary.transacciones.aceptadas.toLocaleString("es-CL")} tone="green" caption="Transacciones cobradas" />
+          <KpiCard label="Rechazadas" value={tchSummary.transacciones.rechazadas.toLocaleString("es-CL")} tone="orange" caption="Transacciones fallidas" />
+          <KpiCard label="Tasa de rechazo" value={`${tchSummary.transacciones.tasa_rechazo_pct}%`} tone={tchSummary.transacciones.tasa_rechazo_pct > 20 ? "orange" : "blue"} caption="Rechazadas / total" />
+        </section>
+        <section className="extended-charts">
+          <article className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Resultado mensual</h3></div></div>
+            <MonthlyStatusChart data={tchSummary.transacciones_mensuales} mode={tchMode} year={tchYear} />
+          </article>
+          <article className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas mensuales</h3></div></div>
+            <MonthlyStatusChart data={tchSummary.activaciones_mensuales} mode={tchMode} year={tchYear} />
+          </article>
+        </section>
+        <section className="panel channel-resources">
+          <div><p className="eyebrow">EXPLORAR TCH</p><h3>Vistas disponibles</h3></div>
+          <div>
+            <button onClick={() => showTch("suscripciones")}>Suscripciones<span>{tchSummary.suscripciones.total}</span></button>
+            <button onClick={() => showTch("transacciones")}>Transacciones<span>{tchSummary.transacciones.total}</span></button>
+          </div>
+        </section>
+      </main>
+    ) : tchView === "cliente-detalle" && tchClienteDetail ? (
+      <main className="app-shell">
+        <button className="back-button" onClick={() => showTch("clientes")}>← Clientes TCH</button>
+        <p className="eyebrow">TCH / CLIENTE</p>
+        <header className="detail-header"><div><h2>{[tchClienteDetail.nombre, tchClienteDetail.apellido].filter(Boolean).join(" ") || "Cliente TCH"}</h2><p>{tchClienteDetail.rut}</p></div></header>
+        <section className="detail-grid"><article className="panel"><h3>Datos personales</h3><dl><dt>RUT</dt><dd>{tchClienteDetail.rut}</dd><dt>Fecha de nacimiento</dt><dd>{tchClienteDetail.fecha_nacimiento ?? "—"}</dd><dt>Profesión</dt><dd>{tchClienteDetail.profesion ?? "—"}</dd><dt>Tipo de socio</dt><dd>{tchClienteDetail.tipo_socio ?? "—"}</dd></dl></article><article className="panel"><h3>Contacto</h3><dl><dt>Email</dt><dd>{tchClienteDetail.email ?? "—"}</dd><dt>Teléfono</dt><dd>{tchClienteDetail.telefono ?? "—"}</dd><dt>Dirección</dt><dd>{tchClienteDetail.direccion ?? "—"}</dd><dt>Comuna</dt><dd>{tchClienteDetail.comuna ?? "—"}</dd><dt>Ciudad</dt><dd>{tchClienteDetail.ciudad ?? "—"}</dd></dl></article><article className="panel"><h3>Mandatos</h3><p className="metric-value">{(tchClienteDetail.suscripciones ?? []).length.toLocaleString("es-CL")}</p><p className="muted-copy">Suscripciones TCH asociadas</p></article></section>
+        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Mandatos asociados</h3></div></div><div className="table-wrap"><table><thead><tr><th>Ficha</th><th>Inicio</th><th>Fin</th><th>Monto</th><th>Estado</th></tr></thead><tbody>{(tchClienteDetail.suscripciones ?? []).map((s) => <tr key={s.id}><td><button className="record-link" onClick={() => showTchSuscripcion(s.numero_ficha)}>{s.numero_ficha}</button></td><td>{s.fecha_activacion ?? "—"}</td><td>{s.fecha_fin ?? "—"}</td><td>{s.monto ? `$${Number(s.monto).toLocaleString("es-CL")}` : "—"}</td><td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td></tr>)}</tbody></table></div></section>
+      </main>
+    ) : tchView === "suscripcion-detalle" && tchSuscripcionDetail ? (
+      <main className="app-shell">
+        <button className="back-button" onClick={() => showTch("suscripciones")}>← Suscripciones TCH</button>
+        <p className="eyebrow">TCH / SUSCRIPCIÓN</p>
+        <header className="detail-header"><div><h2>Ficha {tchSuscripcionDetail.numero_ficha}</h2><p>Mandato físico e historial de cargos.</p></div><span className={`status-pill${tchSuscripcionDetail.estado === "VIGENTE" ? "" : " status-attention"}`}>{tchSuscripcionDetail.estado}</span></header>
+        <section className="detail-grid"><article className="panel"><h3>Mandato</h3><dl><dt>Inicio</dt><dd>{tchSuscripcionDetail.fecha_activacion ?? "—"}</dd><dt>Fin</dt><dd>{tchSuscripcionDetail.fecha_fin ?? "—"}</dd><dt>Motivo</dt><dd>{tchSuscripcionDetail.razon_baja ?? "—"}</dd><dt>Monto</dt><dd>{tchSuscripcionDetail.monto ? `$${Number(tchSuscripcionDetail.monto).toLocaleString("es-CL")}` : "—"}</dd><dt>Equivalente en pesos</dt><dd>{tchSuscripcionDetail.equivalente_pesos ? `$${Number(tchSuscripcionDetail.equivalente_pesos).toLocaleString("es-CL")}` : "—"}</dd><dt>Banco</dt><dd>{tchSuscripcionDetail.banco_nombre ?? "—"}</dd><dt>RUT cliente</dt><dd>{tchSuscripcionDetail.cliente_rut ?? "—"}</dd></dl></article><article className="panel"><h3>Captación</h3><dl><dt>Origen</dt><dd>{tchSuscripcionDetail.origen ?? "—"}</dd><dt>Centro de costo</dt><dd>{tchSuscripcionDetail.centro_costo ?? "—"}</dd><dt>Captador</dt><dd>{tchSuscripcionDetail.captador ?? "—"}</dd><dt>Mandato</dt><dd>{tchSuscripcionDetail.numero_mandato ?? "—"}</dd><dt>Tipo de cuenta</dt><dd>{tchSuscripcionDetail.tipo_cuenta ?? "—"}</dd></dl></article></section>
+        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Historial</h3></div></div><div className="table-wrap"><table><thead><tr><th>Período</th><th>Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>{tchSuscripcionDetail.transacciones.map((t) => <tr key={t.id}><td><button className="record-link" onClick={() => showTchTransaccion(t.id)}>{t.periodo ?? "—"}</button></td><td>{t.monto ? `$${Number(t.monto).toLocaleString("es-CL")}` : "—"}</td><td>{t.fecha_cargo ?? "—"}</td><td><span className={`status-pill${t.estado === "ACEPTADA" ? "" : " status-attention"}`}>{t.estado}</span></td></tr>)}</tbody></table></div></section>
+      </main>
+    ) : tchView === "transaccion-detalle" && tchTransaccionDetail ? (
+      <main className="app-shell">
+        <button className="back-button" onClick={() => showTch("transacciones")}>← Transacciones TCH</button>
+        <p className="eyebrow">TCH / TRANSACCIÓN</p>
+        <header className="detail-header"><div><h2>Cargo {tchTransaccionDetail.periodo ?? "sin período"}</h2><p>Ficha {tchTransaccionDetail.numero_ficha}</p></div><span className={`status-pill${tchTransaccionDetail.estado === "ACEPTADA" ? "" : " status-attention"}`}>{tchTransaccionDetail.estado}</span></header>
+        <section className="detail-grid"><article className="panel"><h3>Detalle del cargo</h3><dl><dt>Monto</dt><dd>{tchTransaccionDetail.monto ? `$${Number(tchTransaccionDetail.monto).toLocaleString("es-CL")}` : "—"}</dd><dt>Fecha de cargo</dt><dd>{tchTransaccionDetail.fecha_cargo ?? "—"}</dd><dt>Cuota</dt><dd>{tchTransaccionDetail.numero_cuota ?? "—"}</dd><dt>Entidad</dt><dd>{tchTransaccionDetail.entidad_recaudadora ?? "—"}</dd><dt>Motivo</dt><dd>{tchTransaccionDetail.razon_rechazo ?? "—"}</dd></dl></article><article className="panel"><h3>Suscripción</h3>{tchTransaccionDetail.suscripcion ? <dl><dt>Ficha</dt><dd><button className="record-link" onClick={() => showTchSuscripcion(tchTransaccionDetail.numero_ficha)}>{tchTransaccionDetail.numero_ficha}</button></dd><dt>RUT cliente</dt><dd>{tchTransaccionDetail.suscripcion.cliente_rut ?? "—"}</dd><dt>Banco</dt><dd>{tchTransaccionDetail.suscripcion.banco_nombre ?? "—"}</dd><dt>Inicio</dt><dd>{tchTransaccionDetail.suscripcion.fecha_activacion ?? "—"}</dd></dl> : <p className="muted-copy">No hay suscripción local asociada.</p>}</article></section>
+      </main>
+    ) : tchView === "clientes" ? (
+      <main className="app-shell">
+        <p className="eyebrow">TCH / CLIENTES</p>
+        <header className="channel-hero" style={{ alignItems: "flex-end" }}><div><h2>Clientes TCH</h2><p>Socios asociados a mandatos físicos.</p></div><div className="dashboard-controls"><input aria-label="Buscar cliente" placeholder="Buscar por nombre" value={tchClienteFiltro} onChange={(event) => { setTchClienteFiltro(event.target.value); setTchClientesPage(1); }} style={{ padding: "0.35rem 0.6rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }} /></div></header>
+        <section className="panel"><div className="table-wrap"><table><thead><tr><th>RUT</th><th>Nombre</th><th>Fecha nacimiento</th><th>Profesión</th><th>Tipo socio</th></tr></thead><tbody>{(tchClientes?.items ?? []).map((c) => <tr key={c.id}><td><button className="record-link" onClick={() => showTchCliente(c.rut)}>{c.rut}</button></td><td>{[c.nombre, c.apellido].filter(Boolean).join(" ") || "—"}</td><td>{c.fecha_nacimiento ?? "—"}</td><td>{c.profesion ?? "—"}</td><td>{c.tipo_socio ?? "—"}</td></tr>)}{(tchClientes?.items ?? []).length === 0 ? <tr><td colSpan={5}>Sin registros.</td></tr> : null}</tbody></table></div>{tchClientes && tchClientes.pages > 1 ? <div className="pagination" style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}><button disabled={tchClientesPage <= 1} onClick={() => setTchClientesPage((page) => page - 1)}>← Anterior</button><span style={{ padding: "0 0.5rem", lineHeight: "2" }}>{tchClientesPage} / {tchClientes.pages} ({tchClientes.total.toLocaleString("es-CL")} total)</span><button disabled={tchClientesPage >= tchClientes.pages} onClick={() => setTchClientesPage((page) => page + 1)}>Siguiente →</button></div> : null}</section>
+      </main>
+    ) : tchView === "suscripciones" ? (
+      <main className="app-shell">
+        <p className="eyebrow">TCH / SUSCRIPCIONES</p>
+        <header className="channel-hero" style={{ alignItems: "flex-end" }}>
+          <div><h2>Suscripciones TCH</h2><p>Mandatos activos e históricos de débito físico.</p></div>
+          <div className="dashboard-controls">
+            <select aria-label="Filtrar por estado" value={tchSusFiltroEstado} onChange={(e) => { setTchSusFiltroEstado(e.target.value); setTchSusPage(1); }}>
+              <option value="">Todos los estados</option>
+              <option value="VIGENTE">Vigentes</option>
+              <option value="ELIMINADA">Eliminadas</option>
+            </select>
+          </div>
+        </header>
+        <section className="panel">
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Ficha</th><th>RUT cliente</th><th>Banco</th>
+                <th>Tipo mandato</th><th>Origen</th><th>Centro costo</th>
+                <th>Monto</th><th>F. Activación</th><th>Estado</th>
+              </tr></thead>
+              <tbody>
+                {(tchSuscripciones?.items ?? []).map((s) => (
+                  <tr key={s.id}>
+                    <td><button className="record-link" onClick={() => showTchSuscripcion(s.numero_ficha)}>{s.numero_ficha}</button></td>
+                    <td>{s.cliente_rut ?? "—"}</td>
+                    <td>{s.banco_nombre ?? "—"}</td>
+                    <td>{s.tipo_mandato ?? "—"}</td>
+                    <td>{s.origen ?? "—"}</td>
+                    <td>{s.centro_costo ?? "—"}</td>
+                    <td>{s.monto ? `$${Number(s.monto).toLocaleString("es-CL")}` : "—"}</td>
+                    <td>{s.fecha_activacion ?? "—"}</td>
+                    <td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td>
+                  </tr>
+                ))}
+                {(tchSuscripciones?.items ?? []).length === 0 ? <tr><td colSpan={9}>Sin registros.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+          {tchSuscripciones && tchSuscripciones.pages > 1 ? (
+            <div className="pagination" style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}>
+              <button disabled={tchSusPage <= 1} onClick={() => setTchSusPage((p) => p - 1)}>← Anterior</button>
+              <span style={{ padding: "0 0.5rem", lineHeight: "2" }}>{tchSusPage} / {tchSuscripciones.pages} ({tchSuscripciones.total.toLocaleString("es-CL")} total)</span>
+              <button disabled={tchSusPage >= tchSuscripciones.pages} onClick={() => setTchSusPage((p) => p + 1)}>Siguiente →</button>
+            </div>
+          ) : null}
+        </section>
+      </main>
+    ) : tchView === "transacciones" ? (
+      <main className="app-shell">
+        <p className="eyebrow">TCH / TRANSACCIONES</p>
+        <header className="channel-hero" style={{ alignItems: "flex-end" }}>
+          <div><h2>Transacciones TCH</h2><p>Historial de cargos aceptados y rechazados.</p></div>
+          <div className="dashboard-controls">
+            <input type="month" aria-label="Filtrar por período" value={tchTransFiltroPeriodo} onChange={(e) => { setTchTransFiltroPeriodo(e.target.value); setTchTransPage(1); }} style={{ padding: "0.35rem 0.6rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }} />
+          </div>
+        </header>
+        <section className="panel">
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Ficha</th><th>Período</th><th>Entidad</th>
+                <th>Monto</th><th>Fecha cargo</th><th>Cuota</th><th>Estado</th>
+              </tr></thead>
+              <tbody>
+                {(tchTransacciones?.items ?? []).map((t) => (
+                  <tr key={t.id}>
+                    <td><button className="record-link" onClick={() => showTchTransaccion(t.id)}>{t.numero_ficha}</button></td>
+                    <td>{t.periodo ?? "—"}</td>
+                    <td>{t.entidad_recaudadora ?? "—"}</td>
+                    <td>{t.monto ? `$${Number(t.monto).toLocaleString("es-CL")}` : "—"}</td>
+                    <td>{t.fecha_cargo ?? "—"}</td>
+                    <td>{t.numero_cuota && t.total_cuotas ? `${t.numero_cuota}/${t.total_cuotas}` : (t.numero_cuota ?? "—")}</td>
+                    <td><span className={`status-pill${t.estado === "ACEPTADA" ? "" : " status-attention"}`}>{t.estado}</span></td>
+                  </tr>
+                ))}
+                {(tchTransacciones?.items ?? []).length === 0 ? <tr><td colSpan={7}>Sin registros.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+          {tchTransacciones && tchTransacciones.pages > 1 ? (
+            <div style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}>
+              <button disabled={tchTransPage <= 1} onClick={() => setTchTransPage((p) => p - 1)}>← Anterior</button>
+              <span style={{ padding: "0 0.5rem", lineHeight: "2" }}>{tchTransPage} / {tchTransacciones.pages} ({tchTransacciones.total.toLocaleString("es-CL")} total)</span>
+              <button disabled={tchTransPage >= tchTransacciones.pages} onClick={() => setTchTransPage((p) => p + 1)}>Siguiente →</button>
+            </div>
+          ) : null}
+        </section>
+      </main>
+    ) : <main className="app-shell"><p className="muted-copy">Cargando...</p></main>
+  ) : null;
+
   const content = detailLoading ? (
     <main className="app-shell">
       <p className="muted-copy">Cargando ficha...</p>
@@ -3427,6 +4305,7 @@ function App() {
     paymentDetailView ??
     providerRecordDetailView ??
     providerDetail ??
+    tchContent ??
     (channel ? (
       channelLoading || !channelData ? (
         <main className="app-shell">
@@ -3457,6 +4336,7 @@ function App() {
       <Sidebar
         activeSection={activeSection}
         channel={channel}
+        tchView={tchView}
         openProvider={openProvider}
         theme={theme}
         onDashboard={showDashboard}
@@ -3466,8 +4346,9 @@ function App() {
           setOpenProvider((open) => (open === provider ? null : provider))
         }
         onTheme={toggleTheme}
+        onTch={showTch}
         permissions={session.user.permissions}
-        onAdmin={() => { clearDetails(); setChannel(null); setActiveSection(null); setAdminOpen(true); }}
+        onAdmin={() => { clearDetails(); setChannel(null); setActiveSection(null); setTchView(null); setAdminOpen(true); }}
         onLogout={logout}
       />
       {adminOpen ? <AdminUsers canManageUsers={session.user.permissions.includes("users.manage")} /> : content}
@@ -3540,7 +4421,141 @@ function App() {
           </form>
         </div>
       ) : null}
+      {creatingSubscription ? (
+        <div className="edit-dialog-backdrop" role="presentation">
+          <form
+            className="edit-dialog edit-dialog-wide"
+            aria-modal="true"
+            aria-label="Crear suscripción VirtualPOS"
+            noValidate
+            onSubmit={createVirtualPOSSubscription}
+          >
+            <div className="edit-dialog-heading">
+              <div>
+                <p className="eyebrow">VIRTUALPOS / SUSCRIPCIONES</p>
+                <h3>Nueva suscripción</h3>
+              </div>
+            </div>
+            <p className="edit-dialog-note">
+              Los campos marcados con * son obligatorios. El RUT será validado. Las URLs de retorno y callback se codificarán en Base64 automáticamente.
+            </p>
+            <div className="vp-account-selector">
+              <span className="vp-account-selector-label">Cuenta VirtualPOS:</span>
+              <div className="vp-account-selector-buttons">
+                <button type="button" className={`vp-account-btn${subVpPlatform === "virtualpos1" ? " active" : ""}`} onClick={() => setSubVpPlatform("virtualpos1")}>
+                  Cuenta 1
+                </button>
+                <button type="button" className={`vp-account-btn${subVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setSubVpPlatform("virtualpos2")}>
+                  Cuenta 2
+                </button>
+              </div>
+            </div>
+            <div className="edit-form-grid">
+              {virtualPosSubscriptionCreateFields.map((field) => {
+                const hasError = Boolean(subscriptionFieldErrors[field.name]);
+                const isRequired = subscriptionRequiredFields.has(field.name);
+                return (
+                  <label className={hasError ? "field-error" : ""} key={field.name}>
+                    {field.label}{isRequired ? <span className="field-required" aria-hidden="true"> *</span> : null}
+                    {field.options ? (
+                      <select name={field.name} aria-invalid={hasError} aria-required={isRequired}>
+                        <option value="">Sin especificar</option>
+                        {field.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        name={field.name}
+                        type={field.type ?? "text"}
+                        aria-invalid={hasError}
+                        aria-required={isRequired}
+                        placeholder={
+                          field.name === "social_id" ? "Ej: 12345678-9"
+                          : field.name === "plan_id" ? "ID exacto del plan en VirtualPOS"
+                          : field.name === "phone_number" ? "Ej: 56912345678"
+                          : undefined
+                        }
+                      />
+                    )}
+                    {hasError ? <span className="field-error-message">{subscriptionFieldErrors[field.name]}</span> : null}
+                  </label>
+                );
+              })}
+            </div>
+            {subscriptionFormError ? <p className="error-message form-error">{subscriptionFormError}</p> : null}
+            <div className="edit-dialog-actions">
+              <button type="submit" className="save-button" disabled={savingSubscription}>
+                {savingSubscription ? "Creando..." : "Crear suscripción"}
+              </button>
+              <button type="button" className="cancel-button" onClick={() => setCreatingSubscription(false)}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       {subscriptionCancelDialog}
+      {cancelingCharge ? (
+        <div className="edit-dialog-backdrop" role="presentation">
+          <section className="edit-dialog" role="dialog" aria-modal="true" aria-label="Cancelar cargo VirtualPOS">
+            <div className="edit-dialog-heading">
+              <div>
+                <p className="eyebrow">VIRTUALPOS / CARGO</p>
+                <h3>Cancelar cargo</h3>
+              </div>
+              <span>{text(cancelingCharge.payload.id, cancelingCharge.external_id)}</span>
+            </div>
+            <p className="edit-dialog-note">
+              Se enviará DELETE <code>/v3/charge/{text(cancelingCharge.payload.id, cancelingCharge.external_id)}</code> a VirtualPOS.
+              Solo cargos en estado <strong>pendiente</strong> pueden cancelarse. Esta acción no se puede deshacer.
+            </p>
+            {cancelChargeError ? <p className="error-message form-error">{cancelChargeError}</p> : null}
+            <div className="edit-dialog-actions">
+              <button
+                type="button"
+                className="cancel-subscription-button"
+                disabled={savingCancelCharge}
+                onClick={() => void cancelVirtualPOSCharge()}
+              >
+                {savingCancelCharge ? "Cancelando..." : "Confirmar cancelación"}
+              </button>
+              <button type="button" className="cancel-button" onClick={() => setCancelingCharge(null)}>
+                Volver
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {retryingCharge ? (
+        <div className="edit-dialog-backdrop" role="presentation">
+          <section className="edit-dialog" role="dialog" aria-modal="true" aria-label="Reintentar cargo VirtualPOS">
+            <div className="edit-dialog-heading">
+              <div>
+                <p className="eyebrow">VIRTUALPOS / CARGO</p>
+                <h3>Reintentar cargo</h3>
+              </div>
+              <span>{text(retryingCharge.payload.id, retryingCharge.external_id)}</span>
+            </div>
+            <p className="edit-dialog-note">
+              Se enviará GET <code>/v3/charge/{text(retryingCharge.payload.id, retryingCharge.external_id)}/retry</code> a VirtualPOS.
+              Solo cargos en estado <strong>rechazado</strong> pueden reintentarse (máximo una vez diaria durante tres días consecutivos).
+            </p>
+            {retryChargeError ? <p className="error-message form-error">{retryChargeError}</p> : null}
+            <div className="edit-dialog-actions">
+              <button
+                type="button"
+                className="retry-charge-button"
+                disabled={savingRetryCharge}
+                onClick={() => void retryVirtualPOSCharge()}
+              >
+                {savingRetryCharge ? "Reintentando..." : "Confirmar reintento"}
+              </button>
+              <button type="button" className="cancel-button" onClick={() => setRetryingCharge(null)}>
+                Volver
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {creatingCharge ? (
         <div className="edit-dialog-backdrop" role="presentation">
           <form
@@ -3601,6 +4616,49 @@ function App() {
               </button>
               <button type="button" className="cancel-button" onClick={() => setCreatingCharge(null)}>
                 Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+      {managingTokuSub ? (
+        <div className="edit-dialog-backdrop" role="presentation">
+          <form
+            className="edit-dialog"
+            aria-modal="true"
+            aria-label="Gestionar estado suscripción Toku"
+            noValidate
+            onSubmit={changeTokuSubscriptionStatus}
+          >
+            <div className="edit-dialog-heading">
+              <div>
+                <p className="eyebrow">TOKU / SUSCRIPCIÓN</p>
+                <h3>Cambiar estado</h3>
+              </div>
+              <span>{text(managingTokuSub.payload.id, managingTokuSub.external_id)}</span>
+            </div>
+            <p className="edit-dialog-note">
+              Se enviará POST <code>/subscriptions/{text(managingTokuSub.payload.id, managingTokuSub.external_id)}/status</code> a Toku.
+              Estado actual: <strong>{text(managingTokuSub.payload.status)}</strong>
+            </p>
+            <div className="edit-form-grid">
+              <label>
+                Nuevo estado<span className="field-required" aria-hidden="true"> *</span>
+                <select name="status">
+                  <option value="">Seleccionar...</option>
+                  <option value="ACTIVE">ACTIVE — Activar</option>
+                  <option value="PAUSED">PAUSED — Pausar</option>
+                  <option value="CANCELLED">CANCELLED — Cancelar</option>
+                </select>
+              </label>
+            </div>
+            {tokuSubStatusError ? <p className="error-message form-error">{tokuSubStatusError}</p> : null}
+            <div className="edit-dialog-actions">
+              <button type="submit" className="save-button" disabled={savingTokuSubStatus}>
+                {savingTokuSubStatus ? "Aplicando..." : "Confirmar cambio"}
+              </button>
+              <button type="button" className="cancel-button" onClick={() => setManagingTokuSub(null)}>
+                Volver
               </button>
             </div>
           </form>

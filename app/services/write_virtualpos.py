@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
-from app.models.crm import Charge, Client, Plan
+from app.models.crm import Charge, Client, Plan, Subscription
 from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
@@ -25,6 +26,14 @@ class ClientNotFoundError(Exception):
 
 
 class DuplicateClientError(Exception):
+    pass
+
+
+class ChargeNotFoundError(Exception):
+    pass
+
+
+class SubscriptionNotFoundError(Exception):
     pass
 
 
@@ -158,6 +167,61 @@ def _materialize_charge(charge: "Charge", payload: dict[str, Any]) -> None:
     charge.currency = _as_text(payload.get("currency"))
     charge.status = _as_text(payload.get("status"))
     charge.charge_date = _as_text(payload.get("charge_date"))
+
+
+def _subscription_payload(response: Any) -> dict[str, Any] | None:
+    if not isinstance(response, dict):
+        return None
+    for key in ("suscription", "subscription", "data"):
+        value = response.get(key)
+        if isinstance(value, dict):
+            return value
+    return response
+
+
+def _materialize_subscription(sub: "Subscription", payload: dict[str, Any]) -> None:
+    sub.raw_payload = payload
+    client_obj = payload.get("client")
+    sub.client_external_id = _as_text(
+        payload.get("client_uuid") or (client_obj.get("uuid") if isinstance(client_obj, dict) else None)
+    )
+    sub.client_social_id = _as_text(
+        client_obj.get("social_id") if isinstance(client_obj, dict) else None
+    )
+    sub.plan_external_id = _as_text(payload.get("plan_id"))
+    sub.service_id = _as_text(payload.get("service_id"))
+    sub.status = _as_text(payload.get("status"))
+    sub.automatic_renewal = _as_text(payload.get("automatic_renewal") or payload.get("renewal"))
+    sub.suscription_date = _as_text(payload.get("suscription_date"))
+    sub.canceled_at = _as_text(payload.get("canceled_at"))
+    sub.amount = _as_text(payload.get("amount"))
+    sub.currency = _as_text(payload.get("currency"))
+
+
+def _update_local_subscription(sub_id: str, payload: dict[str, Any], local_plat: str) -> None:
+    if not settings.virtualpos_db_url:
+        raise RuntimeError("VirtualPOS local database is not configured")
+    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE subscripcion SET raw_payload = %s, synced_at = NOW() "
+            "WHERE platform = %s AND remote_id = %s",
+            (Jsonb(payload), local_plat, sub_id),
+        )
+
+
+def _create_local_subscription(sub_id: str, payload: dict[str, Any], local_plat: str) -> None:
+    if not settings.virtualpos_db_url:
+        raise RuntimeError("VirtualPOS local database is not configured")
+    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO subscripcion (platform, remote_id, raw_payload, synced_at) "
+            "VALUES (%s, %s, %s, NOW()) "
+            "ON CONFLICT (platform, remote_id) DO UPDATE SET "
+            "raw_payload = EXCLUDED.raw_payload, synced_at = EXCLUDED.synced_at",
+            (local_plat, sub_id, Jsonb(payload)),
+        )
 
 
 def _as_text(value: Any) -> str | None:
@@ -533,6 +597,334 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
         charge = Charge(source=platform, external_id=charge_id, source_record_id=source_record.id)
         _materialize_charge(charge, sanitized_payload)
         db.add(charge)
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return charge
+
+
+def _update_local_charge(charge_id: str, payload: dict[str, Any], local_plat: str) -> None:
+    if not settings.virtualpos_db_url:
+        raise RuntimeError("VirtualPOS local database is not configured")
+
+    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE cargos SET raw_payload = %s, synced_at = NOW() "
+            "WHERE platform = %s AND remote_id = %s",
+            (Jsonb(payload), local_plat, charge_id),
+        )
+
+
+async def cancel_charge(db: Session, charge_id: str) -> Charge:
+    """Cancel a pending VirtualPOS charge via DELETE /v3/charge/{id}."""
+    charge = db.scalar(
+        select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
+    )
+    if charge is None:
+        raise ChargeNotFoundError
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    local_plat = _local_platform(charge.source)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
+    write_run = WriteRun(
+        source=charge.source,
+        resource_type="charge",
+        external_id=charge_id,
+        operation="cancel_charge",
+        status="pending",
+        request_payload={"charge_id": charge_id},
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with VirtualPOSClient(platform=charge.source) as provider:
+            await provider.delete_charge(charge_id)
+            try:
+                refreshed_payload = _charge_payload(await provider.get_charge(charge_id))
+            except Exception:
+                refreshed_payload = None
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    cancelled_payload = refreshed_payload or dict(charge.raw_payload or {})
+    if not refreshed_payload or not refreshed_payload.get("status"):
+        cancelled_payload = {**cancelled_payload, "status": "cancelado"}
+
+    sanitized_payload = sanitize_record(cancelled_payload)
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = sanitized_payload
+    db.commit()
+
+    try:
+        _update_local_charge(charge_id, sanitized_payload, local_plat)
+        charge.status = _as_text(sanitized_payload.get("status")) or "cancelado"
+        charge.raw_payload = sanitized_payload
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return charge
+
+
+async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription:
+    """Create a VirtualPOS subscription and persist the response locally."""
+    platform = data.pop("platform", "virtualpos1")
+    local_plat = _local_platform(platform)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
+    # Encode URLs to base64 if provided as plain text
+    for url_field in ("return_url", "callback_url"):
+        if url_field in data and data[url_field]:
+            raw = str(data[url_field])
+            if not _is_base64(raw):
+                data[url_field] = base64.b64encode(raw.encode()).decode()
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source=platform,
+        resource_type="subscription",
+        external_id="pending",
+        operation="create_subscription",
+        status="pending",
+        request_payload=sanitize_record(data),
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with VirtualPOSClient(platform=platform) as provider:
+            response = await provider.create_subscription(data)
+            payload = _subscription_payload(response)
+            sub_id = _as_text(
+                (payload or {}).get("suscription_id")
+                or (payload or {}).get("subscription_id")
+                or (payload or {}).get("id")
+            )
+            if not sub_id:
+                raise RuntimeError("VirtualPOS returned no subscription identifier")
+            if payload is None or len(payload) <= 1:
+                payload = _subscription_payload(await provider.get_subscription(sub_id))
+            if payload is None:
+                raise RuntimeError("VirtualPOS returned no subscription payload")
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    sanitized_payload = sanitize_record(payload)
+    write_run.external_id = sub_id
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = sanitized_payload
+    db.commit()
+
+    try:
+        _create_local_subscription(sub_id, sanitized_payload, local_plat)
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == "virtualpos",
+                SourceRecord.resource_type == "subscription",
+                SourceRecord.external_id == sub_id,
+            )
+        )
+        if source_record is None:
+            source_record = SourceRecord(
+                source="virtualpos", resource_type="subscription", external_id=sub_id, payload=sanitized_payload
+            )
+            db.add(source_record)
+            db.flush()
+        else:
+            source_record.payload = sanitized_payload
+        sub = Subscription(source=platform, external_id=sub_id, source_record_id=source_record.id)
+        _materialize_subscription(sub, sanitized_payload)
+        db.add(sub)
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return sub
+
+
+def _is_base64(value: str) -> bool:
+    try:
+        return base64.b64encode(base64.b64decode(value)).decode() == value
+    except Exception:
+        return False
+
+
+async def cancel_subscription(db: Session, subscription_id: str) -> Subscription:
+    """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id}."""
+    sub = db.scalar(
+        select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source.like("virtualpos%"))
+    )
+    if sub is None:
+        raise SubscriptionNotFoundError
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    local_plat = _local_platform(sub.source)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
+    write_run = WriteRun(
+        source=sub.source,
+        resource_type="subscription",
+        external_id=subscription_id,
+        operation="cancel_subscription",
+        status="pending",
+        request_payload={"subscription_id": subscription_id},
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with VirtualPOSClient(platform=sub.source) as provider:
+            await provider.cancel_subscription(subscription_id)
+            try:
+                refreshed_payload = _subscription_payload(await provider.get_subscription(subscription_id))
+            except Exception:
+                refreshed_payload = None
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    cancelled_payload = dict(refreshed_payload or sub.raw_payload or {})
+    if not refreshed_payload or not refreshed_payload.get("status"):
+        cancelled_payload = {**cancelled_payload, "status": "CANCELADA"}
+
+    sanitized_payload = sanitize_record(cancelled_payload)
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = sanitized_payload
+    db.commit()
+
+    try:
+        _update_local_subscription(subscription_id, sanitized_payload, local_plat)
+        sub.status = _as_text(sanitized_payload.get("status")) or "CANCELADA"
+        sub.raw_payload = sanitized_payload
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return sub
+
+
+async def retry_charge(db: Session, charge_id: str) -> Charge:
+    """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry."""
+    charge = db.scalar(
+        select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
+    )
+    if charge is None:
+        raise ChargeNotFoundError
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    local_plat = _local_platform(charge.source)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
+    write_run = WriteRun(
+        source=charge.source,
+        resource_type="charge",
+        external_id=charge_id,
+        operation="retry_charge",
+        status="pending",
+        request_payload={"charge_id": charge_id},
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with VirtualPOSClient(platform=charge.source) as provider:
+            await provider.retry_charge(charge_id)
+            try:
+                refreshed_payload = _charge_payload(await provider.get_charge(charge_id))
+            except Exception:
+                refreshed_payload = None
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    retried_payload = dict(refreshed_payload or charge.raw_payload or {})
+    # If the provider still reports "rechazado" after the retry call, force "procesando"
+    # so the retry button is disabled and double-retries are prevented.
+    if (retried_payload.get("status") or "").lower() == "rechazado":
+        retried_payload = {**retried_payload, "status": "procesando"}
+    sanitized_payload = sanitize_record(retried_payload)
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = sanitized_payload
+    db.commit()
+
+    try:
+        _update_local_charge(charge_id, sanitized_payload, local_plat)
+        charge.status = _as_text(sanitized_payload.get("status")) or "procesando"
+        charge.raw_payload = sanitized_payload
         write_run.status = "completed"
         write_run.finished_at = datetime.now(UTC)
         db.commit()

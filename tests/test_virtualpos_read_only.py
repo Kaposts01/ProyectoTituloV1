@@ -4,20 +4,30 @@ from app.integrations.virtualpos.client import VirtualPOSClient
 from app.main import app
 
 
-def test_virtualpos_client_exposes_only_approved_read_operations() -> None:
+def test_virtualpos_client_exposes_only_approved_operations() -> None:
     methods = {
         name
         for name, method in inspect.getmembers(VirtualPOSClient, inspect.iscoroutinefunction)
         if not name.startswith("__")
     }
 
-    assert methods == {"_get", "list_charges", "list_clients", "list_payments", "list_plans", "list_subscriptions"}
+    assert methods == {
+        "_get",
+        "get_client",
+        "list_charges",
+        "list_clients",
+        "list_payments",
+        "list_plans",
+        "list_subscriptions",
+        "update_client",
+    }
 
 
 def test_api_does_not_register_virtualpos_proxy() -> None:
     paths = set(app.openapi()["paths"])
 
     assert not any(path.startswith("/api/v1/virtualpos") for path in paths)
+    assert "/api/v1/writes/virtualpos/clients/{client_id}" in paths
 
 
 def test_api_exposes_local_staging_instead_of_provider_proxies() -> None:

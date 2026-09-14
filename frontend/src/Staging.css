@@ -660,6 +660,42 @@
   opacity: .52;
 }
 
+.cancel-charge-button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+  color: #fff;
+  background: var(--cancel-bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cancel-charge-button:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
+.retry-charge-button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+  color: #fff;
+  background: var(--accent-secondary, #7c5cfc);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.retry-charge-button:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
 .table-actions-group {
   display: flex;
   gap: 6px;

@@ -5,9 +5,13 @@ Requiere que los 3 contenedores Docker estén corriendo.
 """
 
 import sys
+from pathlib import Path
 
 import psycopg
 import psycopg.rows
+
+# Allow `python scripts\inspect_bdlocales.py` from the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings
 
@@ -35,7 +39,7 @@ ORDER BY table_name
 def inspect(label: str, dsn: str) -> None:
     print(f"\n{'=' * 60}")
     print(f"  {label}")
-    print(f"{'═' * 60}")
+    print(f"{'=' * 60}")
 
     if not dsn:
         print("  Sin URL configurada en .env")
@@ -66,7 +70,7 @@ def inspect(label: str, dsn: str) -> None:
                 print(f"\n  Tabla: {table}  [{count} filas]")
                 print(f"  Columnas: {', '.join(cols)}")
 
-                if count > 0:
+                if count > 0 and "raw_payload (jsonb)" in cols:
                     with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                         cur.execute(f"SELECT raw_payload FROM {table} LIMIT 1")
                         sample = cur.fetchone()

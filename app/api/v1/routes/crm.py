@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.security import require_permissions
 from app.db.session import SessionLocal
 from app.models.crm import CanonicalRecord, Charge, Client, Payment, Plan, Subscription
 
@@ -55,7 +56,7 @@ PaginationOffset = Annotated[int, Query(ge=0)]
 PaginationLimit = Annotated[int, Query(ge=1, le=100)]
 
 
-@router.get("/counts", tags=["CRM"])
+@router.get("/counts", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["CRM"])
 def get_counts(
     source: str | None = None,
     db: Session = Depends(get_db),  # noqa: B008
@@ -77,7 +78,7 @@ def get_counts(
     return result
 
 
-@router.get("/clients", tags=["Cliente"])
+@router.get("/clients", dependencies=[Depends(require_permissions("virtualpos.clients.view"))], tags=["Cliente"])
 def list_clients(
     db: Session = Depends(get_db),  # noqa: B008
     source: str | None = None,
@@ -88,12 +89,12 @@ def list_clients(
     return _list(db, Client, source, status, offset, limit)
 
 
-@router.get("/clients/{record_id}", tags=["Cliente"])
+@router.get("/clients/{record_id}", dependencies=[Depends(require_permissions("virtualpos.clients.view"))], tags=["Cliente"])
 def get_client(record_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     return _detail(db, Client, record_id)
 
 
-@router.get("/plans", tags=["Plan"])
+@router.get("/plans", dependencies=[Depends(require_permissions("virtualpos.plans.view"))], tags=["Plan"])
 def list_plans(
     db: Session = Depends(get_db),  # noqa: B008
     source: str | None = None,
@@ -104,12 +105,12 @@ def list_plans(
     return _list(db, Plan, source, status, offset, limit)
 
 
-@router.get("/plans/{record_id}", tags=["Plan"])
+@router.get("/plans/{record_id}", dependencies=[Depends(require_permissions("virtualpos.plans.view"))], tags=["Plan"])
 def get_plan(record_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     return _detail(db, Plan, record_id)
 
 
-@router.get("/subscriptions", tags=["Suscription"])
+@router.get("/subscriptions", dependencies=[Depends(require_permissions("virtualpos.subscriptions.view"))], tags=["Suscription"])
 def list_subscriptions(
     db: Session = Depends(get_db),  # noqa: B008
     source: str | None = None,
@@ -120,12 +121,12 @@ def list_subscriptions(
     return _list(db, Subscription, source, status, offset, limit)
 
 
-@router.get("/subscriptions/{record_id}", tags=["Suscription"])
+@router.get("/subscriptions/{record_id}", dependencies=[Depends(require_permissions("virtualpos.subscriptions.view"))], tags=["Suscription"])
 def get_subscription(record_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     return _detail(db, Subscription, record_id)
 
 
-@router.get("/subscriptions/{record_id}/detail", tags=["Suscription"])
+@router.get("/subscriptions/{record_id}/detail", dependencies=[Depends(require_permissions("virtualpos.subscriptions.view"))], tags=["Suscription"])
 def get_subscription_detail(
     record_id: uuid.UUID,
     db: Session = Depends(get_db),  # noqa: B008
@@ -157,7 +158,7 @@ def get_subscription_detail(
     }
 
 
-@router.get("/charges", tags=["Charge"])
+@router.get("/charges", dependencies=[Depends(require_permissions("virtualpos.charges.view"))], tags=["Charge"])
 def list_charges(
     db: Session = Depends(get_db),  # noqa: B008
     source: str | None = None,
@@ -168,12 +169,12 @@ def list_charges(
     return _list(db, Charge, source, status, offset, limit)
 
 
-@router.get("/charges/{record_id}", tags=["Charge"])
+@router.get("/charges/{record_id}", dependencies=[Depends(require_permissions("virtualpos.charges.view"))], tags=["Charge"])
 def get_charge(record_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     return _detail(db, Charge, record_id)
 
 
-@router.get("/payments", tags=["Payment"])
+@router.get("/payments", dependencies=[Depends(require_permissions("virtualpos.payments.view"))], tags=["Payment"])
 def list_payments(
     db: Session = Depends(get_db),  # noqa: B008
     source: str | None = None,
@@ -184,6 +185,6 @@ def list_payments(
     return _list(db, Payment, source, status, offset, limit)
 
 
-@router.get("/payments/{record_id}", tags=["Payment"])
+@router.get("/payments/{record_id}", dependencies=[Depends(require_permissions("virtualpos.payments.view"))], tags=["Payment"])
 def get_payment(record_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     return _detail(db, Payment, record_id)

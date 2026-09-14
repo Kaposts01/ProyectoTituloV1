@@ -38,6 +38,7 @@ class Client(CanonicalRecord):
     gender_id: Mapped[str | None] = mapped_column(String(50))
     birth_date: Mapped[str | None] = mapped_column(String(50))
     provider_created_at: Mapped[str | None] = mapped_column(String(50))
+    private_note: Mapped[str | None] = mapped_column(String(2000))
     cards: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
 
 

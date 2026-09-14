@@ -1,12 +1,13 @@
 # CRM de Suscripciones
 
-CRM interno read-only para consultar datos de suscripciones, clientes y cobros. VirtualPOS Sandbox, Toku y Payku se extraen a staging local; el navegador nunca recibe credenciales ni llama a proveedores.
+CRM interno para consultar y operar datos de suscripciones, clientes y cobros. VirtualPOS Sandbox, Toku y Payku se extraen a staging local; el navegador nunca recibe credenciales ni llama directamente a proveedores.
 
 ## Estado actual
 
-- VirtualPOS Sandbox: sincronizacion read-only validada para clientes, planes, suscripciones, cargos y pagos.
-- Toku: sincronizacion read-only validada para clientes, deudas, metodos de pago, suscripciones y transacciones.
-- Payku: autenticacion y sincronizacion de clientes, planes y suscripciones validadas. La coleccion de transacciones requiere aumentar `PAYKU_TIMEOUT_SECONDS` antes de una ejecucion completa.
+- VirtualPOS Sandbox: sincronizacion read-only validada. Escrituras habilitadas para crear y editar clientes, crear planes, crear suscripciones, cancelar suscripciones y cancelar cargos. Reintento de cargos disponible. Requiere `VIRTUALPOS_WRITES_ENABLED=true`.
+- Toku: sincronizacion read-only validada. Escrituras habilitadas para editar y eliminar clientes, y cambiar el estado de suscripciones. Requiere `TOKU_WRITES_ENABLED=true`.
+- Payku: autenticacion y sincronizacion de clientes, planes y suscripciones validadas. Escrituras habilitadas para editar y eliminar clientes, y eliminar suscripciones. La coleccion de transacciones requiere aumentar `PAYKU_TIMEOUT_SECONDS` antes de una ejecucion completa. Requiere `PAYKU_WRITES_ENABLED=true`.
+- TCH: canal de débito bancario con 28.982 clientes, 29.295 suscripciones y 255.914 transacciones cargadas desde reportes Excel históricos (2017–2026). Solo lectura; sin sincronizacion contra proveedor externo.
 - Dashboard: consulta entidades canónicas consolidadas desde las BDlocales de cada canal. El origen y los payloads saneados se conservan para trazabilidad.
 
 ## Inicio local
@@ -18,8 +19,10 @@ CRM interno read-only para consultar datos de suscripciones, clientes y cobros. 
    Para Toku, usa `TOKU_BASE_URL=https://api.trytoku.com`.
 5. Inicia PostgreSQL: `docker compose up -d postgres`. Se expone en `localhost:5433`.
 6. Aplica el esquema: `alembic upgrade head`.
-7. Inicia la API: `uvicorn app.main:app --reload`.
-8. En otra terminal, inicia el frontend: `cd frontend; npm install; npm run dev`.
+7. Configura `AUTH_JWT_SECRET` con al menos 32 caracteres aleatorios, más `INITIAL_ADMIN_USERNAME` e `INITIAL_ADMIN_PASSWORD`.
+8. Crea el administrador inicial una sola vez: `python scripts\bootstrap_admin.py`.
+9. Inicia la API: `uvicorn app.main:app --reload`.
+10. En otra terminal, inicia el frontend: `cd frontend; npm install; npm run dev`.
 
 Swagger queda disponible en `http://127.0.0.1:8000/docs` y el dashboard en `http://127.0.0.1:5173`.
 
@@ -39,6 +42,8 @@ Los sincronizadores configurados usan exclusivamente consultas `GET`. Cada ejecu
 
 La interfaz también permite ejecutar un ETL local o una sincronización completa read-only. Esta última consulta los proveedores, actualiza las BDlocales y rematerializa las entidades canónicas. Configura `VIRTUALPOS_DB_URL`, `TOKU_DB_URL` y `PAYKU_DB_URL` exclusivamente en `.env` antes de usarla.
 
+Las operaciones de escritura solo se exponen mediante rutas internas implementadas y se deniegan por defecto. Para habilitar un proveedor localmente, configura su bandera correspondiente en `.env`: `VIRTUALPOS_WRITES_ENABLED=true`, `TOKU_WRITES_ENABLED=true` o `PAYKU_WRITES_ENABLED=true`. La habilitación no autoriza operaciones fuera de las tareas `WR-*`, no entrega credenciales al navegador y no afecta las sincronizaciones read-only.
+
 ## API local
 
 - Recursos CRM canonicos de VirtualPOS: `/api/v1/clients`, `/plans`, `/subscriptions`, `/charges` y `/payments`.
@@ -49,10 +54,22 @@ La interfaz también permite ejecutar un ETL local o una sincronización complet
 - Fichas VirtualPOS: `/api/v1/staging/virtualpos/clients/{uuid}`, `/plans/{id}`, `/subscriptions/{id}`, `/charges/{id}` y `/payments/{id}`.
 - Fichas Toku y Payku: `/api/v1/staging/{toku|payku}/{resource}/{id}`.
 - ETL local: `POST /api/v1/etl/run`; sincronización completa read-only: `POST /api/v1/etl/full-sync`; estado: `/api/v1/etl/runs/{run_id}`.
+- TCH: `/api/v1/tch/summary`, `/api/v1/tch/clientes`, `/api/v1/tch/suscripciones`, `/api/v1/tch/transacciones` y sus fichas por ID.
+- Escrituras VirtualPOS: `PUT /api/v1/writes/virtualpos/clients/{uuid}`, `POST /api/v1/writes/virtualpos/clients`, `POST /api/v1/writes/virtualpos/plans`, `POST /api/v1/writes/virtualpos/subscriptions`, `DELETE /api/v1/writes/virtualpos/subscriptions/{id}`, `DELETE /api/v1/writes/virtualpos/charges/{id}`, `POST /api/v1/writes/virtualpos/charges/{id}/retry`, `POST /api/v1/writes/virtualpos/subscriptions/{id}/charges`. Requieren `VIRTUALPOS_WRITES_ENABLED=true`.
+- Escrituras Toku: `PUT /api/v1/writes/toku/customers/{id}`, `DELETE /api/v1/writes/toku/customers/{id}`, `POST /api/v1/writes/toku/subscriptions/{id}/status`. Requieren `TOKU_WRITES_ENABLED=true`.
+- Escrituras Payku: `PUT /api/v1/writes/payku/clients/{id}`, `DELETE /api/v1/writes/payku/clients/{id}`, `DELETE /api/v1/writes/payku/subscriptions/{id}`. Requieren `PAYKU_WRITES_ENABLED=true`.
 
 Consulta `docs/architecture.md` para el flujo de datos y `docs/tasks.md` para el estado de las tareas.
 
-Los clientes VirtualPOS disponen de una interfaz visual de edición desde la tabla y su ficha. El formulario no envía actualizaciones al proveedor mientras la integración Sandbox permanezca en modo solo lectura.
+Los clientes VirtualPOS disponen de una interfaz de edición desde la tabla y su ficha. El formulario usa la ruta interna correspondiente cuando `WR-VP-01` está habilitada mediante su bandera local.
+
+## Acceso y permisos
+
+Todas las rutas bajo `/api/v1`, excepto `/api/v1/auth/login`, requieren una sesión autenticada. La sesión se mantiene en una cookie `HttpOnly`; las operaciones que modifican estado requieren además el token CSRF entregado por `/api/v1/auth/me`.
+
+`admin` se inicializa mediante el script local y puede crear usuarios desde Administración. Un usuario puede recibir varios roles. Los roles combinan permisos fijos por canal, dashboard, recurso y operación; el backend aplica esos permisos antes de entregar datos, ejecutar sincronizaciones o llamar a un proveedor.
+
+Una vez creado el administrador, elimina `INITIAL_ADMIN_PASSWORD` de `.env`. Nunca versionas `AUTH_JWT_SECRET` ni contraseñas.
 
 `/api/v1/staging/records` acepta `filter_field` y `query` con las columnas operativas mostradas en cada tabla de VirtualPOS, Toku y Payku. También admite `sort_field` y `sort_direction=asc|desc`; los campos permitidos incluyen valores anidados visibles, y el orden se aplica antes de paginar.
 

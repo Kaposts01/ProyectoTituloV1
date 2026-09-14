@@ -13,23 +13,17 @@ from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
+from app.services.channel_store import store_vp_resources
 from app.services.crm_materialization import materialize_records
+from app.services.payload_sanitization import sanitize_payload
 
-SOURCE = "virtualpos"
+SOURCE = "virtualpos1"
 SENSITIVE_PAYMENT_FIELDS = {"card_number", "card_pan", "pan", "cvv", "cvc", "security_code"}
 
 
 def _sanitize_record(value: Any) -> Any:
     """Keep provider payloads useful for auditing without retaining card data."""
-    if isinstance(value, dict):
-        return {
-            key: _sanitize_record(nested)
-            for key, nested in value.items()
-            if key.lower() not in SENSITIVE_PAYMENT_FIELDS
-        }
-    if isinstance(value, list):
-        return [_sanitize_record(item) for item in value]
-    return value
+    return sanitize_payload(value)
 
 
 def _safe_error_message(exc: Exception) -> str:
@@ -90,6 +84,7 @@ def _has_next_page(response: Any, records: list[dict[str, Any]], page: int, limi
 
 def _store_records(
     db: Session,
+    source: str,
     resource_type: str,
     records: Iterable[dict[str, Any]],
     sync_context: dict[str, Any] | None = None,
@@ -98,7 +93,7 @@ def _store_records(
     for record in records:
         sanitized_record = _sanitize_record(record)
         statement = insert(SourceRecord).values(
-            source=SOURCE,
+            source=source,
             resource_type=resource_type,
             external_id=_external_id(sanitized_record),
             payload=sanitized_record,
@@ -121,47 +116,55 @@ def _store_records(
     return processed
 
 
-async def sync_virtualpos(db: Session) -> SyncRun:
+async def sync_virtualpos(db: Session, platform: str = "virtualpos1") -> SyncRun:
     """Synchronize read-only VirtualPOS resources into raw staging."""
-    run = SyncRun(source=SOURCE, status="running")
+    run = SyncRun(source=platform, status="running")
     db.add(run)
     db.commit()
     db.refresh(run)
 
     try:
-        async with VirtualPOSClient() as client:
+        client_factory = VirtualPOSClient if platform == "virtualpos1" else lambda: VirtualPOSClient(platform)
+        async with client_factory() as client:
             resources = {
                 "client": await client.list_clients(),
                 "plan": await client.list_plans(),
                 "payment": await client.list_payments(),
             }
-            processed = sum(
-                _store_records(db, resource_type, _records_from_response(response))
-                for resource_type, response in resources.items()
-            )
+            processed = 0
+            for resource_type, response in resources.items():
+                records = _records_from_response(response)
+                sanitized = [_sanitize_record(r) for r in records]
+                processed += _store_records(db, platform, resource_type, sanitized)
+                store_vp_resources(db, resource_type, sanitized, platform=platform)
 
             page = 1
             limit = 100
             while True:
                 response = await client.list_subscriptions(page=page, limit=limit)
                 subscriptions = _records_from_response(response)
-                processed += _store_records(db, "subscription", subscriptions)
-                for subscription in subscriptions:
+                sanitized_subs = [_sanitize_record(s) for s in subscriptions]
+                processed += _store_records(db, platform, "subscription", sanitized_subs)
+                store_vp_resources(db, "subscription", sanitized_subs, platform=platform)
+                for subscription in sanitized_subs:
                     subscription_id = _subscription_id(subscription)
                     if subscription_id is None:
                         continue
                     charges = await client.list_charges(subscription_id)
+                    sanitized_charges = [_sanitize_record(c) for c in _records_from_response(charges)]
                     processed += _store_records(
                         db,
+                        platform,
                         "charge",
-                        _records_from_response(charges),
+                        sanitized_charges,
                         sync_context={"subscription_external_id": subscription_id},
                     )
+                    store_vp_resources(db, "charge", sanitized_charges, platform=platform, subscription_external_id=subscription_id)
                 if not _has_next_page(response, subscriptions, page, limit):
                     break
                 page += 1
 
-            staged_records = db.scalars(select(SourceRecord).where(SourceRecord.source == SOURCE)).all()
+            staged_records = db.scalars(select(SourceRecord).where(SourceRecord.source == platform)).all()
             materialize_records(db, staged_records)
 
             run.status = "completed"

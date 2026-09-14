@@ -69,6 +69,19 @@ class VirtualPOSClient:
     async def list_subscriptions(self, page: int = 1, limit: int = 100) -> Any:
         return await self._get("/v3/suscriptions", params={"page": page, "limit": limit})
 
+    async def get_subscription(self, subscription_id: str) -> Any:
+        return await self._get(f"/v3/suscription/{subscription_id}")
+
+    async def cancel_subscription(self, subscription_id: str) -> Any:
+        response = await self._client.delete(f"/v3/suscription/{subscription_id}")
+        response.raise_for_status()
+        return response.json()
+
+    async def create_subscription(self, data: dict[str, Any]) -> Any:
+        response = await self._client.post("/v3/suscription", json=data)
+        response.raise_for_status()
+        return response.json()
+
     async def list_payments(self) -> Any:
         return await self._get("/v3/payments")
 
@@ -82,6 +95,14 @@ class VirtualPOSClient:
         response = await self._client.post("/v3/charge", json=data)
         response.raise_for_status()
         return response.json()
+
+    async def delete_charge(self, charge_id: str) -> Any:
+        response = await self._client.delete(f"/v3/charge/{charge_id}")
+        response.raise_for_status()
+        return response.json()
+
+    async def retry_charge(self, charge_id: str) -> Any:
+        return await self._get(f"/v3/charge/{charge_id}/retry")
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         response = await self._client.get(path, params=params)

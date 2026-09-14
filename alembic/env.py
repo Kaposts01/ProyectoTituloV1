@@ -5,6 +5,17 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.core.config import settings
 from app.db.session import Base
+from app.models.auth import Permission, Role, User  # noqa: F401
+from app.models.payku_channel import PaykuClient, PaykuPlan, PaykuSubscription, PaykuTransaction  # noqa: F401
+from app.models.tch import (  # noqa: F401
+    TchBanco,
+    TchCentroCosto,
+    TchCliente,
+    TchOrigen,
+    TchSuscripcion,
+    TchTipoMandato,
+    TchTransaccion,
+)
 from app.models.crm import (  # noqa: F401
     Charge,
     Client,
@@ -15,6 +26,9 @@ from app.models.crm import (  # noqa: F401
 )
 from app.models.source_record import SourceRecord  # noqa: F401
 from app.models.sync_run import SyncRun  # noqa: F401
+from app.models.toku_channel import TokuCustomer, TokuInvoice, TokuPaymentMethod, TokuSubscription, TokuTransaction  # noqa: F401
+from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription  # noqa: F401
+from app.models.write_run import WriteRun  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

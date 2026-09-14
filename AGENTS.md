@@ -11,7 +11,8 @@
 
 ## Data and integrations
 
-- The active integration is VirtualPOS Sandbox only and must remain read-only: do not call create, cancel, authorize, retry, or payment-link endpoints.
+- Provider reads remain read-only. Provider writes are permitted only through the internal API for an implemented `WR-*` task and when its provider-specific `*_WRITES_ENABLED=true` setting is configured locally. Never call provider write endpoints directly from the browser.
+- Keep write operations limited to the documented PUT/DELETE flows. Do not create payments, authorize payments, retry charges, create payment links, or perform wallet/payout operations unless a separately approved task explicitly adds them.
 - `app/services/virtualpos_sync.py` writes raw provider responses to `source_records`; preserve its `(source, resource_type, external_id)` upsert behavior so repeated syncs stay idempotent.
 - `sync_runs` records every sync outcome. Keep errors free of credentials and payment-card data.
 - Add new SQLAlchemy models to Alembic metadata imports in `alembic/env.py`, then add an Alembic migration under `alembic/versions/`.

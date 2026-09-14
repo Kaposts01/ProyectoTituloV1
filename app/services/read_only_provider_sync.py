@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
+from app.services.payload_sanitization import sanitize_payload
 
 SENSITIVE_PAYMENT_FIELDS = {"card_number", "card_pan", "pan", "cvv", "cvc", "security_code"}
 PageReader = Callable[[Any, int], Awaitable[Any]]
@@ -17,15 +18,7 @@ Resource = tuple[str, int, bool, PageReader]
 
 
 def sanitize_record(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: sanitize_record(nested)
-            for key, nested in value.items()
-            if key.lower() not in SENSITIVE_PAYMENT_FIELDS
-        }
-    if isinstance(value, list):
-        return [sanitize_record(item) for item in value]
-    return value
+    return sanitize_payload(value)
 
 
 def records_from_response(response: Any) -> list[dict[str, Any]]:
@@ -102,6 +95,9 @@ def safe_error_message(exc: Exception, secrets: Iterable[str]) -> str:
     return re.sub(r"\b\d{12,19}\b", "[redacted]", message)[:2000]
 
 
+ChannelStoreFn = Callable[["Session", str, list], int]
+
+
 async def sync_read_only_provider(
     db: Session,
     *,
@@ -109,6 +105,7 @@ async def sync_read_only_provider(
     client_factory: Callable[[], Any],
     resources: Iterable[Resource],
     secrets: Iterable[str],
+    channel_store_fn: ChannelStoreFn | None = None,
 ) -> SyncRun:
     run = SyncRun(source=source, status="running")
     db.add(run)
@@ -124,6 +121,8 @@ async def sync_read_only_provider(
                     response = await read_page(client, page)
                     records = records_from_response(response)
                     processed += store_records(db, source, resource_type, records)
+                    if channel_store_fn and records:
+                        channel_store_fn(db, resource_type, records)
                     if not paginated or not has_next_page(response, records, page, page_size):
                         break
                     page += 1
