@@ -21,6 +21,7 @@ htmlcov/
 
 # IDE and tool directories
 .opencode/
+.playwright-mcp/
 
 # Local Postman workspace (nested git repo)
 postman/
