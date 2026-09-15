@@ -53,7 +53,7 @@ type ChannelDashboard = {
   transactions_monthly?: MonthlyEntry[] | MonthlyStatusEntry[];
   // Shared
   activation_monthly?: MonthlyStatusEntry[];
-  churn_monthly?: MonthlyStatusEntry[];
+  churn_monthly?: MonthlyEntry[] | MonthlyStatusEntry[];
 };
 type VirtualPosClientDetail = {
   client: StagingRecord;
@@ -105,6 +105,24 @@ type TchSummary = {
   transacciones_mensuales: MonthlyStatusEntry[];
   activaciones_mensuales: MonthlyStatusEntry[];
   ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
+};
+type GeneralDashboard = {
+  clients: number;
+  subscriptions: { active: number };
+  transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number };
+  channels: { source: string; clients: number; active_subscriptions: number; accepted: number; amount: number }[];
+  years: number[];
+  transactions_monthly: MonthlyStatusEntry[];
+  activations_monthly: MonthlyStatusEntry[];
+};
+type GeneralClient = { rut: string; name: string; origins: string[]; active_origins: string[] };
+type GeneralClients = { items: GeneralClient[]; total: number };
+type GeneralClientDetail = {
+  rut: string;
+  clients: { portal: string; id_cliente: string; external_id: string }[];
+  subscriptions: { portal: string; id_subscription: string; external_id: string; status: string }[];
+  charges: { portal: string; id_cargo: string; external_id: string; status: string; amount: string | null }[];
+  transactions: { portal: string; id_transaccion: string; external_id: string; status: string; amount: string | null }[];
 };
 type TchSuscripcion = {
   id: string; numero_ficha: number; numero_mandato: number | null;
@@ -217,6 +235,16 @@ const months = [
   "Nov",
   "Dic",
 ];
+// Los canales traen datos hasta anios futuros (p. ej. 2031 en VirtualPOS). El filtro debe
+// abrir en el anio en curso; si no hay datos de ese anio, cae al anio disponible mas cercano.
+function defaultYear(years: number[]): number | null {
+  if (!years.length) return null;
+  const current = new Date().getFullYear();
+  if (years.includes(current)) return current;
+  const past = years.filter((entry) => entry < current);
+  return past.length ? Math.max(...past) : Math.min(...years);
+}
+
 const METRIC_COLORS: Record<string, string> = {
   blue: "#4a90c4",
   violet: "#7b6cc7",
@@ -1175,6 +1203,8 @@ function Sidebar({
   openProvider,
   theme,
   onDashboard,
+  generalView,
+  onGeneralClients,
   onChannel,
   onSection,
   onToggle,
@@ -1190,6 +1220,8 @@ function Sidebar({
   openProvider: string | null;
   theme: "light" | "dark";
   onDashboard: () => void;
+  generalView: "summary" | "clients";
+  onGeneralClients: () => void;
   onChannel: (source: string) => void;
   onSection: (section: ProviderSection) => void;
   onToggle: (provider: string) => void;
@@ -1212,11 +1244,15 @@ function Sidebar({
       </button>
       <nav className="sidebar-nav" aria-label="Navegacion principal">
         {can("dashboard.view") ? <button
-          className={!activeSection && !channel && !tchView ? "sidebar-item active" : "sidebar-item"}
+          className={!activeSection && !channel && !tchView && generalView === "summary" ? "sidebar-item active" : "sidebar-item"}
           onClick={onDashboard}
         >
           Dashboard
         </button> : null}
+        {can("dashboard.view") ? <>
+          <button className={generalView === "clients" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={onGeneralClients}>Clientes</button>
+          <button className="sidebar-item nested" disabled title="Próximamente">Suscripciones</button>
+        </> : null}
         {visibleGroups.map((group) => (
           <section className="sidebar-group" key={group.name}>
             <div className="channel-heading">
@@ -1543,7 +1579,7 @@ function ChannelDashboardView({
             {data.years.length ? (
               <select
                 aria-label="Año"
-                value={year ?? data.years[0]}
+                value={year ?? defaultYear(data.years) ?? data.years[0]}
                 onChange={(event) => onYear(Number(event.target.value))}
               >
                 {data.years.map((entry) => (
@@ -1737,7 +1773,11 @@ function ChannelDashboardView({
                   <h3>Caída mensual</h3>
                 </div>
               </div>
-              <MonthlyStatusChart data={data.churn_monthly} mode={mode} year={year} />
+              {"status" in ((data.churn_monthly as MonthlyStatusEntry[])[0] ?? {}) ? (
+                <MonthlyStatusChart data={data.churn_monthly as MonthlyStatusEntry[]} mode={mode} year={year} />
+              ) : (
+                <MonthlySimpleChart data={data.churn_monthly as MonthlyEntry[]} color={CHANNEL_COLORS[data.source]} mode={mode} year={year} />
+              )}
             </article>
           ) : null}
         </section>
@@ -1767,6 +1807,11 @@ function App() {
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
   const [adminOpen, setAdminOpen] = useState(false);
   const [summary, setSummary] = useState<Summary>({ sources: [] });
+  const [generalData, setGeneralData] = useState<GeneralDashboard | null>(null);
+  const [generalView, setGeneralView] = useState<"summary" | "clients">("summary");
+  const [generalClients, setGeneralClients] = useState<GeneralClients | null>(null);
+  const [generalClientQuery, setGeneralClientQuery] = useState("");
+  const [generalClientDetail, setGeneralClientDetail] = useState<GeneralClientDetail | null>(null);
   const [activeSection, setActiveSection] = useState<ProviderSection | null>(
     null,
   );
@@ -1849,6 +1894,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"count" | "amount">("count");
   const [year, setYear] = useState<number | null>(null);
+  const [generalMode, setGeneralMode] = useState<"count" | "amount">("count");
+  const [generalYear, setGeneralYear] = useState<number | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
@@ -1908,6 +1955,33 @@ function App() {
   }, [session]);
 
   useEffect(() => {
+    if (!session) return;
+    let mounted = true;
+    getJson<GeneralDashboard>("/api/v1/staging/dashboard/general")
+      .then((data) => {
+        if (mounted) {
+          setGeneralData(data);
+          setGeneralYear((current) => current ?? defaultYear(data.years));
+        }
+      })
+      .catch((err: unknown) => {
+        if (mounted) setError(friendlyError(err, "No se pudo cargar el dashboard general."));
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [session, lastEtlRun?.finished_at]);
+
+  useEffect(() => {
+    if (!session || generalView !== "clients") return;
+    const params = new URLSearchParams({ limit: "100" });
+    if (generalClientQuery.trim()) params.set("query", generalClientQuery.trim());
+    getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${params}`)
+      .then(setGeneralClients)
+      .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")));
+  }, [session, generalView, generalClientQuery]);
+
+  useEffect(() => {
     if (!session || !activeSection) return;
     let mounted = true;
     const effectiveSource =
@@ -1953,7 +2027,7 @@ function App() {
       .then((data) => {
         if (mounted) {
           setChannelData(data);
-          setYear(data.years[0] ?? null);
+          setYear(defaultYear(data.years));
         }
       })
       .catch((err: unknown) => {
@@ -1977,7 +2051,7 @@ function App() {
         .then((d) => {
           if (mounted) {
             setTchSummary(d);
-            setTchYear((current) => current ?? d.years[0] ?? null);
+            setTchYear((current) => current ?? defaultYear(d.years));
           }
         })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar el resumen TCH.")); })
@@ -2408,6 +2482,14 @@ function App() {
       );
       const updatedStatus = result.status ?? "CANCELADA";
       setCancelingSubscription(null);
+      setRecords((current) => ({
+        ...current,
+        items: current.items.map((record) =>
+          record.resource_type === "subscription" && record.external_id === subExternalId
+            ? { ...record, payload: { ...record.payload, status: updatedStatus } }
+            : record,
+        ),
+      }));
       if (subscriptionDetail && subscriptionDetail.subscription.external_id === subExternalId) {
         setSubscriptionDetail((prev) =>
           prev
@@ -2455,6 +2537,14 @@ function App() {
       const updatedStatus = result.status ?? "cancelado";
       setCancelingCharge(null);
       setChargeSaveNotice(`Cargo ${chargeExternalId} cancelado.`);
+      setRecords((current) => ({
+        ...current,
+        items: current.items.map((record) =>
+          record.resource_type === "charge" && record.external_id === chargeExternalId
+            ? { ...record, payload: { ...record.payload, status: updatedStatus } }
+            : record,
+        ),
+      }));
       if (subscriptionDetail) {
         setSubscriptionDetail((prev) =>
           prev
@@ -2498,6 +2588,14 @@ function App() {
       const updatedPayload = result.payload ?? retryingCharge.payload;
       setRetryingCharge(null);
       setChargeSaveNotice(`Cargo ${chargeExternalId} reintentado.`);
+      setRecords((current) => ({
+        ...current,
+        items: current.items.map((record) =>
+          record.resource_type === "charge" && record.external_id === chargeExternalId
+            ? { ...record, payload: { ...record.payload, ...updatedPayload, status: updatedStatus } }
+            : record,
+        ),
+      }));
       if (subscriptionDetail) {
         setSubscriptionDetail((prev) =>
           prev
@@ -2665,7 +2763,14 @@ function App() {
     setActiveSection(null);
     setChannel(null);
     setTchView(null);
+    setGeneralView("summary");
+    setGeneralClientDetail(null);
     setError(null);
+  }
+
+  function showGeneralClients() {
+    showDashboard();
+    setGeneralView("clients");
   }
 
   function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones") {
@@ -2766,7 +2871,7 @@ function App() {
       })
       .then((data) => {
         setChannelData(data);
-        setYear(data.years[0] ?? null);
+        setYear(defaultYear(data.years));
       })
       .catch((err: unknown) => setError(friendlyError(err, "Error al sincronizar el canal.")))
       .finally(() => setSyncing(false));
@@ -3789,17 +3894,75 @@ function App() {
         <div>
           <p className="eyebrow">RESUMEN OPERATIVO</p>
           <h2>
-            Datos por canal,
+            Operación consolidada,
             <br />
-            antes de la BD Central.
+            desde todos los canales.
           </h2>
         </div>
         <p className="sync-copy">
-          Selecciona VirtualPOS, Toku o Payku para abrir su mini dashboard
-          operativo.
+          KPIs y actividad mensual calculados desde las entidades canónicas y TCH.
         </p>
       </section>
       {error ? <p className="error-message">{error}</p> : null}
+      {generalView === "clients" ? (
+        <section className="panel">
+          <div className="panel-heading"><div><p className="eyebrow">CLIENTES CONSOLIDADOS</p><h3>{generalClients?.total.toLocaleString("es-CL") ?? ""} clientes por RUT</h3></div><input aria-label="Buscar cliente consolidado" placeholder="Buscar RUT o nombre" value={generalClientQuery} onChange={(event) => setGeneralClientQuery(event.target.value)} /></div>
+          {generalClientDetail ? (
+            <div className="record-detail"><button onClick={() => setGeneralClientDetail(null)}>← Volver a clientes</button><h3>Ficha general: {generalClientDetail.rut}</h3>{(["clients", "subscriptions", "charges", "transactions"] as const).map((section) => <div key={section}><h4>{section === "clients" ? "IDs de cliente" : section === "subscriptions" ? "Suscripciones" : section === "charges" ? "Cargos" : "Transacciones"}</h4><div className="table-wrap"><table><thead><tr><th>Portal</th><th>ID interno</th><th>ID origen</th><th>Estado</th><th>Monto</th></tr></thead><tbody>{generalClientDetail[section].map((item) => <tr key={`${item.portal}-${item.external_id}`}><td>{item.portal}</td><td>{("id_cliente" in item ? item.id_cliente : "id_subscription" in item ? item.id_subscription : "id_cargo" in item ? item.id_cargo : item.id_transaccion)}</td><td>{item.external_id}</td><td>{"status" in item ? item.status : "—"}</td><td>{"amount" in item && item.amount ? `$${Number(item.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{generalClientDetail[section].length === 0 ? <tr><td colSpan={5}>Sin registros relacionados.</td></tr> : null}</tbody></table></div></div>)}</div>
+          ) : <div className="table-wrap"><table><thead><tr><th>RUT</th><th>Nombre completo</th><th>Cliente origen</th><th>Suscripciones act.</th></tr></thead><tbody>{(generalClients?.items ?? []).map((client) => <tr key={client.rut}><td><button className="record-link" onClick={() => getJson<GeneralClientDetail>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(client.rut)}`).then(setGeneralClientDetail).catch((err: unknown) => setError(friendlyError(err, "No se pudo cargar la ficha general.")))}>{client.rut}</button></td><td>{client.name || "—"}</td><td>{client.origins.join(" · ")}</td><td>{client.active_origins.join(" · ") || "—"}</td></tr>)}{(generalClients?.items ?? []).length === 0 ? <tr><td colSpan={4}>Sin clientes con RUT.</td></tr> : null}</tbody></table></div>}
+        </section>
+      ) : generalData ? (
+        <>
+          <section className="channel-hero" style={{ marginTop: "1.25rem" }}>
+            <div>
+              <p className="eyebrow">DASHBOARD GENERAL</p>
+              <h2>Indicadores consolidados</h2>
+            </div>
+            <div className="dashboard-controls">
+              <div className="mode-switch">
+                <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
+                <button className={generalMode === "amount" ? "active" : ""} onClick={() => setGeneralMode("amount")}>Monto</button>
+              </div>
+              {generalData.years.length ? (
+                <select aria-label="Año dashboard general" value={generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]} onChange={(event) => setGeneralYear(Number(event.target.value))}>
+                  {generalData.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </select>
+              ) : null}
+            </div>
+          </section>
+          <section className="metrics provider-metrics" aria-label="Métricas generales">
+            <Metric label="Clientes" value={generalData.clients} tone="blue" />
+            <Metric label="Suscripciones vigentes" value={generalData.subscriptions.active} tone="green" />
+            <Metric label="Transacciones" value={generalData.transactions.total} tone="violet" />
+            <KpiCard label="Monto recaudado" value={`$${generalData.transactions.amount.toLocaleString("es-CL")}`} caption="Transacciones aceptadas" tone="gold" />
+          </section>
+          <section className="metrics kpi-metrics" aria-label="KPIs generales">
+            <KpiCard label="Aceptadas" value={generalData.transactions.accepted.toLocaleString("es-CL")} caption="Transacciones cobradas" tone="green" />
+            <KpiCard label="Rechazadas" value={generalData.transactions.rejected.toLocaleString("es-CL")} caption="Transacciones fallidas" tone="orange" />
+            <KpiCard label="Tasa de rechazo" value={`${generalData.transactions.rejection_rate_pct}%`} caption="Rechazadas / total" tone={generalData.transactions.rejection_rate_pct > 20 ? "orange" : "blue"} />
+          </section>
+          <section className="extended-charts">
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual consolidado</h3></div></div>
+              <MonthlyStatusChart data={generalData.transactions_monthly} mode={generalMode} year={generalYear} />
+            </article>
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activaciones mensuales por canal</h3></div></div>
+              <MonthlyStatusChart data={generalData.activations_monthly} mode={generalMode} year={generalYear} />
+            </article>
+          </section>
+          <section className="source-summary">
+            {generalData.channels.map((channel) => (
+              <article className="panel" key={channel.source}>
+                <div className="panel-heading"><div><p className="eyebrow">{channel.source.toUpperCase()}</p><h3>{channel.active_subscriptions.toLocaleString("es-CL")} suscripciones vigentes</h3></div></div>
+                <p className="resource-copy">{channel.clients.toLocaleString("es-CL")} clientes · {channel.accepted.toLocaleString("es-CL")} transacciones aceptadas · ${channel.amount.toLocaleString("es-CL")}</p>
+              </article>
+            ))}
+          </section>
+        </>
+      ) : (
+        <p className="muted-copy">Cargando indicadores consolidados...</p>
+      )}
       <section className="etl-panel">
         <div className="etl-panel-heading">
           <div>
@@ -3821,7 +3984,7 @@ function App() {
             className="sync-btn sync-btn-secondary"
             disabled={etlRunning}
             onClick={runEtl}
-            title="Solo ETL: consolida BDlocales → canonical sin re-sync desde APIs"
+            title="Solo ETL: rematerializa staging → canonical sin re-sync desde APIs"
           >
             Solo ETL
           </button>
@@ -3967,12 +4130,12 @@ function App() {
         <div className="edit-dialog-heading">
           <div>
             <p className="eyebrow">VIRTUALPOS / CANCELACIÓN</p>
-            <h3>Cancelar subscripción</h3>
+            <h3>¿Estás seguro de cancelar esta suscripción?</h3>
           </div>
           <span>{text(cancelingSubscription.payload.id, cancelingSubscription.external_id)}</span>
         </div>
         <p className="edit-dialog-note">
-          Esta acción cancelará la suscripción en VirtualPOS (DELETE /v3/suscription/…). Los cargos futuros se detendrán.
+          Esta acción cancelará la suscripción en VirtualPOS (DELETE /v3/suscription/…). Los cargos futuros se detendrán y no se puede deshacer.
         </p>
         {cancelSubscriptionError && <p className="edit-dialog-error">{cancelSubscriptionError}</p>}
         <div className="edit-dialog-actions">
@@ -4126,7 +4289,7 @@ function App() {
                 <button className={tchMode === "amount" ? "active" : ""} onClick={() => setTchMode("amount")}>Monto</button>
               </div>
               {tchSummary.years.length ? (
-                <select aria-label="Año TCH" value={tchYear ?? tchSummary.years[0]} onChange={(event) => setTchYear(Number(event.target.value))}>
+                <select aria-label="Año TCH" value={tchYear ?? defaultYear(tchSummary.years) ?? tchSummary.years[0]} onChange={(event) => setTchYear(Number(event.target.value))}>
                   {tchSummary.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
                 </select>
               ) : null}
@@ -4340,6 +4503,8 @@ function App() {
         openProvider={openProvider}
         theme={theme}
         onDashboard={showDashboard}
+        generalView={generalView}
+        onGeneralClients={showGeneralClients}
         onChannel={showChannel}
         onSection={showSection}
         onToggle={(provider) =>

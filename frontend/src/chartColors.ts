@@ -30,6 +30,6 @@ const STATUS_COLORS: Record<string, string> = {
   VOID: "#DC2626",
 };
 
-export function chartStatusColor(status: string): string {
-  return STATUS_COLORS[status.trim().toUpperCase()] ?? "#64748B";
+export function chartStatusColor(status: string | null | undefined): string {
+  return STATUS_COLORS[String(status ?? "").trim().toUpperCase()] ?? "#64748B";
 }
