@@ -32,7 +32,6 @@ from app.services.write_virtualpos import (
     ClientNotFoundError,
     DuplicateClientError,
     InvalidClientDataError,
-    LocalStateUnavailableError,
     ReconciliationRequiredError,
     SubscriptionNotFoundError,
     WriteDisabledError,
@@ -116,8 +115,6 @@ async def update_virtualpos_client(
         raise HTTPException(status_code=404, detail="VirtualPOS client not found") from None
     except InvalidClientDataError:
         raise HTTPException(status_code=422, detail="Invalid RUT") from None
-    except LocalStateUnavailableError:
-        raise HTTPException(status_code=503, detail="VirtualPOS local data is unavailable") from None
     except HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the update") from None
     except ReconciliationRequiredError:

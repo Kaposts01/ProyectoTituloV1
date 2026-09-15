@@ -8,7 +8,7 @@ CRM interno para consultar y operar datos de suscripciones, clientes y cobros. V
 - Toku: sincronizacion read-only validada. Escrituras habilitadas para editar y eliminar clientes, y cambiar el estado de suscripciones. Requiere `TOKU_WRITES_ENABLED=true`.
 - Payku: autenticacion y sincronizacion de clientes, planes y suscripciones validadas. Escrituras habilitadas para editar y eliminar clientes, y eliminar suscripciones. La coleccion de transacciones requiere aumentar `PAYKU_TIMEOUT_SECONDS` antes de una ejecucion completa. Requiere `PAYKU_WRITES_ENABLED=true`.
 - TCH: canal de débito bancario con 28.982 clientes, 29.295 suscripciones y 255.914 transacciones cargadas desde reportes Excel históricos (2017–2026). Solo lectura; sin sincronizacion contra proveedor externo.
-- Dashboard: consulta entidades canónicas consolidadas desde las BDlocales de cada canal. El origen y los payloads saneados se conservan para trazabilidad.
+- Dashboard: consulta entidades canónicas consolidadas en la base `crm`, materializadas desde `source_records` (staging) de cada canal. El origen y los payloads saneados se conservan para trazabilidad.
 
 ## Inicio local
 
@@ -36,11 +36,13 @@ Con PostgreSQL iniciado y las migraciones aplicadas, ejecuta desde la raiz:
 .\.venv\Scripts\python.exe scripts\sync_payku.py
 ```
 
+Para reanudar una cuenta específica de VirtualPOS: `.\.venv\Scripts\python.exe scripts\sync_virtualpos.py virtualpos1` o `virtualpos2`.
+
 Ejecuta cada comando por separado. El prefijo `>>` es el indicador de continuación de PowerShell, no forma parte de un comando.
 
 Los sincronizadores configurados usan exclusivamente consultas `GET`. Cada ejecucion se registra en `sync_runs`; sus respuestas saneadas se guardan de forma idempotente en `source_records` mediante la clave `(source, resource_type, external_id)`.
 
-La interfaz también permite ejecutar un ETL local o una sincronización completa read-only. Esta última consulta los proveedores, actualiza las BDlocales y rematerializa las entidades canónicas. Configura `VIRTUALPOS_DB_URL`, `TOKU_DB_URL` y `PAYKU_DB_URL` exclusivamente en `.env` antes de usarla.
+La interfaz también permite ejecutar un ETL local o una sincronización completa read-only. El ETL local rematerializa `source_records` existentes en las entidades canónicas. La sincronización completa consulta los proveedores, actualiza `source_records` y consolida en las entidades canónicas; todo dentro de la base `crm`, sin bases locales por canal.
 
 Las operaciones de escritura solo se exponen mediante rutas internas implementadas y se deniegan por defecto. Para habilitar un proveedor localmente, configura su bandera correspondiente en `.env`: `VIRTUALPOS_WRITES_ENABLED=true`, `TOKU_WRITES_ENABLED=true` o `PAYKU_WRITES_ENABLED=true`. La habilitación no autoriza operaciones fuera de las tareas `WR-*`, no entrega credenciales al navegador y no afecta las sincronizaciones read-only.
 
@@ -51,6 +53,7 @@ Las operaciones de escritura solo se exponen mediante rutas internas implementad
 - Resumen staging: `/api/v1/staging/summary`.
 - Registros staging paginados: `/api/v1/staging/records?source={virtualpos|toku|payku}&resource_type={tipo}`.
 - Mini dashboard por canal: `/api/v1/staging/dashboard/{virtualpos|toku|payku}`.
+- Dashboard general consolidado: `/api/v1/staging/dashboard/general`.
 - Fichas VirtualPOS: `/api/v1/staging/virtualpos/clients/{uuid}`, `/plans/{id}`, `/subscriptions/{id}`, `/charges/{id}` y `/payments/{id}`.
 - Fichas Toku y Payku: `/api/v1/staging/{toku|payku}/{resource}/{id}`.
 - ETL local: `POST /api/v1/etl/run`; sincronización completa read-only: `POST /api/v1/etl/full-sync`; estado: `/api/v1/etl/runs/{run_id}`.

@@ -9,11 +9,15 @@ from app.core.config import settings
 from app.db.session import engine
 from app.main import app
 from app.models.crm import Client
+from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
 from app.services import write_virtualpos
 
 
 class SuccessfulVirtualPOSClient:
+    def __init__(self, platform: str = "virtualpos1") -> None:
+        self.platform = platform
+
     async def __aenter__(self):
         return self
 
@@ -57,19 +61,19 @@ def _client() -> Client:
     )
 
 
-def test_update_client_persists_provider_response_locally_and_canonically(monkeypatch, db_session) -> None:
+def test_update_client_persists_provider_response_in_staging_and_canonically(monkeypatch, db_session) -> None:
     db_session.add(_client())
     db_session.flush()
     monkeypatch.setattr(settings, "virtualpos_writes_enabled", True)
     monkeypatch.setattr(write_virtualpos, "VirtualPOSClient", SuccessfulVirtualPOSClient)
-    stored: list[tuple[str, dict]] = []
-    monkeypatch.setattr(write_virtualpos, "_ensure_local_client_exists", lambda _: None)
-    monkeypatch.setattr(write_virtualpos, "_update_local_client", lambda client_id, payload: stored.append((client_id, payload)))
 
     updated = asyncio.run(write_virtualpos.update_client(db_session, "client-write-1", {"first_name": "Después"}))
 
     assert updated.first_name == "Después"
-    assert stored == [("client-write-1", {"uuid": "client-write-1", "first_name": "Después"})]
+    source_record = db_session.scalars(
+        select(SourceRecord).where(SourceRecord.source == "virtualpos1", SourceRecord.external_id == "client-write-1")
+    ).one()
+    assert source_record.payload == {"uuid": "client-write-1", "first_name": "Después"}
     write_run = db_session.scalars(select(WriteRun).where(WriteRun.external_id == "client-write-1")).one()
     assert write_run.status == "completed"
     assert write_run.response_payload == {"uuid": "client-write-1", "first_name": "Después"}
@@ -81,7 +85,6 @@ def test_update_client_does_not_change_local_data_when_provider_rejects(monkeypa
     db_session.flush()
     monkeypatch.setattr(settings, "virtualpos_writes_enabled", True)
     monkeypatch.setattr(write_virtualpos, "VirtualPOSClient", FailingVirtualPOSClient)
-    monkeypatch.setattr(write_virtualpos, "_ensure_local_client_exists", lambda _: None)
 
     with pytest.raises(RuntimeError, match="rejected"):
         asyncio.run(write_virtualpos.update_client(db_session, "client-write-1", {"first_name": "Después"}))
@@ -91,16 +94,15 @@ def test_update_client_does_not_change_local_data_when_provider_rejects(monkeypa
     assert db_session.scalars(select(WriteRun).where(WriteRun.external_id == "client-write-1")).one().status == "failed"
 
 
-def test_update_client_marks_reconciliation_when_local_persistence_fails(monkeypatch, db_session) -> None:
+def test_update_client_marks_reconciliation_when_materialization_fails(monkeypatch, db_session) -> None:
     db_session.add(_client())
     db_session.flush()
     monkeypatch.setattr(settings, "virtualpos_writes_enabled", True)
     monkeypatch.setattr(write_virtualpos, "VirtualPOSClient", SuccessfulVirtualPOSClient)
-    monkeypatch.setattr(write_virtualpos, "_ensure_local_client_exists", lambda _: None)
     monkeypatch.setattr(
         write_virtualpos,
-        "_update_local_client",
-        lambda *_: (_ for _ in ()).throw(RuntimeError("local database unavailable")),
+        "_materialize_client",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("materialization failed")),
     )
 
     with pytest.raises(write_virtualpos.ReconciliationRequiredError):
@@ -121,11 +123,9 @@ def test_update_client_saves_private_note_without_calling_virtualpos(db_session)
     assert db_session.scalars(select(WriteRun).where(WriteRun.external_id == "client-write-1")).all() == []
 
 
-def test_create_client_persists_provider_response_locally_and_canonically(monkeypatch, db_session) -> None:
+def test_create_client_persists_provider_response_in_staging_and_canonically(monkeypatch, db_session) -> None:
     monkeypatch.setattr(settings, "virtualpos_writes_enabled", True)
     monkeypatch.setattr(write_virtualpos, "VirtualPOSClient", SuccessfulVirtualPOSClient)
-    stored: list[tuple[str, dict]] = []
-    monkeypatch.setattr(write_virtualpos, "_create_local_client", lambda client_id, payload: stored.append((client_id, payload)))
 
     created = asyncio.run(write_virtualpos.create_client(db_session, {
         "first_name": "Nueva", "email": "nueva@example.com", "social_id_type": "1", "social_id": "12.345.678-5",
@@ -133,7 +133,13 @@ def test_create_client_persists_provider_response_locally_and_canonically(monkey
 
     assert created.external_id == "client-created-1"
     assert created.social_id == "12345678-5"
-    assert stored == [("client-created-1", {"uuid": "client-created-1", "first_name": "Nueva", "email": "nueva@example.com", "social_id_type": "1", "social_id": "12345678-5"})]
+    source_record = db_session.scalars(
+        select(SourceRecord).where(SourceRecord.source == "virtualpos", SourceRecord.external_id == "client-created-1")
+    ).one()
+    assert source_record.payload == {
+        "uuid": "client-created-1", "first_name": "Nueva", "email": "nueva@example.com",
+        "social_id_type": "1", "social_id": "12345678-5",
+    }
     assert db_session.scalars(select(WriteRun).where(WriteRun.external_id == "client-created-1")).one().status == "completed"
 
 

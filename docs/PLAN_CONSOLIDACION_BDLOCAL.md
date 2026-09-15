@@ -1,5 +1,14 @@
 # Plan de consolidacion de BDlocales
 
+> **Estado: completado y cerrado (2026-09-15).** Los datos ya viven en `crm`.
+> Se retiraron `app/services/bdlocales_sync.py`, `bdlocales_import.py`,
+> `etl_consolidation.py`, `etl_orchestration.py` y los scripts
+> `scripts/import_bdlocales.py`/`inspect_bdlocales.py`, junto con las
+> variables `VIRTUALPOS_DB_URL`, `TOKU_DB_URL` y `PAYKU_DB_URL`. Las tres
+> BDlocales (`VirtualPOS_Local`, `Toku_Local`, `Payku_Local`) ya no son
+> requisito de ejecucion; este documento queda como registro historico de
+> la decision y el proceso de migracion.
+
 ## Decision
 
 Se migraran los datos ya sincronizados desde `BDlocales` a la unica base

@@ -43,10 +43,6 @@ class Settings(BaseSettings):
     payku_timeout_seconds: float = 30
     payku_read_retries: int = 2
     payku_writes_enabled: bool = False
-    # BDlocales — bases de datos locales configuradas únicamente en .env
-    virtualpos_db_url: str = ""
-    toku_db_url: str = ""
-    payku_db_url: str = ""
 
 
 @lru_cache

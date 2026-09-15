@@ -4,8 +4,6 @@ import base64
 from datetime import UTC, datetime
 from typing import Any
 
-import psycopg
-from psycopg.types.json import Jsonb
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -38,10 +36,6 @@ class SubscriptionNotFoundError(Exception):
 
 
 class ReconciliationRequiredError(Exception):
-    pass
-
-
-class LocalStateUnavailableError(Exception):
     pass
 
 
@@ -90,50 +84,6 @@ def _charge_payload(response: Any) -> dict[str, Any] | None:
         if isinstance(value, dict):
             return value
     return response
-
-
-def _update_local_client(client_id: str, payload: dict[str, Any], local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "UPDATE cliente SET raw_payload = %s, synced_at = NOW() "
-            "WHERE platform = %s AND remote_id = %s",
-            (Jsonb(payload), local_plat, client_id),
-        )
-        if cursor.rowcount != 1:
-            raise RuntimeError("VirtualPOS client was not found in the local database")
-
-
-def _create_local_client(client_id: str, payload: dict[str, Any], local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO cliente (platform, remote_id, raw_payload, synced_at) "
-            "VALUES (%s, %s, %s, NOW()) "
-            "ON CONFLICT (platform, remote_id) DO UPDATE SET "
-            "raw_payload = EXCLUDED.raw_payload, synced_at = EXCLUDED.synced_at",
-            (local_plat, client_id, Jsonb(payload)),
-        )
-
-
-def _ensure_local_client_exists(client_id: str, local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT 1 FROM cliente WHERE platform = %s AND remote_id = %s",
-            (local_plat, client_id),
-        )
-        if cursor.fetchone() is None:
-            raise RuntimeError("VirtualPOS client was not found in the local database")
 
 
 def _materialize_client(client: Client, payload: dict[str, Any]) -> None:
@@ -198,38 +148,8 @@ def _materialize_subscription(sub: "Subscription", payload: dict[str, Any]) -> N
     sub.currency = _as_text(payload.get("currency"))
 
 
-def _update_local_subscription(sub_id: str, payload: dict[str, Any], local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "UPDATE subscripcion SET raw_payload = %s, synced_at = NOW() "
-            "WHERE platform = %s AND remote_id = %s",
-            (Jsonb(payload), local_plat, sub_id),
-        )
-
-
-def _create_local_subscription(sub_id: str, payload: dict[str, Any], local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO subscripcion (platform, remote_id, raw_payload, synced_at) "
-            "VALUES (%s, %s, %s, NOW()) "
-            "ON CONFLICT (platform, remote_id) DO UPDATE SET "
-            "raw_payload = EXCLUDED.raw_payload, synced_at = EXCLUDED.synced_at",
-            (local_plat, sub_id, Jsonb(payload)),
-        )
-
-
 def _as_text(value: Any) -> str | None:
     return str(value) if value is not None else None
-
-
-def _local_platform(source: str) -> str:
-    return "virtualPOS2" if source == "virtualpos2" else "virtualPOS1"
 
 
 def _check_duplicate_client(db: Session, social_id: str) -> None:
@@ -243,21 +163,6 @@ def _check_duplicate_client(db: Session, social_id: str) -> None:
         raise DuplicateClientError
 
 
-def _create_local_plan(plan_id: str, payload: dict[str, Any], local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO plan (platform, remote_id, raw_payload, synced_at) "
-            "VALUES (%s, %s, %s, NOW()) "
-            "ON CONFLICT (platform, remote_id) DO UPDATE SET "
-            "raw_payload = EXCLUDED.raw_payload, synced_at = EXCLUDED.synced_at",
-            (local_plat, plan_id, Jsonb(payload)),
-        )
-
-
 async def update_client(db: Session, client_id: str, changes: dict[str, Any]) -> Client:
     """Update a VirtualPOS client, then keep its local and canonical copies aligned."""
     client = db.scalar(
@@ -266,7 +171,6 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
     if client is None:
         raise ClientNotFoundError
 
-    local_plat = _local_platform(client.source)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -285,11 +189,6 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
 
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
-
-    try:
-        _ensure_local_client_exists(client_id, local_plat)
-    except Exception as exc:
-        raise LocalStateUnavailableError from exc
 
     write_run = WriteRun(
         source=client.source,
@@ -323,7 +222,20 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
     db.commit()
 
     try:
-        _update_local_client(client_id, sanitized_payload, local_plat)
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == client.source,
+                SourceRecord.resource_type == "client",
+                SourceRecord.external_id == client_id,
+            )
+        )
+        if source_record is None:
+            source_record = SourceRecord(
+                source=client.source, resource_type="client", external_id=client_id, payload=sanitized_payload
+            )
+            db.add(source_record)
+        else:
+            source_record.payload = sanitized_payload
         _materialize_client(client, sanitized_payload)
         write_run.status = "completed"
         write_run.finished_at = datetime.now(UTC)
@@ -344,7 +256,6 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
 async def create_client(db: Session, data: dict[str, Any]) -> Client:
     """Create a VirtualPOS client and persist its provider response locally."""
     platform = data.pop("platform", "virtualpos1")
-    local_plat = _local_platform(platform)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -394,7 +305,6 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
     db.commit()
 
     try:
-        _create_local_client(client_id, sanitized_payload, local_plat)
         source_record = db.scalar(
             select(SourceRecord).where(
                 SourceRecord.source == "virtualpos",
@@ -433,7 +343,6 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
 async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     """Create a VirtualPOS plan and persist its provider response locally."""
     platform = data.pop("platform", "virtualpos1")
-    local_plat = _local_platform(platform)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -478,7 +387,6 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     db.commit()
 
     try:
-        _create_local_plan(plan_id, sanitized_payload, local_plat)
         source_record = db.scalar(
             select(SourceRecord).where(
                 SourceRecord.source == "virtualpos",
@@ -513,25 +421,8 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     return plan
 
 
-def _create_local_charge(charge_id: str, subscription_id: str, payload: dict[str, Any], local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute("ALTER TABLE cargos ADD COLUMN IF NOT EXISTS suscription_id JSONB")
-        cursor.execute(
-            "INSERT INTO cargos (platform, remote_id, raw_payload, suscription_id, synced_at) "
-            "VALUES (%s, %s, %s, %s, NOW()) "
-            "ON CONFLICT (platform, remote_id) DO UPDATE SET "
-            "raw_payload = EXCLUDED.raw_payload, suscription_id = EXCLUDED.suscription_id, synced_at = EXCLUDED.synced_at",
-            (local_plat, charge_id, Jsonb(payload), Jsonb(subscription_id)),
-        )
-
-
 async def create_charge(db: Session, subscription_id: str, data: dict[str, Any], platform: str = "virtualpos1") -> Charge:
     """Create a VirtualPOS charge on an active subscription and persist the response locally."""
-    local_plat = _local_platform(platform)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -578,7 +469,6 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     db.commit()
 
     try:
-        _create_local_charge(charge_id, subscription_id, sanitized_payload, local_plat)
         source_record = db.scalar(
             select(SourceRecord).where(
                 SourceRecord.source == "virtualpos",
@@ -613,19 +503,6 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     return charge
 
 
-def _update_local_charge(charge_id: str, payload: dict[str, Any], local_plat: str) -> None:
-    if not settings.virtualpos_db_url:
-        raise RuntimeError("VirtualPOS local database is not configured")
-
-    dsn = settings.virtualpos_db_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "UPDATE cargos SET raw_payload = %s, synced_at = NOW() "
-            "WHERE platform = %s AND remote_id = %s",
-            (Jsonb(payload), local_plat, charge_id),
-        )
-
-
 async def cancel_charge(db: Session, charge_id: str) -> Charge:
     """Cancel a pending VirtualPOS charge via DELETE /v3/charge/{id}."""
     charge = db.scalar(
@@ -637,7 +514,6 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
-    local_plat = _local_platform(charge.source)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -678,7 +554,22 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
     db.commit()
 
     try:
-        _update_local_charge(charge_id, sanitized_payload, local_plat)
+        # BDlocales ya no forma parte del flujo en vivo (ver docs/PLAN_CONSOLIDACION_BDLOCAL.md);
+        # basta con reconciliar SourceRecord (staging) y la entidad canónica.
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == charge.source,
+                SourceRecord.resource_type == "charge",
+                SourceRecord.external_id == charge_id,
+            )
+        )
+        if source_record is None:
+            source_record = SourceRecord(
+                source=charge.source, resource_type="charge", external_id=charge_id, payload=sanitized_payload
+            )
+            db.add(source_record)
+        else:
+            source_record.payload = sanitized_payload
         charge.status = _as_text(sanitized_payload.get("status")) or "cancelado"
         charge.raw_payload = sanitized_payload
         write_run.status = "completed"
@@ -700,7 +591,6 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
 async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription:
     """Create a VirtualPOS subscription and persist the response locally."""
     platform = data.pop("platform", "virtualpos1")
-    local_plat = _local_platform(platform)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -756,7 +646,6 @@ async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription
     db.commit()
 
     try:
-        _create_local_subscription(sub_id, sanitized_payload, local_plat)
         source_record = db.scalar(
             select(SourceRecord).where(
                 SourceRecord.source == "virtualpos",
@@ -809,7 +698,6 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
-    local_plat = _local_platform(sub.source)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -850,7 +738,25 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
     db.commit()
 
     try:
-        _update_local_subscription(subscription_id, sanitized_payload, local_plat)
+        # No se escribe en BDlocales: esa base quedó fuera del flujo en vivo tras la
+        # consolidación (ver docs/PLAN_CONSOLIDACION_BDLOCAL.md) y su esquema real ya
+        # no tiene las columnas platform/remote_id/raw_payload que este write asumía.
+        # Basta con reconciliar el registro tocado en SourceRecord (staging) y en la
+        # entidad canónica; no hace falta resincronizar todo el canal.
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == sub.source,
+                SourceRecord.resource_type == "subscription",
+                SourceRecord.external_id == subscription_id,
+            )
+        )
+        if source_record is None:
+            source_record = SourceRecord(
+                source=sub.source, resource_type="subscription", external_id=subscription_id, payload=sanitized_payload
+            )
+            db.add(source_record)
+        else:
+            source_record.payload = sanitized_payload
         sub.status = _as_text(sanitized_payload.get("status")) or "CANCELADA"
         sub.raw_payload = sanitized_payload
         write_run.status = "completed"
@@ -880,7 +786,6 @@ async def retry_charge(db: Session, charge_id: str) -> Charge:
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
-    local_plat = _local_platform(charge.source)
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -922,7 +827,22 @@ async def retry_charge(db: Session, charge_id: str) -> Charge:
     db.commit()
 
     try:
-        _update_local_charge(charge_id, sanitized_payload, local_plat)
+        # BDlocales ya no forma parte del flujo en vivo (ver docs/PLAN_CONSOLIDACION_BDLOCAL.md);
+        # basta con reconciliar SourceRecord (staging) y la entidad canónica.
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == charge.source,
+                SourceRecord.resource_type == "charge",
+                SourceRecord.external_id == charge_id,
+            )
+        )
+        if source_record is None:
+            source_record = SourceRecord(
+                source=charge.source, resource_type="charge", external_id=charge_id, payload=sanitized_payload
+            )
+            db.add(source_record)
+        else:
+            source_record.payload = sanitized_payload
         charge.status = _as_text(sanitized_payload.get("status")) or "procesando"
         charge.raw_payload = sanitized_payload
         write_run.status = "completed"

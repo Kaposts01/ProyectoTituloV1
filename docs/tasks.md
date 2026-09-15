@@ -278,3 +278,11 @@ Cada tarea sigue el mismo patrón de tres capas:
 - Los formularios de creación de cliente y plan VirtualPOS incluyen selector de cuenta (VP1/VP2) con validación y comprobación de duplicados.
 - Se añadió la ruta `POST /api/v1/writes/virtualpos/plans` para crear planes VirtualPOS desde la interfaz.
 - OPS-05 completada: los scripts manuales de VirtualPOS, Toku y Payku actualizan en consola el recurso y el avance por página; muestran porcentaje cuando el proveedor informa totales y páginas/registros procesados en caso contrario.
+
+## Actualización 2026-09-15 (retiro del flujo de BDlocales)
+
+- Se detectó que `cancel_subscription`, `cancel_charge`, `retry_charge`, `update_client`, `create_client`, `create_plan`, `create_charge` y `create_subscription` en `write_virtualpos.py` intentaban reconciliar contra las tres BDlocales por canal (`VirtualPOS_Local`, `Toku_Local`, `Payku_Local`) usando columnas (`platform`, `remote_id`, `raw_payload`) que el esquema real ya no tiene desde la consolidación DB-01. Esto hacía fallar toda escritura de VirtualPOS con `reconciliation_required`, aunque la operación remota hubiera sido exitosa.
+- Se retiró por completo el flujo de bases locales, ya innecesario tras DB-01/ETL-01: se eliminaron `app/services/bdlocales_sync.py`, `bdlocales_import.py`, `etl_consolidation.py`, `etl_orchestration.py` (sin importadores en la app viva) y los scripts `scripts/import_bdlocales.py`/`inspect_bdlocales.py`.
+- Las 8 funciones de escritura de VirtualPOS ahora reconcilian solo `source_records` (staging) y la entidad canónica correspondiente tras el `GET` de confirmación al proveedor, sin resincronizar el canal completo.
+- Se quitaron `virtualpos_db_url`, `toku_db_url` y `payku_db_url` de `app/core/config.py` y las variables `VIRTUALPOS_DB_URL`/`TOKU_DB_URL`/`PAYKU_DB_URL` de `.env`/`.env.example`. `docs/PLAN_CONSOLIDACION_BDLOCAL.md` queda marcado como completado y cerrado.
+- `tests/test_virtualpos_writes.py` se actualizó para verificar la reconciliación contra `SourceRecord` en vez de mockear las funciones locales retiradas.
