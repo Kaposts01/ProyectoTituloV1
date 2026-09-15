@@ -1,11 +1,13 @@
 import asyncio
 from typing import Self
 
+import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
+from app.integrations.toku import client as toku_client
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services import payku_sync, toku_sync
@@ -21,10 +23,10 @@ class TokuReadOnlyClient:
     async def __aexit__(self, *_: object) -> None:
         return None
 
-    async def list_customers(self, page_size: int):
+    async def list_customers(self, page: int, page_size: int):
         return {"data": [{"id": "toku-client-1", "email": "client@example.test"}]}
 
-    async def list_invoices(self, page_size: int):
+    async def list_invoices(self, page: int, page_size: int):
         return {"data": [{"id": "toku-invoice-1", "amount": 1000}]}
 
     async def list_payment_methods(self, page: int, page_size: int):
@@ -39,6 +41,9 @@ class TokuReadOnlyClient:
 
 
 class PaykuReadOnlyClient:
+    def __init__(self) -> None:
+        self.transaction_params: list[tuple[int, int, str | None, str | None]] = []
+
     async def __aenter__(self) -> Self:
         return self
 
@@ -51,11 +56,54 @@ class PaykuReadOnlyClient:
     async def list_plans(self):
         return {"data": [{"id": "payku-plan-1"}]}
 
-    async def list_subscriptions(self, page: int, per_page: int):
+    async def list_subscriptions(
+        self,
+        page: int,
+        per_page: int,
+        date_init: str | None = None,
+        date_end: str | None = None,
+    ):
         return {"data": [{"id": "payku-subscription-1"}], "pagination": {"pages": 1}}
 
-    async def list_transactions(self, page: int, per_page: int):
+    async def list_transactions(
+        self,
+        page: int,
+        per_page: int,
+        date_init: str | None = None,
+        date_end: str | None = None,
+    ):
+        self.transaction_params.append((page, per_page, date_init, date_end))
         return {"data": [{"id": "payku-transaction-1"}], "pagination": {"pages": 1}}
+
+
+class TokuTimeoutThenSuccessClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def get(self, path: str, params: dict[str, int] | None = None) -> httpx.Response:
+        self.calls += 1
+        if self.calls == 1:
+            raise httpx.ReadTimeout("provider did not respond")
+        return httpx.Response(200, json={"data": []}, request=httpx.Request("GET", path))
+
+
+def test_toku_client_retries_read_timeout(monkeypatch) -> None:
+    async def no_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr(toku_client.settings, "toku_read_retries", 1)
+    monkeypatch.setattr(toku_client.asyncio, "sleep", no_sleep)
+    http_client = TokuTimeoutThenSuccessClient()
+    client = toku_client.TokuClient()
+    original_client = client._client
+    client._client = http_client  # type: ignore[assignment]
+
+    async def read() -> dict[str, list]:
+        await original_client.aclose()
+        return await client._get("/payment-methods")
+
+    assert asyncio.run(read()) == {"data": []}
+    assert http_client.calls == 2
 
 
 @pytest.fixture
@@ -89,10 +137,45 @@ def test_toku_sync_stages_all_available_pages_and_sanitizes_records(monkeypatch,
 
 
 def test_payku_sync_stages_read_only_collections(monkeypatch, db_session) -> None:
-    monkeypatch.setattr(payku_sync, "PaykuClient", PaykuReadOnlyClient)
+    client = PaykuReadOnlyClient()
+    monkeypatch.setattr(payku_sync, "PaykuClient", lambda: client)
+    monkeypatch.setattr(payku_sync.settings, "payku_date_init", "2020-08-04")
+    monkeypatch.setattr(payku_sync.settings, "payku_date_end", "")
 
     run = asyncio.run(payku_sync.sync_payku(db_session))
 
     assert run.status == "completed"
     assert run.records_processed == 4
     assert db_session.get(SyncRun, run.id).status == "completed"
+    assert client.transaction_params == [(1, 4000, "2020-08-04", None)]
+
+
+def test_payku_sync_can_resume_transactions_from_a_page(monkeypatch, db_session) -> None:
+    client = PaykuReadOnlyClient()
+    monkeypatch.setattr(payku_sync, "PaykuClient", lambda: client)
+
+    asyncio.run(payku_sync.sync_payku(db_session, transaction_start_page=44))
+
+    assert client.transaction_params == [(44, 4000, "2020-08-04", None)]
+
+
+def test_toku_sync_reports_page_progress(monkeypatch, db_session) -> None:
+    client = TokuReadOnlyClient()
+    progress: list[tuple[str, int, int, int | None, int | None]] = []
+
+    def report(
+        resource: str,
+        page: int,
+        records: int,
+        total_records: int | None,
+        total_pages: int | None,
+    ) -> None:
+        progress.append((resource, page, records, total_records, total_pages))
+
+    monkeypatch.setattr(toku_sync, "TokuClient", lambda: client)
+
+    asyncio.run(toku_sync.sync_toku(db_session, report))
+
+    assert ("subscription", 1, 1, None, 2) in progress
+    assert ("subscription", 2, 2, None, 2) in progress
+    assert ("customer", 1, 1, None, None) in progress

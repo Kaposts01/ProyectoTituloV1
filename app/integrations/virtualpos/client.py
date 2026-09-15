@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Self
 
 import httpx
@@ -39,8 +40,8 @@ class VirtualPOSClient:
     async def __aexit__(self, *_: object) -> None:
         await self._client.aclose()
 
-    async def list_clients(self) -> Any:
-        return await self._get("/v3/clients")
+    async def list_clients(self, page: int = 1, limit: int = 100) -> Any:
+        return await self._get("/v3/clients", params={"page": page, "limit": limit})
 
     async def get_client(self, client_id: str) -> Any:
         return await self._get(f"/v3/client/{client_id}")
@@ -82,11 +83,11 @@ class VirtualPOSClient:
         response.raise_for_status()
         return response.json()
 
-    async def list_payments(self) -> Any:
-        return await self._get("/v3/payments")
+    async def list_payments(self, page: int = 1, limit: int = 100) -> Any:
+        return await self._get("/v3/payments", params={"page": page, "limit": limit})
 
-    async def list_charges(self, subscription_id: str) -> Any:
-        return await self._get(f"/v3/suscription/{subscription_id}/charges")
+    async def list_charges(self, subscription_id: str, page: int = 1, limit: int = 100) -> Any:
+        return await self._get(f"/v3/suscription/{subscription_id}/charges", params={"page": page, "limit": limit})
 
     async def get_charge(self, charge_id: str) -> Any:
         return await self._get(f"/v3/charge/{charge_id}")
@@ -105,6 +106,13 @@ class VirtualPOSClient:
         return await self._get(f"/v3/charge/{charge_id}/retry")
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = await self._client.get(path, params=params)
+        for attempt in range(settings.virtualpos_read_retries + 1):
+            try:
+                response = await self._client.get(path, params=params)
+                break
+            except httpx.ReadTimeout:
+                if attempt == settings.virtualpos_read_retries:
+                    raise
+                await asyncio.sleep(2**attempt)
         response.raise_for_status()
         return response.json()

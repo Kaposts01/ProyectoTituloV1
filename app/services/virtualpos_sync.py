@@ -16,6 +16,7 @@ from app.models.sync_run import SyncRun
 from app.services.channel_store import store_vp_resources
 from app.services.crm_materialization import materialize_records
 from app.services.payload_sanitization import sanitize_payload
+from app.services.sync_progress import ProgressCallback, pagination_totals
 
 SOURCE = "virtualpos1"
 SENSITIVE_PAYMENT_FIELDS = {"card_number", "card_pan", "pan", "cvv", "cvc", "security_code"}
@@ -116,7 +117,9 @@ def _store_records(
     return processed
 
 
-async def sync_virtualpos(db: Session, platform: str = "virtualpos1") -> SyncRun:
+async def sync_virtualpos(
+    db: Session, platform: str = "virtualpos1", progress_callback: ProgressCallback | None = None
+) -> SyncRun:
     """Synchronize read-only VirtualPOS resources into raw staging."""
     run = SyncRun(source=platform, status="running")
     db.add(run)
@@ -126,23 +129,40 @@ async def sync_virtualpos(db: Session, platform: str = "virtualpos1") -> SyncRun
     try:
         client_factory = VirtualPOSClient if platform == "virtualpos1" else lambda: VirtualPOSClient(platform)
         async with client_factory() as client:
-            resources = {
-                "client": await client.list_clients(),
-                "plan": await client.list_plans(),
-                "payment": await client.list_payments(),
-            }
             processed = 0
-            for resource_type, response in resources.items():
-                records = _records_from_response(response)
-                sanitized = [_sanitize_record(r) for r in records]
-                processed += _store_records(db, platform, resource_type, sanitized)
-                store_vp_resources(db, resource_type, sanitized, platform=platform)
+            limit = 100
+            for resource_type, read_page in (
+                ("client", client.list_clients),
+                ("payment", client.list_payments),
+            ):
+                page = 1
+                resource_records = 0
+                while True:
+                    response = await read_page(page=page, limit=limit)
+                    records = _records_from_response(response)
+                    resource_records += len(records)
+                    sanitized = [_sanitize_record(record) for record in records]
+                    processed += _store_records(db, platform, resource_type, sanitized)
+                    store_vp_resources(db, resource_type, sanitized, platform=platform)
+                    if progress_callback:
+                        total_records, total_pages = pagination_totals(response)
+                        progress_callback(resource_type, page, resource_records, total_records, total_pages)
+                    if not _has_next_page(response, records, page, limit):
+                        break
+                    page += 1
+
+            plans = [_sanitize_record(record) for record in _records_from_response(await client.list_plans())]
+            processed += _store_records(db, platform, "plan", plans)
+            store_vp_resources(db, "plan", plans, platform=platform)
+            if progress_callback:
+                progress_callback("plan", 1, len(plans), None, None)
 
             page = 1
-            limit = 100
+            subscription_records = 0
             while True:
                 response = await client.list_subscriptions(page=page, limit=limit)
                 subscriptions = _records_from_response(response)
+                subscription_records += len(subscriptions)
                 sanitized_subs = [_sanitize_record(s) for s in subscriptions]
                 processed += _store_records(db, platform, "subscription", sanitized_subs)
                 store_vp_resources(db, "subscription", sanitized_subs, platform=platform)
@@ -150,16 +170,36 @@ async def sync_virtualpos(db: Session, platform: str = "virtualpos1") -> SyncRun
                     subscription_id = _subscription_id(subscription)
                     if subscription_id is None:
                         continue
-                    charges = await client.list_charges(subscription_id)
-                    sanitized_charges = [_sanitize_record(c) for c in _records_from_response(charges)]
-                    processed += _store_records(
-                        db,
-                        platform,
-                        "charge",
-                        sanitized_charges,
-                        sync_context={"subscription_external_id": subscription_id},
-                    )
-                    store_vp_resources(db, "charge", sanitized_charges, platform=platform, subscription_external_id=subscription_id)
+                    charge_page = 1
+                    charge_records_processed = 0
+                    while True:
+                        charges = await client.list_charges(subscription_id, page=charge_page, limit=limit)
+                        charge_records = _records_from_response(charges)
+                        charge_records_processed += len(charge_records)
+                        sanitized_charges = [_sanitize_record(charge) for charge in charge_records]
+                        processed += _store_records(
+                            db,
+                            platform,
+                            "charge",
+                            sanitized_charges,
+                            sync_context={"subscription_external_id": subscription_id},
+                        )
+                        store_vp_resources(db, "charge", sanitized_charges, platform=platform, subscription_external_id=subscription_id)
+                        if progress_callback:
+                            total_records, total_pages = pagination_totals(charges)
+                            progress_callback(
+                                f"charge ({subscription_id})",
+                                charge_page,
+                                charge_records_processed,
+                                total_records,
+                                total_pages,
+                            )
+                        if not _has_next_page(charges, charge_records, charge_page, limit):
+                            break
+                        charge_page += 1
+                if progress_callback:
+                    total_records, total_pages = pagination_totals(response)
+                    progress_callback("subscription", page, subscription_records, total_records, total_pages)
                 if not _has_next_page(response, subscriptions, page, limit):
                     break
                 page += 1

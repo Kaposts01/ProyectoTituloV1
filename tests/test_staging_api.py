@@ -9,6 +9,7 @@ from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscri
 from app.models.payku_channel import PaykuSubscription, PaykuTransaction
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
+from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
 from app.services.channel_store import (
     extract_payku_subscription,
     extract_payku_transaction,
@@ -126,6 +127,44 @@ def test_staging_summary_groups_records_and_latest_sync_by_source(db_session) ->
     assert toku["last_sync"]["records_processed"] == 1
     assert payku["records"] == before_payku["records"] + 1
     assert payku["resources"]["client"] == before_payku["resources"]["client"] + 1
+
+
+def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> None:
+    before = staging.general_dashboard(db=db_session)
+    db_session.add_all(
+        [
+            Client(source="payku", external_id="general-payku-client", raw_payload={}),
+            Subscription(
+                source="payku", external_id="general-payku-subscription", status="active", amount="1000",
+                suscription_date="2099-04-01", raw_payload={},
+            ),
+            Payment(
+                source="payku", external_id="general-payku-payment", status="success", amount="1200",
+                payment_date="2099-04-02", raw_payload={},
+            ),
+            Payment(
+                source="payku", external_id="general-payku-rejected", status="rejected", amount="900",
+                payment_date="2099-04-02", raw_payload={},
+            ),
+            TchCliente(rut="99.999.999-9"),
+            TchSuscripcion(
+                numero_ficha=999999, estado="VIGENTE", monto="2000", fecha_activacion="2099-04-03"
+            ),
+            TchTransaccion(numero_ficha=999999, periodo="2099-04", estado="ACEPTADA", monto="2000"),
+        ]
+    )
+    db_session.flush()
+
+    response = staging.general_dashboard(db=db_session)
+
+    assert response["clients"] == before["clients"] + 2
+    assert response["subscriptions"]["active"] == before["subscriptions"]["active"] + 2
+    assert response["transactions"]["total"] == before["transactions"]["total"] + 3
+    assert response["transactions"]["accepted"] == before["transactions"]["accepted"] + 2
+    assert response["transactions"]["rejected"] == before["transactions"]["rejected"] + 1
+    assert response["transactions"]["amount"] == before["transactions"]["amount"] + 3200
+    assert {entry["status"] for entry in response["transactions_monthly"] if entry["year"] == 2099} >= {"Aceptadas", "Rechazadas"}
+    assert {entry["status"] for entry in response["activations_monthly"] if entry["year"] == 2099} >= {"Payku", "TCH"}
 
 
 def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) -> None:

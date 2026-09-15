@@ -57,7 +57,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | VP-13 | Programar sincronizaciones y alertas | Pendiente | Ejecución periódica con reintentos y registro de fallos. |
 | VP-14 | Iniciar frontend CRM | Completada | Dashboard y vistas de clientes/suscripciones consumen la API. |
 | TK-01 | Sincronizar colecciones read-only de Toku a staging | Completada | Ejecuciones registradas por fuente y payloads disponibles en `source_records`. |
-| PK-01 | Sincronizar colecciones read-only de Payku a staging | Bloqueada | Clientes, planes y suscripciones disponibles; transacciones exceden el timeout local de 30 segundos. |
+| PK-01 | Sincronizar colecciones read-only de Payku a staging | Bloqueada | Payku devuelve transacciones recientes sin filtros, pero `date_init`/`date_end` devuelven cero incluso para un rango que contiene datos. El histórico requiere soporte o una exportación del proveedor. |
 | STG-01 | Exponer staging por canal y rediseñar dashboard temporal | Completada | Dashboard resume staging local y cada canal consulta únicamente sus registros almacenados. |
 | VP-15 | Mejorar vistas staging de VirtualPOS | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
 | TK-02 | Mejorar vistas staging de Toku | Completada | Cada recurso muestra sus métricas y columnas operativas específicas. |
@@ -94,6 +94,12 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
 | DOC-02 | Documentar API VirtualPOS | Completada | `docs/Documentacion API VirtualPOS.md` cubre rutas, contratos, autenticación, paginación y estrategia incremental. |
 | OPS-01 | Corregir configuración de sincronización local | Completada | VirtualPOS confirmó una sincronización idempotente; Toku se sincronizó correctamente con 21 registros y una segunda ejecución idempotente de 0 registros usando `api.trytoku.com`. No se expusieron credenciales. |
+| OPS-02 | Robustecer sincronización read-only de Toku | Completada | Reintenta hasta dos `ReadTimeout` de solicitudes GET y configura 120 segundos por intento; prueba automatizada validada. |
+| OPS-03 | Robustecer sincronización read-only de Payku | Completada | Reintenta hasta dos `ReadTimeout` de solicitudes GET y configura 120 segundos por intento; prueba automatizada validada. |
+| OPS-04 | Completar paginación de VirtualPOS | Completada | Clientes, pagos, suscripciones y cargos recorren todas las páginas con `page` y `limit`; prueba automatizada validada. |
+| OPS-05 | Mostrar progreso y robustecer sync histórica | Completada | Los tres scripts muestran progreso por recurso; VirtualPOS reintenta lecturas y usa 120 segundos por intento sin omitir el historial. |
+| OPS-06 | Respetar límite de transacciones Toku | Completada | Pausa un segundo entre páginas y reintenta respuestas temporales 429/503. |
+| OPS-05 | Mostrar avance de sincronizaciones manuales | Completada | Scripts de VirtualPOS, Toku y Payku actualizan recurso y avance; usan porcentaje con totales y páginas/registros sin ellos. |
 | MT-02 | Corregir relaciones y métricas VirtualPOS desde BD local | Completada | Clientes relacionan suscripciones por RUT; cargos muestran suscripción; KPIs filtran estados operativos y el monto de suscripciones se materializa desde la BD local. |
 | MT-03 | Desglosar gráficos mensuales por estado | Completada | Actividad, cargos, transacciones y activaciones muestran barras apiladas por estado. |
 | TK-03 | Migrar vistas Toku a BD local | Completada | Menú, tablas, fichas y dashboard Toku consultan las entidades canónicas materializadas desde Toku_Local; sincronizar Toku rematerializa solo desde esa BD. |
@@ -107,10 +113,14 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | UI-03 | Mejorar filtros y orden de tablas | Completada | Los filtros son claros y cada columna de datos permite ordenar ascendente o descendente. |
 | UI-04 | Hacer visibles los controles de tabla | Completada | El orden es evidente y los campos de estado usan un selector de valores disponibles. |
 | UI-05 | Ordenar registros completos desde la tabla | Completada | El orden usa campos seguros, incluidos anidados, y se aplica antes de paginar los registros. |
+| UI-06 | Crear dashboard general consolidado | Completada | Inicio muestra KPIs, transacciones y activaciones mensuales de VirtualPOS, Toku, Payku y TCH desde sus entidades canónicas. |
+| UI-07 | Añadir clientes al dashboard general | Completada | Tabla consolidada por RUT muestra origen, suscripciones activas y ficha con IDs, suscripciones, cargos y transacciones relacionadas. |
+| UI-08 | Añadir suscripciones al dashboard general | Pendiente | Definir columnas, filtros y ficha consolidada antes de habilitar el submenú. |
 | ETL-01 | Consolidar BDlocales en entidades canónicas | Completada | VirtualPOS, Toku y Payku se materializan de forma idempotente desde sus BDlocales; los payloads saneados mantienen trazabilidad. |
 | ETL-02 | Orquestar sync read-only y ETL en segundo plano | Completada | Las rutas `/api/v1/etl/run` y `/api/v1/etl/full-sync` registran estado y fase sin exponer credenciales. |
 | DB-01 | Consolidar BDlocales en una sola base por tablas de canal | Completada | Los datos existentes se migran idempotentemente a las tablas prefijadas, sin nueva lectura completa de proveedores; CRM conserva filtros, orden y fichas. |
 | PK-04 | Corregir métricas y gráficos de ciclo de vida Payku | Completada | Transacciones, activaciones y bajas se agrupan por estado; activación usa `start` y caída usa `cancel`/`delete`/`suspended` con `end`. |
+| PK-05 | Corregir rango histórico de transacciones Payku | En curso | La sincronización envía `PAYKU_DATE_INIT` y el fin opcional, pagina todas las respuestas y conserva el upsert idempotente. |
 
 ## Plan de consolidacion 2026-09-13
 
@@ -267,3 +277,4 @@ Cada tarea sigue el mismo patrón de tres capas:
 - WR-INF-01 y WR-INF-02 marcadas Completadas: servicios de escritura para los tres proveedores implementados con `write_runs`, manejo de errores HTTP y rollback local.
 - Los formularios de creación de cliente y plan VirtualPOS incluyen selector de cuenta (VP1/VP2) con validación y comprobación de duplicados.
 - Se añadió la ruta `POST /api/v1/writes/virtualpos/plans` para crear planes VirtualPOS desde la interfaz.
+- OPS-05 completada: los scripts manuales de VirtualPOS, Toku y Payku actualizan en consola el recurso y el avance por página; muestran porcentaje cuando el proveedor informa totales y páginas/registros procesados en caso contrario.

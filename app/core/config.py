@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     virtualpos_api_key: str
     virtualpos_secret_key: str
     virtualpos_timeout_seconds: float = 30
+    virtualpos_read_retries: int = 2
     virtualpos_writes_enabled: bool = False
     # VirtualPOS cuenta 2 (producción)
     virtualpos2_base_url: str = ""
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     toku_api_key: str = ""
     toku_account_key: str = ""
     toku_timeout_seconds: float = 30
+    toku_read_retries: int = 2
     toku_writes_enabled: bool = False
     # Payku
     payku_base_url: str = ""
@@ -39,6 +41,7 @@ class Settings(BaseSettings):
     payku_date_init: str = "2020-08-04"
     payku_date_end: str = ""
     payku_timeout_seconds: float = 30
+    payku_read_retries: int = 2
     payku_writes_enabled: bool = False
     # BDlocales — bases de datos locales configuradas únicamente en .env
     virtualpos_db_url: str = ""

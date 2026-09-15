@@ -32,7 +32,15 @@ Con la base de datos disponible y las migraciones aplicadas, ejecuta:
 .\.venv\Scripts\python.exe scripts\sync_payku.py
 ```
 
-Si la coleccion de transacciones demora mas de 30 segundos, incrementa `PAYKU_TIMEOUT_SECONDS` en `.env` y vuelve a ejecutar. No reduzcas el alcance de lectura ni uses endpoints de escritura para resolver el timeout.
+La configuración local predeterminada usa `PAYKU_TIMEOUT_SECONDS=120` y `PAYKU_READ_RETRIES=2` para la colección de transacciones. Si sigue demorando más que ese límite, incrementa el timeout en `.env` y vuelve a ejecutar. No reduzcas el alcance de lectura ni uses endpoints de escritura para resolver el timeout.
+
+Si una carga histórica se interrumpe después de páginas ya confirmadas, reanúdala sin duplicar datos con:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\sync_payku.py --transaction-start-page 44
+```
+
+Reemplaza `44` por la siguiente página pendiente. El proceso continúa usando el rango `PAYKU_DATE_INIT` y `PAYKU_DATE_END`.
 
 ## Referencia externa y seguridad
 

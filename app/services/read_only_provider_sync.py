@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import re
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services.payload_sanitization import sanitize_payload
+from app.services.sync_progress import ProgressCallback, pagination_totals
 
 SENSITIVE_PAYMENT_FIELDS = {"card_number", "card_pan", "pan", "cvv", "cvc", "security_code"}
 PageReader = Callable[[Any, int], Awaitable[Any]]
@@ -106,6 +108,7 @@ async def sync_read_only_provider(
     resources: Iterable[Resource],
     secrets: Iterable[str],
     channel_store_fn: ChannelStoreFn | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> SyncRun:
     run = SyncRun(source=source, status="running")
     db.add(run)
@@ -117,15 +120,22 @@ async def sync_read_only_provider(
             processed = 0
             for resource_type, page_size, paginated, read_page in resources:
                 page = 1
+                resource_records = 0
                 while True:
                     response = await read_page(client, page)
                     records = records_from_response(response)
+                    resource_records += len(records)
                     processed += store_records(db, source, resource_type, records)
                     if channel_store_fn and records:
                         channel_store_fn(db, resource_type, records)
+                    if progress_callback:
+                        total_records, total_pages = pagination_totals(response)
+                        progress_callback(resource_type, page, resource_records, total_records, total_pages)
                     if not paginated or not has_next_page(response, records, page, page_size):
                         break
                     page += 1
+                    if source == "toku" and resource_type == "transaction":
+                        await asyncio.sleep(1)
         run.status = "completed"
         run.records_processed = processed
         run.finished_at = datetime.now(UTC)

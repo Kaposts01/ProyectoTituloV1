@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, Self
 
@@ -254,11 +255,18 @@ class PaykuClient:
     # ------------------------------------------------------------------ #
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = await self._client.get(
-            path,
-            params=params,
-            headers={"Sign": build_sign(path, params or {}, settings.payku_secret_key)},
-        )
+        for attempt in range(settings.payku_read_retries + 1):
+            try:
+                response = await self._client.get(
+                    path,
+                    params=params,
+                    headers={"Sign": build_sign(path, params or {}, settings.payku_secret_key)},
+                )
+                break
+            except httpx.ReadTimeout:
+                if attempt == settings.payku_read_retries:
+                    raise
+                await asyncio.sleep(2**attempt)
         response.raise_for_status()
         return response.json()
 

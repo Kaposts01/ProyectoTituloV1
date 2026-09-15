@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Self
 
 import httpx
@@ -9,6 +10,7 @@ class TokuClient:
     """Client for the Toku API (x-api-key authentication)."""
 
     def __init__(self) -> None:
+        self._cursors: dict[str, str] = {}
         self._client = httpx.AsyncClient(
             base_url=settings.toku_base_url.rstrip("/"),
             timeout=settings.toku_timeout_seconds,
@@ -36,8 +38,8 @@ class TokuClient:
     # Customers                                                            #
     # ------------------------------------------------------------------ #
 
-    async def list_customers(self, page_size: int = 100) -> Any:
-        return await self._get("/customers", params={"page_size": page_size})
+    async def list_customers(self, page: int = 1, page_size: int = 100) -> Any:
+        return await self._get_cursor("/customers", page_size, reset=page == 1)
 
     async def create_customer(self, data: dict[str, Any]) -> Any:
         return await self._post("/customers", data)
@@ -61,8 +63,8 @@ class TokuClient:
     # Invoices                                                             #
     # ------------------------------------------------------------------ #
 
-    async def list_invoices(self, page_size: int = 100) -> Any:
-        return await self._get("/invoices", params={"page_size": page_size})
+    async def list_invoices(self, page: int = 1, page_size: int = 100) -> Any:
+        return await self._get_cursor("/invoices", page_size, reset=page == 1)
 
     async def create_invoice(self, data: dict[str, Any]) -> Any:
         return await self._post("/invoices", data)
@@ -124,7 +126,7 @@ class TokuClient:
     # ------------------------------------------------------------------ #
 
     async def list_subscriptions(self, page: int = 1, page_size: int = 100) -> Any:
-        return await self._get("/subscriptions", params={"page": page, "page_size": page_size})
+        return await self._get_cursor("/subscriptions", page_size, reset=page == 1)
 
     async def create_subscription(self, data: dict[str, Any]) -> Any:
         return await self._post("/subscriptions", data)
@@ -166,9 +168,34 @@ class TokuClient:
     # ------------------------------------------------------------------ #
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = await self._client.get(path, params=params)
+        for attempt in range(settings.toku_read_retries + 1):
+            try:
+                response = await self._client.get(path, params=params)
+                if response.status_code in {429, 503}:
+                    if attempt == settings.toku_read_retries:
+                        response.raise_for_status()
+                    await asyncio.sleep(2**attempt)
+                    continue
+                break
+            except httpx.ReadTimeout:
+                if attempt == settings.toku_read_retries:
+                    raise
+                await asyncio.sleep(2**attempt)
         response.raise_for_status()
         return response.json()
+
+    async def _get_cursor(self, path: str, page_size: int, reset: bool = True) -> Any:
+        if reset:
+            self._cursors.pop(path, None)
+        params: dict[str, Any] = {"page_size": page_size}
+        if cursor := self._cursors.get(path):
+            params["next_cursor"] = cursor
+        response = await self._get(path, params=params)
+        if isinstance(response, dict) and isinstance(response.get("next_cursor"), str):
+            self._cursors[path] = response["next_cursor"]
+        else:
+            self._cursors.pop(path, None)
+        return response
 
     async def _post(self, path: str, data: dict[str, Any]) -> Any:
         response = await self._client.post(path, json=data)
