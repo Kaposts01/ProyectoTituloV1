@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.integrations.toku.client import TokuClient
 from app.models.crm import Client, Subscription
+from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
 
@@ -22,6 +23,10 @@ class CustomerNotFoundError(Exception):
 
 
 class SubscriptionNotFoundError(Exception):
+    pass
+
+
+class InvoiceNotFoundError(Exception):
     pass
 
 
@@ -254,3 +259,179 @@ async def change_subscription_status(db: Session, subscription_id: str, status: 
         raise ReconciliationRequiredError from exc
 
     return sub
+
+
+async def delete_subscription(db: Session, subscription_id: str) -> Subscription:
+    """Delete a Toku subscription via DELETE /subscriptions/{id}."""
+    sub = db.scalar(
+        select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "toku")
+    )
+    if sub is None:
+        raise SubscriptionNotFoundError
+
+    if not settings.toku_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source="toku",
+        resource_type="subscription",
+        external_id=subscription_id,
+        operation="delete_subscription",
+        status="pending",
+        request_payload={"subscription_id": subscription_id},
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with TokuClient() as provider:
+            await provider.delete_subscription(subscription_id)
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, _all_secrets())
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    write_run.status = "remote_succeeded"
+    db.commit()
+
+    try:
+        deleted_payload = {**dict(sub.raw_payload or {}), "status": "deleted"}
+        sub.raw_payload = deleted_payload
+        sub.status = "deleted"
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, _all_secrets())
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return sub
+
+
+async def update_invoice(db: Session, invoice_id: str, changes: dict[str, Any]) -> SourceRecord:
+    """Update a Toku invoice via PUT /invoices/{id}. Invoices have no canonical model; reconciles SourceRecord only."""
+    record = db.scalar(
+        select(SourceRecord).where(
+            SourceRecord.source == "toku",
+            SourceRecord.resource_type == "invoice",
+            SourceRecord.external_id == invoice_id,
+        )
+    )
+    if record is None:
+        raise InvoiceNotFoundError
+
+    if not settings.toku_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source="toku",
+        resource_type="invoice",
+        external_id=invoice_id,
+        operation="update_invoice",
+        status="pending",
+        request_payload=sanitize_record(changes),
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with TokuClient() as provider:
+            await provider.update_invoice(invoice_id, changes)
+            try:
+                refreshed = await provider.get_invoice(invoice_id)
+            except Exception:
+                refreshed = None
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, _all_secrets())
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    payload = refreshed or {**dict(record.payload or {}), **changes}
+    sanitized = sanitize_record(payload)
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = sanitized
+    db.commit()
+
+    try:
+        record.payload = sanitized
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, _all_secrets())
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return record
+
+
+async def delete_invoice(db: Session, invoice_id: str) -> SourceRecord:
+    """Delete a Toku invoice via DELETE /invoices/{id}. Marks the SourceRecord payload as deleted."""
+    record = db.scalar(
+        select(SourceRecord).where(
+            SourceRecord.source == "toku",
+            SourceRecord.resource_type == "invoice",
+            SourceRecord.external_id == invoice_id,
+        )
+    )
+    if record is None:
+        raise InvoiceNotFoundError
+
+    if not settings.toku_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source="toku",
+        resource_type="invoice",
+        external_id=invoice_id,
+        operation="delete_invoice",
+        status="pending",
+        request_payload={"invoice_id": invoice_id},
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with TokuClient() as provider:
+            await provider.delete_invoice(invoice_id)
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, _all_secrets())
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    write_run.status = "remote_succeeded"
+    db.commit()
+
+    try:
+        record.payload = {**dict(record.payload or {}), "status": "deleted"}
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, _all_secrets())
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return record

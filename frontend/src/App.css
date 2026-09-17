@@ -11,7 +11,7 @@
 }
 .sidebar-brand {
   display: flex; align-items: center; gap: 9px;
-  width: 100%; margin: 0 0 30px; padding: 0 10px;
+  width: 100%; margin: 0; padding: 0 10px;
   border: 0; color: var(--text-1); background: transparent;
   cursor: pointer; font: inherit; text-align: left;
 }
@@ -22,6 +22,21 @@
   font-size: 12px; font-weight: 800;
 }
 .sidebar-brand strong { font-size: 15px; letter-spacing: -.04em; }
+
+.sidebar-toprow {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 30px;
+}
+.sidebar-close {
+  display: none;
+  flex-shrink: 0; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border: 0; border-radius: 8px;
+  color: var(--text-3); background: transparent; cursor: pointer; font-size: 18px;
+}
+.sidebar-close:hover { color: var(--text-1); background: var(--bg-hover); }
+
+.burger-btn { display: none; }
+.sidebar-overlay { display: none; }
 
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .sidebar-group { margin-top: 17px; }
@@ -123,6 +138,7 @@ h3 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
 .metric-card { min-height: 132px; padding: 18px; position: relative; }
 .metric-card p { margin: 24px 0 4px; color: var(--text-label); font-size: 13px; }
 .metric-card strong { font-size: 34px; letter-spacing: -.06em; color: var(--text-1); }
+.metric-value-money { font-size: clamp(18px, 2.2vw, 26px) !important; letter-spacing: -.04em !important; }
 .metric-dot { position: absolute; top: 18px; right: 18px; }
 .metric-dot.blue   { background: #549ab6; }
 .metric-dot.violet { background: #826eb5; }
@@ -194,16 +210,44 @@ td:first-child { font-weight: 700; }
 .future-panel > p:last-child { max-width: 430px; margin: 0; color: var(--text-2); line-height: 1.55; }
 
 @media (max-width: 800px) {
-  .app-layout { display: block; }
-  .sidebar { position: static; width: 100%; height: auto; padding: 15px 12px; border-right: 0; border-bottom: 1px solid var(--border); }
-  .sidebar-brand { margin-bottom: 12px; }
-  .sidebar-nav { flex-flow: row wrap; gap: 4px; }
-  .sidebar-group { display: contents; }
-  .sidebar-heading { display: none; }
-  .sidebar-item { width: auto; padding: 7px 9px; font-size: 12px; }
-  .sidebar-config { margin-top: 0; }
-  .sidebar-footer { display: none; }
-  .app-shell { padding: 24px 18px; }
+  /* ── Burger button ───────────────────────────────────────────────── */
+  .burger-btn {
+    display: flex; flex-direction: column; justify-content: center; gap: 5px;
+    position: fixed; top: 14px; left: 14px; z-index: 300;
+    width: 42px; height: 42px; padding: 10px; box-sizing: border-box;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg-sidebar); cursor: pointer;
+  }
+  .burger-btn span {
+    display: block; width: 100%; height: 2px;
+    background: var(--text-1); border-radius: 2px;
+  }
+
+  /* ── Overlay ─────────────────────────────────────────────────────── */
+  .sidebar-overlay {
+    display: block; position: fixed; inset: 0; z-index: 199;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  /* ── Sidebar drawer ──────────────────────────────────────────────── */
+  .sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; width: 260px;
+    z-index: 200; overflow-y: auto;
+    transform: translateX(-100%); transition: transform 0.25s ease;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-close { display: flex; }
+
+  /* ── Content padding for fixed burger ───────────────────────────── */
+  .app-shell { padding: 72px 18px 48px; }
+
+  /* ── Metric cards más compactos ──────────────────────────────────── */
+  .metric-card { min-height: 100px; padding: 14px; }
+  .metric-card p { margin: 18px 0 3px; font-size: 12px; }
+  .metric-card strong { font-size: 26px; }
+  .metric-amount { font-size: 12px; }
+
+  /* ── Layout ──────────────────────────────────────────────────────── */
   .topbar, .hero-panel, .workspace, .explorer-card { flex-direction: column; }
   .topbar { align-items: flex-start; margin-bottom: 34px; }
   .hero-panel { align-items: flex-start; }

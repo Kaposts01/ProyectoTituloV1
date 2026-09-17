@@ -91,6 +91,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
 | MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
+| OPS-07 | Levantar servicios y verificar base consolidada | En curso | PostgreSQL, migraciones, API y frontend operativos; tablas por canal verificadas en la base `crm`. |
 | DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
 | DOC-02 | Documentar API VirtualPOS | Completada | `docs/Documentacion API VirtualPOS.md` cubre rutas, contratos, autenticación, paginación y estrategia incremental. |
 | OPS-01 | Corregir configuración de sincronización local | Completada | VirtualPOS confirmó una sincronización idempotente; Toku se sincronizó correctamente con 21 registros y una segunda ejecución idempotente de 0 registros usando `api.trytoku.com`. No se expusieron credenciales. |
@@ -116,6 +117,8 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | UI-06 | Crear dashboard general consolidado | Completada | Inicio muestra KPIs, transacciones y activaciones mensuales de VirtualPOS, Toku, Payku y TCH desde sus entidades canónicas. |
 | UI-07 | Añadir clientes al dashboard general | Completada | Tabla consolidada por RUT muestra origen, suscripciones activas y ficha con IDs, suscripciones, cargos y transacciones relacionadas. |
 | UI-08 | Añadir suscripciones al dashboard general | Pendiente | Definir columnas, filtros y ficha consolidada antes de habilitar el submenú. |
+| UI-09 | Corregir filtros y carga progresiva de tablas | Completada | Los estados se obtienen de todos los registros del recurso y cada tabla permite cargar más resultados. |
+| UI-10 | Mejorar leyendas y fichas del dashboard general | Completada | Los gráficos distinguen sus series por color y cada canal resume operación, staging y última sincronización en una ficha. |
 | ETL-01 | Consolidar BDlocales en entidades canónicas | Completada | VirtualPOS, Toku y Payku se materializan de forma idempotente desde sus BDlocales; los payloads saneados mantienen trazabilidad. |
 | ETL-02 | Orquestar sync read-only y ETL en segundo plano | Completada | Las rutas `/api/v1/etl/run` y `/api/v1/etl/full-sync` registran estado y fase sin exponer credenciales. |
 | DB-01 | Consolidar BDlocales en una sola base por tablas de canal | Completada | Los datos existentes se migran idempotentemente a las tablas prefijadas, sin nueva lectura completa de proveedores; CRM conserva filtros, orden y fichas. |
@@ -177,7 +180,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | WR-VP-01 | Habilitar edición y creación real de clientes VirtualPOS | Completada | `PUT /v3/client/:uuid` y `POST /v3/client` se ejecutan desde modales internos con selector VP1/VP2; bdlocal actualizada; edición y creación operativas. |
 | WR-VP-02 | Habilitar cancelación real de suscripciones VirtualPOS | Completada | `DELETE /v3/suscription/:id` ejecutado desde el modal de confirmación; estado en bdlocal cambia a CANCELADA. |
 | WR-VP-03 | Habilitar cancelación real de cargos VirtualPOS | Completada | `DELETE /v3/charge/:id` ejecutado desde ficha y tabla; cargo actualizado en bdlocal. |
-| WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Pendiente | `DELETE /v3/payment/:uuid` ejecutado desde ficha y tabla; pago actualizado en bdlocal. |
+| WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Completada | `DELETE /v3/payment/:uuid` ejecutado desde la ruta interna `DELETE /api/v1/writes/virtualpos/payments/{id}`; pago actualizado en staging y entidad canónica. |
 | WR-VP-05 | Flujo especial: crear cargo en suscripción activa y reasignar | En curso | `POST /v3/charge` disponible desde ficha de suscripción activa; modal de monto/fecha operativo. El flujo de reasignación completo (cancelar pendientes + recrear) requiere integración frontend pendiente. |
 
 ### WR-TK: Escritura Toku
@@ -185,11 +188,11 @@ Cada tarea sigue el mismo patrón de tres capas:
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
 | WR-TK-01 | Habilitar edición real de clientes Toku | Completada | `PUT /customers/:id` ejecutado desde modal; bdlocal actualizada; botón "Guardar cambios" operativo. |
-| WR-TK-02 | Habilitar edición de invoices Toku | Pendiente | `PUT /invoices/:id` ejecutado con monto y/o fecha límite; bdlocal actualizada. |
+| WR-TK-02 | Habilitar edición de invoices Toku | Completada | `PUT /invoices/:id` ejecutado desde la ruta interna `PUT /api/v1/writes/toku/invoices/{id}`; SourceRecord actualizado. |
 | WR-TK-03 | Habilitar cambio de estado de suscripciones Toku | Completada | `POST /subscriptions/:id/status` ejecutado desde modal; bdlocal actualizada con nuevo estado. |
 | WR-TK-04 | Habilitar eliminación de clientes Toku | Completada | `DELETE /customers/:id` ejecutado desde fila y ficha; registro marcado en bdlocal. |
-| WR-TK-05 | Habilitar eliminación de invoices Toku | Pendiente | `DELETE /invoices/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
-| WR-TK-06 | Habilitar eliminación de suscripciones Toku | Pendiente | `DELETE /subscriptions/:id` ejecutado desde fila y ficha; bdlocal actualizada. |
+| WR-TK-05 | Habilitar eliminación de invoices Toku | Completada | `DELETE /invoices/:id` ejecutado desde la ruta interna `DELETE /api/v1/writes/toku/invoices/{id}`; SourceRecord marcado como deleted. |
+| WR-TK-06 | Habilitar eliminación de suscripciones Toku | Completada | `DELETE /subscriptions/:id` ejecutado desde la ruta interna `DELETE /api/v1/writes/toku/subscriptions/{id}`; suscripción marcada como deleted. |
 
 ### WR-PK: Escritura Payku
 
@@ -238,6 +241,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | TCH-03 | Corregir histórico, fichas y navegación TCH | Completada | Fechas se reconstruyen desde reportes, cargos históricos son idempotentes, TCH abre su dashboard y sus objetos tienen ficha local. |
 | TCH-04 | Añadir clientes TCH | Completada | El menú expone clientes TCH, la tabla permite buscar y paginar, y la ficha muestra mandatos asociados. |
 | TCH-05 | Añadir contacto y equivalente TCH | Completada | Fichas de clientes muestran contacto y dirección; suscripciones muestran el equivalente en pesos del mandato. |
+| TCH-06 | Conciliar cobros TCH con control mensual | Completada | Migración `20260916_0021` crea `tch_recaudacion_mensual`; el resumen y el dashboard general usan los controles mensuales oficiales para montos y cantidades; el detalle de mandatos y cargos queda en las tablas de trazabilidad. |
 
 ## Actualización 2026-09-12 (identidad)
 
@@ -286,3 +290,40 @@ Cada tarea sigue el mismo patrón de tres capas:
 - Las 8 funciones de escritura de VirtualPOS ahora reconcilian solo `source_records` (staging) y la entidad canónica correspondiente tras el `GET` de confirmación al proveedor, sin resincronizar el canal completo.
 - Se quitaron `virtualpos_db_url`, `toku_db_url` y `payku_db_url` de `app/core/config.py` y las variables `VIRTUALPOS_DB_URL`/`TOKU_DB_URL`/`PAYKU_DB_URL` de `.env`/`.env.example`. `docs/PLAN_CONSOLIDACION_BDLOCAL.md` queda marcado como completado y cerrado.
 - `tests/test_virtualpos_writes.py` se actualizó para verificar la reconciliación contra `SourceRecord` en vez de mockear las funciones locales retiradas.
+
+## Operación local 2026-09-16
+
+- PostgreSQL quedó saludable en `localhost:5433`, las migraciones se aplicaron hasta `head` y API FastAPI (`:8000/docs`) y frontend Vite (`:5173`) responden correctamente.
+
+## Actualización 2026-09-17 (dashboard general y TCH)
+
+### UX móvil y despliegue
+
+- Se convirtió el sidebar en un drawer deslizable con botón burger (`☰`) en móvil: `position: fixed; transform: translateX(-100%)` → `.open { transform: translateX(0) }`. El overlay cierra el menú al tocar fuera.
+- El frontend se compila (`npm run build`) y se sirve desde FastAPI en `/` vía `StaticFiles`, eliminando los 595 módulos cargados por Vite dev server que saturaban el túnel Cloudflare. El acceso remoto funciona correctamente a través de `trycloudflare.com`.
+- Se corrigió el grid de KPI en móvil: `Staging.css` sobreescribía la regla de `App.css`; se agregó la regla `@media (max-width: 800px)` directamente en `Staging.css`.
+
+### Canal TCH — mejoras de KPIs y montos
+
+- `monto_suscripcion` ahora usa `equivalente_pesos` (valor CLP) en lugar de `monto` (siempre nulo en los reportes Excel). Corregido en backend y frontend.
+- Se añadieron tarjetas KPI al resumen TCH: **MRR** ($71.478.107), **ARPU** ($7.973), **Churn mensual promedio** (1.8%), **LTV estimado** ($442.944). El churn usa promedio de bajas/mes ÷ subs vigentes en lugar del ratio histórico acumulado (antes 211.3%, incorrecto).
+- Las tarjetas principales del resumen TCH (Vigentes, Eliminadas, Total, Transacciones) ahora muestran sus montos CLP secundarios y responden al toggle Cantidad/Monto.
+- Las fichas de métricas en todos los canales responden al toggle Cantidad/Monto: en modo Monto, el valor monetario pasa a ser el número principal.
+- TCH-06 marcada Completada: se añadió la migración `20260916_0021` con la tabla `tch_recaudacion_mensual`; el resumen TCH usa los controles mensuales oficiales para montos y cantidades de transacciones.
+
+### Dashboard general — consolidación y nuevos gráficos
+
+- Se eliminó el segundo encabezado duplicado ("DASHBOARD GENERAL / Indicadores consolidados"); los controles Cantidad/Monto/Año se integraron en el `hero-panel` del título principal.
+- Las tarjetas "Suscripciones vigentes" y "Transacciones" del general ahora muestran su monto CLP: $142.693.178 en subs activas (todos los canales) y $6.553.083.993 en transacciones.
+- Se agregó el endpoint `subscriptions.amount` al dashboard general: calcula la suma de `CSub.amount` por canal (VIGENTE/activa) más `TchSuscripcion.equivalente_pesos` para TCH.
+- **Bajas mensuales por canal**: nuevo gráfico de panel ancho que muestra `CSub.canceled_at` (VirtualPOS, Toku, Payku) y `TchSuscripcion.fecha_eliminacion` (TCH) agrupadas por canal.
+- **Deudas mensuales por canal**: gráfico que consolida `CCharge.charge_date` (online) con el total de intentos TCH (ACEPTADA + RECHAZADA), con filtro **Todas / Pagada / Rechazada**.
+- **Transacciones por canal**: gráfico que consolida `CPayment` (online) con `TchRecaudacionMensual` agrupados por canal, con el mismo filtro de estado.
+- Ambos gráficos de Deudas y Transacciones incorporan `charge_status` en cada entrada; el helper `applyChargeFilter` pre-agrega las entradas antes de pasarlas al componente de barras.
+
+### Escrituras completadas (WR-VP-04, WR-TK-02, WR-TK-05, WR-TK-06)
+
+- **WR-VP-04** Completada: `DELETE /v3/payment/:uuid` implementado en `VirtualPOSClient`; servicio `cancel_payment` con registro `WriteRun` y ruta `DELETE /api/v1/writes/virtualpos/payments/{id}`.
+- **WR-TK-02** Completada: `PUT /invoices/:id` implementado en `TokuClient`; servicio `update_invoice` actualiza el `SourceRecord` correspondiente.
+- **WR-TK-05** Completada: `DELETE /invoices/:id` implementado; servicio `delete_invoice` marca el `SourceRecord` como deleted.
+- **WR-TK-06** Completada: `DELETE /subscriptions/:id` implementado; servicio `delete_subscription` marca la suscripción canónica como deleted.

@@ -7,7 +7,7 @@ import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 
 const ChannelActivityChart = lazy(() => import("./ChannelActivityChart"));
 
-type SyncRun = { status: string; records_processed: number };
+type SyncRun = { status: string; records_processed: number; started_at?: string | null; finished_at?: string | null };
 type SourceSummary = {
   source: string;
   records: number;
@@ -22,7 +22,7 @@ type StagingRecord = {
   external_id: string;
   payload: Record<string, unknown>;
 };
-type StagingResponse = { items: StagingRecord[]; total: number };
+type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
 type ProviderSection = { source: string; resource: string; label: string };
 type TableColumn = { label: string; value: (record: StagingRecord) => string };
 type Activity = { year: number; month: number; count: number; amount: number };
@@ -99,21 +99,26 @@ type AuthUser = { id: string; username: string; is_active: boolean; roles: { id:
 type AuthSession = { user: AuthUser; csrf_token: string };
 type AdminRole = { id: string; name: string; description: string | null; permission_codes: string[] };
 type TchSummary = {
-  suscripciones: { vigentes: number; eliminadas: number; total: number };
-  transacciones: { total: number; aceptadas: number; rechazadas: number; tasa_rechazo_pct: number };
+  suscripciones: { vigentes: number; eliminadas: number; total: number; monto_vigentes: number; monto_eliminadas: number; monto_total: number };
+  transacciones: { total: number; aceptadas: number; rechazadas: number; tasa_rechazo_pct: number; monto: number };
+  kpis: { mrr: number; arpu: number; active_clients: number; active_subscribers: number; churn_rate: number; ltv: number };
   years: number[];
   transacciones_mensuales: MonthlyStatusEntry[];
   activaciones_mensuales: MonthlyStatusEntry[];
+  bajas_mensuales: MonthlyStatusEntry[];
   ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
 };
 type GeneralDashboard = {
   clients: number;
-  subscriptions: { active: number };
+  subscriptions: { active: number; amount: number };
   transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number };
   channels: { source: string; clients: number; active_subscriptions: number; accepted: number; amount: number }[];
   years: number[];
   transactions_monthly: MonthlyStatusEntry[];
   activations_monthly: MonthlyStatusEntry[];
+  cancellations_monthly: MonthlyStatusEntry[];
+  debts_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
+  transactions_effective_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
 };
 type GeneralClient = { rut: string; name: string; origins: string[]; active_origins: string[] };
 type GeneralClients = { items: GeneralClient[]; total: number };
@@ -606,6 +611,7 @@ const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
     transaction: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscriptions", label: "ID subscripciones" }, { value: "amount", label: "Monto" }, { value: "created_at", label: "F. Pago" }],
   },
 };
+const RECORDS_PAGE_SIZE = 100;
 
 function filterFieldForColumn(source: string, resource: string, label: string): string | null {
   const normalize = (value: string) => value
@@ -1213,6 +1219,8 @@ function Sidebar({
   permissions,
   onAdmin,
   onLogout,
+  open,
+  onClose,
 }: {
   activeSection: ProviderSection | null;
   channel: string | null;
@@ -1230,27 +1238,33 @@ function Sidebar({
   permissions: string[];
   onAdmin: () => void;
   onLogout: () => void;
+  open: boolean;
+  onClose: () => void;
 }) {
   const can = (permission: string) => permissions.includes(permission);
+  const go = (fn: () => void) => () => { fn(); onClose(); };
   const visibleGroups = providerGroups.map((group) => ({
     ...group,
     sections: group.sections.filter((section) => can(resourcePermission(section.source, section.resource))),
   })).filter((group) => group.sections.length > 0);
   return (
-    <aside className="sidebar">
-      <button className="sidebar-brand" onClick={onDashboard}>
-        <span>CRM</span>
-        <strong>Suscripciones</strong>
-      </button>
+    <aside className={`sidebar${open ? " open" : ""}`}>
+      <div className="sidebar-toprow">
+        <button className="sidebar-brand" onClick={go(onDashboard)}>
+          <span>CRM</span>
+          <strong>Suscripciones</strong>
+        </button>
+        <button className="sidebar-close" onClick={onClose} aria-label="Cerrar menú">✕</button>
+      </div>
       <nav className="sidebar-nav" aria-label="Navegacion principal">
         {can("dashboard.view") ? <button
           className={!activeSection && !channel && !tchView && generalView === "summary" ? "sidebar-item active" : "sidebar-item"}
-          onClick={onDashboard}
+          onClick={go(onDashboard)}
         >
           Dashboard
         </button> : null}
         {can("dashboard.view") ? <>
-          <button className={generalView === "clients" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={onGeneralClients}>Clientes</button>
+          <button className={generalView === "clients" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralClients)}>Clientes</button>
           <button className="sidebar-item nested" disabled title="Próximamente">Suscripciones</button>
         </> : null}
         {visibleGroups.map((group) => (
@@ -1262,7 +1276,7 @@ function Sidebar({
                     ? "channel-dashboard active"
                     : "channel-dashboard"
                 }
-                onClick={() => onChannel(group.sections[0].source)}
+                onClick={go(() => onChannel(group.sections[0].source))}
               >
                 {group.name}
               </button>
@@ -1285,7 +1299,7 @@ function Sidebar({
                         : "sidebar-item nested"
                     }
                     key={section.resource}
-                    onClick={() => onSection(section)}
+                    onClick={go(() => onSection(section))}
                   >
                     {section.label}
                   </button>
@@ -1298,7 +1312,7 @@ function Sidebar({
             <div className="channel-heading">
               <button
                 className={tchView ? "channel-dashboard active" : "channel-dashboard"}
-                onClick={() => onTch("summary")}
+                onClick={go(() => onTch("summary"))}
               >
                 TCH
               </button>
@@ -1313,21 +1327,21 @@ function Sidebar({
             </div>
             {openProvider === "TCH" ? (
               <>
-                {can("tch.clientes.view") ? <button className={tchView === "clientes" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={() => onTch("clientes")}>Clientes</button> : null}
-                <button className={tchView === "suscripciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={() => onTch("suscripciones")}>Suscripciones</button>
-                <button className={tchView === "transacciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={() => onTch("transacciones")}>Transacciones</button>
+                {can("tch.clientes.view") ? <button className={tchView === "clientes" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("clientes"))}>Clientes</button> : null}
+                <button className={tchView === "suscripciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("suscripciones"))}>Suscripciones</button>
+                <button className={tchView === "transacciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("transacciones"))}>Transacciones</button>
               </>
             ) : null}
           </section>
         ) : null}
-        {can("users.manage") || can("roles.manage") ? <button className="sidebar-item" onClick={onAdmin}>Administración</button> : null}
+        {can("users.manage") || can("roles.manage") ? <button className="sidebar-item" onClick={go(onAdmin)}>Administración</button> : null}
       </nav>
       <div className="sidebar-footer">
         <button className="theme-btn" onClick={onTheme} aria-label="Cambiar tema">
           <span className="theme-btn-icon">{theme === "dark" ? "☀" : "◐"}</span>
           {theme === "dark" ? "Modo claro" : "Modo oscuro"}
         </button>
-        <button className="theme-btn" onClick={onLogout}>Cerrar sesión</button>
+        <button className="theme-btn" onClick={go(onLogout)}>Cerrar sesión</button>
       </div>
     </aside>
   );
@@ -1384,27 +1398,37 @@ function Metric({
   value,
   tone,
   amount,
+  mode = "count",
 }: {
   label: string;
   value: number;
   tone: string;
   amount?: number;
+  mode?: "count" | "amount";
 }) {
   const accent = METRIC_COLORS[tone] ?? "#4a90c4";
+  const showAmountPrimary = mode === "amount" && amount !== undefined;
   return (
     <article
       className="metric-card"
       style={{ "--accent": accent } as React.CSSProperties}
     >
       <p className="metric-label">{label}</p>
-      <strong className="metric-value">
-        {value.toLocaleString("es-CL")}
-      </strong>
-      {amount !== undefined ? (
-        <span className="metric-amount">
-          ${amount.toLocaleString("es-CL")}
-        </span>
-      ) : null}
+      {showAmountPrimary ? (
+        <>
+          <strong className="metric-value metric-value-money">
+            ${amount!.toLocaleString("es-CL")}
+          </strong>
+          <span className="metric-amount">{value.toLocaleString("es-CL")} registros</span>
+        </>
+      ) : (
+        <>
+          <strong className="metric-value">{value.toLocaleString("es-CL")}</strong>
+          {amount !== undefined ? (
+            <span className="metric-amount">${amount.toLocaleString("es-CL")}</span>
+          ) : null}
+        </>
+      )}
     </article>
   );
 }
@@ -1622,6 +1646,7 @@ function ChannelDashboardView({
                 ? (data.resource_amounts[metric.resource] ?? 0)
                 : undefined
             }
+            mode={mode}
           />
         ))}
       </section>
@@ -1803,6 +1828,20 @@ function ChannelDashboardView({
   );
 }
 
+type ChargeEntry = MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" };
+function applyChargeFilter(data: ChargeEntry[], filter: "todas" | "pagada" | "rechazada"): MonthlyStatusEntry[] {
+  const entries = filter === "todas" ? data : data.filter(e => e.charge_status === filter);
+  if (filter !== "todas") return entries;
+  const map = new Map<string, MonthlyStatusEntry>();
+  for (const e of entries) {
+    const key = `${e.year}-${e.month}-${e.status}`;
+    const existing = map.get(key);
+    if (existing) { existing.count += e.count; existing.amount += e.amount; }
+    else map.set(key, { ...e });
+  }
+  return [...map.values()];
+}
+
 function App() {
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -1821,7 +1860,11 @@ function App() {
   const [records, setRecords] = useState<StagingResponse>({
     items: [],
     total: 0,
+    offset: 0,
+    limit: RECORDS_PAGE_SIZE,
   });
+  const [recordsOffset, setRecordsOffset] = useState(0);
+  const [statusValues, setStatusValues] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [channelLoading, setChannelLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1896,6 +1939,8 @@ function App() {
   const [year, setYear] = useState<number | null>(null);
   const [generalMode, setGeneralMode] = useState<"count" | "amount">("count");
   const [generalYear, setGeneralYear] = useState<number | null>(null);
+  const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
+  const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
@@ -1921,6 +1966,7 @@ function App() {
   const [tchSuscripcionDetail, setTchSuscripcionDetail] = useState<TchSuscripcionDetail | null>(null);
   const [tchTransaccionDetail, setTchTransaccionDetail] = useState<TchTransaccionDetail | null>(null);
   const [tchClienteDetail, setTchClienteDetail] = useState<TchClienteDetail | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     getJson<AuthSession>("/api/v1/auth/me")
@@ -1991,7 +2037,8 @@ function App() {
     const params = new URLSearchParams({
       source: effectiveSource,
       resource_type: activeSection.resource,
-      limit: "100",
+      offset: String(recordsOffset),
+      limit: String(RECORDS_PAGE_SIZE),
     });
     if (filterField && filterQuery.trim()) {
       params.set("filter_field", filterField);
@@ -2005,9 +2052,14 @@ function App() {
       params.set("sort_direction", sortDirection);
     }
     const path = `/api/v1/staging/records?${params}`;
+    setLoading(true);
     getJson<StagingResponse>(path)
       .then((data) => {
-        if (mounted) setRecords(data);
+        if (mounted) {
+          setRecords((current) => recordsOffset === 0
+            ? data
+            : { ...data, items: [...current.items, ...data.items.filter((item) => !current.items.some((existing) => existing.id === item.id))] });
+        }
       })
       .catch((err: unknown) => {
         if (mounted) setError(friendlyError(err, "No se pudieron cargar los registros."));
@@ -2018,7 +2070,25 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [session, activeSection, filterField, filterQuery, sortColumn, sortDirection, vpPlatform]);
+  }, [session, activeSection, filterField, filterQuery, sortColumn, sortDirection, vpPlatform, recordsOffset]);
+
+  useEffect(() => {
+    if (!session || !activeSection || filterField !== "status") {
+      setStatusValues([]);
+      return;
+    }
+    const source = activeSection.source === "virtualpos" && vpPlatform !== "all"
+      ? vpPlatform
+      : activeSection.source;
+    const params = new URLSearchParams({
+      source,
+      resource_type: activeSection.resource,
+      filter_field: "status",
+    });
+    getJson<{ values: string[] }>(`/api/v1/staging/records/filter-values?${params}`)
+      .then((data) => setStatusValues(data.values))
+      .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar los estados.")));
+  }, [session, activeSection, filterField, vpPlatform]);
 
   useEffect(() => {
     if (!session || !channel) return;
@@ -2883,6 +2953,7 @@ function App() {
     setError(null);
     setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
     setFilterQuery("");
+    setRecordsOffset(0);
     setSortColumn(null);
     setSortDirection("asc");
     if (section.source === "virtualpos") setVpPlatform("all");
@@ -3022,9 +3093,11 @@ function App() {
   function toggleColumnSort(column: TableColumn) {
     if (!activeSection || !filterFieldForColumn(activeSection.source, activeSection.resource, column.label)) return;
     if (sortColumn === column.label) {
+      setRecordsOffset(0);
       setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
       return;
     }
+    setRecordsOffset(0);
     setSortColumn(column.label);
     setSortDirection("asc");
   }
@@ -3574,14 +3647,7 @@ function App() {
   const filterOptions = activeSection
     ? (stagingFilters[activeSection.source]?.[activeSection.resource] ?? [])
     : [];
-  const statusColumn = columns.find((column) => column.label === "Estado");
-  const availableStatuses = filterField === "status" && statusColumn
-    ? [...new Set(
-        records.items
-          .map((item) => statusColumn.value(item))
-          .filter((value) => value !== "Sin dato"),
-      )].sort((left, right) => left.localeCompare(right, "es"))
-    : [];
+  const availableStatuses = filterField === "status" ? statusValues : [];
   const isStatusFilter = filterField === "status";
   const filterControls = filterOptions.length ? (
     <section
@@ -3599,6 +3665,7 @@ function App() {
           onChange={(event) => {
             setFilterField(event.target.value);
             setFilterQuery("");
+            setRecordsOffset(0);
           }}
         >
           {filterOptions.map((option) => (
@@ -3613,7 +3680,7 @@ function App() {
         {isStatusFilter ? (
           <select
             value={filterQuery}
-            onChange={(event) => setFilterQuery(event.target.value)}
+            onChange={(event) => { setFilterQuery(event.target.value); setRecordsOffset(0); }}
           >
             <option value="">Todos los estados</option>
             {availableStatuses.map((status) => (
@@ -3623,7 +3690,7 @@ function App() {
         ) : (
           <input
             value={filterQuery}
-            onChange={(event) => setFilterQuery(event.target.value)}
+            onChange={(event) => { setFilterQuery(event.target.value); setRecordsOffset(0); }}
             placeholder={`Buscar por ${filterOptions.find((option) => option.value === filterField)?.label ?? "campo"}`}
           />
         )}
@@ -3634,6 +3701,7 @@ function App() {
         onClick={() => {
           setFilterField(filterOptions[0]?.value ?? "");
           setFilterQuery("");
+          setRecordsOffset(0);
         }}
       >
         Restablecer
@@ -3659,7 +3727,7 @@ function App() {
             <button
               key={p}
               className={`vp-platform-btn${vpPlatform === p ? " active" : ""}`}
-              onClick={() => setVpPlatform(p)}
+              onClick={() => { setVpPlatform(p); setRecordsOffset(0); }}
             >
               {p === "all" ? "Todas" : p === "virtualpos1" ? "VP 1" : "VP 2"}
             </button>
@@ -3872,6 +3940,14 @@ function App() {
             </table>
           </div>
         ) : null}
+        {records.items.length < records.total ? (
+          <div className="table-load-more">
+            <span>Mostrando {records.items.length.toLocaleString("es-CL")} de {records.total.toLocaleString("es-CL")}</span>
+            <button disabled={loading} onClick={() => setRecordsOffset((offset) => offset + RECORDS_PAGE_SIZE)}>
+              {loading ? "Cargando..." : "Ver más"}
+            </button>
+          </div>
+        ) : null}
       </section>
     </main>
   ) : null;
@@ -3899,9 +3975,21 @@ function App() {
             desde todos los canales.
           </h2>
         </div>
-        <p className="sync-copy">
-          KPIs y actividad mensual calculados desde las entidades canónicas y TCH.
-        </p>
+        {generalData ? (
+          <div className="dashboard-controls">
+            <div className="mode-switch">
+              <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
+              <button className={generalMode === "amount" ? "active" : ""} onClick={() => setGeneralMode("amount")}>Monto</button>
+            </div>
+            {generalData.years.length ? (
+              <select aria-label="Año dashboard general" value={generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]} onChange={(event) => setGeneralYear(Number(event.target.value))}>
+                {generalData.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+              </select>
+            ) : null}
+          </div>
+        ) : (
+          <p className="sync-copy">KPIs y actividad mensual calculados desde las entidades canónicas y TCH.</p>
+        )}
       </section>
       {error ? <p className="error-message">{error}</p> : null}
       {generalView === "clients" ? (
@@ -3913,27 +4001,10 @@ function App() {
         </section>
       ) : generalData ? (
         <>
-          <section className="channel-hero" style={{ marginTop: "1.25rem" }}>
-            <div>
-              <p className="eyebrow">DASHBOARD GENERAL</p>
-              <h2>Indicadores consolidados</h2>
-            </div>
-            <div className="dashboard-controls">
-              <div className="mode-switch">
-                <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
-                <button className={generalMode === "amount" ? "active" : ""} onClick={() => setGeneralMode("amount")}>Monto</button>
-              </div>
-              {generalData.years.length ? (
-                <select aria-label="Año dashboard general" value={generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]} onChange={(event) => setGeneralYear(Number(event.target.value))}>
-                  {generalData.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-                </select>
-              ) : null}
-            </div>
-          </section>
           <section className="metrics provider-metrics" aria-label="Métricas generales">
             <Metric label="Clientes" value={generalData.clients} tone="blue" />
-            <Metric label="Suscripciones vigentes" value={generalData.subscriptions.active} tone="green" />
-            <Metric label="Transacciones" value={generalData.transactions.total} tone="violet" />
+            <Metric label="Suscripciones vigentes" value={generalData.subscriptions.active} tone="green" amount={generalData.subscriptions.amount} mode={generalMode} />
+            <Metric label="Transacciones" value={generalData.transactions.total} tone="violet" amount={generalData.transactions.amount} mode={generalMode} />
             <KpiCard label="Monto recaudado" value={`$${generalData.transactions.amount.toLocaleString("es-CL")}`} caption="Transacciones aceptadas" tone="gold" />
           </section>
           <section className="metrics kpi-metrics" aria-label="KPIs generales">
@@ -3950,14 +4021,58 @@ function App() {
               <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activaciones mensuales por canal</h3></div></div>
               <MonthlyStatusChart data={generalData.activations_monthly} mode={generalMode} year={generalYear} />
             </article>
+            <article className="panel" style={{ gridColumn: "1 / -1" }}>
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales por canal</h3></div></div>
+              <MonthlyStatusChart data={generalData.cancellations_monthly} mode={generalMode} year={generalYear} />
+            </article>
+            <article className="panel">
+              <div className="panel-heading">
+                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Deudas mensuales por canal</h3></div>
+                <div className="mode-switch">
+                  {(["todas", "pagada", "rechazada"] as const).map(f => (
+                    <button key={f} className={debtFilter === f ? "active" : ""} onClick={() => setDebtFilter(f)}>
+                      {f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <MonthlyStatusChart data={applyChargeFilter(generalData.debts_monthly, debtFilter)} mode={generalMode} year={generalYear} />
+            </article>
+            <article className="panel">
+              <div className="panel-heading">
+                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones por canal</h3></div>
+                <div className="mode-switch">
+                  {(["todas", "pagada", "rechazada"] as const).map(f => (
+                    <button key={f} className={transFilter === f ? "active" : ""} onClick={() => setTransFilter(f)}>
+                      {f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transFilter)} mode={generalMode} year={generalYear} />
+            </article>
           </section>
           <section className="source-summary">
-            {generalData.channels.map((channel) => (
-              <article className="panel" key={channel.source}>
-                <div className="panel-heading"><div><p className="eyebrow">{channel.source.toUpperCase()}</p><h3>{channel.active_subscriptions.toLocaleString("es-CL")} suscripciones vigentes</h3></div></div>
-                <p className="resource-copy">{channel.clients.toLocaleString("es-CL")} clientes · {channel.accepted.toLocaleString("es-CL")} transacciones aceptadas · ${channel.amount.toLocaleString("es-CL")}</p>
-              </article>
-            ))}
+            {generalData.channels.map((channel) => {
+              const staging = summary.sources.find((source) => source.source === channel.source.toLowerCase());
+              const lastSync = staging?.last_sync;
+              return (
+                <article className="panel channel-summary-card" key={channel.source}>
+                  <div className="panel-heading">
+                    <div><p className="eyebrow">{channel.source.toUpperCase()}</p><h3>{channel.active_subscriptions.toLocaleString("es-CL")} suscripciones vigentes</h3></div>
+                    {lastSync ? <span className={`status-pill ${lastSync.status === "completed" ? "" : "status-attention"}`}>{lastSync.status}</span> : null}
+                  </div>
+                  <div className="channel-summary-details">
+                    <div><span>Operación</span><strong>{channel.clients.toLocaleString("es-CL")} clientes · {channel.accepted.toLocaleString("es-CL")} aceptadas</strong></div>
+                    <div><span>Recaudación</span><strong>${channel.amount.toLocaleString("es-CL")}</strong></div>
+                    <div><span>{staging ? "Carga staging" : "Carga local"}</span><strong>{staging ? `${staging.records.toLocaleString("es-CL")} registros` : "Histórico TCH integrado"}</strong></div>
+                    <div><span>Consolidación</span><strong>Entidades canónicas disponibles</strong></div>
+                  </div>
+                  {staging ? <p className="resource-copy">{Object.entries(staging.resources).map(([resource, count]) => `${resource}: ${count}`).join(" · ")}</p> : null}
+                  {lastSync?.finished_at ? <p className="channel-summary-sync">Última carga: {new Date(lastSync.finished_at).toLocaleString("es-CL")} · {lastSync.records_processed.toLocaleString("es-CL")} procesados</p> : null}
+                </article>
+              );
+            })}
           </section>
         </>
       ) : (
@@ -4009,38 +4124,6 @@ function App() {
             ) : null}
           </div>
         ) : null}
-      </section>
-      <section className="metrics" aria-label="Resumen de staging">
-        {summary.sources.map((source, index) => (
-          <Metric
-            key={source.source}
-            label={title(source.source)}
-            value={source.records}
-            tone={["blue", "violet", "gold"][index]}
-          />
-        ))}
-      </section>
-      <section className="source-summary">
-        {summary.sources.map((source) => (
-          <article className="panel" key={source.source}>
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">{title(source.source).toUpperCase()}</p>
-                <h3>{source.records} registros staging</h3>
-              </div>
-              <span
-                className={`status-pill ${source.last_sync?.status === "completed" ? "" : "status-attention"}`}
-              >
-                {source.last_sync?.status ?? "Sin sync"}
-              </span>
-            </div>
-            <p className="resource-copy">
-              {Object.entries(source.resources)
-                .map(([resource, count]) => `${resource}: ${count}`)
-                .join(" · ") || "Sin recursos sincronizados."}
-            </p>
-          </article>
-        ))}
       </section>
     </main>
   );
@@ -4307,10 +4390,36 @@ function App() {
           </div>
         </header>
         <section className="metrics provider-metrics" aria-label="KPIs TCH">
-          <Metric label="Suscripciones vigentes" value={tchSummary.suscripciones.vigentes} tone="green" />
-          <Metric label="Suscripciones eliminadas" value={tchSummary.suscripciones.eliminadas} tone="orange" />
-          <Metric label="Total suscripciones" value={tchSummary.suscripciones.total} tone="blue" />
-          <Metric label="Total transacciones" value={tchSummary.transacciones.total} tone="violet" />
+          <Metric label="Suscripciones vigentes" value={tchSummary.suscripciones.vigentes} tone="green" amount={tchSummary.suscripciones.monto_vigentes} mode={tchMode} />
+          <Metric label="Suscripciones eliminadas" value={tchSummary.suscripciones.eliminadas} tone="orange" amount={tchSummary.suscripciones.monto_eliminadas} mode={tchMode} />
+          <Metric label="Total suscripciones" value={tchSummary.suscripciones.total} tone="blue" amount={tchSummary.suscripciones.monto_total} mode={tchMode} />
+          <Metric label="Total transacciones" value={tchSummary.transacciones.total} tone="violet" amount={tchSummary.transacciones.monto} mode={tchMode} />
+        </section>
+        <section className="metrics kpi-metrics" aria-label="KPIs financieros TCH">
+          <KpiCard
+            label="MRR"
+            value={`$${tchSummary.kpis.mrr.toLocaleString("es-CL")}`}
+            caption="Ingreso mensual recurrente activo"
+            tone="green"
+          />
+          <KpiCard
+            label="ARPU"
+            value={`$${tchSummary.kpis.arpu.toLocaleString("es-CL")}`}
+            caption={`${tchSummary.kpis.active_clients} cliente${tchSummary.kpis.active_clients !== 1 ? "s" : ""} con subs activas`}
+            tone="blue"
+          />
+          <KpiCard
+            label="Churn mensual"
+            value={`${tchSummary.kpis.churn_rate}%`}
+            caption={`${tchSummary.kpis.active_subscribers} subs activas · ${tchSummary.suscripciones.total} total`}
+            tone="orange"
+          />
+          <KpiCard
+            label="LTV estimado"
+            value={tchSummary.kpis.ltv > 0 ? `$${tchSummary.kpis.ltv.toLocaleString("es-CL")}` : "—"}
+            caption="ARPU / churn rate"
+            tone="violet"
+          />
         </section>
         <section className="metrics kpi-metrics" aria-label="KPIs transacciones TCH">
           <KpiCard label="Aceptadas" value={tchSummary.transacciones.aceptadas.toLocaleString("es-CL")} tone="green" caption="Transacciones cobradas" />
@@ -4325,6 +4434,10 @@ function App() {
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas mensuales</h3></div></div>
             <MonthlyStatusChart data={tchSummary.activaciones_mensuales} mode={tchMode} year={tchYear} />
+          </article>
+          <article className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales</h3></div></div>
+            <MonthlyStatusChart data={tchSummary.bajas_mensuales} mode={tchMode} year={tchYear} />
           </article>
         </section>
         <section className="panel channel-resources">
@@ -4341,14 +4454,14 @@ function App() {
         <p className="eyebrow">TCH / CLIENTE</p>
         <header className="detail-header"><div><h2>{[tchClienteDetail.nombre, tchClienteDetail.apellido].filter(Boolean).join(" ") || "Cliente TCH"}</h2><p>{tchClienteDetail.rut}</p></div></header>
         <section className="detail-grid"><article className="panel"><h3>Datos personales</h3><dl><dt>RUT</dt><dd>{tchClienteDetail.rut}</dd><dt>Fecha de nacimiento</dt><dd>{tchClienteDetail.fecha_nacimiento ?? "—"}</dd><dt>Profesión</dt><dd>{tchClienteDetail.profesion ?? "—"}</dd><dt>Tipo de socio</dt><dd>{tchClienteDetail.tipo_socio ?? "—"}</dd></dl></article><article className="panel"><h3>Contacto</h3><dl><dt>Email</dt><dd>{tchClienteDetail.email ?? "—"}</dd><dt>Teléfono</dt><dd>{tchClienteDetail.telefono ?? "—"}</dd><dt>Dirección</dt><dd>{tchClienteDetail.direccion ?? "—"}</dd><dt>Comuna</dt><dd>{tchClienteDetail.comuna ?? "—"}</dd><dt>Ciudad</dt><dd>{tchClienteDetail.ciudad ?? "—"}</dd></dl></article><article className="panel"><h3>Mandatos</h3><p className="metric-value">{(tchClienteDetail.suscripciones ?? []).length.toLocaleString("es-CL")}</p><p className="muted-copy">Suscripciones TCH asociadas</p></article></section>
-        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Mandatos asociados</h3></div></div><div className="table-wrap"><table><thead><tr><th>Ficha</th><th>Inicio</th><th>Fin</th><th>Monto</th><th>Estado</th></tr></thead><tbody>{(tchClienteDetail.suscripciones ?? []).map((s) => <tr key={s.id}><td><button className="record-link" onClick={() => showTchSuscripcion(s.numero_ficha)}>{s.numero_ficha}</button></td><td>{s.fecha_activacion ?? "—"}</td><td>{s.fecha_fin ?? "—"}</td><td>{s.monto ? `$${Number(s.monto).toLocaleString("es-CL")}` : "—"}</td><td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td></tr>)}</tbody></table></div></section>
+        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Mandatos asociados</h3></div></div><div className="table-wrap"><table><thead><tr><th>Ficha</th><th>Inicio</th><th>Fin</th><th>Monto</th><th>Estado</th></tr></thead><tbody>{(tchClienteDetail.suscripciones ?? []).map((s) => <tr key={s.id}><td><button className="record-link" onClick={() => showTchSuscripcion(s.numero_ficha)}>{s.numero_ficha}</button></td><td>{s.fecha_activacion ?? "—"}</td><td>{s.fecha_fin ?? "—"}</td><td>{(s.equivalente_pesos || s.monto) ? `$${Number(s.equivalente_pesos || s.monto).toLocaleString("es-CL")}` : "—"}</td><td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td></tr>)}</tbody></table></div></section>
       </main>
     ) : tchView === "suscripcion-detalle" && tchSuscripcionDetail ? (
       <main className="app-shell">
         <button className="back-button" onClick={() => showTch("suscripciones")}>← Suscripciones TCH</button>
         <p className="eyebrow">TCH / SUSCRIPCIÓN</p>
         <header className="detail-header"><div><h2>Ficha {tchSuscripcionDetail.numero_ficha}</h2><p>Mandato físico e historial de cargos.</p></div><span className={`status-pill${tchSuscripcionDetail.estado === "VIGENTE" ? "" : " status-attention"}`}>{tchSuscripcionDetail.estado}</span></header>
-        <section className="detail-grid"><article className="panel"><h3>Mandato</h3><dl><dt>Inicio</dt><dd>{tchSuscripcionDetail.fecha_activacion ?? "—"}</dd><dt>Fin</dt><dd>{tchSuscripcionDetail.fecha_fin ?? "—"}</dd><dt>Motivo</dt><dd>{tchSuscripcionDetail.razon_baja ?? "—"}</dd><dt>Monto</dt><dd>{tchSuscripcionDetail.monto ? `$${Number(tchSuscripcionDetail.monto).toLocaleString("es-CL")}` : "—"}</dd><dt>Equivalente en pesos</dt><dd>{tchSuscripcionDetail.equivalente_pesos ? `$${Number(tchSuscripcionDetail.equivalente_pesos).toLocaleString("es-CL")}` : "—"}</dd><dt>Banco</dt><dd>{tchSuscripcionDetail.banco_nombre ?? "—"}</dd><dt>RUT cliente</dt><dd>{tchSuscripcionDetail.cliente_rut ?? "—"}</dd></dl></article><article className="panel"><h3>Captación</h3><dl><dt>Origen</dt><dd>{tchSuscripcionDetail.origen ?? "—"}</dd><dt>Centro de costo</dt><dd>{tchSuscripcionDetail.centro_costo ?? "—"}</dd><dt>Captador</dt><dd>{tchSuscripcionDetail.captador ?? "—"}</dd><dt>Mandato</dt><dd>{tchSuscripcionDetail.numero_mandato ?? "—"}</dd><dt>Tipo de cuenta</dt><dd>{tchSuscripcionDetail.tipo_cuenta ?? "—"}</dd></dl></article></section>
+        <section className="detail-grid"><article className="panel"><h3>Mandato</h3><dl><dt>Inicio</dt><dd>{tchSuscripcionDetail.fecha_activacion ?? "—"}</dd><dt>Fin</dt><dd>{tchSuscripcionDetail.fecha_fin ?? "—"}</dd><dt>Motivo</dt><dd>{tchSuscripcionDetail.razon_baja ?? "—"}</dd><dt>Monto (CLP)</dt><dd>{(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto) ? `$${Number(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto).toLocaleString("es-CL")}` : "—"}</dd><dt>Banco</dt><dd>{tchSuscripcionDetail.banco_nombre ?? "—"}</dd><dt>RUT cliente</dt><dd>{tchSuscripcionDetail.cliente_rut ?? "—"}</dd></dl></article><article className="panel"><h3>Captación</h3><dl><dt>Origen</dt><dd>{tchSuscripcionDetail.origen ?? "—"}</dd><dt>Centro de costo</dt><dd>{tchSuscripcionDetail.centro_costo ?? "—"}</dd><dt>Captador</dt><dd>{tchSuscripcionDetail.captador ?? "—"}</dd><dt>Mandato</dt><dd>{tchSuscripcionDetail.numero_mandato ?? "—"}</dd><dt>Tipo de cuenta</dt><dd>{tchSuscripcionDetail.tipo_cuenta ?? "—"}</dd></dl></article></section>
         <section className="panel"><div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Historial</h3></div></div><div className="table-wrap"><table><thead><tr><th>Período</th><th>Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>{tchSuscripcionDetail.transacciones.map((t) => <tr key={t.id}><td><button className="record-link" onClick={() => showTchTransaccion(t.id)}>{t.periodo ?? "—"}</button></td><td>{t.monto ? `$${Number(t.monto).toLocaleString("es-CL")}` : "—"}</td><td>{t.fecha_cargo ?? "—"}</td><td><span className={`status-pill${t.estado === "ACEPTADA" ? "" : " status-attention"}`}>{t.estado}</span></td></tr>)}</tbody></table></div></section>
       </main>
     ) : tchView === "transaccion-detalle" && tchTransaccionDetail ? (
@@ -4394,7 +4507,7 @@ function App() {
                     <td>{s.tipo_mandato ?? "—"}</td>
                     <td>{s.origen ?? "—"}</td>
                     <td>{s.centro_costo ?? "—"}</td>
-                    <td>{s.monto ? `$${Number(s.monto).toLocaleString("es-CL")}` : "—"}</td>
+                    <td>{(s.equivalente_pesos || s.monto) ? `$${Number(s.equivalente_pesos || s.monto).toLocaleString("es-CL")}` : "—"}</td>
                     <td>{s.fecha_activacion ?? "—"}</td>
                     <td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td>
                   </tr>
@@ -4496,6 +4609,16 @@ function App() {
 
   return (
     <div className="app-layout">
+      <button
+        className="burger-btn"
+        aria-label="Abrir menú"
+        onClick={() => setSidebarOpen(true)}
+      >
+        <span /><span /><span />
+      </button>
+      {sidebarOpen && (
+        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+      )}
       <Sidebar
         activeSection={activeSection}
         channel={channel}
@@ -4515,6 +4638,8 @@ function App() {
         permissions={session.user.permissions}
         onAdmin={() => { clearDetails(); setChannel(null); setActiveSection(null); setTchView(null); setAdminOpen(true); }}
         onLogout={logout}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
       {adminOpen ? <AdminUsers canManageUsers={session.user.permissions.includes("users.manage")} /> : content}
       {clientEditDialog}

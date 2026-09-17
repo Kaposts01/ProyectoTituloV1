@@ -38,6 +38,45 @@
   min-height: 168px;
 }
 
+.channel-summary-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.channel-summary-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin-bottom: 14px;
+}
+
+.channel-summary-details div {
+  display: grid;
+  gap: 3px;
+}
+
+.channel-summary-details span {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.channel-summary-details strong {
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.channel-summary-sync {
+  margin: auto 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-3);
+  font-size: 11px;
+}
+
 .resource-copy,
 .muted-copy {
   color: var(--text-2);
@@ -588,6 +627,32 @@
   color: currentcolor;
 }
 
+.table-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 16px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.table-load-more button {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text-1);
+  background: var(--bg-surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.table-load-more button:hover:not(:disabled) { background: var(--bg-hover); }
+.table-load-more button:disabled { cursor: not-allowed; opacity: .55; }
+
 /* ── Edit / action buttons ───────────────────────────────────────── */
 .client-detail-actions {
   display: flex;
@@ -1066,8 +1131,19 @@
   .record-filters { align-items: stretch; flex-direction: column; }
   .record-filters input { min-width: 0; }
   .record-filters-copy { min-width: 0; }
+  .channel-summary-details { grid-template-columns: 1fr; }
+  .table-load-more { align-items: flex-end; flex-direction: column; }
   .table-toolbar { align-items: flex-start; flex-direction: column; }
   .client-detail-actions { margin-top: 16px; }
   .edit-form-grid { grid-template-columns: 1fr; }
   .edit-form-wide { grid-column: auto; }
+
+  /* KPI cards: 2 columnas en móvil (anulan el repeat(4,1fr) de escritorio) */
+  .kpi-metrics { grid-template-columns: repeat(2, 1fr); }
+  .kpi-metrics .metric-card:last-child { grid-column: auto; }
+  .kpi-card { min-height: 86px; padding: 14px; }
+  .kpi-value { font-size: 20px !important; }
+
+  /* Gráficos extendidos: 1 columna */
+  .extended-charts { grid-template-columns: 1fr; }
 }

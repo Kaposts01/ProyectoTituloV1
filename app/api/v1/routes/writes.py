@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.routes.crm import get_db
 from app.core.security import require_csrf, require_permissions
 from app.models.crm import Subscription
+from app.models.source_record import SourceRecord
 from app.services.write_payku import (
     ClientNotFoundError as PaykuClientNotFoundError,
     ReconciliationRequiredError as PaykuReconciliationRequiredError,
@@ -20,22 +21,28 @@ from app.services.write_payku import (
 )
 from app.services.write_toku import (
     CustomerNotFoundError as TokuCustomerNotFoundError,
+    InvoiceNotFoundError as TokuInvoiceNotFoundError,
     ReconciliationRequiredError as TokuReconciliationRequiredError,
     SubscriptionNotFoundError as TokuSubscriptionNotFoundError,
     WriteDisabledError as TokuWriteDisabledError,
     change_subscription_status,
     delete_customer,
+    delete_invoice as toku_delete_invoice,
+    delete_subscription as toku_delete_subscription,
     update_customer,
+    update_invoice as toku_update_invoice,
 )
 from app.services.write_virtualpos import (
     ChargeNotFoundError,
     ClientNotFoundError,
     DuplicateClientError,
     InvalidClientDataError,
+    PaymentNotFoundError,
     ReconciliationRequiredError,
     SubscriptionNotFoundError,
     WriteDisabledError,
     cancel_charge,
+    cancel_payment,
     cancel_subscription,
     create_charge,
     create_client,
@@ -514,3 +521,114 @@ async def delete_payku_subscription(
         raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
 
     return {"external_id": sub.external_id, "status": sub.status}
+
+
+# ─── VirtualPOS payment writes ───────────────────────────────────────────────
+
+@router.delete(
+    "/virtualpos/payments/{payment_id}",
+    dependencies=[Depends(require_permissions("virtualpos.payments.cancel")), Depends(require_csrf)],
+    tags=["Writes - VirtualPOS"],
+)
+async def cancel_virtualpos_payment(
+    payment_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Cancel a VirtualPOS payment via DELETE /v3/payment/{uuid}."""
+    try:
+        payment = await cancel_payment(db, payment_id)
+    except WriteDisabledError:
+        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except PaymentNotFoundError:
+        raise HTTPException(status_code=404, detail="Pago no encontrado") from None
+    except HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación del pago") from None
+    except ReconciliationRequiredError:
+        raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
+
+    return {"external_id": payment.external_id, "status": payment.status}
+
+
+# ─── Toku subscription & invoice writes ──────────────────────────────────────
+
+@router.delete(
+    "/toku/subscriptions/{subscription_id}",
+    dependencies=[Depends(require_permissions("toku.subscriptions.manage")), Depends(require_csrf)],
+    tags=["Writes - Toku"],
+)
+async def delete_toku_subscription(
+    subscription_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Delete a Toku subscription via DELETE /subscriptions/{id}."""
+    try:
+        sub = await toku_delete_subscription(db, subscription_id)
+    except TokuWriteDisabledError:
+        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuSubscriptionNotFoundError:
+        raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
+    except HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la eliminación") from None
+    except TokuReconciliationRequiredError:
+        raise HTTPException(status_code=503, detail="La eliminación requiere reconciliación local") from None
+
+    return {"external_id": sub.external_id, "status": sub.status}
+
+
+class TokuInvoiceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: int | None = Field(default=None, ge=1)
+    due_date: str | None = Field(default=None, max_length=50)
+
+
+@router.put(
+    "/toku/invoices/{invoice_id}",
+    dependencies=[Depends(require_permissions("toku.invoices.update")), Depends(require_csrf)],
+    tags=["Writes - Toku"],
+)
+async def update_toku_invoice(
+    invoice_id: str,
+    body: TokuInvoiceUpdate,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Update a Toku invoice amount or due date via PUT /invoices/{id}."""
+    changes = body.model_dump(exclude_none=True, mode="json")
+    if not changes:
+        raise HTTPException(status_code=422, detail="Al menos un campo es requerido")
+    try:
+        record = await toku_update_invoice(db, invoice_id, changes)
+    except TokuWriteDisabledError:
+        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuInvoiceNotFoundError:
+        raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
+    except HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la actualización del invoice") from None
+    except TokuReconciliationRequiredError:
+        raise HTTPException(status_code=503, detail="La actualización requiere reconciliación local") from None
+
+    return {"external_id": record.external_id, "source": record.source, "payload": record.payload or {}}
+
+
+@router.delete(
+    "/toku/invoices/{invoice_id}",
+    dependencies=[Depends(require_permissions("toku.invoices.delete")), Depends(require_csrf)],
+    tags=["Writes - Toku"],
+)
+async def delete_toku_invoice(
+    invoice_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Delete a Toku invoice via DELETE /invoices/{id}."""
+    try:
+        record = await toku_delete_invoice(db, invoice_id)
+    except TokuWriteDisabledError:
+        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuInvoiceNotFoundError:
+        raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
+    except HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la eliminación del invoice") from None
+    except TokuReconciliationRequiredError:
+        raise HTTPException(status_code=503, detail="La eliminación requiere reconciliación local") from None
+
+    return {"external_id": record.external_id, "status": (record.payload or {}).get("status", "deleted")}

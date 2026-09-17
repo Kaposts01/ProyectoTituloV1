@@ -13,12 +13,24 @@ def test_virtualpos_client_exposes_only_approved_operations() -> None:
 
     assert methods == {
         "_get",
+        "cancel_subscription",
+        "create_charge",
+        "create_client",
+        "create_plan",
+        "create_subscription",
+        "delete_charge",
+        "delete_payment",
+        "get_charge",
         "get_client",
+        "get_payment",
+        "get_plan",
+        "get_subscription",
         "list_charges",
         "list_clients",
         "list_payments",
         "list_plans",
         "list_subscriptions",
+        "retry_charge",
         "update_client",
     }
 

@@ -2,13 +2,18 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Numeric, case, cast, func, select
+from sqlalchemy import Numeric, case, cast, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.core.security import require_permissions
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
-from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
+from app.models.tch import (
+    TchCliente,
+    TchRecaudacionMensual,
+    TchSuscripcion,
+    TchTransaccion,
+)
 
 router = APIRouter()
 
@@ -104,52 +109,129 @@ def tch_summary() -> dict:
         total_eliminadas = db.scalar(
             select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "ELIMINADA")
         ) or 0
-        total_trans = db.scalar(select(func.count()).select_from(TchTransaccion)) or 0
-        total_aceptadas = db.scalar(
-            select(func.count()).select_from(TchTransaccion).where(TchTransaccion.estado == "ACEPTADA")
-        ) or 0
-        total_rechazadas = db.scalar(
-            select(func.count()).select_from(TchTransaccion).where(TchTransaccion.estado == "RECHAZADA")
-        ) or 0
-        tasa_rechazo = round(100 * total_rechazadas / total_trans, 1) if total_trans else 0.0
+        controles = db.scalars(
+            select(TchRecaudacionMensual).order_by(TchRecaudacionMensual.periodo)
+        ).all()
         monto_numerico = case(
             (TchTransaccion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaccion.monto, Numeric)),
             else_=0,
         )
         monto_suscripcion = case(
-            (TchSuscripcion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchSuscripcion.monto, Numeric)),
+            (TchSuscripcion.equivalente_pesos.op("~")(r"^\d+(\.\d+)?$"), cast(TchSuscripcion.equivalente_pesos, Numeric)),
             else_=0,
         )
         periodo_activacion = func.substring(TchSuscripcion.fecha_activacion, 1, 7)
-        transacciones_mensuales = _monthly_statuses(
-            db.execute(
-                select(
-                    TchTransaccion.periodo,
-                    TchTransaccion.estado,
-                    func.count(),
-                    func.coalesce(func.sum(monto_numerico), 0),
+        if controles:
+            total_aceptadas = sum(control.aceptadas_cantidad for control in controles)
+            total_rechazadas = sum(control.rechazadas_cantidad for control in controles)
+            total_trans = total_aceptadas + total_rechazadas
+            transacciones_mensuales = [
+                {
+                    "year": int(control.periodo[:4]),
+                    "month": int(control.periodo[5:]),
+                    "status": status,
+                    "count": count,
+                    "amount": int(amount),
+                }
+                for control in controles
+                for status, count, amount in (
+                    ("ACEPTADA", control.aceptadas_cantidad, control.aceptadas_monto),
+                    ("RECHAZADA", control.rechazadas_cantidad, control.rechazadas_monto),
                 )
-                .where(TchTransaccion.periodo.op("~")(r"^\d{4}-\d{2}$"))
-                .group_by(TchTransaccion.periodo, TchTransaccion.estado)
-                .order_by(TchTransaccion.periodo, TchTransaccion.estado)
-            ).all()
-        )
+            ]
+        else:
+            total_trans = db.scalar(select(func.count()).select_from(TchTransaccion)) or 0
+            total_aceptadas = db.scalar(
+                select(func.count()).select_from(TchTransaccion).where(TchTransaccion.estado == "ACEPTADA")
+            ) or 0
+            total_rechazadas = db.scalar(
+                select(func.count()).select_from(TchTransaccion).where(TchTransaccion.estado == "RECHAZADA")
+            ) or 0
+            transacciones_mensuales = _monthly_statuses(
+                db.execute(
+                    select(
+                        TchTransaccion.periodo,
+                        TchTransaccion.estado,
+                        func.count(),
+                        func.coalesce(func.sum(monto_numerico), 0),
+                    )
+                    .where(TchTransaccion.periodo.op("~")(r"^\d{4}-\d{2}$"))
+                    .group_by(TchTransaccion.periodo, TchTransaccion.estado)
+                    .order_by(TchTransaccion.periodo, TchTransaccion.estado)
+                ).all()
+            )
+        tasa_rechazo = round(100 * total_rechazadas / total_trans, 1) if total_trans else 0.0
         activaciones_mensuales = _monthly_statuses(
             db.execute(
                 select(
                     periodo_activacion,
-                    TchSuscripcion.estado,
+                    literal("VIGENTE"),
                     func.count(),
                     func.coalesce(func.sum(monto_suscripcion), 0),
                 )
                 .where(TchSuscripcion.fecha_activacion.op("~")(r"^\d{4}-\d{2}-\d{2}$"))
-                .group_by(periodo_activacion, TchSuscripcion.estado)
-                .order_by(periodo_activacion, TchSuscripcion.estado)
+                .group_by(periodo_activacion)
+                .order_by(periodo_activacion)
+            ).all()
+        )
+        periodo_eliminacion = func.substring(TchSuscripcion.fecha_eliminacion, 1, 7)
+        bajas_mensuales = _monthly_statuses(
+            db.execute(
+                select(
+                    periodo_eliminacion,
+                    literal("ELIMINADA"),
+                    func.count(),
+                    func.coalesce(func.sum(monto_suscripcion), 0),
+                )
+                .where(TchSuscripcion.fecha_eliminacion.op("~")(r"^\d{4}-\d{2}-\d{2}$"))
+                .group_by(periodo_eliminacion)
+                .order_by(periodo_eliminacion)
             ).all()
         )
         years = sorted(
-            {entry["year"] for entry in transacciones_mensuales + activaciones_mensuales}, reverse=True
+            {entry["year"] for entry in transacciones_mensuales + activaciones_mensuales + bajas_mensuales},
+            reverse=True,
         )
+
+        # ── KPIs ──────────────────────────────────────────────────────────
+        mrr = float(
+            db.scalar(
+                select(func.coalesce(func.sum(monto_suscripcion), 0))
+                .select_from(TchSuscripcion)
+                .where(TchSuscripcion.estado == "VIGENTE")
+            ) or 0
+        )
+        active_clients = db.scalar(
+            select(func.count(TchSuscripcion.cliente_rut.distinct()))
+            .select_from(TchSuscripcion)
+            .where(TchSuscripcion.estado == "VIGENTE")
+            .where(TchSuscripcion.cliente_rut.isnot(None))
+        ) or 0
+        monto_eliminadas = float(
+            db.scalar(
+                select(func.coalesce(func.sum(monto_suscripcion), 0))
+                .select_from(TchSuscripcion)
+                .where(TchSuscripcion.estado == "ELIMINADA")
+            ) or 0
+        )
+        if controles:
+            monto_transacciones = int(sum(float(c.aceptadas_monto or 0) + float(c.rechazadas_monto or 0) for c in controles))
+        else:
+            monto_transacciones = int(
+                db.scalar(
+                    select(func.coalesce(func.sum(monto_numerico), 0)).select_from(TchTransaccion)
+                ) or 0
+            )
+        arpu = round(mrr / active_clients, 0) if active_clients else 0.0
+        # Churn mensual promedio: promedio de bajas/mes ÷ subs vigentes
+        if bajas_mensuales and total_vigentes:
+            total_bajas = sum(e["count"] for e in bajas_mensuales)
+            num_meses = len({(e["year"], e["month"]) for e in bajas_mensuales})
+            avg_bajas_mes = total_bajas / num_meses if num_meses else 0
+            churn_rate = round(avg_bajas_mes / total_vigentes * 100, 1)
+        else:
+            churn_rate = 0.0
+        ltv = round(arpu / (churn_rate / 100), 0) if churn_rate else 0.0
 
         ultimo_run = db.scalar(
             select(EtlRun)
@@ -163,16 +245,29 @@ def tch_summary() -> dict:
                 "vigentes": total_vigentes,
                 "eliminadas": total_eliminadas,
                 "total": total_vigentes + total_eliminadas,
+                "monto_vigentes": round(mrr, 0),
+                "monto_eliminadas": round(monto_eliminadas, 0),
+                "monto_total": round(mrr + monto_eliminadas, 0),
             },
             "transacciones": {
                 "total": total_trans,
                 "aceptadas": total_aceptadas,
                 "rechazadas": total_rechazadas,
                 "tasa_rechazo_pct": tasa_rechazo,
+                "monto": monto_transacciones,
+            },
+            "kpis": {
+                "mrr": round(mrr, 0),
+                "arpu": round(arpu, 0),
+                "active_clients": active_clients,
+                "active_subscribers": total_vigentes,
+                "churn_rate": churn_rate,
+                "ltv": round(ltv, 0),
             },
             "years": years,
             "transacciones_mensuales": transacciones_mensuales,
             "activaciones_mensuales": activaciones_mensuales,
+            "bajas_mensuales": bajas_mensuales,
             "ultimo_etl": {
                 "id": str(ultimo_run.id) if ultimo_run else None,
                 "status": ultimo_run.status if ultimo_run else None,

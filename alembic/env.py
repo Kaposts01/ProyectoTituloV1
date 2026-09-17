@@ -12,6 +12,7 @@ from app.models.tch import (  # noqa: F401
     TchCentroCosto,
     TchCliente,
     TchOrigen,
+    TchRecaudacionMensual,
     TchSuscripcion,
     TchTipoMandato,
     TchTransaccion,

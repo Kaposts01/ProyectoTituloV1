@@ -28,6 +28,17 @@ const STATUS_COLORS: Record<string, string> = {
   REJECTED: "#DC2626",
   SUSCRIPCION_FALLIDA: "#DC2626",
   VOID: "#DC2626",
+  ACEPTADA: "#16A34A",
+  ACEPTADAS: "#16A34A",
+  RECHAZADA: "#DC2626",
+  RECHAZADAS: "#DC2626",
+  PENDIENTES: "#D97706",
+  VIGENTE: "#16A34A",
+  ELIMINADA: "#DC2626",
+  VIRTUALPOS: "#2563EB",
+  TOKU: "#7C3AED",
+  PAYKU: "#CA8A04",
+  TCH: "#0891B2",
 };
 
 export function chartStatusColor(status: string | null | undefined): string {

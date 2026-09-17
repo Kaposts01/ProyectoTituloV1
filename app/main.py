@@ -1,8 +1,14 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.api.v1.routes import auth
 from app.core.config import settings
+
+_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 OPENAPI_TAGS = [
     {"name": "Cliente", "description": "Consultas CRM para clientes de VirtualPOS."},
@@ -26,3 +32,15 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/health", tags=["health"])
 def health_check() -> dict[str, str]:
     return {"status": "ok", "environment": settings.app_env}
+
+
+if _DIST.exists():
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="spa_assets")
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        return FileResponse(_DIST / "favicon.svg")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_index(full_path: str) -> FileResponse:
+        return FileResponse(_DIST / "index.html")

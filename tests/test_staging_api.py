@@ -9,7 +9,12 @@ from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscri
 from app.models.payku_channel import PaykuSubscription, PaykuTransaction
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
-from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
+from app.models.tch import (
+    TchCliente,
+    TchRecaudacionMensual,
+    TchSuscripcion,
+    TchTransaccion,
+)
 from app.services.channel_store import (
     extract_payku_subscription,
     extract_payku_transaction,
@@ -77,6 +82,20 @@ def test_virtualpos_records_filter_by_operational_fields_and_order_dates(db_sess
     assert "plan-2" not in active_plan_ids
     assert charge_ids.index("charge-new") < charge_ids.index("charge-old")
     assert payment_ids.index("payment-new") < payment_ids.index("payment-old")
+
+
+def test_status_filter_values_include_records_outside_the_current_page(db_session) -> None:
+    db_session.add_all([
+        Subscription(source="payku", external_id="active", status="active", raw_payload={}),
+        Subscription(source="payku", external_id="cancelled", status="cancelled", raw_payload={}),
+    ])
+    db_session.flush()
+
+    response = staging.list_record_filter_values(
+        source="payku", resource_type="subscription", filter_field="status", db=db_session
+    )
+
+    assert {value.lower() for value in response["values"]} >= {"active", "cancelled"}
 
 
 def test_toku_and_payku_records_filter_by_visible_columns(db_session) -> None:
@@ -151,6 +170,10 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
                 numero_ficha=999999, estado="VIGENTE", monto="2000", fecha_activacion="2099-04-03"
             ),
             TchTransaccion(numero_ficha=999999, periodo="2099-04", estado="ACEPTADA", monto="2000"),
+            TchRecaudacionMensual(
+                periodo="2099-04", aceptadas_cantidad=1, aceptadas_monto="2000",
+                rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="control.xlsx",
+            ),
         ]
     )
     db_session.flush()

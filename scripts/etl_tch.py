@@ -31,6 +31,7 @@ from app.models.tch import (
     TchCentroCosto,
     TchCliente,
     TchOrigen,
+    TchRecaudacionMensual,
     TchSuscripcion,
     TchTipoMandato,
     TchTransaccion,
@@ -117,7 +118,7 @@ def _norm_periodo(val: Any) -> str | None:
     meses = {
         "ENERO": "01", "ENE": "01", "FEBRERO": "02", "FEB": "02",
         "MARZO": "03", "MAR": "03", "ABRIL": "04", "ABR": "04",
-        "MAYO": "05", "JUNIO": "06", "JULIO": "07", "JUL": "07",
+        "MAYO": "05", "MAY": "05", "JUNIO": "06", "JUN": "06", "JULIO": "07", "JUL": "07",
         "AGOSTO": "08", "AGO": "08", "SEPTIEMBRE": "09", "SEPT": "09", "SEP": "09",
         "OCTUBRE": "10", "OCT": "10", "NOVIEMBRE": "11", "NOV": "11",
         "DICIEMBRE": "12", "DIC": "12",
@@ -191,6 +192,8 @@ SHEET_RECHAZADOS_MANDATOS = "RECHAZADOS"
 SHEET_ACEPTADOS = "CARGOS ACEPTADOS"
 SHEET_RECHAZADOS = "CARGOS RECHAZADOS"
 SHEET_TABLAS = "TABLAS"
+SHEET_HISTORICO_RECAUDACION_CAN = "HISTORICO RECAUDACION CAN"
+SHEET_HISTORICO_RECAUDACION_FLUJO = "HISTORICO RECAUDACION FLUJO"
 
 
 def _read_sheet(filepath: Path, sheet: str) -> pd.DataFrame | None:
@@ -255,6 +258,71 @@ def _report_sort_key(filepath: Path) -> tuple[int, int, int, str]:
         year, month = period.split("-", 1)
         return int(year), int(month), 0, filepath.name
     return 0, 0, 0, filepath.name
+
+
+def _historical_total_rows(df: pd.DataFrame) -> tuple[int, int] | None:
+    accepted_row = rejected_row = None
+    for row_index, row in df.iterrows():
+        values = " ".join(str(value).upper() for value in row.iloc[:3] if pd.notna(value))
+        if "TOTAL RECAUDACION EFECTUADA" in values:
+            accepted_row = row_index
+        if "TOTAL COBROS RECHAZADOS" in values:
+            rejected_row = row_index
+    if accepted_row is None or rejected_row is None:
+        return None
+    return accepted_row, rejected_row
+
+
+def _historical_period_columns(df: pd.DataFrame) -> dict[int, str]:
+    periods: dict[int, str] = {}
+    for row_index in range(min(4, len(df))):
+        for column_index, value in enumerate(df.iloc[row_index]):
+            period = _norm_periodo(value)
+            if period:
+                periods[column_index] = period
+    return periods
+
+
+def _historical_revenue_values(filepath: Path, sheet: str) -> dict[str, tuple[str, str]]:
+    try:
+        df = pd.read_excel(filepath, sheet_name=sheet, header=None)
+    except (OSError, ValueError) as exc:
+        log.warning("  No se pudo leer hoja '%s': %s", sheet, exc)
+        return {}
+    total_rows = _historical_total_rows(df)
+    if total_rows is None:
+        log.warning("  No se encontraron totales en hoja '%s'", sheet)
+        return {}
+    accepted_row, rejected_row = total_rows
+    values: dict[str, tuple[str, str]] = {}
+    for column_index, period in _historical_period_columns(df).items():
+        accepted = _norm_monto(df.iat[accepted_row, column_index])
+        rejected = _norm_monto(df.iat[rejected_row, column_index])
+        if accepted is not None and rejected is not None:
+            values[period] = accepted, rejected
+    return values
+
+
+def _transform_recaudacion_mensual(filepath: Path) -> list[dict]:
+    amounts = _historical_revenue_values(filepath, SHEET_HISTORICO_RECAUDACION_FLUJO)
+    counts = _historical_revenue_values(filepath, SHEET_HISTORICO_RECAUDACION_CAN)
+    report_year, report_month, _, _ = _report_sort_key(filepath)
+    cutoff = f"{report_year:04d}-{report_month:02d}" if report_year else None
+    rows = []
+    for period in sorted(amounts.keys() & counts.keys()):
+        if cutoff and period > cutoff:
+            continue
+        accepted_amount, rejected_amount = amounts[period]
+        accepted_count, rejected_count = counts[period]
+        rows.append({
+            "periodo": period,
+            "aceptadas_cantidad": int(accepted_count),
+            "aceptadas_monto": accepted_amount,
+            "rechazadas_cantidad": int(rejected_count),
+            "rechazadas_monto": rejected_amount,
+            "archivo_origen": filepath.name,
+        })
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -776,9 +844,32 @@ def _load_transacciones(db, rows: list[dict], archivo: str) -> int:
     return len(to_insert)
 
 
+def _load_recaudacion_mensual(db, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    statement = pg_insert(TchRecaudacionMensual).values(
+        [{"id": uuid.uuid4(), **row} for row in rows]
+    ).on_conflict_do_update(
+        index_elements=["periodo"],
+        set_={
+            "aceptadas_cantidad": pg_insert(TchRecaudacionMensual).excluded.aceptadas_cantidad,
+            "aceptadas_monto": pg_insert(TchRecaudacionMensual).excluded.aceptadas_monto,
+            "rechazadas_cantidad": pg_insert(TchRecaudacionMensual).excluded.rechazadas_cantidad,
+            "rechazadas_monto": pg_insert(TchRecaudacionMensual).excluded.rechazadas_monto,
+            "archivo_origen": pg_insert(TchRecaudacionMensual).excluded.archivo_origen,
+            "updated_at": func.now(),
+        },
+    )
+    db.execute(statement)
+    db.flush()
+    return len(rows)
+
+
 def _clear_tch_data(db) -> None:
     """Rebuild the local TCH projection from the complete report history."""
-    for model in (TchTransaccion, TchSuscripcion, TchCliente, TchCentroCosto, TchOrigen, TchTipoMandato, TchBanco):
+    for model in (TchRecaudacionMensual, TchTransaccion, TchSuscripcion, TchCliente, TchCentroCosto, TchOrigen, TchTipoMandato, TchBanco):
         db.query(model).delete()
     db.flush()
 
@@ -792,13 +883,18 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     periodo_fallback = _periodo_from_filename(filepath)
     log.info(f"Procesando: {nombre}  (periodo aprox: {periodo_fallback})")
 
-    totales = {"archivo": nombre, "sus_ins": 0, "sus_upd": 0, "trans": 0, "err": 0}
+    totales = {"archivo": nombre, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
 
     # --- Catálogo de bancos desde hoja TABLAS ---
     bancos_rows = _transform_bancos_from_tablas(filepath)
     n_bancos = _load_bancos_catalogo(db, bancos_rows)
     if n_bancos:
         log.info(f"  Bancos nuevos: {n_bancos}")
+
+    controles = _load_recaudacion_mensual(db, _transform_recaudacion_mensual(filepath))
+    totales["controles"] = controles
+    if controles:
+        log.info(f"  Controles mensuales: {controles}")
 
     # --- VIGENTES ---
     df_vig = _read_sheet(filepath, SHEET_VIGENTES)
@@ -931,7 +1027,7 @@ def main() -> None:
         for archivo in archivos:
             t = _process_file(archivo, db, loaded_history_periods)
             db.commit()
-            total += t["sus_ins"] + t["sus_upd"] + t["trans"]
+            total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             log.info(
                 f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} "
                 f"trans={t['trans']} err={t['err']}"

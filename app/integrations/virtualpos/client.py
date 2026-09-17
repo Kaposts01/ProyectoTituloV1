@@ -86,6 +86,14 @@ class VirtualPOSClient:
     async def list_payments(self, page: int = 1, limit: int = 100) -> Any:
         return await self._get("/v3/payments", params={"page": page, "limit": limit})
 
+    async def get_payment(self, payment_uuid: str) -> Any:
+        return await self._get(f"/v3/payment/{payment_uuid}")
+
+    async def delete_payment(self, payment_uuid: str) -> Any:
+        response = await self._client.delete(f"/v3/payment/{payment_uuid}")
+        response.raise_for_status()
+        return response.json()
+
     async def list_charges(self, subscription_id: str, page: int = 1, limit: int = 100) -> Any:
         return await self._get(f"/v3/suscription/{subscription_id}/charges", params={"page": page, "limit": limit})
 

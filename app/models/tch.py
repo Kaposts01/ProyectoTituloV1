@@ -145,3 +145,22 @@ class TchTransaccion(Base):
     dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TchRecaudacionMensual(Base):
+    """Control mensual oficial extraído de los históricos de recaudación TCH."""
+
+    __tablename__ = "tch_recaudacion_mensual"
+    __table_args__ = (UniqueConstraint("periodo", name="uq_tch_recaudacion_mensual_periodo"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    periodo: Mapped[str] = mapped_column(String(7), nullable=False, index=True)
+    aceptadas_cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
+    aceptadas_monto: Mapped[str] = mapped_column(String(20), nullable=False)
+    rechazadas_cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
+    rechazadas_monto: Mapped[str] = mapped_column(String(20), nullable=False)
+    archivo_origen: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

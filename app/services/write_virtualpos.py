@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
-from app.models.crm import Charge, Client, Plan, Subscription
+from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
@@ -28,6 +28,10 @@ class DuplicateClientError(Exception):
 
 
 class ChargeNotFoundError(Exception):
+    pass
+
+
+class PaymentNotFoundError(Exception):
     pass
 
 
@@ -773,6 +777,89 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
         raise ReconciliationRequiredError from exc
 
     return sub
+
+
+async def cancel_payment(db: Session, payment_id: str) -> Payment:
+    """Cancel a VirtualPOS payment via DELETE /v3/payment/{uuid}."""
+    payment = db.scalar(
+        select(Payment).where(Payment.external_id == payment_id, Payment.source.like("virtualpos%"))
+    )
+    if payment is None:
+        raise PaymentNotFoundError
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+
+    write_run = WriteRun(
+        source=payment.source,
+        resource_type="payment",
+        external_id=payment_id,
+        operation="cancel_payment",
+        status="pending",
+        request_payload={"payment_id": payment_id},
+    )
+    db.add(write_run)
+    db.commit()
+
+    try:
+        async with VirtualPOSClient(platform=payment.source) as provider:
+            await provider.delete_payment(payment_id)
+            try:
+                refreshed_payload = await provider.get_payment(payment_id)
+            except Exception:
+                refreshed_payload = None
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    cancelled_payload = dict(refreshed_payload or payment.raw_payload or {})
+    if not refreshed_payload or not (refreshed_payload.get("status") or refreshed_payload.get("payment", {}).get("status")):
+        cancelled_payload = {**cancelled_payload, "status": "cancelado"}
+
+    sanitized_payload = sanitize_record(cancelled_payload)
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = sanitized_payload
+    db.commit()
+
+    try:
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == payment.source,
+                SourceRecord.resource_type == "payment",
+                SourceRecord.external_id == payment_id,
+            )
+        )
+        if source_record is None:
+            source_record = SourceRecord(
+                source=payment.source, resource_type="payment", external_id=payment_id, payload=sanitized_payload
+            )
+            db.add(source_record)
+        else:
+            source_record.payload = sanitized_payload
+        payment.status = _as_text(sanitized_payload.get("status")) or "cancelado"
+        payment.raw_payload = sanitized_payload
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return payment
 
 
 async def retry_charge(db: Session, charge_id: str) -> Charge:
