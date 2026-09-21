@@ -429,21 +429,35 @@ def _portal(source: str) -> str:
     return {"virtualpos": "VirtualPOS", "virtualpos1": "VirtualPOS", "virtualpos2": "VirtualPOS", "toku": "Toku", "payku": "Payku", "tch": "TCH"}[source]
 
 
-def _general_clients(db: Session, query: str | None = None) -> list[dict[str, Any]]:
+def _general_clients(
+    db: Session,
+    query: str | None = None,
+    filter_field: Literal["all", "rut", "name", "last_name", "platform", "email", "phone"] = "all",
+) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     client_keys: dict[tuple[str, str], str] = {}
     for client in db.scalars(select(CClient).where(CClient.social_id.isnot(None))):
         key = _rut_key(client.social_id)
         if key:
-            item = grouped.setdefault(key, {"rut": client.social_id, "name": "", "origins": set(), "active_origins": set()})
-            item["name"] = item["name"] or " ".join(part for part in (client.first_name, client.last_name) if part).strip()
+            item = grouped.setdefault(key, {"rut": client.social_id, "name": "", "last_name": "", "origins": set(), "active_origins": set(), "emails": set(), "phones": set()})
+            item["name"] = item["name"] or (client.first_name or "")
+            item["last_name"] = item["last_name"] or (client.last_name or "")
+            if client.email:
+                item["emails"].add(client.email)
+            if client.phone_number:
+                item["phones"].add(client.phone_number)
             item["origins"].add(_portal(client.source))
             client_keys[(client.source, client.external_id)] = key
     for client in db.scalars(select(TchCliente)):
         key = _rut_key(client.rut)
         if key:
-            item = grouped.setdefault(key, {"rut": client.rut, "name": "", "origins": set(), "active_origins": set()})
-            item["name"] = item["name"] or " ".join(part for part in (client.nombre, client.apellido) if part).strip()
+            item = grouped.setdefault(key, {"rut": client.rut, "name": "", "last_name": "", "origins": set(), "active_origins": set(), "emails": set(), "phones": set()})
+            item["name"] = item["name"] or (client.nombre or "")
+            item["last_name"] = item["last_name"] or (client.apellido or "")
+            if client.email:
+                item["emails"].add(client.email)
+            if client.telefono:
+                item["phones"].add(client.telefono)
             item["origins"].add("TCH")
     for subscription in db.scalars(select(CSub)):
         key = _rut_key(subscription.client_social_id) or client_keys.get((subscription.source, subscription.client_external_id or ""))
@@ -453,12 +467,105 @@ def _general_clients(db: Session, query: str | None = None) -> list[dict[str, An
         key = _rut_key(subscription.cliente_rut)
         if key in grouped:
             grouped[key]["active_origins"].add("TCH")
-    needle = _rut_key(query) if query else ""
+    needle = (query or "").strip().lower()
+
+    def matches(key: str, item: dict[str, Any]) -> bool:
+        if not needle:
+            return True
+        rut_needle = _rut_key(query)
+        values = {
+            "name": " ".join((item["name"], item["last_name"])).lower(),
+            "last_name": item["last_name"].lower(),
+            "platform": " ".join(item["origins"]).lower(),
+            "email": " ".join(item["emails"]).lower(),
+            "phone": " ".join(item["phones"]).lower(),
+        }
+        if filter_field == "all":
+            return (rut_needle and rut_needle in key) or any(needle in value for value in values.values())
+        return bool(rut_needle and rut_needle in key) if filter_field == "rut" else needle in values[filter_field]
+
     return sorted((
-        {**item, "origins": sorted(item["origins"]), "active_origins": sorted(item["active_origins"])}
+        {
+            "rut": item["rut"],
+            "name": " ".join(part for part in (item["name"], item["last_name"]) if part),
+            "origins": sorted(item["origins"]),
+            "active_origins": sorted(item["active_origins"]),
+        }
         for key, item in grouped.items()
-        if not query or needle in key or query.lower() in item["name"].lower()
+        if matches(key, item)
     ), key=lambda item: (item["name"] or item["rut"]).lower())
+
+
+def _general_subscriptions(
+    db: Session,
+    query: str | None = None,
+    filter_field: Literal["all", "id", "rut", "client", "platform", "status"] = "all",
+) -> list[dict[str, Any]]:
+    def is_excluded(subscription: CSub | TchSuscripcion) -> bool:
+        status = str(subscription.status if isinstance(subscription, CSub) else subscription.estado).upper()
+        if isinstance(subscription, CSub):
+            return (
+                (subscription.source.startswith("virtualpos") and status == "SUSCRIPCION_FALLIDA")
+                or (subscription.source == "payku" and status == "REGISTER")
+                or (subscription.source == "tch" and status == "RECHAZADA")
+            )
+        return status == "RECHAZADA"
+
+    client_data = {
+        (client.source, client.external_id): {
+            "rut": client.social_id or "",
+            "client": " ".join(part for part in (client.first_name, client.last_name) if part),
+        }
+        for client in db.scalars(select(CClient))
+    }
+    tch_client_data = {
+        _rut_key(client.rut): " ".join(part for part in (client.nombre, client.apellido) if part)
+        for client in db.scalars(select(TchCliente))
+    }
+    items = [
+        {
+            "id": subscription.external_id,
+            "platform": _portal(subscription.source),
+            "rut": subscription.client_social_id or client_data.get((subscription.source, subscription.client_external_id or ""), {}).get("rut", ""),
+            "client": client_data.get((subscription.source, subscription.client_external_id or ""), {}).get("client", ""),
+            "status": subscription.status or "",
+            "started_at": subscription.suscription_date,
+            "ended_at": subscription.canceled_at,
+            "amount": subscription.amount,
+            "currency": subscription.currency,
+        }
+        for subscription in db.scalars(select(CSub))
+        if not is_excluded(subscription)
+    ]
+    items.extend(
+        {
+            "id": str(subscription.numero_ficha),
+            "platform": "TCH",
+            "rut": subscription.cliente_rut or "",
+            "client": tch_client_data.get(_rut_key(subscription.cliente_rut), ""),
+            "status": subscription.estado,
+            "started_at": subscription.fecha_activacion,
+            "ended_at": subscription.fecha_eliminacion or subscription.fecha_rechazo,
+            "amount": subscription.equivalente_pesos or subscription.monto,
+            "currency": "CLP",
+        }
+        for subscription in db.scalars(select(TchSuscripcion))
+        if not is_excluded(subscription)
+    )
+    needle = (query or "").strip().lower()
+    rut_needle = _rut_key(query)
+
+    def matches(item: dict[str, Any]) -> bool:
+        if not needle:
+            return True
+        values = {name: str(item[name]).lower() for name in ("id", "client", "platform", "status")}
+        if filter_field == "all":
+            return (rut_needle and rut_needle in _rut_key(item["rut"])) or any(needle in value for value in values.values())
+        if filter_field == "rut":
+            return bool(rut_needle and rut_needle in _rut_key(item["rut"]))
+        return needle in values[filter_field]
+
+    return sorted((item for item in items if matches(item)), key=lambda item: (item["client"] or item["id"]).lower())
 
 
 def _general_client_detail(db: Session, rut: str) -> dict[str, Any]:
@@ -1664,18 +1771,61 @@ def virtualpos_client_detail(
     )
     if client is None:
         raise HTTPException(status_code=404, detail="VirtualPOS client not found")
+
+    # Suscripciones relacionadas por RUT (social_id)
     social_id = client.social_id
-    if not social_id:
-        return {"client": _cstg(client, "client"), "subscriptions": [], "subscription_total": 0}
-    filters = (CSub.source == client.source, CSub.client_social_id == client.social_id)
-    subscriptions = db.scalars(
-        select(CSub).where(*filters).order_by(CSub.updated_at.desc()).offset(offset).limit(limit)
-    ).all()
-    total = db.scalar(select(func.count()).select_from(CSub).where(*filters)) or 0
+    if social_id:
+        sub_filters = (CSub.source == client.source, CSub.client_social_id == social_id)
+        subscriptions = db.scalars(
+            select(CSub).where(*sub_filters).order_by(CSub.updated_at.desc()).offset(offset).limit(limit)
+        ).all()
+        subscription_total = db.scalar(select(func.count()).select_from(CSub).where(*sub_filters)) or 0
+        all_sub_ids = db.scalars(select(CSub.external_id).where(*sub_filters)).all()
+    else:
+        subscriptions = []
+        subscription_total = 0
+        all_sub_ids = []
+
+    # Cargos relacionados via subscription_external_id (client_external_id es None en VP)
+    if all_sub_ids:
+        charge_filters = (CCharge.source == client.source, CCharge.subscription_external_id.in_(all_sub_ids))
+        charges = db.scalars(
+            select(CCharge).where(*charge_filters).order_by(CCharge.charge_date.desc()).limit(100)
+        ).all()
+        charge_total = db.scalar(select(func.count()).select_from(CCharge).where(*charge_filters)) or 0
+
+        # Pagos: enlazados via raw_payload.payment.order.uuid del cargo
+        payment_uuids = []
+        for ch in charges:
+            rp = ch.raw_payload or {}
+            uuid = ((rp.get("payment") or {}).get("order") or {}).get("uuid")
+            if uuid:
+                payment_uuids.append(str(uuid))
+        if payment_uuids:
+            payments = db.scalars(
+                select(CPayment).where(
+                    CPayment.source == client.source,
+                    CPayment.external_id.in_(payment_uuids),
+                ).order_by(CPayment.payment_date.desc())
+            ).all()
+            payment_total = len(payments)
+        else:
+            payments = []
+            payment_total = 0
+    else:
+        charges = []
+        charge_total = 0
+        payments = []
+        payment_total = 0
+
     return {
         "client": _cstg(client, "client"),
         "subscriptions": [_cstg(s, "subscription") for s in subscriptions],
-        "subscription_total": total,
+        "subscription_total": subscription_total,
+        "charges": [_cstg(c, "charge") for c in charges],
+        "charge_total": charge_total,
+        "payments": [_cstg(p, "payment") for p in payments],
+        "payment_total": payment_total,
     }
 
 
@@ -1946,6 +2096,43 @@ def _payku_canonical_related(record: Any, resource_type: str, db: Session) -> li
     return []
 
 
+@router.get("/dashboard/general", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
+def general_dashboard(db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+    """Aggregate operational metrics from every canonical channel."""
+    return _general_dashboard(db)
+
+
+@router.get("/dashboard/general/clients", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
+def general_clients(
+    db: Session = Depends(get_db),  # noqa: B008
+    query: str | None = None,
+    filter_field: Literal["all", "rut", "name", "last_name", "platform", "email", "phone"] = "all",
+    offset: PaginationOffset = 0,
+    limit: PaginationLimit = 50,
+) -> dict[str, Any]:
+    items = _general_clients(db, query, filter_field)
+    return {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit}
+
+
+@router.get("/dashboard/general/subscriptions", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
+def general_subscriptions(
+    db: Session = Depends(get_db),  # noqa: B008
+    query: str | None = None,
+    filter_field: Literal["all", "id", "rut", "client", "platform", "status"] = "all",
+    offset: PaginationOffset = 0,
+    limit: PaginationLimit = 50,
+) -> dict[str, Any]:
+    items = _general_subscriptions(db, query, filter_field)
+    return {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit}
+
+
+@router.get("/dashboard/general/clients/{rut}", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
+def general_client_detail(rut: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+    if not _general_clients(db, rut):
+        raise HTTPException(status_code=404, detail="Client not found")
+    return _general_client_detail(db, rut)
+
+
 @router.get("/{source}/{resource_type}/{external_id}", tags=["Staging"])
 def provider_record_detail(
     source: str,
@@ -2027,30 +2214,6 @@ def staging_summary(db: Session = Depends(get_db)) -> dict[str, list[dict[str, A
             }
         )
     return {"sources": sources}
-
-
-@router.get("/dashboard/general", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
-def general_dashboard(db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
-    """Aggregate operational metrics from every canonical channel."""
-    return _general_dashboard(db)
-
-
-@router.get("/dashboard/general/clients", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
-def general_clients(
-    db: Session = Depends(get_db),  # noqa: B008
-    query: str | None = None,
-    offset: PaginationOffset = 0,
-    limit: PaginationLimit = 50,
-) -> dict[str, Any]:
-    items = _general_clients(db, query)
-    return {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit}
-
-
-@router.get("/dashboard/general/clients/{rut}", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
-def general_client_detail(rut: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
-    if not _general_clients(db, rut):
-        raise HTTPException(status_code=404, detail="Client not found")
-    return _general_client_detail(db, rut)
 
 
 @router.get("/dashboard/{source}", tags=["Staging"])

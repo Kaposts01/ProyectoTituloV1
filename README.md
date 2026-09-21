@@ -8,7 +8,7 @@ CRM interno para consultar y operar datos de suscripciones, clientes y cobros. V
 - Toku: sincronizacion read-only validada. Escrituras habilitadas para editar y eliminar clientes, y cambiar el estado de suscripciones. Requiere `TOKU_WRITES_ENABLED=true`.
 - Payku: autenticacion y sincronizacion de clientes, planes y suscripciones validadas. Escrituras habilitadas para editar y eliminar clientes, y eliminar suscripciones. La coleccion de transacciones requiere aumentar `PAYKU_TIMEOUT_SECONDS` antes de una ejecucion completa. Requiere `PAYKU_WRITES_ENABLED=true`.
 - TCH: canal de débito bancario con 28.982 clientes, 29.295 suscripciones y 255.914 transacciones cargadas desde reportes Excel históricos (2017–2026). Solo lectura; sin sincronizacion contra proveedor externo.
-- Dashboard: consulta entidades canónicas consolidadas en la base `crm`, materializadas desde `source_records` (staging) de cada canal. El origen y los payloads saneados se conservan para trazabilidad.
+- Dashboard: consulta entidades canónicas consolidadas en la base `crm`, materializadas desde `source_records` (staging) de cada canal. El origen y los payloads saneados se conservan para trazabilidad. Las vistas consolidadas de Clientes y Suscripciones incluyen filtros por campos y paginación.
 
 ## Inicio local
 
@@ -54,6 +54,8 @@ Las operaciones de escritura solo se exponen mediante rutas internas implementad
 - Registros staging paginados: `/api/v1/staging/records?source={virtualpos|toku|payku}&resource_type={tipo}`.
 - Mini dashboard por canal: `/api/v1/staging/dashboard/{virtualpos|toku|payku}`.
 - Dashboard general consolidado: `/api/v1/staging/dashboard/general`.
+- Clientes consolidados: `/api/v1/staging/dashboard/general/clients`. Admite `filter_field={all|rut|name|last_name|platform|email|phone}`, `query`, `offset` y `limit`.
+- Suscripciones consolidadas: `/api/v1/staging/dashboard/general/subscriptions`. Admite `filter_field={all|id|rut|client|platform|status}`, `query`, `offset` y `limit`. Excluye `SUSCRIPCION_FALLIDA` de VirtualPOS, `RECHAZADA` de TCH y `register` de Payku.
 - Fichas VirtualPOS: `/api/v1/staging/virtualpos/clients/{uuid}`, `/plans/{id}`, `/subscriptions/{id}`, `/charges/{id}` y `/payments/{id}`.
 - Fichas Toku y Payku: `/api/v1/staging/{toku|payku}/{resource}/{id}`.
 - ETL local: `POST /api/v1/etl/run`; sincronización completa read-only: `POST /api/v1/etl/full-sync`; estado: `/api/v1/etl/runs/{run_id}`.
@@ -61,6 +63,8 @@ Las operaciones de escritura solo se exponen mediante rutas internas implementad
 - Escrituras VirtualPOS: `PUT /api/v1/writes/virtualpos/clients/{uuid}`, `POST /api/v1/writes/virtualpos/clients`, `POST /api/v1/writes/virtualpos/plans`, `POST /api/v1/writes/virtualpos/subscriptions`, `DELETE /api/v1/writes/virtualpos/subscriptions/{id}`, `DELETE /api/v1/writes/virtualpos/charges/{id}`, `POST /api/v1/writes/virtualpos/charges/{id}/retry`, `POST /api/v1/writes/virtualpos/subscriptions/{id}/charges`. Requieren `VIRTUALPOS_WRITES_ENABLED=true`.
 - Escrituras Toku: `PUT /api/v1/writes/toku/customers/{id}`, `DELETE /api/v1/writes/toku/customers/{id}`, `POST /api/v1/writes/toku/subscriptions/{id}/status`. Requieren `TOKU_WRITES_ENABLED=true`.
 - Escrituras Payku: `PUT /api/v1/writes/payku/clients/{id}`, `DELETE /api/v1/writes/payku/clients/{id}`, `DELETE /api/v1/writes/payku/subscriptions/{id}`. Requieren `PAYKU_WRITES_ENABLED=true`.
+- Reportes operativos HTML: `GET /api/v1/reports/{general|virtualpos|toku|payku|tch}?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD`. Requieren el permiso de dashboard correspondiente.
+- Reintento de cargos VirtualPOS: la interfaz permite filtrar cargos rechazados y reintentarlos en lote. Las rutas internas requieren `virtualpos.charges.retry`, CSRF y `VIRTUALPOS_WRITES_ENABLED=true`.
 
 Consulta `docs/architecture.md` para el flujo de datos y `docs/tasks.md` para el estado de las tareas.
 

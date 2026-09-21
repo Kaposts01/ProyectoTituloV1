@@ -92,6 +92,8 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | --- | --- | --- | --- |
 | MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
 | OPS-07 | Levantar servicios y verificar base consolidada | En curso | PostgreSQL, migraciones, API y frontend operativos; tablas por canal verificadas en la base `crm`. |
+| OPS-08 | Ejecutar sincronización manual multicanal | Bloqueada | Toku finalizó y consolidó 36.426 registros. VirtualPOS falló al recibir una respuesta no JSON al consultar cargos; Payku encontró IDs de transacción duplicados dentro de un lote `ON CONFLICT`. Requiere robustecer ambas rutas antes de reintentar. |
+| REP-01 | Generar reportes operativos por rango | Completada | VirtualPOS usa el diseño de referencia con snapshot histórico al cierre del rango, cobros y gráficos del período, alertas y tabla de activas; TCH usa su permiso de dashboard sin error 500. |
 | DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
 | DOC-02 | Documentar API VirtualPOS | Completada | `docs/Documentacion API VirtualPOS.md` cubre rutas, contratos, autenticación, paginación y estrategia incremental. |
 | OPS-01 | Corregir configuración de sincronización local | Completada | VirtualPOS confirmó una sincronización idempotente; Toku se sincronizó correctamente con 21 registros y una segunda ejecución idempotente de 0 registros usando `api.trytoku.com`. No se expusieron credenciales. |
@@ -116,9 +118,10 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | UI-05 | Ordenar registros completos desde la tabla | Completada | El orden usa campos seguros, incluidos anidados, y se aplica antes de paginar los registros. |
 | UI-06 | Crear dashboard general consolidado | Completada | Inicio muestra KPIs, transacciones y activaciones mensuales de VirtualPOS, Toku, Payku y TCH desde sus entidades canónicas. |
 | UI-07 | Añadir clientes al dashboard general | Completada | Tabla consolidada por RUT muestra origen, suscripciones activas y ficha con IDs, suscripciones, cargos y transacciones relacionadas. |
-| UI-08 | Añadir suscripciones al dashboard general | Pendiente | Definir columnas, filtros y ficha consolidada antes de habilitar el submenú. |
+| UI-08 | Añadir suscripciones al dashboard general | Completada | El submenú muestra suscripciones consolidadas con cliente, RUT, plataforma, estado, fechas y monto; permite filtrar y paginar; excluye fallidas VirtualPOS, rechazadas TCH y `register` Payku. |
 | UI-09 | Corregir filtros y carga progresiva de tablas | Completada | Los estados se obtienen de todos los registros del recurso y cada tabla permite cargar más resultados. |
 | UI-10 | Mejorar leyendas y fichas del dashboard general | Completada | Los gráficos distinguen sus series por color y cada canal resume operación, staging y última sincronización en una ficha. |
+| UI-11 | Mejorar clientes consolidados | Completada | La tabla muestra RUT, nombre, plataformas y suscripciones activas; permite buscar por RUT, nombre, apellido, plataforma, correo o teléfono. |
 | ETL-01 | Consolidar BDlocales en entidades canónicas | Completada | VirtualPOS, Toku y Payku se materializan de forma idempotente desde sus BDlocales; los payloads saneados mantienen trazabilidad. |
 | ETL-02 | Orquestar sync read-only y ETL en segundo plano | Completada | Las rutas `/api/v1/etl/run` y `/api/v1/etl/full-sync` registran estado y fase sin exponer credenciales. |
 | DB-01 | Consolidar BDlocales en una sola base por tablas de canal | Completada | Los datos existentes se migran idempotentemente a las tablas prefijadas, sin nueva lectura completa de proveedores; CRM conserva filtros, orden y fichas. |
@@ -327,3 +330,10 @@ Cada tarea sigue el mismo patrón de tres capas:
 - **WR-TK-02** Completada: `PUT /invoices/:id` implementado en `TokuClient`; servicio `update_invoice` actualiza el `SourceRecord` correspondiente.
 - **WR-TK-05** Completada: `DELETE /invoices/:id` implementado; servicio `delete_invoice` marca el `SourceRecord` como deleted.
 - **WR-TK-06** Completada: `DELETE /subscriptions/:id` implementado; servicio `delete_subscription` marca la suscripción canónica como deleted.
+
+## Actualización 2026-09-21 (operación consolidada)
+
+- Clientes consolidados muestra RUT, nombre completo, plataformas de origen y suscripciones activas. Permite buscar por RUT, nombre, apellido, plataforma, correo o teléfono y pagina los resultados.
+- Suscripciones consolidadas está habilitada en el submenú general con ID, cliente, RUT, plataforma, estado, fechas y monto; permite filtrar y paginar. Excluye `SUSCRIPCION_FALLIDA` de VirtualPOS, `RECHAZADA` de TCH y `register` de Payku.
+- Las rutas estáticas de dashboard se registran antes de la ficha dinámica de staging para que `/dashboard/general/clients` y `/dashboard/general/subscriptions` no se interpreten como recursos de proveedor.
+- Se documentaron las rutas de consulta consolidada, reportes operativos y reintento por lote de cargos VirtualPOS en `README.md`.

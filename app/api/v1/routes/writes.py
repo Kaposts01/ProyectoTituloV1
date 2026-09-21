@@ -1,35 +1,64 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from httpx import HTTPStatusError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
 from app.core.security import require_csrf, require_permissions
+from app.models.crm import Charge as CCharge
+from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription
-from app.models.source_record import SourceRecord
 from app.services.write_payku import (
     ClientNotFoundError as PaykuClientNotFoundError,
+)
+from app.services.write_payku import (
     ReconciliationRequiredError as PaykuReconciliationRequiredError,
+)
+from app.services.write_payku import (
     SubscriptionNotFoundError as PaykuSubscriptionNotFoundError,
+)
+from app.services.write_payku import (
     WriteDisabledError as PaykuWriteDisabledError,
+)
+from app.services.write_payku import (
     delete_client as payku_delete_client,
+)
+from app.services.write_payku import (
     delete_subscription as payku_delete_subscription,
+)
+from app.services.write_payku import (
     update_client as payku_update_client,
 )
 from app.services.write_toku import (
     CustomerNotFoundError as TokuCustomerNotFoundError,
+)
+from app.services.write_toku import (
     InvoiceNotFoundError as TokuInvoiceNotFoundError,
+)
+from app.services.write_toku import (
     ReconciliationRequiredError as TokuReconciliationRequiredError,
+)
+from app.services.write_toku import (
     SubscriptionNotFoundError as TokuSubscriptionNotFoundError,
+)
+from app.services.write_toku import (
     WriteDisabledError as TokuWriteDisabledError,
+)
+from app.services.write_toku import (
     change_subscription_status,
     delete_customer,
-    delete_invoice as toku_delete_invoice,
-    delete_subscription as toku_delete_subscription,
     update_customer,
+)
+from app.services.write_toku import (
+    delete_invoice as toku_delete_invoice,
+)
+from app.services.write_toku import (
+    delete_subscription as toku_delete_subscription,
+)
+from app.services.write_toku import (
     update_invoice as toku_update_invoice,
 )
 from app.services.write_virtualpos import (
@@ -338,6 +367,178 @@ async def retry_virtualpos_charge(
         raise HTTPException(status_code=503, detail="El reintento requiere reconciliación local") from None
 
     return {"external_id": charge.external_id, "status": charge.status, "payload": charge.raw_payload or {}}
+
+
+_VP_SRCS = ("virtualpos", "virtualpos1", "virtualpos2")
+_REJECTED_STATUSES = ("rechazado", "rejected", "failed", "failure", "declined", "error")
+
+
+@router.get(
+    "/virtualpos/charges/rejection-reasons",
+    dependencies=[Depends(require_permissions("virtualpos.charges.retry"))],
+    tags=["Writes - VirtualPOS"],
+)
+def list_rejection_reasons(db: Annotated[Session, Depends(get_db)]) -> dict:
+    """Devuelve los motivos de rechazo distintos registrados en cargos y pagos VirtualPOS."""
+    from sqlalchemy import distinct as sa_distinct
+
+    charge_msgs = db.scalars(
+        select(sa_distinct(CCharge.raw_payload["rejected_object"]["message"].astext)).where(
+            CCharge.source.in_(_VP_SRCS),
+            or_(*[func.lower(CCharge.status) == s for s in _REJECTED_STATUSES]),
+            CCharge.raw_payload["rejected_object"]["message"].astext.isnot(None),
+        )
+    ).all()
+
+    payment_msgs = db.scalars(
+        select(sa_distinct(CPayment.raw_payload["rejected_object"]["message"].astext)).where(
+            CPayment.source.in_(_VP_SRCS),
+            CPayment.raw_payload["rejected_object"]["message"].astext.isnot(None),
+        )
+    ).all()
+
+    reasons = sorted({r for r in (*charge_msgs, *payment_msgs) if r and r.strip()})
+    return {"reasons": reasons}
+
+
+@router.get(
+    "/virtualpos/charges/rejected",
+    dependencies=[Depends(require_permissions("virtualpos.charges.retry"))],
+    tags=["Writes - VirtualPOS"],
+)
+def list_rejected_virtualpos_charges(
+    db: Annotated[Session, Depends(get_db)],
+    date_from: str | None = Query(default=None, description="YYYY-MM-DD"),
+    date_to: str | None = Query(default=None, description="YYYY-MM-DD"),
+    platform: Literal["all", "virtualpos", "virtualpos1", "virtualpos2"] = Query(default="all"),
+    rejection_reason: str | None = Query(default=None, description="Substring del motivo o código de rechazo"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    """Lista cargos rechazados de VirtualPOS con filtros de fecha, plataforma y motivo de rechazo."""
+    sources = (
+        [platform]
+        if platform != "all"
+        else list(_VP_SRCS)
+    )
+    q = (
+        select(CCharge)
+        .where(
+            CCharge.source.in_(sources),
+            or_(*[func.lower(CCharge.status) == s for s in _REJECTED_STATUSES]),
+        )
+        .order_by(CCharge.charge_date.desc())
+    )
+    if date_from:
+        q = q.where(func.substring(CCharge.charge_date, 1, 10) >= date_from)
+    if date_to:
+        q = q.where(func.substring(CCharge.charge_date, 1, 10) <= date_to)
+    if rejection_reason:
+        pattern = f"%{rejection_reason.lower()}%"
+        charge_msg = func.lower(CCharge.raw_payload["rejected_object"]["message"].astext).like(pattern)
+        charge_code = func.lower(CCharge.raw_payload["rejected_object"]["code"].astext).like(pattern)
+        charge_fallback = func.lower(CCharge.raw_payload["razon_rechazo"].astext).like(pattern)
+        payment_subq = exists(
+            select(CPayment.id).where(
+                CPayment.charge_external_id == CCharge.external_id,
+                CPayment.source.in_(sources),
+                or_(
+                    func.lower(CPayment.raw_payload["rejected_object"]["message"].astext).like(pattern),
+                    func.lower(CPayment.raw_payload["rejected_object"]["code"].astext).like(pattern),
+                ),
+            )
+        )
+        q = q.where(or_(charge_msg, charge_code, charge_fallback, payment_subq))
+
+    total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
+    charges = db.scalars(q.offset(offset).limit(limit)).all()
+
+    charge_external_ids = [c.external_id for c in charges if c.external_id]
+    payments_by_charge: dict[str, CPayment] = {}
+    if charge_external_ids:
+        payments = db.scalars(
+            select(CPayment).where(
+                CPayment.charge_external_id.in_(charge_external_ids),
+                CPayment.source.in_(sources),
+            )
+        ).all()
+        for p in payments:
+            if p.charge_external_id and p.charge_external_id not in payments_by_charge:
+                payments_by_charge[p.charge_external_id] = p
+
+    def _extract_rejected_object(payload: dict) -> dict:
+        return payload.get("rejected_object") or {}
+
+    def _serialize(c: CCharge) -> dict:
+        charge_payload = c.raw_payload or {}
+        payment = payments_by_charge.get(c.external_id or "")
+        payment_payload = payment.raw_payload or {} if payment else {}
+        rejected_obj = (
+            _extract_rejected_object(charge_payload)
+            or _extract_rejected_object(payment_payload)
+        )
+        rejection_reason = (
+            rejected_obj.get("message")
+            or charge_payload.get("razon_rechazo")
+            or charge_payload.get("reason")
+            or charge_payload.get("rejection_reason")
+            or payment_payload.get("razon_rechazo")
+            or payment_payload.get("reason")
+        )
+        return {
+            "id": str(c.id),
+            "external_id": c.external_id,
+            "source": c.source,
+            "subscription_external_id": c.subscription_external_id,
+            "client_external_id": c.client_external_id,
+            "amount": c.amount,
+            "currency": c.currency,
+            "charge_date": c.charge_date,
+            "rejection_code": rejected_obj.get("code"),
+            "rejection_reason": rejection_reason,
+            "rejection_doc_url": rejected_obj.get("doc_url"),
+        }
+
+    return {"items": [_serialize(c) for c in charges], "total": total, "offset": offset, "limit": limit}
+
+
+class BatchRetryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    charge_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+@router.post(
+    "/virtualpos/charges/batch-retry",
+    dependencies=[Depends(require_permissions("virtualpos.charges.retry")), Depends(require_csrf)],
+    tags=["Writes - VirtualPOS"],
+)
+async def batch_retry_virtualpos_charges(
+    body: BatchRetryBody,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Reintenta una lista de cargos rechazados de VirtualPOS."""
+    results = []
+    for charge_id in body.charge_ids:
+        try:
+            charge = await retry_charge(db, charge_id)
+            results.append({"charge_id": charge_id, "success": True, "status": charge.status, "error": None})
+        except WriteDisabledError:
+            results.append({"charge_id": charge_id, "success": False, "status": None, "error": "Escrituras deshabilitadas"})
+        except ChargeNotFoundError:
+            results.append({"charge_id": charge_id, "success": False, "status": None, "error": "Cargo no encontrado"})
+        except HTTPStatusError as exc:
+            try:
+                body = exc.response.json()
+                vp_msg = body.get("message") or body.get("error") or body.get("detail")
+            except (TypeError, ValueError):
+                vp_msg = exc.response.text[:300] if exc.response.text else None
+            error_msg = vp_msg or f"Error HTTP {exc.response.status_code}"
+            results.append({"charge_id": charge_id, "success": False, "status": None, "error": error_msg})
+        except Exception as exc:  # noqa: BLE001 - each batch item must report unexpected provider errors.
+            results.append({"charge_id": charge_id, "success": False, "status": None, "error": str(exc)})
+
+    succeeded = sum(1 for r in results if r["success"])
+    return {"results": results, "succeeded": succeeded, "failed": len(results) - succeeded}
 
 
 # ─── Toku writes ─────────────────────────────────────────────────────────────

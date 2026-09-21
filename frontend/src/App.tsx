@@ -26,6 +26,16 @@ type StagingResponse = { items: StagingRecord[]; total: number; offset: number; 
 type ProviderSection = { source: string; resource: string; label: string };
 type TableColumn = { label: string; value: (record: StagingRecord) => string };
 type Activity = { year: number; month: number; count: number; amount: number };
+type RejectedCharge = {
+  id: string; external_id: string; source: string;
+  subscription_external_id: string | null; client_external_id: string | null;
+  amount: string | null; currency: string | null;
+  charge_date: string | null;
+  rejection_code: string | null; rejection_reason: string | null; rejection_doc_url: string | null;
+};
+type RejectedChargesResp = { items: RejectedCharge[]; total: number; offset: number; limit: number };
+type BatchRetryResult = { charge_id: string; success: boolean; status: string | null; error: string | null };
+type BatchRetryResp = { results: BatchRetryResult[]; succeeded: number; failed: number };
 type VpKpis = {
   mrr: number;
   active_subscribers: number;
@@ -59,6 +69,10 @@ type VirtualPosClientDetail = {
   client: StagingRecord;
   subscriptions: StagingRecord[];
   subscription_total: number;
+  charges: StagingRecord[];
+  charge_total: number;
+  payments: StagingRecord[];
+  payment_total: number;
 };
 type VirtualPosPlanDetail = {
   plan: StagingRecord;
@@ -121,7 +135,9 @@ type GeneralDashboard = {
   transactions_effective_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
 };
 type GeneralClient = { rut: string; name: string; origins: string[]; active_origins: string[] };
-type GeneralClients = { items: GeneralClient[]; total: number };
+type GeneralClients = { items: GeneralClient[]; total: number; offset: number; limit: number };
+type GeneralSubscription = { id: string; platform: string; rut: string; client: string; status: string; started_at: string | null; ended_at: string | null; amount: string | null; currency: string | null };
+type GeneralSubscriptions = { items: GeneralSubscription[]; total: number; offset: number; limit: number };
 type GeneralClientDetail = {
   rut: string;
   clients: { portal: string; id_cliente: string; external_id: string }[];
@@ -1211,6 +1227,7 @@ function Sidebar({
   onDashboard,
   generalView,
   onGeneralClients,
+  onGeneralSubscriptions,
   onChannel,
   onSection,
   onToggle,
@@ -1221,6 +1238,8 @@ function Sidebar({
   onLogout,
   open,
   onClose,
+  vpRetryOpen,
+  onVpRetry,
 }: {
   activeSection: ProviderSection | null;
   channel: string | null;
@@ -1228,8 +1247,9 @@ function Sidebar({
   openProvider: string | null;
   theme: "light" | "dark";
   onDashboard: () => void;
-  generalView: "summary" | "clients";
+  generalView: "summary" | "clients" | "subscriptions";
   onGeneralClients: () => void;
+  onGeneralSubscriptions: () => void;
   onChannel: (source: string) => void;
   onSection: (section: ProviderSection) => void;
   onToggle: (provider: string) => void;
@@ -1240,6 +1260,8 @@ function Sidebar({
   onLogout: () => void;
   open: boolean;
   onClose: () => void;
+  vpRetryOpen: boolean;
+  onVpRetry: () => void;
 }) {
   const can = (permission: string) => permissions.includes(permission);
   const go = (fn: () => void) => () => { fn(); onClose(); };
@@ -1265,7 +1287,7 @@ function Sidebar({
         </button> : null}
         {can("dashboard.view") ? <>
           <button className={generalView === "clients" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralClients)}>Clientes</button>
-          <button className="sidebar-item nested" disabled title="Próximamente">Suscripciones</button>
+          <button className={generalView === "subscriptions" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralSubscriptions)}>Suscripciones</button>
         </> : null}
         {visibleGroups.map((group) => (
           <section className="sidebar-group" key={group.name}>
@@ -1290,20 +1312,30 @@ function Sidebar({
               </button>
             </div>
             {openProvider === group.name
-              ? group.sections.map((section) => (
-                  <button
-                    className={
-                      activeSection?.source === section.source &&
-                      activeSection.resource === section.resource
-                        ? "sidebar-item nested active"
-                        : "sidebar-item nested"
-                    }
-                    key={section.resource}
-                    onClick={go(() => onSection(section))}
-                  >
-                    {section.label}
-                  </button>
-                ))
+              ? <>
+                  {group.sections.map((section) => (
+                    <button
+                      className={
+                        activeSection?.source === section.source &&
+                        activeSection.resource === section.resource
+                          ? "sidebar-item nested active"
+                          : "sidebar-item nested"
+                      }
+                      key={section.resource}
+                      onClick={go(() => onSection(section))}
+                    >
+                      {section.label}
+                    </button>
+                  ))}
+                  {group.name === "VirtualPOS" && can("virtualpos.charges.retry") ? (
+                    <button
+                      className={vpRetryOpen ? "sidebar-item nested active" : "sidebar-item nested"}
+                      onClick={go(onVpRetry)}
+                    >
+                      Reintento de cargos
+                    </button>
+                  ) : null}
+                </>
               : null}
           </section>
         ))}
@@ -1547,6 +1579,7 @@ function ChannelDashboardView({
   onMode,
   onYear,
   onOpenResource,
+  onReport,
   onSync,
 }: {
   data: ChannelDashboard;
@@ -1556,6 +1589,7 @@ function ChannelDashboardView({
   onMode: (mode: "count" | "amount") => void;
   onYear: (year: number) => void;
   onOpenResource: (resource: string) => void;
+  onReport: (scope: string) => void;
   onSync: (source: string) => void;
 }) {
   const metrics =
@@ -1628,6 +1662,7 @@ function ChannelDashboardView({
             >
               {syncing ? "Sincronizando…" : "↻ Sincronizar"}
             </button>
+            <button className="sync-btn sync-btn-secondary" onClick={() => onReport(data.source)}>Generar reporte</button>
           </div>
         </div>
       </header>
@@ -1828,6 +1863,30 @@ function ChannelDashboardView({
   );
 }
 
+function ReportDialog({ scope, onClose }: { scope: string; onClose: () => void }) {
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const names: Record<string, string> = { general: "operación consolidada", virtualpos: "VirtualPOS", toku: "Toku", payku: "Payku", tch: "TCH" };
+  function generate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!dateFrom || !dateTo) return setError("Selecciona ambas fechas.");
+    if (dateFrom >= dateTo) return setError("La fecha inicial debe ser menor que la fecha final.");
+    const query = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
+    window.open(`/api/v1/reports/${scope}?${query}`, "_blank", "noopener,noreferrer");
+    onClose();
+  }
+  return <div className="edit-dialog-backdrop" role="presentation">
+    <form className="edit-dialog" aria-modal="true" aria-label="Generar reporte" onSubmit={generate}>
+      <div className="edit-dialog-heading"><div><p className="eyebrow">REPORTE OPERATIVO</p><h3>{names[scope] ?? scope}</h3></div></div>
+      <p className="edit-dialog-note">Los indicadores muestran el estado actual. Los gráficos se calcularán solo para el período seleccionado.</p>
+      <div className="edit-form-grid"><label>Fecha inicial<input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} required /></label><label>Fecha final<input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} required /></label></div>
+      {error ? <p className="error-message form-error">{error}</p> : null}
+      <div className="edit-dialog-actions"><button type="submit" className="save-button">Generar reporte</button><button type="button" className="cancel-button" onClick={onClose}>Cancelar</button></div>
+    </form>
+  </div>;
+}
+
 type ChargeEntry = MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" };
 function applyChargeFilter(data: ChargeEntry[], filter: "todas" | "pagada" | "rechazada"): MonthlyStatusEntry[] {
   const entries = filter === "todas" ? data : data.filter(e => e.charge_status === filter);
@@ -1847,10 +1906,16 @@ function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [summary, setSummary] = useState<Summary>({ sources: [] });
   const [generalData, setGeneralData] = useState<GeneralDashboard | null>(null);
-  const [generalView, setGeneralView] = useState<"summary" | "clients">("summary");
+  const [generalView, setGeneralView] = useState<"summary" | "clients" | "subscriptions">("summary");
   const [generalClients, setGeneralClients] = useState<GeneralClients | null>(null);
   const [generalClientQuery, setGeneralClientQuery] = useState("");
+  const [generalClientFilter, setGeneralClientFilter] = useState<"all" | "rut" | "name" | "last_name" | "platform" | "email" | "phone">("all");
+  const [generalClientOffset, setGeneralClientOffset] = useState(0);
   const [generalClientDetail, setGeneralClientDetail] = useState<GeneralClientDetail | null>(null);
+  const [generalSubscriptions, setGeneralSubscriptions] = useState<GeneralSubscriptions | null>(null);
+  const [generalSubscriptionQuery, setGeneralSubscriptionQuery] = useState("");
+  const [generalSubscriptionFilter, setGeneralSubscriptionFilter] = useState<"all" | "id" | "rut" | "client" | "platform" | "status">("all");
+  const [generalSubscriptionOffset, setGeneralSubscriptionOffset] = useState(0);
   const [activeSection, setActiveSection] = useState<ProviderSection | null>(
     null,
   );
@@ -1939,8 +2004,24 @@ function App() {
   const [year, setYear] = useState<number | null>(null);
   const [generalMode, setGeneralMode] = useState<"count" | "amount">("count");
   const [generalYear, setGeneralYear] = useState<number | null>(null);
+  const [reportScope, setReportScope] = useState<string | null>(null);
   const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
+  // Reintento de cargos VirtualPOS
+  const [vpRetryOpen, setVpRetryOpen] = useState(false);
+  const [retryCharges, setRetryCharges] = useState<RejectedChargesResp | null>(null);
+  const [retryLoading, setRetryLoading] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryDateFrom, setRetryDateFrom] = useState("");
+  const [retryDateTo, setRetryDateTo] = useState("");
+  const [retryPlatform, setRetryPlatform] = useState<"all" | "virtualpos" | "virtualpos1" | "virtualpos2">("all");
+  const [retryReasonFilter, setRetryReasonFilter] = useState("");
+  const [retryReasonOptions, setRetryReasonOptions] = useState<string[]>([]);
+  const [retrySnapshot, setRetrySnapshot] = useState<Map<string, RejectedCharge>>(new Map());
+  const [retryOffset, setRetryOffset] = useState(0);
+  const [retrySelected, setRetrySelected] = useState<Set<string>>(new Set());
+  const [retrying, setRetrying] = useState(false);
+  const [retryResults, setRetryResults] = useState<BatchRetryResp | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
@@ -2020,12 +2101,21 @@ function App() {
 
   useEffect(() => {
     if (!session || generalView !== "clients") return;
-    const params = new URLSearchParams({ limit: "100" });
+    const params = new URLSearchParams({ limit: "100", offset: String(generalClientOffset), filter_field: generalClientFilter });
     if (generalClientQuery.trim()) params.set("query", generalClientQuery.trim());
     getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${params}`)
       .then(setGeneralClients)
       .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")));
-  }, [session, generalView, generalClientQuery]);
+  }, [session, generalView, generalClientQuery, generalClientFilter, generalClientOffset]);
+
+  useEffect(() => {
+    if (!session || generalView !== "subscriptions") return;
+    const params = new URLSearchParams({ limit: "100", offset: String(generalSubscriptionOffset), filter_field: generalSubscriptionFilter });
+    if (generalSubscriptionQuery.trim()) params.set("query", generalSubscriptionQuery.trim());
+    getJson<GeneralSubscriptions>(`/api/v1/staging/dashboard/general/subscriptions?${params}`)
+      .then(setGeneralSubscriptions)
+      .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar las suscripciones consolidadas.")));
+  }, [session, generalView, generalSubscriptionQuery, generalSubscriptionFilter, generalSubscriptionOffset]);
 
   useEffect(() => {
     if (!session || !activeSection) return;
@@ -2829,6 +2919,7 @@ function App() {
 
   function showDashboard() {
     setAdminOpen(false);
+    setVpRetryOpen(false);
     clearDetails();
     setActiveSection(null);
     setChannel(null);
@@ -2843,11 +2934,17 @@ function App() {
     setGeneralView("clients");
   }
 
+  function showGeneralSubscriptions() {
+    showDashboard();
+    setGeneralView("subscriptions");
+  }
+
   function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones") {
     clearDetails();
     setChannel(null);
     setActiveSection(null);
     setAdminOpen(false);
+    setVpRetryOpen(false);
     setError(null);
     setTchSuscripcionDetail(null);
     setTchTransaccionDetail(null);
@@ -2881,6 +2978,7 @@ function App() {
     clearDetails();
     setActiveSection(null);
     setTchView(null);
+    setVpRetryOpen(false);
     setChannelData(null);
     setChannelLoading(true);
     setError(null);
@@ -2949,6 +3047,7 @@ function App() {
   function showSection(section: ProviderSection) {
     clearDetails();
     setChannel(null);
+    setVpRetryOpen(false);
     setLoading(true);
     setError(null);
     setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
@@ -2965,6 +3064,68 @@ function App() {
       .flatMap((group) => group.sections)
       .find((entry) => entry.source === channel && entry.resource === resource);
     if (section) showSection(section);
+  }
+
+  function showVpRetry() {
+    clearDetails();
+    setChannel(null);
+    setActiveSection(null);
+    setTchView(null);
+    setAdminOpen(false);
+    setVpRetryOpen(true);
+    setOpenProvider("VirtualPOS");
+    setRetryCharges(null);
+    setRetryError(null);
+    setRetryOffset(0);
+    setRetrySelected(new Set());
+    setRetryResults(null);
+    setRetryReasonFilter("");
+    getJson<{ reasons: string[] }>("/api/v1/writes/virtualpos/charges/rejection-reasons")
+      .then((r) => setRetryReasonOptions(r.reasons))
+      .catch(() => setRetryReasonOptions([]));
+  }
+
+  async function loadRetryCharges() {
+    setRetryLoading(true);
+    setRetryError(null);
+    try {
+      const params = new URLSearchParams({ offset: String(retryOffset), limit: "50" });
+      if (retryDateFrom) params.set("date_from", retryDateFrom);
+      if (retryDateTo) params.set("date_to", retryDateTo);
+      if (retryPlatform !== "all") params.set("platform", retryPlatform);
+      if (retryReasonFilter.trim()) params.set("rejection_reason", retryReasonFilter.trim());
+      const data = await getJson<RejectedChargesResp>(`/api/v1/writes/virtualpos/charges/rejected?${params}`);
+      setRetryCharges(data);
+      setRetrySelected(new Set());
+    } catch (err) {
+      setRetryError(friendlyError(err, "Error al cargar cargos rechazados."));
+    } finally {
+      setRetryLoading(false);
+    }
+  }
+
+  async function runBatchRetry() {
+    if (retrySelected.size === 0 || retrying) return;
+    setRetrying(true);
+    setRetryResults(null);
+    const snapshot = new Map(
+      (retryCharges?.items ?? [])
+        .filter((c) => retrySelected.has(c.id))
+        .map((c) => [c.id, c])
+    );
+    setRetrySnapshot(snapshot);
+    try {
+      const result = await postJson<BatchRetryResp>("/api/v1/writes/virtualpos/charges/batch-retry", {
+        charge_ids: [...retrySelected],
+      });
+      setRetryResults(result);
+      setRetrySelected(new Set());
+      await loadRetryCharges();
+    } catch (err) {
+      setRetryError(friendlyError(err, "Error al reintentar cargos."));
+    } finally {
+      setRetrying(false);
+    }
   }
   async function openVirtualPosClient(record: StagingRecord) {
     setPlanDetail(null);
@@ -3189,6 +3350,92 @@ function App() {
               {clientDetail.subscriptions.length === 0 ? (
                 <tr>
                   <td colSpan={5}>Sin suscripciones asociadas por RUT.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">CARGOS</p>
+            <h3>Cobros generados por suscripción</h3>
+          </div>
+          <span>{clientDetail.charge_total} total{clientDetail.charge_total > 100 ? " · mostrando últimos 100" : ""}</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>ID Cargo</th>
+                <th>Suscripción</th>
+                <th>Estado</th>
+                <th>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clientDetail.charges.map((charge) => (
+                <tr key={charge.id}>
+                  <td>{text(charge.payload.charge_date)}</td>
+                  <td>
+                    <button className="record-link" onClick={() => void openVirtualPosCharge(charge)}>
+                      {text(charge.payload.id, charge.external_id)}
+                    </button>
+                  </td>
+                  <td>{text(charge.payload.suscription_id, "—")}</td>
+                  <td>{text(charge.payload.status)}</td>
+                  <td>{text(charge.payload.amount)}</td>
+                </tr>
+              ))}
+              {clientDetail.charges.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>Sin cargos registrados para este cliente.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">TRANSACCIONES</p>
+            <h3>Pagos procesados</h3>
+          </div>
+          <span>{clientDetail.payment_total} total</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha autorización</th>
+                <th>ID Transacción</th>
+                <th>Estado</th>
+                <th>Monto bruto</th>
+                <th>Abono neto</th>
+                <th>Tipo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clientDetail.payments.map((payment) => {
+                const order = (payment.payload as Record<string, Record<string, unknown>>).order ?? {};
+                const deposit = (Array.isArray(order.deposits) ? order.deposits[0] : null) as Record<string, unknown> | null;
+                return (
+                  <tr key={payment.id}>
+                    <td>{text(order.authorized_at as string)}</td>
+                    <td>{text(payment.external_id)}</td>
+                    <td>{text(order.status as string)}</td>
+                    <td>{text(order.amount as string)}</td>
+                    <td>{deposit ? text(String(deposit.payout_amount ?? "—")) : "—"}</td>
+                    <td>{text(order.payment_type_code as string, "—")}</td>
+                  </tr>
+                );
+              })}
+              {clientDetail.payments.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>Sin transacciones procesadas para este cliente.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -3708,6 +3955,179 @@ function App() {
       </button>
     </section>
   ) : null;
+  const allSelected = (retryCharges?.items.length ?? 0) > 0 && retrySelected.size === (retryCharges?.items.length ?? 0);
+  const vpRetryView = vpRetryOpen ? (
+    <main className="app-shell">
+      <div className="topbar">
+        <div>
+          <p className="eyebrow">VirtualPOS</p>
+          <h1>Reintento de cargos</h1>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 20 }}>
+        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
+          Desde
+          <input type="date" value={retryDateFrom} onChange={(e) => setRetryDateFrom(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }} />
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
+          Hasta
+          <input type="date" value={retryDateTo} onChange={(e) => setRetryDateTo(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }} />
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
+          Plataforma
+          <select value={retryPlatform} onChange={(e) => setRetryPlatform(e.target.value as typeof retryPlatform)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }}>
+            <option value="all">Todas</option>
+            <option value="virtualpos">VirtualPOS</option>
+            <option value="virtualpos1">VirtualPOS 1</option>
+            <option value="virtualpos2">VirtualPOS 2</option>
+          </select>
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em", flex: "1 1 220px" }}>
+          Motivo de rechazo
+          <input
+            list="retry-reason-options"
+            value={retryReasonFilter}
+            onChange={(e) => setRetryReasonFilter(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { setRetryOffset(0); loadRetryCharges(); } }}
+            placeholder="Seleccionar o escribir motivo..."
+            style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }}
+          />
+          <datalist id="retry-reason-options">
+            {retryReasonOptions.map((r) => <option key={r} value={r} />)}
+          </datalist>
+        </label>
+        <button className="primary-button" onClick={() => { setRetryOffset(0); loadRetryCharges(); }} disabled={retryLoading}>
+          {retryLoading ? "Cargando..." : "Buscar"}
+        </button>
+        {retrySelected.size > 0 ? (
+          <button className="primary-button" style={{ background: "var(--color-danger, #c0392b)" }} onClick={runBatchRetry} disabled={retrying}>
+            {retrying ? "Reintentando..." : `Reintentar seleccionados (${retrySelected.size})`}
+          </button>
+        ) : null}
+      </div>
+      {retryError ? <p className="error-message">{retryError}</p> : null}
+      {retryResults ? (() => {
+        const failed = retryResults.results.filter((r) => !r.success);
+        const errorGroups = new Map<string, number>();
+        for (const r of failed) {
+          const key = r.error ?? "Error desconocido";
+          errorGroups.set(key, (errorGroups.get(key) ?? 0) + 1);
+        }
+        return (
+          <div style={{ marginBottom: 20 }}>
+            <div className={retryResults.succeeded > 0 && retryResults.failed === 0 ? "success-message" : retryResults.succeeded === 0 ? "error-message" : "success-message"} style={{ marginBottom: failed.length > 0 ? 12 : 0 }}>
+              Reintento completado: <strong>{retryResults.succeeded}</strong> exitosos, <strong>{retryResults.failed}</strong> fallidos.
+            </div>
+            {failed.length > 0 && (
+              <div className="panel" style={{ marginTop: 8, padding: "16px 20px" }}>
+                <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 13, color: "var(--text-2)" }}>Detalle de fallos</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                  {[...errorGroups.entries()].map(([msg, count]) => (
+                    <div key={msg} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "7px 10px", background: "var(--bg-muted)", borderRadius: 8 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-1)" }}>{msg}</span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", whiteSpace: "nowrap" }}>{count} cargo{count !== 1 ? "s" : ""}</span>
+                    </div>
+                  ))}
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-3)", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>ID externo</th>
+                      <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-3)", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>Monto</th>
+                      <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-3)", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {failed.map((r) => {
+                      const charge = retrySnapshot.get(r.charge_id);
+                      return (
+                        <tr key={r.charge_id}>
+                          <td style={{ padding: "6px 8px", fontFamily: "monospace", borderBottom: "1px solid var(--border-subtle)", color: "var(--text-1)" }}>{charge?.external_id ?? r.charge_id}</td>
+                          <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)", color: "var(--text-2)" }}>{charge?.amount ? `${charge.currency ?? ""} ${Number(charge.amount).toLocaleString("es-CL")}` : "—"}</td>
+                          <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)", color: "var(--error-text, #c0392b)" }}>{r.error ?? "Error desconocido"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })() : null}
+      {retryCharges ? (
+        <>
+          <div className="table-wrap panel" style={{ marginBottom: 16 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 36 }}>
+                    <input type="checkbox" checked={allSelected} onChange={(e) => {
+                      if (e.target.checked) setRetrySelected(new Set(retryCharges.items.map((c) => c.id)));
+                      else setRetrySelected(new Set());
+                    }} />
+                  </th>
+                  <th>ID externo</th>
+                  <th>Fuente</th>
+                  <th>Suscripción</th>
+                  <th>Cliente</th>
+                  <th>Monto</th>
+                  <th>Fecha</th>
+                  <th>Motivo rechazo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {retryCharges.items.map((charge) => (
+                  <tr key={charge.id}>
+                    <td>
+                      <input type="checkbox" checked={retrySelected.has(charge.id)} onChange={(e) => {
+                        setRetrySelected((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(charge.id);
+                          else next.delete(charge.id);
+                          return next;
+                        });
+                      }} />
+                    </td>
+                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{charge.external_id}</td>
+                    <td>{charge.source}</td>
+                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{charge.subscription_external_id ?? "—"}</td>
+                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{charge.client_external_id ?? "—"}</td>
+                    <td>{charge.amount ? `${charge.currency ?? ""} ${Number(charge.amount).toLocaleString("es-CL")}` : "—"}</td>
+                    <td>{charge.charge_date ?? "—"}</td>
+                    <td style={{ maxWidth: 260 }}>
+                      {charge.rejection_reason ? (
+                        <span>
+                          {charge.rejection_code ? <code style={{ fontSize: 11, marginRight: 5, color: "var(--text-3)" }}>[{charge.rejection_code}]</code> : null}
+                          {charge.rejection_doc_url ? (
+                            <a href={charge.rejection_doc_url} target="_blank" rel="noreferrer" title={charge.rejection_reason} style={{ color: "var(--link-color)", textDecoration: "none", fontSize: 13 }}>
+                              {charge.rejection_reason}
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: 13 }} title={charge.rejection_reason}>{charge.rejection_reason}</span>
+                          )}
+                        </span>
+                      ) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button className="primary-button" disabled={retryOffset === 0} onClick={() => { setRetryOffset(Math.max(0, retryOffset - 50)); loadRetryCharges(); }}>← Anterior</button>
+            <span style={{ fontSize: 13, color: "var(--text-3)" }}>
+              {retryOffset + 1}–{Math.min(retryOffset + 50, retryCharges.total)} de {retryCharges.total}
+            </span>
+            <button className="primary-button" disabled={retryOffset + 50 >= retryCharges.total} onClick={() => { setRetryOffset(retryOffset + 50); loadRetryCharges(); }}>Siguiente →</button>
+          </div>
+        </>
+      ) : !retryLoading ? (
+        <p className="muted-copy">Usa los filtros y haz clic en "Buscar" para cargar los cargos rechazados.</p>
+      ) : null}
+    </main>
+  ) : null;
+
   const providerDetail = activeSection ? (
     <main className="app-shell detail-page provider-page">
       <button
@@ -3986,18 +4406,24 @@ function App() {
                 {generalData.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
               </select>
             ) : null}
+            <button className="sync-btn sync-btn-secondary" onClick={() => setReportScope("general")}>Generar reporte</button>
           </div>
         ) : (
           <p className="sync-copy">KPIs y actividad mensual calculados desde las entidades canónicas y TCH.</p>
         )}
       </section>
       {error ? <p className="error-message">{error}</p> : null}
-      {generalView === "clients" ? (
+      {generalView === "subscriptions" ? (
         <section className="panel">
-          <div className="panel-heading"><div><p className="eyebrow">CLIENTES CONSOLIDADOS</p><h3>{generalClients?.total.toLocaleString("es-CL") ?? ""} clientes por RUT</h3></div><input aria-label="Buscar cliente consolidado" placeholder="Buscar RUT o nombre" value={generalClientQuery} onChange={(event) => setGeneralClientQuery(event.target.value)} /></div>
+          <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES CONSOLIDADAS</p><h3>{generalSubscriptions?.total.toLocaleString("es-CL") ?? ""} suscripciones</h3></div><div className="table-filters"><select aria-label="Campo de búsqueda de suscripciones" value={generalSubscriptionFilter} onChange={(event) => { setGeneralSubscriptionFilter(event.target.value as typeof generalSubscriptionFilter); setGeneralSubscriptionOffset(0); }}><option value="all">Todos los campos</option><option value="id">ID</option><option value="rut">RUT</option><option value="client">Cliente</option><option value="platform">Plataforma</option><option value="status">Estado</option></select><input aria-label="Buscar suscripción consolidada" placeholder="Buscar suscripciones" value={generalSubscriptionQuery} onChange={(event) => { setGeneralSubscriptionQuery(event.target.value); setGeneralSubscriptionOffset(0); }} /></div></div>
+          <div className="table-wrap"><table><thead><tr><th>ID</th><th>Cliente</th><th>RUT</th><th>Plataforma</th><th>Estado</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead><tbody>{(generalSubscriptions?.items ?? []).map((subscription) => <tr key={`${subscription.platform}-${subscription.id}`}><td>{subscription.id}</td><td>{subscription.client || "—"}</td><td>{subscription.rut || "—"}</td><td>{subscription.platform}</td><td>{subscription.status || "—"}</td><td>{subscription.started_at ?? "—"}</td><td>{subscription.ended_at ?? "—"}</td><td>{subscription.amount ? `${subscription.currency ?? ""} $${Number(subscription.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{(generalSubscriptions?.items ?? []).length === 0 ? <tr><td colSpan={8}>Sin suscripciones.</td></tr> : null}</tbody></table></div>{generalSubscriptions && generalSubscriptions.total > generalSubscriptions.limit ? <div className="pagination"><button disabled={generalSubscriptionOffset === 0} onClick={() => setGeneralSubscriptionOffset((offset) => Math.max(0, offset - generalSubscriptions.limit))}>← Anterior</button><span>{generalSubscriptionOffset + 1}-{Math.min(generalSubscriptionOffset + generalSubscriptions.items.length, generalSubscriptions.total)} de {generalSubscriptions.total.toLocaleString("es-CL")}</span><button disabled={generalSubscriptionOffset + generalSubscriptions.limit >= generalSubscriptions.total} onClick={() => setGeneralSubscriptionOffset((offset) => offset + generalSubscriptions.limit)}>Siguiente →</button></div> : null}
+        </section>
+      ) : generalView === "clients" ? (
+        <section className="panel">
+          <div className="panel-heading"><div><p className="eyebrow">CLIENTES CONSOLIDADOS</p><h3>{generalClients?.total.toLocaleString("es-CL") ?? ""} clientes por RUT</h3></div><div className="table-filters"><select aria-label="Campo de búsqueda de clientes" value={generalClientFilter} onChange={(event) => { setGeneralClientFilter(event.target.value as typeof generalClientFilter); setGeneralClientOffset(0); }}><option value="all">Todos los campos</option><option value="rut">RUT</option><option value="name">Nombre</option><option value="last_name">Apellido</option><option value="platform">Plataforma</option><option value="email">Correo</option><option value="phone">Teléfono</option></select><input aria-label="Buscar cliente consolidado" placeholder="Buscar clientes" value={generalClientQuery} onChange={(event) => { setGeneralClientQuery(event.target.value); setGeneralClientOffset(0); }} /></div></div>
           {generalClientDetail ? (
             <div className="record-detail"><button onClick={() => setGeneralClientDetail(null)}>← Volver a clientes</button><h3>Ficha general: {generalClientDetail.rut}</h3>{(["clients", "subscriptions", "charges", "transactions"] as const).map((section) => <div key={section}><h4>{section === "clients" ? "IDs de cliente" : section === "subscriptions" ? "Suscripciones" : section === "charges" ? "Cargos" : "Transacciones"}</h4><div className="table-wrap"><table><thead><tr><th>Portal</th><th>ID interno</th><th>ID origen</th><th>Estado</th><th>Monto</th></tr></thead><tbody>{generalClientDetail[section].map((item) => <tr key={`${item.portal}-${item.external_id}`}><td>{item.portal}</td><td>{("id_cliente" in item ? item.id_cliente : "id_subscription" in item ? item.id_subscription : "id_cargo" in item ? item.id_cargo : item.id_transaccion)}</td><td>{item.external_id}</td><td>{"status" in item ? item.status : "—"}</td><td>{"amount" in item && item.amount ? `$${Number(item.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{generalClientDetail[section].length === 0 ? <tr><td colSpan={5}>Sin registros relacionados.</td></tr> : null}</tbody></table></div></div>)}</div>
-          ) : <div className="table-wrap"><table><thead><tr><th>RUT</th><th>Nombre completo</th><th>Cliente origen</th><th>Suscripciones act.</th></tr></thead><tbody>{(generalClients?.items ?? []).map((client) => <tr key={client.rut}><td><button className="record-link" onClick={() => getJson<GeneralClientDetail>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(client.rut)}`).then(setGeneralClientDetail).catch((err: unknown) => setError(friendlyError(err, "No se pudo cargar la ficha general.")))}>{client.rut}</button></td><td>{client.name || "—"}</td><td>{client.origins.join(" · ")}</td><td>{client.active_origins.join(" · ") || "—"}</td></tr>)}{(generalClients?.items ?? []).length === 0 ? <tr><td colSpan={4}>Sin clientes con RUT.</td></tr> : null}</tbody></table></div>}
+          ) : <><div className="table-wrap"><table><thead><tr><th>RUT</th><th>Nombre completo</th><th>Plataforma de origen</th><th>Suscripciones activas</th></tr></thead><tbody>{(generalClients?.items ?? []).map((client) => <tr key={client.rut}><td><button className="record-link" onClick={() => getJson<GeneralClientDetail>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(client.rut)}`).then(setGeneralClientDetail).catch((err: unknown) => setError(friendlyError(err, "No se pudo cargar la ficha general.")))}>{client.rut}</button></td><td>{client.name || "—"}</td><td>{client.origins.join(" · ")}</td><td>{client.active_origins.join(" · ") || "—"}</td></tr>)}{(generalClients?.items ?? []).length === 0 ? <tr><td colSpan={4}>Sin clientes con RUT.</td></tr> : null}</tbody></table></div>{generalClients && generalClients.total > generalClients.limit ? <div className="pagination"><button disabled={generalClientOffset === 0} onClick={() => setGeneralClientOffset((offset) => Math.max(0, offset - generalClients.limit))}>← Anterior</button><span>{generalClientOffset + 1}-{Math.min(generalClientOffset + generalClients.items.length, generalClients.total)} de {generalClients.total.toLocaleString("es-CL")}</span><button disabled={generalClientOffset + generalClients.limit >= generalClients.total} onClick={() => setGeneralClientOffset((offset) => offset + generalClients.limit)}>Siguiente →</button></div> : null}</>}
         </section>
       ) : generalData ? (
         <>
@@ -4376,6 +4802,7 @@ function App() {
                   {tchSummary.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
                 </select>
               ) : null}
+              <button className="sync-btn sync-btn-secondary" onClick={() => setReportScope("tch")}>Generar reporte</button>
             </div>
             {tchSummary.ultimo_etl.started_at ? (
               <>
@@ -4580,6 +5007,7 @@ function App() {
     chargeDetailView ??
     paymentDetailView ??
     providerRecordDetailView ??
+    vpRetryView ??
     providerDetail ??
     tchContent ??
     (channel ? (
@@ -4596,6 +5024,7 @@ function App() {
           onMode={setMode}
           onYear={setYear}
           onOpenResource={openChannelResource}
+          onReport={setReportScope}
           onSync={syncChannel}
         />
       )
@@ -4628,6 +5057,7 @@ function App() {
         onDashboard={showDashboard}
         generalView={generalView}
         onGeneralClients={showGeneralClients}
+        onGeneralSubscriptions={showGeneralSubscriptions}
         onChannel={showChannel}
         onSection={showSection}
         onToggle={(provider) =>
@@ -4640,6 +5070,8 @@ function App() {
         onLogout={logout}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        vpRetryOpen={vpRetryOpen}
+        onVpRetry={showVpRetry}
       />
       {adminOpen ? <AdminUsers canManageUsers={session.user.permissions.includes("users.manage")} /> : content}
       {clientEditDialog}
@@ -4956,6 +5388,7 @@ function App() {
       ) : null}
       {providerEditDialog}
       {providerDeleteDialog}
+      {reportScope ? <ReportDialog scope={reportScope} onClose={() => setReportScope(null)} /> : null}
     </div>
   );
 }

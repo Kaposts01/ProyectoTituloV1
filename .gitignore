@@ -18,6 +18,8 @@ build/
 coverage.xml
 htmlcov/
 *.sqlite3
+*.local.log
+*.local.error.log
 
 # IDE and tool directories
 .opencode/

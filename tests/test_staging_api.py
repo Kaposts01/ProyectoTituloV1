@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import Session
 
-from app.api.v1.routes import staging
+from app.api.v1.routes import reports, staging
 from app.db.session import engine
 from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscription
 from app.models.payku_channel import PaykuSubscription, PaykuTransaction
@@ -188,6 +189,68 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
     assert response["transactions"]["amount"] == before["transactions"]["amount"] + 3200
     assert {entry["status"] for entry in response["transactions_monthly"] if entry["year"] == 2099} >= {"Aceptadas", "Rechazadas"}
     assert {entry["status"] for entry in response["activations_monthly"] if entry["year"] == 2099} >= {"Payku", "TCH"}
+
+
+def test_report_series_filters_events_to_the_requested_date_range(db_session) -> None:
+    db_session.add_all(
+        [
+            Payment(source="payku", external_id="report-in", status="success", amount="1200", payment_date="2099-04-15", raw_payload={}),
+            Payment(source="payku", external_id="report-out", status="success", amount="900", payment_date="2099-05-01", raw_payload={}),
+            Charge(source="payku", external_id="report-charge", status="rejected", amount="500", charge_date="2099-04-20", raw_payload={}),
+            Subscription(source="payku", external_id="report-sub", amount="1000", suscription_date="2099-04-02", canceled_at="2099-04-30", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+
+    response = reports._series(db_session, "payku", date(2099, 4, 1), date(2099, 4, 30))
+
+    assert response["transactions"] == [{"year": 2099, "month": 4, "status": "Aceptadas", "count": 1, "amount": 1200.0}]
+    assert response["charges"] == [{"year": 2099, "month": 4, "status": "Rechazadas", "count": 1, "amount": 500.0}]
+    assert response["activations"] == [{"year": 2099, "month": 4, "status": "Altas", "count": 1, "amount": 1000.0}]
+    assert response["cancellations"] == [{"year": 2099, "month": 4, "status": "Bajas", "count": 1, "amount": 1000.0}]
+
+
+def test_report_dates_require_a_strictly_increasing_range() -> None:
+    assert reports._parse_date("2099-04-01", "date_from") == date(2099, 4, 1)
+    with pytest.raises(Exception, match="date_from must use YYYY-MM-DD"):
+        reports._parse_date("04-01-2099", "date_from")
+
+
+def test_virtualpos_report_uses_historical_snapshot_and_period_charges(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(source="virtualpos1", external_id="report-client", provider_created_at="2099-04-01", raw_payload={}),
+            Subscription(
+                source="virtualpos1", external_id="report-active", client_external_id="report-client",
+                suscription_date="2099-04-02", amount="1000", raw_payload={},
+            ),
+            Charge(
+                source="virtualpos1", external_id="report-paid", subscription_external_id="report-active",
+                status="pagado", amount="99999999", charge_date="2099-04-20", raw_payload={},
+            ),
+            Charge(
+                source="virtualpos1", external_id="report-rejected", subscription_external_id="report-active",
+                status="rechazado", amount="1200", charge_date="2099-04-21", raw_payload={},
+            ),
+        ]
+    )
+    db_session.flush()
+
+    report = reports._virtualpos_report_data(db_session, date(2099, 4, 1), date(2099, 4, 30))
+
+    assert report["kpis"]["n_activas"] >= 1
+    assert report["kpis"]["total_clientes"] >= 1
+    assert report["kpis"]["cargos_pag"] == 1
+    assert report["kpis"]["cargos_rec"] == 1
+    assert report["kpis"]["total_recaudado"] == 99999999
+    assert report["tabla_activas"][0]["producto"] == "report-active"
+    assert "Dashboard de Socios" in reports._virtualpos_report_html(date(2099, 4, 1), date(2099, 4, 30), report)
+
+
+def test_tch_report_uses_tch_dashboard_permission() -> None:
+    user = SimpleNamespace(roles=[SimpleNamespace(permissions=[SimpleNamespace(code="tch.dashboard.view")])])
+
+    reports._require_report_access(user, "tch")
 
 
 def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) -> None:
@@ -582,3 +645,91 @@ def test_payku_canonical_detail_links_clients_plans_subscriptions_and_transactio
     assert [item["external_id"] for item in subscription_related["plan"]] == ["plan-1"]
     assert [item["external_id"] for item in subscription_related["transaction"]] == ["transaction-1"]
     assert [item["external_id"] for item in transaction_related["subscription"]] == ["subscription-1"]
+
+
+def test_general_clients_searches_each_consolidated_client_field(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(
+                source="payku",
+                external_id="general-search-payku",
+                social_id="99.111.222-3",
+                first_name="Carla",
+                last_name="Prueba",
+                email="carla.busqueda@example.test",
+                phone_number="+56912345678",
+                raw_payload={},
+            ),
+            Subscription(
+                source="payku",
+                external_id="general-search-subscription",
+                client_external_id="general-search-payku",
+                status="active",
+                raw_payload={},
+            ),
+        ]
+    )
+    db_session.flush()
+
+    by_rut = staging._general_clients(db_session, "991112223", "rut")
+    by_name = staging._general_clients(db_session, "carla", "name")
+    by_last_name = staging._general_clients(db_session, "prueba", "last_name")
+    by_platform = staging._general_clients(db_session, "payku", "platform")
+    by_email = staging._general_clients(db_session, "busqueda@example", "email")
+    by_phone = staging._general_clients(db_session, "912345678", "phone")
+
+    for result in (by_rut, by_name, by_last_name, by_platform, by_email, by_phone):
+        client = next(item for item in result if item["rut"] == "99.111.222-3")
+        assert client["name"] == "Carla Prueba"
+        assert client["origins"] == ["Payku"]
+        assert client["active_origins"] == ["Payku"]
+
+
+def test_general_subscriptions_combine_channels_and_filter_fields(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(source="toku", external_id="general-sub-client", social_id="88.777.666-5", first_name="Pablo", last_name="Cliente", raw_payload={}),
+            Subscription(source="toku", external_id="general-sub-toku", client_external_id="general-sub-client", status="active", amount="2500", currency="CLP", suscription_date="2099-05-01", raw_payload={}),
+            TchCliente(rut="77.666.555-4", nombre="Tania", apellido="TCH"),
+            TchSuscripcion(numero_ficha=987654, cliente_rut="77.666.555-4", estado="VIGENTE", equivalente_pesos="3500", fecha_activacion="2099-05-02"),
+        ]
+    )
+    db_session.flush()
+
+    by_client = staging._general_subscriptions(db_session, "pablo", "client")
+    by_platform = staging._general_subscriptions(db_session, "tch", "platform")
+    by_rut = staging._general_subscriptions(db_session, "776665554", "rut")
+
+    toku = next(item for item in by_client if item["id"] == "general-sub-toku")
+    tch = next(item for item in by_platform if item["id"] == "987654")
+    assert toku["platform"] == "Toku"
+    assert toku["rut"] == "88.777.666-5"
+    assert toku["amount"] == "2500"
+    assert tch["client"] == "Tania TCH"
+    assert tch["currency"] == "CLP"
+    assert any(item["id"] == "987654" for item in by_rut)
+
+
+def test_general_subscriptions_exclude_non_operational_statuses(db_session) -> None:
+    db_session.add_all(
+        [
+            Subscription(source="virtualpos1", external_id="excluded-vp", status="SUSCRIPCION_FALLIDA", raw_payload={}),
+            Subscription(source="payku", external_id="excluded-payku", status="register", raw_payload={}),
+            Subscription(source="tch", external_id="excluded-tch-canonical", status="RECHAZADA", raw_payload={}),
+            TchSuscripcion(numero_ficha=765432, estado="RECHAZADA"),
+            Subscription(source="virtualpos1", external_id="included-vp", status="ACTIVA", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+
+    ids = {item["id"] for item in staging._general_subscriptions(db_session)}
+
+    assert "included-vp" in ids
+    assert {"excluded-vp", "excluded-payku", "excluded-tch-canonical", "765432"}.isdisjoint(ids)
+
+
+def test_general_dashboard_routes_precede_the_provider_detail_route() -> None:
+    paths = [route.path for route in staging.router.routes]
+
+    assert paths.index("/dashboard/general/clients") < paths.index("/{source}/{resource_type}/{external_id}")
+    assert paths.index("/dashboard/general/subscriptions") < paths.index("/{source}/{resource_type}/{external_id}")
