@@ -65,6 +65,8 @@ Las operaciones de escritura solo se exponen mediante rutas internas implementad
 - Escrituras Payku: `PUT /api/v1/writes/payku/clients/{id}`, `DELETE /api/v1/writes/payku/clients/{id}`, `DELETE /api/v1/writes/payku/subscriptions/{id}`. Requieren `PAYKU_WRITES_ENABLED=true`.
 - Reportes operativos HTML: `GET /api/v1/reports/{general|virtualpos|toku|payku|tch}?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD`. Requieren el permiso de dashboard correspondiente.
 - Reintento de cargos VirtualPOS: la interfaz permite filtrar cargos rechazados y reintentarlos en lote. Las rutas internas requieren `virtualpos.charges.retry`, CSRF y `VIRTUALPOS_WRITES_ENABLED=true`.
+- Recuperador de Socios VirtualPOS: reúne suscripciones canceladas exportables, cargos rechazados recuperables y rechazos asociados a tarjeta/cuenta. Los ciclos de reintento se cierran al cuarto día desde el envío según la siguiente sincronización disponible. Los links de cambio de tarjeta se muestran solo al solicitante y no se guardan.
+- API Recuperador: `GET /api/v1/recovery/cancelled`, `GET /api/v1/recovery/cancelled/export`, `GET /api/v1/recovery/rejected?bucket=retry|card`, `GET /api/v1/recovery/card-expirations`, `POST /api/v1/recovery/retries` y `POST /api/v1/recovery/card-change-links/{subscription_id}`.
 
 Consulta `docs/architecture.md` para el flujo de datos y `docs/tasks.md` para el estado de las tareas.
 

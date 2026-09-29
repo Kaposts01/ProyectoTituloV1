@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     payku_secret_key: str = ""
     payku_public_token: str = ""
     payku_private_token: str = ""
-    payku_date_init: str = "2020-08-04"
+    payku_date_init: str = "2025-01-01"
     payku_date_end: str = ""
     payku_timeout_seconds: float = 30
     payku_read_retries: int = 2

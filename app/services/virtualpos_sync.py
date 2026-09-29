@@ -14,6 +14,7 @@ from app.integrations.virtualpos.client import VirtualPOSClient
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services.channel_store import store_vp_resources
+from app.services.charge_recovery import reconcile_charge_recoveries
 from app.services.crm_materialization import materialize_records
 from app.services.payload_sanitization import sanitize_payload
 from app.services.sync_progress import ProgressCallback, pagination_totals
@@ -206,6 +207,7 @@ async def sync_virtualpos(
 
             staged_records = db.scalars(select(SourceRecord).where(SourceRecord.source == platform)).all()
             materialize_records(db, staged_records)
+            reconcile_charge_recoveries(db, platform)
 
             run.status = "completed"
         run.records_processed = processed

@@ -20,6 +20,9 @@ PERMISSIONS: dict[str, str] = {
     "virtualpos.charges.create": "Crear cargos en suscripciones VirtualPOS",
     "virtualpos.charges.cancel": "Cancelar cargos pendientes VirtualPOS",
     "virtualpos.charges.retry": "Reintentar cargos rechazados VirtualPOS",
+    "virtualpos.recovery.view": "Ver Recuperador de Socios VirtualPOS",
+    "virtualpos.recovery.export": "Exportar suscripciones canceladas VirtualPOS",
+    "virtualpos.cards.change": "Generar links de cambio de tarjeta VirtualPOS",
     "toku.dashboard.view": "Ver dashboard Toku",
     "toku.customers.view": "Ver clientes Toku",
     "toku.customers.update": "Editar clientes Toku",
@@ -116,4 +119,5 @@ def serialize_user(user: User) -> dict:
         "is_active": user.is_active,
         "roles": [{"id": str(role.id), "name": role.name} for role in roles],
         "permissions": sorted(permission_codes(user)),
+        "created_at": user.created_at.isoformat() if user.created_at else None,
     }

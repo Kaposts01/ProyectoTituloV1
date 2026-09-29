@@ -58,6 +58,25 @@ class FailingClient(PaginatedClient):
         raise RuntimeError(f"provider rejected {settings.virtualpos_api_key} with card 4111111111111111")
 
 
+class NonJsonChargesClient(PaginatedClient):
+    """Simula que VirtualPOS devuelve un body no-JSON para los cargos de una suscripción concreta."""
+
+    async def list_subscriptions(self, page: int = 1, limit: int = 100):
+        return {
+            "suscriptions": [
+                {"id": "sub-ok", "plan_id": "test-plan-1"},
+                {"id": "sub-non-json", "plan_id": "test-plan-1"},
+            ]
+        }
+
+    async def list_charges(self, subscription_id: str, page: int = 1, limit: int = 100):
+        self.charge_subscriptions.append(subscription_id)
+        if subscription_id == "sub-non-json":
+            # _get() devuelve {} cuando el proveedor responde con texto/HTML no parseables
+            return {}
+        return {"charges": [{"id": f"charge-{subscription_id}", "amount": 5000, "status": "COBRADO"}]}
+
+
 class ClientsAndPaymentsPaginatedClient(PaginatedClient):
     async def list_clients(self, page: int = 1, limit: int = 100):
         self.client_pages.append(page)
@@ -149,3 +168,22 @@ def test_sync_records_sanitized_failure_without_persisting_test_data(monkeypatch
     assert settings.virtualpos_api_key not in failed_run.error_message
     assert "4111111111111111" not in failed_run.error_message
     assert "[redacted]" in failed_run.error_message
+
+
+def test_sync_skips_non_json_charges_and_preserves_valid_ones(monkeypatch, db_session) -> None:
+    """Cuando _get() devuelve {} (body no-JSON del proveedor), la suscripción afectada
+    no produce cargos, pero la sync completa correctamente y los cargos de las demás
+    suscripciones sí se persisten."""
+    client = NonJsonChargesClient()
+    monkeypatch.setattr(virtualpos_sync, "VirtualPOSClient", lambda: client)
+
+    run = asyncio.run(virtualpos_sync.sync_virtualpos(db_session))
+
+    assert run.status == "completed"
+    # La suscripción con respuesta válida sí tiene su cargo almacenado
+    assert db_session.scalars(select(Charge).where(Charge.external_id == "charge-sub-ok")).one()
+    # La suscripción con body no-JSON no genera ningún cargo (vacío, no excepción)
+    assert db_session.scalars(select(Charge).where(Charge.subscription_external_id == "sub-non-json")).first() is None
+    # Se consultaron ambas suscripciones
+    assert "sub-ok" in client.charge_subscriptions
+    assert "sub-non-json" in client.charge_subscriptions

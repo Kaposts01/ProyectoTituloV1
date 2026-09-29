@@ -1,10 +1,12 @@
 import uuid
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Numeric, case, cast, func, literal, select
 from sqlalchemy.orm import Session
 
+from app.api.v1.routes.staging import _channel_alerts
 from app.core.security import require_permissions
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
@@ -17,12 +19,37 @@ from app.models.tch import (
 
 router = APIRouter()
 
+_TCH_PAID = {"aceptada", "aceptado", "pagada", "pagado", "cobrada", "cobrado", "aprobada", "aprobado"}
+
 
 def _get_db() -> Session:
     return SessionLocal()
 
 
-def _serialize_sus(s: TchSuscripcion) -> dict:
+def _tch_last_paid_map(db: Session, fichas: list[int]) -> dict[int, str]:
+    if not fichas:
+        return {}
+    rows = db.execute(
+        select(TchTransaccion.numero_ficha, func.max(TchTransaccion.fecha_cargo).label("last_date"))
+        .where(TchTransaccion.numero_ficha.in_(fichas), func.lower(TchTransaccion.estado).in_(_TCH_PAID))
+        .group_by(TchTransaccion.numero_ficha)
+    ).all()
+    return {r.numero_ficha: r.last_date for r in rows if r.last_date}
+
+
+def _tch_secondary(estado: str, last_paid: str | None) -> str:
+    if estado != "VIGENTE":
+        return "inactiva"
+    if not last_paid:
+        return "Nunca Cobrado"
+    try:
+        paid_date = date.fromisoformat(last_paid[:10])
+        return "incobrable" if paid_date <= date.today() - timedelta(days=182) else "cobrable"
+    except (ValueError, TypeError):
+        return "Nunca Cobrado"
+
+
+def _serialize_sus(s: TchSuscripcion, last_paid: str | None = None) -> dict:
     return {
         "id": str(s.id),
         "numero_ficha": s.numero_ficha,
@@ -42,6 +69,8 @@ def _serialize_sus(s: TchSuscripcion) -> dict:
         "fecha_fin": s.fecha_eliminacion or s.fecha_rechazo,
         "razon_baja": s.razon_baja,
         "estado": s.estado,
+        "last_paid_date": last_paid,
+        "secondary_status": _tch_secondary(s.estado, last_paid),
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
@@ -240,6 +269,14 @@ def tch_summary() -> dict:
             .limit(1)
         )
 
+        tch_kpis = {
+            "mrr": round(mrr, 0),
+            "arpu": round(arpu, 0),
+            "active_clients": active_clients,
+            "active_subscribers": total_vigentes,
+            "churn_rate": churn_rate,
+            "ltv": round(ltv, 0),
+        }
         return {
             "suscripciones": {
                 "vigentes": total_vigentes,
@@ -256,18 +293,12 @@ def tch_summary() -> dict:
                 "tasa_rechazo_pct": tasa_rechazo,
                 "monto": monto_transacciones,
             },
-            "kpis": {
-                "mrr": round(mrr, 0),
-                "arpu": round(arpu, 0),
-                "active_clients": active_clients,
-                "active_subscribers": total_vigentes,
-                "churn_rate": churn_rate,
-                "ltv": round(ltv, 0),
-            },
+            "kpis": tch_kpis,
             "years": years,
             "transacciones_mensuales": transacciones_mensuales,
             "activaciones_mensuales": activaciones_mensuales,
             "bajas_mensuales": bajas_mensuales,
+            "alerts": _channel_alerts(transacciones_mensuales, activaciones_mensuales, bajas_mensuales, tch_kpis),
             "ultimo_etl": {
                 "id": str(ultimo_run.id) if ultimo_run else None,
                 "status": ultimo_run.status if ultimo_run else None,
@@ -327,7 +358,8 @@ def get_cliente(rut: str) -> dict:
             .where(TchSuscripcion.cliente_rut == cliente.rut)
             .order_by(TchSuscripcion.fecha_activacion.desc())
         ).all()
-        data["suscripciones"] = [_serialize_sus(suscripcion) for suscripcion in suscripciones]
+        last_paid_map = _tch_last_paid_map(db, [s.numero_ficha for s in suscripciones])
+        data["suscripciones"] = [_serialize_sus(s, last_paid_map.get(s.numero_ficha)) for s in suscripciones]
         return data
     finally:
         db.close()
@@ -363,13 +395,13 @@ def list_suscripciones(
         items = db.scalars(
             q.order_by(TchSuscripcion.numero_ficha).offset((page - 1) * limit).limit(limit)
         ).all()
-
+        last_paid_map = _tch_last_paid_map(db, [s.numero_ficha for s in items])
         return {
             "total": total,
             "page": page,
             "limit": limit,
             "pages": -(-total // limit),
-            "items": [_serialize_sus(s) for s in items],
+            "items": [_serialize_sus(s, last_paid_map.get(s.numero_ficha)) for s in items],
         }
     finally:
         db.close()
@@ -392,7 +424,8 @@ def get_suscripcion(numero_ficha: int) -> dict:
             .where(TchTransaccion.numero_ficha == numero_ficha)
             .order_by(TchTransaccion.periodo.desc(), TchTransaccion.fecha_cargo.desc())
         ).all()
-        data = _serialize_sus(sus)
+        last_paid_map = _tch_last_paid_map(db, [numero_ficha])
+        data = _serialize_sus(sus, last_paid_map.get(numero_ficha))
         data["transacciones"] = [_serialize_trans(t) for t in trans]
         return data
     finally:

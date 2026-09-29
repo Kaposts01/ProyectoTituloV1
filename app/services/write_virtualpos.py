@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
+from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
@@ -862,11 +863,12 @@ async def cancel_payment(db: Session, payment_id: str) -> Payment:
     return payment
 
 
-async def retry_charge(db: Session, charge_id: str) -> Charge:
+async def retry_charge(db: Session, charge_id: str, source: str | None = None) -> Charge:
     """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry."""
-    charge = db.scalar(
-        select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
-    )
+    query = select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
+    if source is not None:
+        query = query.where(Charge.source == source)
+    charge = db.scalar(query)
     if charge is None:
         raise ChargeNotFoundError
 
@@ -904,10 +906,6 @@ async def retry_charge(db: Session, charge_id: str) -> Charge:
         raise
 
     retried_payload = dict(refreshed_payload or charge.raw_payload or {})
-    # If the provider still reports "rechazado" after the retry call, force "procesando"
-    # so the retry button is disabled and double-retries are prevented.
-    if (retried_payload.get("status") or "").lower() == "rechazado":
-        retried_payload = {**retried_payload, "status": "procesando"}
     sanitized_payload = sanitize_record(retried_payload)
     write_run.status = "remote_succeeded"
     write_run.response_payload = sanitized_payload
@@ -934,6 +932,15 @@ async def retry_charge(db: Session, charge_id: str) -> Charge:
         charge.raw_payload = sanitized_payload
         write_run.status = "completed"
         write_run.finished_at = datetime.now(UTC)
+        db.add(
+            ChargeRecovery(
+                source=charge.source,
+                charge_external_id=charge.external_id,
+                subscription_external_id=charge.subscription_external_id,
+                write_run_id=write_run.id,
+                closes_at=datetime.now(UTC) + timedelta(days=4),
+            )
+        )
         db.commit()
     except Exception as exc:
         db.rollback()

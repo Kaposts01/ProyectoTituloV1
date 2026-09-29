@@ -1,5 +1,6 @@
 import re
 from collections import Counter, defaultdict
+from datetime import date, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,6 +18,7 @@ from app.models.crm import Plan as CPlan
 from app.models.crm import Subscription as CSub
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
+from app.models.payku_channel import PaykuTransaction as PkTx
 from app.models.tch import (
     TchCliente,
     TchRecaudacionMensual,
@@ -398,6 +400,70 @@ def _general_dashboard(db: Session) -> dict[str, Any]:
         for (year, month, source), values in sorted(cancellation_months.items())
     ]
     transaction_total = sum(totals.values())
+
+    # ── Alertas operativas (calculadas desde datos ya cargados) ───────────
+    today = date.today()
+    dashboard_alerts: list[dict[str, Any]] = []
+
+    # 1. Alta tasa de rechazo por canal/mes
+    chn_month: defaultdict[tuple[int, int, str], dict[str, int]] = defaultdict(lambda: {"ok": 0, "fail": 0})
+    for (y, m, ch, cs), v in charge_months.items():
+        if cs == "pagada":
+            chn_month[(y, m, ch)]["ok"] += int(v["count"])
+        else:
+            chn_month[(y, m, ch)]["fail"] += int(v["count"])
+    for (y, m, ch), stats in sorted(chn_month.items()):
+        total_ch = stats["ok"] + stats["fail"]
+        if total_ch > 0:
+            rate = round(100 * stats["fail"] / total_ch, 1)
+            if rate > 30:
+                dashboard_alerts.append({
+                    "sev": "alta" if rate > 50 else "media",
+                    "tipo": "Alta tasa de rechazo",
+                    "canal": ch,
+                    "detalle": f"{y}-{m:02d} · {ch}: {rate}% de rechazos ({stats['fail']} de {total_ch} cargos)",
+                })
+
+    # 2. Canal con saldo negativo en últimos 3 meses (bajas > altas)
+    cutoff_3m = (today.replace(day=1) - timedelta(days=90))
+    recent_act: defaultdict[str, int] = defaultdict(int)
+    recent_can: defaultdict[str, int] = defaultdict(int)
+    for (y, m, ch), v in activation_months.items():
+        if date(y, m, 1) >= cutoff_3m:
+            recent_act[ch] += int(v["count"])
+    for (y, m, ch), v in cancellation_months.items():
+        if date(y, m, 1) >= cutoff_3m:
+            recent_can[ch] += int(v["count"])
+    for ch in sorted(set(recent_act) | set(recent_can)):
+        altas = recent_act[ch]
+        bajas = recent_can[ch]
+        if bajas > altas and bajas > 0:
+            dashboard_alerts.append({
+                "sev": "media",
+                "tipo": "Canal en declive",
+                "canal": ch,
+                "detalle": f"{ch}: {bajas} bajas vs {altas} altas en los últimos 3 meses",
+            })
+
+    # 3. Tasa de rechazo global muy alta (últimos 3 meses)
+    g_ok = g_fail = 0
+    for (y, m, ch, cs), v in charge_months.items():
+        if date(y, m, 1) >= cutoff_3m:
+            if cs == "pagada":
+                g_ok += int(v["count"])
+            else:
+                g_fail += int(v["count"])
+    g_total = g_ok + g_fail
+    if g_total > 0:
+        g_rate = round(100 * g_fail / g_total, 1)
+        if g_rate > 25:
+            dashboard_alerts.insert(0, {
+                "sev": "alta" if g_rate > 40 else "media",
+                "tipo": "Tasa de rechazo global elevada",
+                "canal": "Consolidado",
+                "detalle": f"Últimos 3 meses: {g_rate}% de rechazos ({g_fail} de {g_total} cargos en todos los canales)",
+            })
+
     return {
         "clients": sum(clients.values()),
         "subscriptions": {"active": sum(active_subscriptions.values()), "amount": round(sum(sub_amounts.values()), 0)},
@@ -418,6 +484,7 @@ def _general_dashboard(db: Session) -> dict[str, Any]:
         "cancellations_monthly": cancellations_monthly,
         "debts_monthly": debts_monthly,
         "transactions_effective_monthly": transactions_effective_monthly,
+        "alerts": dashboard_alerts,
     }
 
 
@@ -496,6 +563,23 @@ def _general_clients(
     ), key=lambda item: (item["name"] or item["rut"]).lower())
 
 
+_ACTIVE_STATUSES = {"activa", "activo", "active", "vigente"}
+_PAID_STATUSES_GEN = {"pagado", "pago", "aceptado", "aceptada", "accepted", "paid", "success", "aprobado", "aprobada", "cobrado", "cobrada"}
+
+
+def _secondary_status(status: str, last_paid: str | None) -> str:
+    if str(status).lower() not in _ACTIVE_STATUSES:
+        return "inactiva"
+    if not last_paid:
+        return "Nunca Cobrado"
+    try:
+        paid_date = date.fromisoformat(last_paid[:10])
+        six_months_ago = date.today() - timedelta(days=182)
+        return "incobrable" if paid_date <= six_months_ago else "cobrable"
+    except (ValueError, TypeError):
+        return "Nunca Cobrado"
+
+
 def _general_subscriptions(
     db: Session,
     query: str | None = None,
@@ -511,6 +595,59 @@ def _general_subscriptions(
             )
         return status == "RECHAZADA"
 
+    # ── Pre-computar última fecha cobrada por suscripción ──────────────────────
+    # VP + Toku usan CCharge con subscription_external_id
+    charge_rows = db.execute(
+        select(
+            CCharge.source,
+            CCharge.subscription_external_id,
+            func.max(CCharge.charge_date).label("last_date"),
+        )
+        .where(
+            CCharge.subscription_external_id.isnot(None),
+            func.lower(CCharge.status).in_(_PAID_STATUSES_GEN),
+        )
+        .group_by(CCharge.source, CCharge.subscription_external_id)
+    ).all()
+    charge_last_paid: dict[tuple[str, str], str] = {
+        (r.source, r.subscription_external_id): r.last_date
+        for r in charge_rows
+        if r.last_date
+    }
+
+    # Payku usa tabla canal p_transactions que tiene subscription_id directo
+    payku_rows = db.execute(
+        select(
+            PkTx.subscription_id,
+            func.max(PkTx.created_at_api).label("last_date"),
+        )
+        .where(
+            PkTx.subscription_id.isnot(None),
+            func.lower(PkTx.status) == "success",
+        )
+        .group_by(PkTx.subscription_id)
+    ).all()
+    payku_last_paid: dict[str, str] = {
+        r.subscription_id: r.last_date
+        for r in payku_rows
+        if r.last_date
+    }
+
+    # TCH agrupa por numero_ficha
+    tch_rows = db.execute(
+        select(
+            TchTransaccion.numero_ficha,
+            func.max(TchTransaccion.fecha_cargo).label("last_date"),
+        )
+        .where(func.lower(TchTransaccion.estado).in_(_PAID_STATUSES_GEN))
+        .group_by(TchTransaccion.numero_ficha)
+    ).all()
+    tch_last_paid: dict[int, str] = {
+        r.numero_ficha: r.last_date
+        for r in tch_rows
+        if r.last_date
+    }
+
     client_data = {
         (client.source, client.external_id): {
             "rut": client.social_id or "",
@@ -522,36 +659,51 @@ def _general_subscriptions(
         _rut_key(client.rut): " ".join(part for part in (client.nombre, client.apellido) if part)
         for client in db.scalars(select(TchCliente))
     }
-    items = [
-        {
+
+    items = []
+    for subscription in db.scalars(select(CSub)):
+        if is_excluded(subscription):
+            continue
+        src = subscription.source
+        last_paid = (
+            payku_last_paid.get(subscription.external_id)
+            if src == "payku"
+            else charge_last_paid.get((src, subscription.external_id))
+        )
+        status = subscription.status or ""
+        items.append({
             "id": subscription.external_id,
-            "platform": _portal(subscription.source),
-            "rut": subscription.client_social_id or client_data.get((subscription.source, subscription.client_external_id or ""), {}).get("rut", ""),
-            "client": client_data.get((subscription.source, subscription.client_external_id or ""), {}).get("client", ""),
-            "status": subscription.status or "",
+            "platform": _portal(src),
+            "rut": subscription.client_social_id or client_data.get((src, subscription.client_external_id or ""), {}).get("rut", ""),
+            "client": client_data.get((src, subscription.client_external_id or ""), {}).get("client", ""),
+            "status": status,
             "started_at": subscription.suscription_date,
             "ended_at": subscription.canceled_at,
             "amount": subscription.amount,
             "currency": subscription.currency,
-        }
-        for subscription in db.scalars(select(CSub))
-        if not is_excluded(subscription)
-    ]
-    items.extend(
-        {
+            "last_paid_date": last_paid,
+            "secondary_status": _secondary_status(status, last_paid),
+        })
+
+    for subscription in db.scalars(select(TchSuscripcion)):
+        if is_excluded(subscription):
+            continue
+        last_paid = tch_last_paid.get(subscription.numero_ficha)
+        status = subscription.estado
+        items.append({
             "id": str(subscription.numero_ficha),
             "platform": "TCH",
             "rut": subscription.cliente_rut or "",
             "client": tch_client_data.get(_rut_key(subscription.cliente_rut), ""),
-            "status": subscription.estado,
+            "status": status,
             "started_at": subscription.fecha_activacion,
             "ended_at": subscription.fecha_eliminacion or subscription.fecha_rechazo,
             "amount": subscription.equivalente_pesos or subscription.monto,
             "currency": "CLP",
-        }
-        for subscription in db.scalars(select(TchSuscripcion))
-        if not is_excluded(subscription)
-    )
+            "last_paid_date": last_paid,
+            "secondary_status": _secondary_status(status, last_paid),
+        })
+
     needle = (query or "").strip().lower()
     rut_needle = _rut_key(query)
 
@@ -717,6 +869,178 @@ def _record_order(source: str, resource_type: str):
     return (SourceRecord.last_seen_at.desc(),)
 
 
+_PAID_KW  = {"pagad", "aceptad", "accepted", "paid", "success", "cobrad", "aprobad"}
+_FAIL_KW  = {"rechazad", "rejected", "fail", "unpaid", "failed"}
+
+
+def _channel_alerts(
+    charges: list[dict[str, Any]],
+    activation: list[dict[str, Any]],
+    churn: list[dict[str, Any]],
+    kpis: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Genera alertas operativas desde series mensuales ya calculadas."""
+    alerts: list[dict[str, Any]] = []
+
+    # 1. Saldo negativo (bajas > altas en un mes)
+    act_map: defaultdict[tuple[int, int], int] = defaultdict(int)
+    churn_map: defaultdict[tuple[int, int], int] = defaultdict(int)
+    for entry in activation:
+        act_map[(int(entry["year"]), int(entry["month"]))] += int(entry.get("count", 0))
+    for entry in churn:
+        churn_map[(int(entry["year"]), int(entry["month"]))] += int(entry.get("count", 0))
+    for ym in sorted(set(act_map) | set(churn_map)):
+        altas, bajas = act_map[ym], churn_map[ym]
+        if bajas > altas and bajas > 0:
+            y, m = ym
+            alerts.append({
+                "sev": "media",
+                "tipo": "Saldo negativo de suscripciones",
+                "canal": "—",
+                "detalle": f"{y}-{m:02d}: {bajas} bajas vs {altas} altas",
+            })
+
+    # 2. Churn rate histórico elevado
+    if kpis:
+        cr = kpis.get("churn_rate", 0)
+        if isinstance(cr, (int, float)) and cr > 10:
+            alerts.insert(0, {
+                "sev": "alta" if cr > 20 else "media",
+                "tipo": "Churn rate elevado",
+                "canal": "—",
+                "detalle": f"Tasa de abandono histórica: {cr}% — supera umbral operativo",
+            })
+
+    return alerts
+
+
+def _compute_churn_rate_series(subs_list: list) -> list[dict[str, Any]]:
+    """Churn rate mensual desde una lista de objetos CSub (usa columnas canónicas)."""
+    activation_by_month: defaultdict[tuple[int, int], int] = defaultdict(int)
+    churn_by_month: defaultdict[tuple[int, int], int] = defaultdict(int)
+    for s in subs_list:
+        if str(s.status or "").upper() == "SUSCRIPCION_FALLIDA":
+            continue
+        m = _month(s.suscription_date)
+        if m:
+            activation_by_month[m] += 1
+        if s.canceled_at:
+            m = _month(s.canceled_at)
+            if m:
+                churn_by_month[m] += 1
+    all_months = sorted(set(list(activation_by_month.keys()) + list(churn_by_month.keys())))
+    cum_active = 0
+    series: list[dict[str, Any]] = []
+    for month in all_months:
+        activated = activation_by_month.get(month, 0)
+        cancelled = churn_by_month.get(month, 0)
+        rate = round(cancelled / cum_active * 100, 1) if cum_active > 0 else 0.0
+        series.append({"year": month[0], "month": month[1], "rate": rate})
+        cum_active = max(0, cum_active + activated - cancelled)
+    return series
+
+
+def _vp_canonical_alerts(
+    db: Session,
+    sources: list[str],
+    paid_statuses: tuple,
+    active_sub_ids: set[str],
+    recently_paid_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Alertas operativas de nivel canónico para VirtualPOS.
+
+    Recibe sets precomputados para evitar queries duplicadas con _vp_canonical_dashboard.
+    """
+    alerts: list[dict[str, Any]] = []
+    today = date.today()
+
+    # 1. Suscripciones activas sin cobro exitoso en los últimos 6 meses (sin queries extra)
+    cobrable_active = recently_paid_ids & active_sub_ids
+    no_recent_count = len(active_sub_ids) - len(cobrable_active)
+    if no_recent_count > 0 and active_sub_ids:
+        pct = round(100 * no_recent_count / len(active_sub_ids), 1)
+        alerts.append({
+            "id": "sin-cobro-reciente",
+            "sev": "alta" if pct > 40 else "media" if pct > 20 else "baja",
+            "tipo": "Sin cobro reciente",
+            "canal": "VirtualPOS",
+            "detalle": f"{no_recent_count} suscripción(es) activa(s) ({pct}%) sin cobro exitoso en los últimos 6 meses",
+        })
+
+    # 2. Racha de rechazos: suscripciones activas con 2+ últimos cobros rechazados (JOIN, últimos 90 días)
+    if active_sub_ids:
+        three_months_ago = str(today - timedelta(days=91))
+        reject_kw = {"rechazad", "rejected", "fail", "unpaid"}
+        streak_rows = db.execute(
+            select(CCharge.subscription_external_id, CCharge.status)
+            .select_from(CCharge)
+            .join(
+                CSub,
+                and_(
+                    CSub.source.in_(sources),
+                    CSub.external_id == CCharge.subscription_external_id,
+                    func.lower(CSub.status) == "activa",
+                ),
+            )
+            .where(CCharge.source.in_(sources), CCharge.charge_date >= three_months_ago)
+            .order_by(CCharge.subscription_external_id, CCharge.charge_date.desc().nullslast())
+        ).all()
+        last_charges: defaultdict[str, list[str]] = defaultdict(list)
+        for sub_id, status in streak_rows:
+            if len(last_charges[sub_id]) < 3:
+                last_charges[sub_id].append(str(status or "").lower())
+        streak_count = sum(
+            1 for statuses in last_charges.values()
+            if len(statuses) >= 2 and all(any(k in s for k in reject_kw) for s in statuses)
+        )
+        if streak_count > 0:
+            alerts.append({
+                "id": "racha-rechazos",
+                "sev": "alta" if streak_count > 20 else "media",
+                "tipo": "Racha de rechazos",
+                "canal": "VirtualPOS",
+                "detalle": f"{streak_count} suscripción(es) activa(s) con 2+ cobros rechazados consecutivos (últimos 3 meses)",
+            })
+
+    # 3. Suscripciones fallidas (deduplicadas por RUT; un intento repetido del mismo
+    #    donante no infla el conteo)
+    failed_ruts_rows = db.execute(
+        select(CSub.client_social_id).where(
+            CSub.source.in_(sources),
+            func.upper(CSub.status) == "SUSCRIPCION_FALLIDA",
+        )
+    ).scalars().all()
+    unique_failed_ruts = {r for r in failed_ruts_rows if r}
+    sin_rut_failed = sum(1 for r in failed_ruts_rows if not r)
+    failed_count = len(unique_failed_ruts) + sin_rut_failed
+    if failed_count > 0:
+        alerts.append({
+            "id": "suscripciones-fallidas",
+            "sev": "media" if failed_count > 5 else "baja",
+            "tipo": "Suscripciones fallidas",
+            "canal": "VirtualPOS",
+            "detalle": f"{failed_count} persona(s) con suscripción fallida (sin duplicar intentos repetidos)",
+        })
+
+    # 4. Clientes con múltiples suscripciones activas simultáneas
+    multi_rows = db.execute(
+        select(CSub.client_social_id, func.count().label("n"))
+        .where(CSub.source.in_(sources), func.lower(CSub.status) == "activa", CSub.client_social_id.isnot(None))
+        .group_by(CSub.client_social_id)
+        .having(func.count() > 1)
+    ).all()
+    multi_count = len(multi_rows)
+    if multi_count > 0:
+        alerts.append({
+            "sev": "baja",
+            "tipo": "Múltiples suscripciones activas",
+            "canal": "VirtualPOS",
+            "detalle": f"{multi_count} cliente(s) con 2 o más suscripciones activas simultáneamente",
+        })
+
+    return sorted(alerts, key=lambda a: {"alta": 0, "media": 1, "baja": 2}.get(a["sev"], 3))
+
+
 def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     charges_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
@@ -728,6 +1052,11 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     )
     churn_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    rejected_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
+    _rejected_statuses = {"rechazado", "rejected", "failed", "failure", "declined", "error"}
+    _card_terms = ("tarjeta", "card", "cuenta bloqueada", "account blocked", "bloquead", "vencid", "expired")
     mrr = 0.0
     active_subs = 0
     active_ruts: set[str] = set()
@@ -742,6 +1071,14 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
                 status = str(payload.get("status", "sin_estado")).upper()
                 charges_monthly[month][status]["count"] += 1
                 charges_monthly[month][status]["amount"] += _amount(payload.get("amount"))
+                if status.lower() in _rejected_statuses:
+                    rejected_obj = payload.get("rejected_object") if isinstance(payload.get("rejected_object"), dict) else {}
+                    code = str(rejected_obj.get("code") or "")
+                    reason = str(rejected_obj.get("message") or payload.get("razon_rechazo") or payload.get("reason") or payload.get("rejection_reason") or "")
+                    combined = f"{code} {reason}".lower()
+                    bucket = "Cambio de tarjeta" if any(t in combined for t in _card_terms) else "Reintento"
+                    rejected_monthly[month][bucket]["count"] += 1
+                    rejected_monthly[month][bucket]["amount"] += _amount(payload.get("amount"))
 
         elif rtype == "payment":
             month = _month(_payload_value(payload, ("order", "authorized_at")))
@@ -754,18 +1091,19 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             status = str(payload.get("status", "")).upper()
             amount = _amount(payload.get("amount"))
 
-            start = payload.get("suscription_date") or payload.get("created")
-            month = _month(start)
-            if month:
-                activation_by_month[month][status or "SIN_ESTADO"]["count"] += 1
-                activation_by_month[month][status or "SIN_ESTADO"]["amount"] += amount
-
-            canceled_at = payload.get("canceled_at")
-            if canceled_at:
-                month = _month(canceled_at)
+            if status != "SUSCRIPCION_FALLIDA":
+                start = payload.get("suscription_date") or payload.get("created")
+                month = _month(start)
                 if month:
-                    churn_by_month[month]["count"] += 1
-                    churn_by_month[month]["amount"] += amount
+                    activation_by_month[month][status or "SIN_ESTADO"]["count"] += 1
+                    activation_by_month[month][status or "SIN_ESTADO"]["amount"] += amount
+
+                canceled_at = payload.get("canceled_at")
+                if canceled_at:
+                    month = _month(canceled_at)
+                    if month:
+                        churn_by_month[month]["count"] += 1
+                        churn_by_month[month]["amount"] += amount
 
             if status == "ACTIVA":
                 mrr += amount
@@ -779,9 +1117,23 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
 
     active_clients = len(active_ruts) or active_subs or 1
     arpu = round(mrr / active_clients, 0) if active_clients else 0.0
-    total_subs = sum(1 for r in records if r.resource_type == "subscription")
-    total_churned = sum(int(v["count"]) for v in churn_by_month.values())
-    churn_rate = round(total_churned / total_subs * 100, 1) if total_subs > 0 else 0.0
+
+    # Churn rate mensual: usa conteo acumulado de activos como denominador proxy
+    all_months = sorted(set(list(activation_by_month.keys()) + list(churn_by_month.keys())))
+    cum_active = 0
+    churn_rate_monthly_series: list[dict[str, Any]] = []
+    active_subs_monthly_series: list[dict[str, Any]] = []
+    for month in all_months:
+        activated = sum(int(v["count"]) for v in activation_by_month.get(month, {}).values())
+        cancelled = int(churn_by_month.get(month, {}).get("count", 0))
+        monthly_rate = round(cancelled / cum_active * 100, 1) if cum_active > 0 else 0.0
+        churn_rate_monthly_series.append({"year": month[0], "month": month[1], "rate": monthly_rate})
+        cum_active = max(0, cum_active + activated - cancelled)
+        active_subs_monthly_series.append({"year": month[0], "month": month[1], "count": cum_active})
+
+    # KPI churn: promedio de los últimos 3 meses con actividad
+    recent_rates = [e["rate"] for e in churn_rate_monthly_series[-3:] if e["rate"] > 0]
+    churn_rate = round(sum(recent_rates) / len(recent_rates), 1) if recent_rates else 0.0
     ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
@@ -800,19 +1152,27 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             for (year, month), vals in sorted(data.items())
         ]
 
+    kpis = {
+        "mrr": round(mrr, 0),
+        "active_subscribers": active_subs,
+        "active_clients": active_clients,
+        "arpu": round(arpu, 0),
+        "churn_rate": churn_rate,
+        "ltv": round(ltv, 0),
+    }
+    ch_flat   = _flatten_by_status(charges_monthly)
+    act_flat  = _flatten_by_status(activation_by_month)
+    churn_flat = _flatten_series(churn_by_month)
     return {
-        "kpis": {
-            "mrr": round(mrr, 0),
-            "active_subscribers": active_subs,
-            "active_clients": active_clients,
-            "arpu": round(arpu, 0),
-            "churn_rate": churn_rate,
-            "ltv": round(ltv, 0),
-        },
-        "charges_monthly": _flatten_by_status(charges_monthly),
+        "kpis": kpis,
+        "charges_monthly": ch_flat,
+        "rejected_charges_monthly": _flatten_by_status(rejected_monthly),
         "payments_monthly": _flatten_by_status(payments_monthly),
-        "activation_monthly": _flatten_by_status(activation_by_month),
-        "churn_monthly": _flatten_series(churn_by_month),
+        "activation_monthly": act_flat,
+        "churn_monthly": churn_flat,
+        "churn_rate_monthly": churn_rate_monthly_series,
+        "active_subs_monthly": active_subs_monthly_series,
+        "alerts": _channel_alerts(ch_flat, act_flat, churn_flat, kpis),
     }
 
 
@@ -897,19 +1257,37 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             for (year, month), vals in sorted(data.items())
         ]
 
+    kpis = {
+        "mrr": round(mrr, 0),
+        "active_subscribers": active_subs,
+        "active_clients": active_clients,
+        "arpu": round(arpu, 0),
+        "churn_rate": churn_rate,
+        "ltv": round(ltv, 0),
+    }
+    inv_flat   = _flatten_by_status(invoices_monthly)
+    act_flat   = _flatten_by_status(activation_by_month)
+    churn_flat = _flatten_series(churn_by_month)
+
+    # Suscripciones activas acumulativas por mes (para gráfico Transacciones vs Suscripciones)
+    all_months_toku = sorted(set(list(activation_by_month.keys()) + list(churn_by_month.keys())))
+    cum_active_toku = 0
+    active_subs_monthly_toku: list[dict[str, Any]] = []
+    for _ym in all_months_toku:
+        activated = sum(int(v["count"]) for v in activation_by_month.get(_ym, {}).values())
+        cancelled = int(churn_by_month.get(_ym, {}).get("count", 0))
+        cum_active_toku = max(0, cum_active_toku + activated - cancelled)
+        active_subs_monthly_toku.append({"year": _ym[0], "month": _ym[1], "count": cum_active_toku})
+
     return {
-        "kpis": {
-            "mrr": round(mrr, 0),
-            "active_subscribers": active_subs,
-            "active_clients": active_clients,
-            "arpu": round(arpu, 0),
-            "churn_rate": churn_rate,
-            "ltv": round(ltv, 0),
-        },
-        "invoices_monthly": _flatten_by_status(invoices_monthly),
+        "kpis": kpis,
+        "invoices_monthly": inv_flat,
+        "payments_monthly": inv_flat,
         "transactions_monthly": _flatten_by_status(transactions_monthly),
-        "activation_monthly": _flatten_by_status(activation_by_month),
-        "churn_monthly": _flatten_series(churn_by_month),
+        "activation_monthly": act_flat,
+        "churn_monthly": churn_flat,
+        "active_subs_monthly": active_subs_monthly_toku,
+        "alerts": _channel_alerts(inv_flat, act_flat, churn_flat, kpis),
     }
 
 
@@ -984,18 +1362,23 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             for (year, month), vals in sorted(data.items())
         ]
 
+    kpis = {
+        "mrr": round(mrr, 0),
+        "active_subscribers": active_subs,
+        "active_clients": active_clients,
+        "arpu": round(arpu, 0),
+        "churn_rate": churn_rate,
+        "ltv": round(ltv, 0),
+    }
+    tx_flat   = _flatten_by_status(transactions_monthly)
+    act_flat  = _flatten_by_status(activation_by_month)
+    churn_flat = _flatten_by_status(churn_by_month)
     return {
-        "kpis": {
-            "mrr": round(mrr, 0),
-            "active_subscribers": active_subs,
-            "active_clients": active_clients,
-            "arpu": round(arpu, 0),
-            "churn_rate": churn_rate,
-            "ltv": round(ltv, 0),
-        },
-        "transactions_monthly": _flatten_by_status(transactions_monthly),
-        "activation_monthly": _flatten_by_status(activation_by_month),
-        "churn_monthly": _flatten_by_status(churn_by_month),
+        "kpis": kpis,
+        "transactions_monthly": tx_flat,
+        "activation_monthly": act_flat,
+        "churn_monthly": churn_flat,
+        "alerts": _channel_alerts(tx_flat, act_flat, churn_flat, kpis),
     }
 
 
@@ -1051,11 +1434,11 @@ def _vp_src(source: str) -> list[str]:
     return [source] if source in _VP_SRCS else list(_VP_SRCS)
 
 
-def _cstg(record: Any, rtype: str) -> dict[str, Any]:
+def _cstg(record: Any, rtype: str, extra: dict | None = None) -> dict[str, Any]:
     payload = dict(record.raw_payload or {})
     if rtype == "client" and getattr(record, "private_note", None):
         payload["private_note"] = record.private_note
-    return {
+    result: dict[str, Any] = {
         "id": str(record.id),
         "source": record.source,
         "resource_type": rtype,
@@ -1064,6 +1447,68 @@ def _cstg(record: Any, rtype: str) -> dict[str, Any]:
         "sync_context": {},
         "first_seen_at": None,
         "last_seen_at": str(record.updated_at) if record.updated_at else None,
+    }
+    if extra:
+        result.update(extra)
+    return result
+
+
+def _sub_enrichment(db: Session, records: list[Any], source_hint: str = "") -> dict[tuple[str, str], dict]:
+    """Calcula {(source, external_id): {last_paid_date, secondary_status}} para suscripciones."""
+    if not records:
+        return {}
+    is_payku = source_hint == "payku" or (records and getattr(records[0], "source", "") == "payku")
+    if is_payku:
+        sub_ids = [r.external_id for r in records]
+        rows = db.execute(
+            select(PkTx.subscription_id, func.max(PkTx.created_at_api).label("last_date"))
+            .where(PkTx.subscription_id.in_(sub_ids), func.lower(PkTx.status) == "success")
+            .group_by(PkTx.subscription_id)
+        ).all()
+        last_paid_map = {r.subscription_id: r.last_date for r in rows if r.last_date}
+        return {
+            ("payku", r.external_id): {
+                "last_paid_date": last_paid_map.get(r.external_id),
+                "secondary_status": _secondary_status(r.status or "", last_paid_map.get(r.external_id)),
+            }
+            for r in records
+        }
+    is_toku = source_hint == "toku" or (records and getattr(records[0], "source", "") == "toku")
+    if is_toku:
+        sub_ids = {r.external_id for r in records}
+        last_paid_map: dict[str, str] = {}
+        transactions = db.scalars(
+            select(CPayment).where(CPayment.source == "toku", func.lower(CPayment.status) == "success")
+        )
+        for transaction in transactions:
+            if not transaction.payment_date:
+                continue
+            for subscription_id in _toku_transaction_subscription_ids(transaction):
+                if subscription_id in sub_ids and transaction.payment_date > last_paid_map.get(subscription_id, ""):
+                    last_paid_map[subscription_id] = transaction.payment_date
+        return {
+            ("toku", record.external_id): {
+                "last_paid_date": last_paid_map.get(record.external_id),
+                "secondary_status": _secondary_status(record.status or "", last_paid_map.get(record.external_id)),
+            }
+            for record in records
+        }
+    sub_ids = [r.external_id for r in records]
+    rows = db.execute(
+        select(CCharge.source, CCharge.subscription_external_id, func.max(CCharge.charge_date).label("last_date"))
+        .where(
+            CCharge.subscription_external_id.in_(sub_ids),
+            func.lower(CCharge.status).in_(_PAID_STATUSES_GEN),
+        )
+        .group_by(CCharge.source, CCharge.subscription_external_id)
+    ).all()
+    charge_map = {(r.source, r.subscription_external_id): r.last_date for r in rows if r.last_date}
+    return {
+        (r.source, r.external_id): {
+            "last_paid_date": charge_map.get((r.source, r.external_id)),
+            "secondary_status": _secondary_status(r.status or "", charge_map.get((r.source, r.external_id))),
+        }
+        for r in records
     }
 
 
@@ -1137,27 +1582,53 @@ def _list_vp(
         return {"items": [], "total": 0, "offset": offset, "limit": limit}
     model = _VP_MODEL[resource_type]
     sources = _vp_src(source)
+    secondary_status_filter = resource_type == "subscription" and filter_field == "secondary_status"
+    secondary_status_sort = resource_type == "subscription" and sort_field == "secondary_status"
     stmt = select(model).where(model.source.in_(sources))
     cnt = select(func.count()).select_from(model).where(model.source.in_(sources))
-    if filter_field and query and resource_type:
+    if filter_field and query and resource_type and not secondary_status_filter:
         expr = _vp_filter(model, resource_type, filter_field, query)
         stmt = stmt.where(expr)
         cnt = cnt.where(expr)
-    if sort_field:
+    if sort_field and not secondary_status_sort:
         expression = _vp_sort_field(model, resource_type, sort_field)
         stmt = stmt.order_by(
             (expression.asc() if sort_direction == "asc" else expression.desc()).nullslast(),
             model.updated_at.desc(),
         )
-    elif resource_type == "charge":
-        stmt = stmt.order_by(model.charge_date.desc().nullslast(), model.updated_at.desc())
-    elif resource_type == "payment":
-        stmt = stmt.order_by(model.payment_date.desc().nullslast(), model.updated_at.desc())
-    else:
-        stmt = stmt.order_by(model.updated_at.desc())
+    elif not secondary_status_sort:
+        if resource_type == "charge":
+            stmt = stmt.order_by(model.charge_date.desc().nullslast(), model.updated_at.desc())
+        elif resource_type == "payment":
+            stmt = stmt.order_by(model.payment_date.desc().nullslast(), model.updated_at.desc())
+        else:
+            stmt = stmt.order_by(model.updated_at.desc())
+    if secondary_status_filter or secondary_status_sort:
+        records = db.scalars(stmt).all()
+        enrichment = _sub_enrichment(db, list(records))
+        if secondary_status_filter:
+            needle = query.strip().lower() if query else ""
+            records = [
+                r for r in records
+                if needle == (enrichment.get((r.source, r.external_id), {}).get("secondary_status") or "").lower()
+            ]
+        if secondary_status_sort:
+            records.sort(
+                key=lambda r: (enrichment.get((r.source, r.external_id), {}).get("secondary_status") or "").casefold(),
+                reverse=sort_direction == "desc",
+            )
+        total = len(records)
+        page = records[offset: offset + limit]
+        items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in page]
+        return {"items": items, "total": total, "offset": offset, "limit": limit}
     records = db.scalars(stmt.offset(offset).limit(limit)).all()
+    if resource_type == "subscription" and records:
+        enrichment = _sub_enrichment(db, list(records))
+        items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in records]
+    else:
+        items = [_cstg(r, resource_type) for r in records]
     return {
-        "items": [_cstg(r, resource_type) for r in records],
+        "items": items,
         "total": db.scalar(cnt) or 0,
         "offset": offset,
         "limit": limit,
@@ -1260,14 +1731,16 @@ def _list_toku(
     model = _TOKU_MODEL[resource_type]
     statement = select(model).where(model.source == "toku")
     count_statement = select(func.count()).select_from(model).where(model.source == "toku")
-    if filter_field and query:
+    secondary_status_filter = resource_type == "subscription" and filter_field == "secondary_status"
+    secondary_status_sort = resource_type == "subscription" and sort_field == "secondary_status"
+    if filter_field and query and not secondary_status_filter:
         expression = _toku_filter(model, resource_type, filter_field, query)
         statement = statement.where(expression)
         count_statement = count_statement.where(expression)
-    if sort_field:
+    if sort_field and not secondary_status_sort:
         expression = _toku_sort_field(model, resource_type, sort_field)
         statement = statement.order_by((expression.asc() if sort_direction == "asc" else expression.desc()).nullslast(), model.updated_at.desc())
-    else:
+    elif not secondary_status_sort:
         date_fields = {
         "subscription": CSub.suscription_date,
         "invoice": CCharge.charge_date,
@@ -1281,9 +1754,34 @@ def _list_toku(
             statement = statement.order_by(created_at.desc().nullslast(), model.updated_at.desc())
         else:
             statement = statement.order_by(model.updated_at.desc())
+    if secondary_status_filter or secondary_status_sort:
+        records = db.scalars(statement).all()
+        enrichment = _sub_enrichment(db, list(records))
+        if secondary_status_filter:
+            needle = query.strip().lower() if query else ""
+            records = [
+                record for record in records
+                if needle == (enrichment.get((record.source, record.external_id), {}).get("secondary_status") or "").lower()
+            ]
+        if secondary_status_sort:
+            records.sort(
+                key=lambda record: (
+                    enrichment.get((record.source, record.external_id), {}).get("secondary_status") or ""
+                ).casefold(),
+                reverse=sort_direction == "desc",
+            )
+        total = len(records)
+        records = records[offset : offset + limit]
+        items = [_cstg(record, resource_type, enrichment.get((record.source, record.external_id))) for record in records]
+        return {"items": items, "total": total, "offset": offset, "limit": limit}
     records = db.scalars(statement.offset(offset).limit(limit)).all()
+    if resource_type == "subscription" and records:
+        enrichment = _sub_enrichment(db, list(records))
+        items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in records]
+    else:
+        items = [_cstg(record, resource_type) for record in records]
     return {
-        "items": [_cstg(record, resource_type) for record in records],
+        "items": items,
         "total": db.scalar(count_statement) or 0,
         "offset": offset,
         "limit": limit,
@@ -1365,8 +1863,13 @@ def _list_payku(
         else:
             statement = statement.order_by(model.updated_at.desc())
     records = db.scalars(statement.offset(offset).limit(limit)).all()
+    if resource_type == "subscription" and records:
+        enrichment = _sub_enrichment(db, list(records), "payku")
+        items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in records]
+    else:
+        items = [_cstg(record, resource_type) for record in records]
     return {
-        "items": [_cstg(record, resource_type) for record in records],
+        "items": items,
         "total": db.scalar(count_statement) or 0,
         "offset": offset,
         "limit": limit,
@@ -1418,6 +1921,29 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
             if total_amount:
                 resource_amounts[rtype] = round(total_amount, 2)
 
+    # Cobrable subscriptions: active + paid within the last 6 months
+    # Query 1: last paid charge per sub (all paid charges, no active filter needed)
+    six_months_ago_str = str(date.today() - timedelta(days=182))
+    cobrable_last_paid = db.execute(
+        select(CCharge.subscription_external_id, func.max(CCharge.charge_date).label("last_date"))
+        .where(
+            CCharge.source.in_(sources),
+            CCharge.subscription_external_id.isnot(None),
+            func.lower(CCharge.status).in_(tuple(_PAID_STATUSES_GEN)),
+        )
+        .group_by(CCharge.subscription_external_id)
+    ).all()
+    recently_paid_ids = {sub_id for sub_id, last_date in cobrable_last_paid if last_date and last_date >= six_months_ago_str}
+    # Query 2: active sub IDs + amounts (reused by alerts, no extra query there)
+    active_sub_rows_for_cobrable = db.execute(
+        select(CSub.external_id, CSub.amount)
+        .where(CSub.source.in_(sources), func.lower(CSub.status).in_(tuple(_ACTIVE_STATUSES)))
+    ).all()
+    active_sub_ids_for_alerts = {sub_id for sub_id, _ in active_sub_rows_for_cobrable}
+    cobrable_list = [(sub_id, amt) for sub_id, amt in active_sub_rows_for_cobrable if sub_id in recently_paid_ids]
+    resource_counts["subscription_cobrable"] = len(cobrable_list)
+    resource_amounts["subscription_cobrable"] = round(sum(_amount(amt) for _, amt in cobrable_list), 2)
+
     # Activity: charges grouped by month using canonical charge_date
     activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
     charge_rows = db.execute(
@@ -1442,6 +1968,24 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
         select(CCharge.charge_date, CCharge.amount, CCharge.status).where(CCharge.source.in_(sources))
     ).all()
 
+    sub_paid_periods = db.execute(
+        select(
+            CCharge.subscription_external_id,
+            func.substring(CCharge.charge_date, 1, 7).label("period"),
+        )
+        .where(
+            CCharge.source.in_(sources),
+            CCharge.subscription_external_id.isnot(None),
+            func.lower(CCharge.status).in_(tuple(_PAID_STATUSES_GEN)),
+        )
+        .distinct()
+    ).all()
+    sub_paid_by_month: defaultdict[tuple[int, int], set[str]] = defaultdict(set)
+    for _sub_id, _period in sub_paid_periods:
+        _m = _month(_period)
+        if _m:
+            sub_paid_by_month[_m].add(_sub_id)
+
     # Build adapter objects for _vp_extended_data reuse
     class _Rec:
         __slots__ = ("payload", "resource_type")
@@ -1459,6 +2003,58 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
         vp_records.append(_Rec("payment", {"order": {"authorized_at": pd, "amount": amt, "status": st}}))
 
     extended = _vp_extended_data(vp_records)  # type: ignore[arg-type]
+
+    def _month_window(yr: int, mo: int, n: int = 6) -> list[tuple[int, int]]:
+        base = yr * 12 + mo - 1
+        return [((base - i) // 12, (base - i) % 12 + 1) for i in range(n)]
+
+    all_c_months = sorted(
+        {(e["year"], e["month"]) for e in extended.get("active_subs_monthly", [])}
+        | set(sub_paid_by_month.keys())
+    )
+    extended["cobrable_subs_monthly"] = [
+        {
+            "year": yr,
+            "month": mo,
+            "count": len(set().union(*(sub_paid_by_month.get(m, set()) for m in _month_window(yr, mo)))),
+        }
+        for yr, mo in all_c_months
+    ]
+
+    canonical_alerts = _vp_canonical_alerts(db, list(sources), paid_statuses, active_sub_ids_for_alerts, recently_paid_ids)
+    extended["alerts"] = extended.get("alerts", []) + canonical_alerts
+
+    # Churn rate por fuente (virtualpos1 / virtualpos2) para el filtro del gráfico
+    extended["churn_rate_monthly_vp1"] = _compute_churn_rate_series([s for s in subs if s.source == "virtualpos1"])
+    extended["churn_rate_monthly_vp2"] = _compute_churn_rate_series([s for s in subs if s.source == "virtualpos2"])
+
+    # Cobros rechazados por motivo: query directa con raw_payload solo para rechazados
+    _rej_sts = {"rechazado", "rejected", "failed", "failure", "declined", "error"}
+    _card_terms_vp = ("tarjeta", "card", "cuenta bloqueada", "account blocked", "bloquead", "vencid", "expired")
+    rej_charge_rows = db.execute(
+        select(CCharge.charge_date, CCharge.amount, CCharge.raw_payload)
+        .where(CCharge.source.in_(sources), func.lower(CCharge.status).in_(tuple(_rej_sts)))
+    ).all()
+    rej_by_month: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
+    )
+    for _cd, _amt, _rp in rej_charge_rows:
+        _m = _month(_cd)
+        if not _m:
+            continue
+        _rp_d = _rp if isinstance(_rp, dict) else {}
+        _rej_obj = _rp_d.get("rejected_object") if isinstance(_rp_d.get("rejected_object"), dict) else {}
+        _code = str(_rej_obj.get("code") or "")
+        _reason = str(_rej_obj.get("message") or _rp_d.get("razon_rechazo") or _rp_d.get("reason") or _rp_d.get("rejection_reason") or "")
+        _combined = f"{_code} {_reason}".lower()
+        _bucket = "Cambio de tarjeta" if any(t in _combined for t in _card_terms_vp) else "Reintento"
+        rej_by_month[_m][_bucket]["count"] += 1
+        rej_by_month[_m][_bucket]["amount"] += _amount(_amt)
+    extended["rejected_charges_monthly"] = [
+        {"year": yr, "month": mo, "status": st, "count": int(v["count"]), "amount": round(v["amount"], 2)}
+        for (yr, mo), bkts in sorted(rej_by_month.items())
+        for st, v in sorted(bkts.items())
+    ]
 
     return {
         "source": source,
@@ -1497,6 +2093,11 @@ def _toku_canonical_dashboard(db: Session) -> dict[str, Any]:
         for rtype, model in _TOKU_MODEL.items()
     }
     resource_counts["subscription"] = len(active_subscriptions)
+    resource_counts["payment_method"] = db.scalar(
+        select(func.count()).select_from(CPaymentMethod).where(
+            CPaymentMethod.source == "toku", func.lower(CPaymentMethod.status) == "chargeable"
+        )
+    ) or 0
     resource_counts["invoice"] = db.scalar(
         select(func.count()).select_from(CCharge).where(
             CCharge.source == "toku", func.upper(CCharge.status) == "PAID"
@@ -1576,6 +2177,20 @@ def _toku_canonical_dashboard(db: Session) -> dict[str, Any]:
     latest_run = db.scalars(
         select(SyncRun).where(SyncRun.source == "toku").order_by(SyncRun.started_at.desc()).limit(1)
     ).first()
+    extended = _toku_extended_data(records)
+    active_customers = {
+        subscription.client_external_id
+        for subscription in active_subscriptions
+        if subscription.client_external_id
+    }
+    mrr = round(sum(_amount(subscription.amount) for subscription in active_subscriptions), 0)
+    active_clients = len(active_customers) or len(active_subscriptions)
+    extended["kpis"].update({
+        "mrr": mrr,
+        "active_subscribers": len(active_subscriptions),
+        "active_clients": active_clients,
+        "arpu": round(mrr / active_clients, 0) if active_clients else 0.0,
+    })
     return {
         "source": "toku",
         "records": sum(resource_counts.values()),
@@ -1594,7 +2209,7 @@ def _toku_canonical_dashboard(db: Session) -> dict[str, Any]:
             }
             if latest_run else None
         ),
-        **_toku_extended_data(records),
+        **extended,
     }
 
 
@@ -1735,6 +2350,18 @@ def list_record_filter_values(
 ) -> dict[str, list[str]]:
     """Return distinct filter values without limiting them to the displayed page."""
     _require_source_access(current_user, source, resource_type)
+    if filter_field == "secondary_status" and resource_type == "subscription":
+        if source.startswith("virtualpos"):
+            vp_sources = _vp_src(source)
+            subscriptions = db.scalars(select(CSub).where(CSub.source.in_(vp_sources))).all()
+        else:
+            subscriptions = db.scalars(select(CSub).where(CSub.source == source)).all()
+        enrichment = _sub_enrichment(db, subscriptions)
+        return {"values": sorted({
+            extra["secondary_status"]
+            for extra in enrichment.values()
+            if extra.get("secondary_status")
+        }, key=str.lower)}
     if filter_field != "status":
         raise HTTPException(status_code=422, detail="Unsupported filter value field")
 
@@ -1772,10 +2399,10 @@ def virtualpos_client_detail(
     if client is None:
         raise HTTPException(status_code=404, detail="VirtualPOS client not found")
 
-    # Suscripciones relacionadas por RUT (social_id)
+    # Suscripciones relacionadas por RUT — busca en ambas cuentas VP1/VP2
     social_id = client.social_id
     if social_id:
-        sub_filters = (CSub.source == client.source, CSub.client_social_id == social_id)
+        sub_filters = (CSub.source.in_(_VP_SRCS), CSub.client_social_id == social_id)
         subscriptions = db.scalars(
             select(CSub).where(*sub_filters).order_by(CSub.updated_at.desc()).offset(offset).limit(limit)
         ).all()
@@ -1786,25 +2413,29 @@ def virtualpos_client_detail(
         subscription_total = 0
         all_sub_ids = []
 
-    # Cargos relacionados via subscription_external_id (client_external_id es None en VP)
+    # Cargos relacionados via subscription_external_id
     if all_sub_ids:
-        charge_filters = (CCharge.source == client.source, CCharge.subscription_external_id.in_(all_sub_ids))
+        charge_filters = (CCharge.source.in_(_VP_SRCS), CCharge.subscription_external_id.in_(all_sub_ids))
         charges = db.scalars(
             select(CCharge).where(*charge_filters).order_by(CCharge.charge_date.desc()).limit(100)
         ).all()
         charge_total = db.scalar(select(func.count()).select_from(CCharge).where(*charge_filters)) or 0
 
-        # Pagos: enlazados via raw_payload.payment.order.uuid del cargo
-        payment_uuids = []
-        for ch in charges:
-            rp = ch.raw_payload or {}
-            uuid = ((rp.get("payment") or {}).get("order") or {}).get("uuid")
-            if uuid:
-                payment_uuids.append(str(uuid))
+        # Pagos: link via raw_payload.payment.order.uuid (charge_external_id no se popula en VP)
+        payment_uuids = list(
+            {
+                uuid
+                for uuid in db.scalars(
+                    select(CCharge.raw_payload["payment"]["order"]["uuid"].astext)
+                    .where(*charge_filters)
+                    .where(CCharge.raw_payload["payment"]["order"]["uuid"].astext.isnot(None))
+                ).all()
+            }
+        )
         if payment_uuids:
             payments = db.scalars(
                 select(CPayment).where(
-                    CPayment.source == client.source,
+                    CPayment.source.in_(_VP_SRCS),
                     CPayment.external_id.in_(payment_uuids),
                 ).order_by(CPayment.payment_date.desc())
             ).all()
@@ -1818,9 +2449,10 @@ def virtualpos_client_detail(
         payments = []
         payment_total = 0
 
+    sub_enrichment = _sub_enrichment(db, list(subscriptions))
     return {
         "client": _cstg(client, "client"),
-        "subscriptions": [_cstg(s, "subscription") for s in subscriptions],
+        "subscriptions": [_cstg(s, "subscription", sub_enrichment.get((s.source, s.external_id))) for s in subscriptions],
         "subscription_total": subscription_total,
         "charges": [_cstg(c, "charge") for c in charges],
         "charge_total": charge_total,
@@ -1848,9 +2480,10 @@ def virtualpos_plan_detail(
         select(CSub).where(*filters).order_by(CSub.updated_at.desc()).offset(offset).limit(limit)
     ).all()
     total = db.scalar(select(func.count()).select_from(CSub).where(*filters)) or 0
+    sub_enrichment = _sub_enrichment(db, list(subscriptions))
     return {
         "plan": _cstg(plan, "plan"),
-        "subscriptions": [_cstg(s, "subscription") for s in subscriptions],
+        "subscriptions": [_cstg(s, "subscription", sub_enrichment.get((s.source, s.external_id))) for s in subscriptions],
         "subscription_total": total,
     }
 
@@ -1879,8 +2512,9 @@ def virtualpos_subscription_detail(
     ).all()
     total = db.scalar(select(func.count()).select_from(CCharge).where(*filters)) or 0
     raw = subscription.raw_payload or {}
+    enrichment = _sub_enrichment(db, [subscription])
     return {
-        "subscription": _cstg(subscription, "subscription"),
+        "subscription": _cstg(subscription, "subscription", enrichment.get((subscription.source, subscription.external_id))),
         "payment_method": raw.get("payment_method"),
         "charges": [_cstg(c, "charge") for c in charges],
         "charge_total": total,
@@ -1979,12 +2613,63 @@ def _toku_subscription_ids(record: CPaymentMethod) -> list[str]:
     return [str(value) for value in values if value is not None] if isinstance(values, list) else []
 
 
-def _toku_transaction_subscription_id(record: CPayment) -> str | None:
+def _toku_transaction_subscription_ids(record: CPayment) -> list[str]:
     payload = record.raw_payload or {}
-    value = payload.get("subscription_id")
-    if value is None and isinstance(payload.get("transaction"), dict):
-        value = payload["transaction"].get("subscription_id")
-    return _relationship_id(value)
+    values: list[Any] = [payload.get("subscription_id")]
+    if isinstance(payload.get("transaction"), dict):
+        values.append(payload["transaction"].get("subscription_id"))
+    intents = payload.get("payment_intents")
+    if isinstance(intents, list):
+        values.extend(intent.get("id_subscription") for intent in intents if isinstance(intent, dict))
+    return [subscription_id for value in values if (subscription_id := _relationship_id(value))]
+
+
+def _toku_transaction_subscription_id(record: CPayment) -> str | None:
+    subscription_ids = _toku_transaction_subscription_ids(record)
+    return subscription_ids[0] if subscription_ids else None
+
+
+def _toku_transaction_payment_method_id(record: CPayment) -> str | None:
+    payload = record.raw_payload or {}
+    transaction = payload.get("transaction") if isinstance(payload.get("transaction"), dict) else payload
+    return _relationship_id(transaction.get("payment_method_id") or transaction.get("payment_method"))
+
+
+def _toku_invoice_subscription_id(record: CCharge) -> str | None:
+    payload = record.raw_payload or {}
+    return record.subscription_external_id or _relationship_id(payload.get("subscription"))
+
+
+def _normalized_rut(value: Any) -> str | None:
+    normalized = re.sub(r"[^0-9kK]", "", str(value or "")).upper()
+    return normalized or None
+
+
+def _toku_record_ruts(record: Any) -> set[str]:
+    payload = record.raw_payload or {}
+    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    values = (
+        getattr(record, "social_id", None),
+        getattr(record, "client_social_id", None),
+        payload.get("government_id"),
+        payload.get("rut"),
+        customer.get("government_id"),
+        customer.get("rut"),
+    )
+    return {rut for value in values if (rut := _normalized_rut(value))}
+
+
+def _toku_record_customer_ids(record: Any) -> set[str]:
+    payload = record.raw_payload or {}
+    transaction = payload.get("transaction") if isinstance(payload.get("transaction"), dict) else {}
+    values = (
+        getattr(record, "client_external_id", None),
+        payload.get("customer_id"),
+        payload.get("customer"),
+        transaction.get("customer_id"),
+        transaction.get("customer"),
+    )
+    return {customer_id for value in values if (customer_id := _relationship_id(value))}
 
 
 def _canonical_items(records: list[Any], resource_type: str) -> list[dict[str, Any]]:
@@ -2000,18 +2685,41 @@ def _toku_canonical_related(record: Any, resource_type: str, db: Session) -> lis
     record_id = record.external_id
 
     if resource_type == "customer":
+        customer_ruts = _toku_record_ruts(record)
+        customer_subscriptions = [
+            item
+            for item in subscriptions
+            if record_id in _toku_record_customer_ids(item)
+            or bool(customer_ruts & _toku_record_ruts(item))
+        ]
+        subscription_ids = {item.external_id for item in customer_subscriptions}
+        customer_methods = [
+            item
+            for item in methods
+            if record_id in _toku_record_customer_ids(item)
+            or bool(customer_ruts & _toku_record_ruts(item))
+        ]
+        method_ids = {item.external_id for item in customer_methods}
         return [
-            _related("Subscripciones", "subscription", _canonical_items([item for item in subscriptions if item.client_external_id == record_id], "subscription")),
-            _related("Métodos de pago", "payment_method", _canonical_items([item for item in methods if item.client_external_id == record_id], "payment_method")),
-            _related("Deudas", "invoice", _canonical_items([item for item in invoices if item.client_external_id == record_id], "invoice")),
-            _related("Transacciones", "transaction", _canonical_items([item for item in transactions if item.client_external_id == record_id], "transaction")),
+            _related("Subscripciones", "subscription", _canonical_items(customer_subscriptions, "subscription")),
+            _related("Métodos de pago", "payment_method", _canonical_items(customer_methods, "payment_method")),
+            _related("Deudas", "invoice", _canonical_items([
+                item for item in invoices
+                if record_id in _toku_record_customer_ids(item)
+                or _toku_invoice_subscription_id(item) in subscription_ids
+            ], "invoice")),
+            _related("Transacciones", "transaction", _canonical_items([
+                item for item in transactions
+                if record_id in _toku_record_customer_ids(item)
+                or _toku_transaction_payment_method_id(item) in method_ids
+            ], "transaction")),
         ]
     if resource_type == "subscription":
         return [
             _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
             _related("Métodos de pago", "payment_method", _canonical_items([item for item in methods if record_id in _toku_subscription_ids(item)], "payment_method")),
-            _related("Deudas", "invoice", _canonical_items([item for item in invoices if item.subscription_external_id == record_id], "invoice")),
-            _related("Transacciones", "transaction", _canonical_items([item for item in transactions if _toku_transaction_subscription_id(item) == record_id], "transaction")),
+            _related("Deudas", "invoice", _canonical_items([item for item in invoices if _toku_invoice_subscription_id(item) == record_id], "invoice")),
+            _related("Transacciones", "transaction", _canonical_items([item for item in transactions if record_id in _toku_transaction_subscription_ids(item)], "transaction")),
         ]
     if resource_type == "payment_method":
         subscription_ids = _toku_subscription_ids(record)
@@ -2154,14 +2862,16 @@ def provider_record_detail(
         if record is None:
             raise HTTPException(status_code=404, detail="Staging record not found")
         related = _toku_canonical_related(record, resource_type, db)
-        return {"record": _cstg(record, resource_type), "related": _permitted_related(current_user, source, related)}
+        extra = _sub_enrichment(db, [record]).get((record.source, record.external_id)) if resource_type == "subscription" else None
+        return {"record": _cstg(record, resource_type, extra), "related": _permitted_related(current_user, source, related)}
     if source == "payku":
         model = _PAYKU_MODEL[resource_type]
         record = db.scalar(select(model).where(model.source == "payku", model.external_id == external_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Staging record not found")
         related = _payku_canonical_related(record, resource_type, db)
-        return {"record": _cstg(record, resource_type), "related": _permitted_related(current_user, source, related)}
+        extra = _sub_enrichment(db, [record], "payku").get((record.source, record.external_id)) if resource_type == "subscription" else None
+        return {"record": _cstg(record, resource_type, extra), "related": _permitted_related(current_user, source, related)}
     records = db.scalars(select(SourceRecord).where(SourceRecord.source == source)).all()
     record = next((item for item in records if item.resource_type == resource_type and item.external_id == external_id), None)
     if record is None:
@@ -2214,6 +2924,149 @@ def staging_summary(db: Session = Depends(get_db)) -> dict[str, list[dict[str, A
             }
         )
     return {"sources": sources}
+
+
+@router.get("/dashboard/{source}/alerts/{alert_id}", tags=["Staging"])
+def channel_alert_detail(
+    source: str,
+    alert_id: str,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> dict[str, Any]:
+    """Devuelve el listado de suscripciones que componen una alerta operativa de VirtualPOS."""
+    _require_source_access(current_user, source)
+    if not source.startswith("virtualpos"):
+        raise HTTPException(status_code=404, detail="Detalle de alertas solo disponible para VirtualPOS")
+
+    sources = _vp_src(source)
+    today = date.today()
+
+    if alert_id == "sin-cobro-reciente":
+        six_months_ago = str(today - timedelta(days=182))
+        recently_paid_set = set(
+            db.execute(
+                select(CCharge.subscription_external_id)
+                .where(
+                    CCharge.source.in_(sources),
+                    CCharge.subscription_external_id.isnot(None),
+                    func.lower(CCharge.status).in_(tuple(_PAID_STATUSES_GEN)),
+                    CCharge.charge_date >= six_months_ago,
+                )
+                .distinct()
+            ).scalars().all()
+        )
+        last_charge_map = dict(
+            db.execute(
+                select(CCharge.subscription_external_id, func.max(CCharge.charge_date).label("ld"))
+                .where(
+                    CCharge.source.in_(sources),
+                    CCharge.subscription_external_id.isnot(None),
+                    func.lower(CCharge.status).in_(tuple(_PAID_STATUSES_GEN)),
+                )
+                .group_by(CCharge.subscription_external_id)
+            ).all()
+        )
+        stmt = (
+            select(CSub.external_id, CSub.client_social_id, CSub.status, CSub.amount, CSub.suscription_date)
+            .where(CSub.source.in_(sources), func.lower(CSub.status).in_(tuple(_ACTIVE_STATUSES)))
+        )
+        if recently_paid_set:
+            stmt = stmt.where(CSub.external_id.notin_(recently_paid_set))
+        rows = db.execute(stmt.order_by(CSub.suscription_date.desc().nullslast())).all()
+        items = [
+            {
+                "external_id": r[0],
+                "rut": r[1],
+                "status": r[2],
+                "amount": _amount(r[3]),
+                "suscription_date": r[4],
+                "ultimo_cobro": last_charge_map.get(r[0]),
+            }
+            for r in rows
+        ]
+        return {"items": items, "total": len(items)}
+
+    if alert_id == "racha-rechazos":
+        reject_kw = {"rechazad", "rejected", "fail", "unpaid"}
+        three_months_ago = str(today - timedelta(days=91))
+        streak_rows = db.execute(
+            select(CCharge.subscription_external_id, CCharge.status, CCharge.charge_date)
+            .select_from(CCharge)
+            .join(
+                CSub,
+                and_(
+                    CSub.source.in_(sources),
+                    CSub.external_id == CCharge.subscription_external_id,
+                    func.lower(CSub.status) == "activa",
+                ),
+            )
+            .where(CCharge.source.in_(sources), CCharge.charge_date >= three_months_ago)
+            .order_by(CCharge.subscription_external_id, CCharge.charge_date.desc().nullslast())
+        ).all()
+        last_charges_detail: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
+        for sub_id, status, charge_date in streak_rows:
+            if len(last_charges_detail[sub_id]) < 3:
+                last_charges_detail[sub_id].append((str(status or ""), str(charge_date or "")))
+        streak_ids = {
+            sub_id for sub_id, hist in last_charges_detail.items()
+            if len(hist) >= 2 and all(any(k in h[0].lower() for k in reject_kw) for h in hist)
+        }
+        if not streak_ids:
+            return {"items": [], "total": 0}
+        last_paid_map = dict(
+            db.execute(
+                select(CCharge.subscription_external_id, func.max(CCharge.charge_date).label("ld"))
+                .where(
+                    CCharge.source.in_(sources),
+                    CCharge.subscription_external_id.in_(streak_ids),
+                    func.lower(CCharge.status).in_(tuple(_PAID_STATUSES_GEN)),
+                )
+                .group_by(CCharge.subscription_external_id)
+            ).all()
+        )
+        rows = db.execute(
+            select(CSub.external_id, CSub.client_social_id, CSub.status, CSub.amount, CSub.suscription_date)
+            .where(CSub.source.in_(sources), CSub.external_id.in_(streak_ids))
+            .order_by(CSub.suscription_date.desc().nullslast())
+        ).all()
+        items = [
+            {
+                "external_id": r[0],
+                "rut": r[1],
+                "status": r[2],
+                "amount": _amount(r[3]),
+                "suscription_date": r[4],
+                "ultimo_cobro": last_paid_map.get(r[0]),
+                "ultimo_estado": (last_charges_detail[r[0]] or [("", "")])[0][0] or None,
+            }
+            for r in rows
+        ]
+        return {"items": items, "total": len(items)}
+
+    if alert_id == "suscripciones-fallidas":
+        rows = db.execute(
+            select(CSub.external_id, CSub.client_social_id, CSub.status, CSub.amount, CSub.suscription_date)
+            .where(CSub.source.in_(sources), func.upper(CSub.status) == "SUSCRIPCION_FALLIDA")
+            .order_by(CSub.client_social_id, CSub.suscription_date.desc().nullslast())
+        ).all()
+        # Agrupa por RUT; guarda el intento más reciente por persona
+        seen: dict[str, dict[str, Any]] = {}
+        attempts: dict[str, int] = {}
+        for ext_id, rut, status, amount, sus_date in rows:
+            key = rut if rut else ext_id
+            attempts[key] = attempts.get(key, 0) + 1
+            if key not in seen:
+                seen[key] = {
+                    "external_id": ext_id,
+                    "rut": rut,
+                    "status": status,
+                    "amount": _amount(amount),
+                    "suscription_date": sus_date,
+                }
+        items = [{**v, "intentos": attempts[k]} for k, v in seen.items()]
+        return {"items": items, "total": len(items)}
+
+    raise HTTPException(status_code=404, detail=f"Tipo de alerta '{alert_id}' no reconocido")
 
 
 @router.get("/dashboard/{source}", tags=["Staging"])

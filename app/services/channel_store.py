@@ -47,6 +47,12 @@ def _str(d: dict, *keys: str) -> str | None:
     return str(val) if val is not None else None
 
 
+def _relationship_id(value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("id") or value.get("external_id")
+    return str(value) if value is not None else None
+
+
 def _card_summaries(cards: Any) -> list[dict] | None:
     if not isinstance(cards, list):
         return None
@@ -65,6 +71,8 @@ def _card_summaries(cards: Any) -> list[dict] | None:
             "issuer_code": inner.get("issuer_code"),
             "last4": inner.get("last4"),
             "nacional": inner.get("nacional"),
+            "expiration_month": inner.get("expiration_month") or inner.get("expiry_month"),
+            "expiration_year": inner.get("expiration_year") or inner.get("expiry_year"),
         })
     return result or None
 
@@ -89,6 +97,15 @@ def upsert_channel(
         rows.append(values)
     if not rows:
         return 0
+    # Deduplicar por identity_fields para evitar CardinalityViolation en ON CONFLICT DO UPDATE
+    seen: set[tuple] = set()
+    deduped: list[dict] = []
+    for row in rows:
+        key = tuple(row.get(f) for f in identity_fields)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(row)
+    rows = deduped
     stmt = insert(model).values(rows)
     updatable = {key: stmt.excluded[key] for key in rows[0] if key not in (*identity_fields, "id", "created_at")}
     stmt = stmt.on_conflict_do_update(index_elements=list(identity_fields), set_=updatable)
@@ -190,7 +207,7 @@ def extract_toku_subscription(p: dict) -> dict:
     customer = p.get("customer") or {}
     return {
         "external_id": _str(p, "__external_id", "id"),
-        "customer_id": _str(customer, "id", "external_id") or _str(p, "customer_id"),
+        "customer_id": _relationship_id(customer) or _str(p, "customer_id"),
         "status": _str(p, "status") or _str(recurring, "status"),
         "amount": _str(p, "amount") or _str(recurring, "amount"),
         "currency_code": _str(p, "currency_code") or _str(recurring, "currency"),
@@ -203,7 +220,7 @@ def extract_toku_invoice(p: dict) -> dict:
     sub = p.get("subscription") or {}
     return {
         "external_id": _str(p, "__external_id", "id"),
-        "subscription_id": _str(p, "subscription_id") or _str(sub, "id"),
+        "subscription_id": _str(p, "subscription_id") or _relationship_id(sub),
         "status": _str(p, "status"),
         "amount": _str(p, "amount"),
         "currency": _str(p, "currency"),
@@ -229,7 +246,7 @@ def extract_toku_payment_method(p: dict) -> dict:
     customer = p.get("customer") or {}
     return {
         "external_id": _str(p, "__external_id") or _str(method, "id", "external_id"),
-        "customer_id": _str(p, "customer_id") or _str(customer, "id"),
+        "customer_id": _str(p, "customer_id") or _relationship_id(customer),
         "status": _str(method, "status") or _str(p, "status"),
     }
 

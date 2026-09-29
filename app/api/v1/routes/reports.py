@@ -381,8 +381,10 @@ function downloadReport(){{const blob=new Blob([document.documentElement.outerHT
 
 
 def _generic_alerts(scope: str, snapshot: dict[str, Any], series: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
-    """Derive simple alerts from series data — no extra DB queries."""
+    """Derive alerts from series data — no extra DB queries."""
     alerts: list[dict[str, Any]] = []
+
+    # 1. Alta tasa de rechazo por mes
     charge_by_month: dict[str, dict[str, int]] = defaultdict(lambda: {"ok": 0, "fail": 0})
     for entry in series.get("charges", []):
         key = f"{entry['year']}-{int(entry['month']):02d}"
@@ -397,6 +399,30 @@ def _generic_alerts(scope: str, snapshot: dict[str, Any], series: dict[str, list
             rate = 100 * counts["fail"] / total
             if rate > 30:
                 alerts.append({"sev": "alta" if rate > 50 else "media", "tipo": "Alta tasa de rechazo", "detalle": f"{month}: {rate:.0f}% de rechazos ({counts['fail']} de {total} cargos)"})
+
+    # 2. Declive: meses donde bajas > altas
+    act_by_month: dict[str, int] = defaultdict(int)
+    can_by_month: dict[str, int] = defaultdict(int)
+    for entry in series.get("activations", []):
+        act_by_month[f"{entry['year']}-{int(entry['month']):02d}"] += int(entry.get("count", 0))
+    for entry in series.get("cancellations", []):
+        can_by_month[f"{entry['year']}-{int(entry['month']):02d}"] += int(entry.get("count", 0))
+    all_months = sorted(set(act_by_month) | set(can_by_month))
+    for month in all_months:
+        altas = act_by_month[month]
+        bajas = can_by_month[month]
+        if bajas > altas and bajas > 0:
+            alerts.append({"sev": "media", "tipo": "Saldo negativo de suscripciones", "detalle": f"{month}: {bajas} bajas vs {altas} altas"})
+
+    # 3. Tasa de rechazo global del período
+    total_ok = sum(v["ok"] for v in charge_by_month.values())
+    total_fail = sum(v["fail"] for v in charge_by_month.values())
+    total_all = total_ok + total_fail
+    if total_all > 0:
+        global_rate = 100 * total_fail / total_all
+        if global_rate > 35:
+            alerts.insert(0, {"sev": "alta" if global_rate > 50 else "media", "tipo": "Tasa de rechazo global elevada", "detalle": f"Período completo: {global_rate:.1f}% de rechazos ({total_fail} de {total_all} cargos)"})
+
     if scope == "tch":
         tasa = snapshot.get("tasa_rechazo", 0)
         if isinstance(tasa, (int, float)) and tasa > 15:

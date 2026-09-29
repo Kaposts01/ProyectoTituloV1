@@ -78,6 +78,13 @@ class VirtualPOSClient:
         response.raise_for_status()
         return response.json()
 
+    async def create_card_change_link(self, subscription_id: str) -> Any:
+        response = await self._client.put(f"/v3/suscription/{subscription_id}/changecard")
+        response.raise_for_status()
+        if not response.content:
+            return {}
+        return response.json()
+
     async def create_subscription(self, data: dict[str, Any]) -> Any:
         response = await self._client.post("/v3/suscription", json=data)
         response.raise_for_status()
@@ -108,7 +115,12 @@ class VirtualPOSClient:
     async def delete_charge(self, charge_id: str) -> Any:
         response = await self._client.delete(f"/v3/charge/{charge_id}")
         response.raise_for_status()
-        return response.json()
+        if not response.content:
+            return {}
+        try:
+            return response.json()
+        except Exception:
+            return {}
 
     async def retry_charge(self, charge_id: str) -> Any:
         return await self._get(f"/v3/charge/{charge_id}/retry")
@@ -123,4 +135,7 @@ class VirtualPOSClient:
                     raise
                 await asyncio.sleep(2**attempt)
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except Exception:
+            return {}

@@ -38,6 +38,22 @@ logger = logging.getLogger(__name__)
 _CHUNK = 2000
 
 
+def _relationship_id(value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("id") or value.get("external_id")
+    return str(value) if value is not None else None
+
+
+def _toku_payment_subscription_id(payload: dict) -> str | None:
+    intents = payload.get("payment_intents")
+    if not isinstance(intents, list):
+        return None
+    for intent in intents:
+        if isinstance(intent, dict) and (subscription_id := _relationship_id(intent.get("id_subscription"))):
+            return subscription_id
+    return None
+
+
 # ── Upsert genérico en tabla canónica ─────────────────────────────────────────
 
 def _upsert_canonical(
@@ -204,11 +220,12 @@ def _consolidate_toku_clients(db: Session) -> int:
 def _consolidate_toku_subscriptions(db: Session) -> int:
     rows = []
     for t in db.scalars(select(TokuSubscription)).all():
+        payload = t.raw_payload or {}
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
             "source_record_id": None,
-            "client_external_id": t.customer_id,
+            "client_external_id": t.customer_id or _relationship_id(payload.get("customer")),
             "client_social_id": None,
             "plan_external_id": None,
             "service_id": None,
@@ -226,12 +243,13 @@ def _consolidate_toku_subscriptions(db: Session) -> int:
 def _consolidate_toku_invoices(db: Session) -> int:
     rows = []
     for t in db.scalars(select(TokuInvoice)).all():
+        payload = t.raw_payload or {}
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
             "source_record_id": None,
-            "subscription_external_id": t.subscription_id,
-            "client_external_id": None,
+            "subscription_external_id": t.subscription_id or _relationship_id(payload.get("subscription")),
+            "client_external_id": _relationship_id(payload.get("customer")),
             "amount": t.amount,
             "currency": t.currency,
             "status": t.status,
@@ -244,12 +262,13 @@ def _consolidate_toku_invoices(db: Session) -> int:
 def _consolidate_toku_transactions(db: Session) -> int:
     rows = []
     for t in db.scalars(select(TokuTransaction)).all():
+        payload = t.raw_payload or {}
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
             "source_record_id": None,
-            "charge_external_id": None,
-            "client_external_id": None,
+            "charge_external_id": _toku_payment_subscription_id(payload),
+            "client_external_id": _relationship_id(payload.get("customer")),
             "amount": t.amount,
             "currency": t.currency,
             "status": t.status,

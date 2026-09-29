@@ -6,7 +6,7 @@ from alembic import context
 from app.core.config import settings
 from app.db.session import Base
 from app.models.auth import Permission, Role, User  # noqa: F401
-from app.models.payku_channel import PaykuClient, PaykuPlan, PaykuSubscription, PaykuTransaction  # noqa: F401
+from app.models.charge_recovery import ChargeRecovery  # noqa: F401
 from app.models.tch import (  # noqa: F401
     TchBanco,
     TchCentroCosto,
@@ -25,6 +25,7 @@ from app.models.crm import (  # noqa: F401
     Plan,
     Subscription,
 )
+from app.models.payku_channel import PaykuClient, PaykuPlan, PaykuSubscription, PaykuTransaction  # noqa: F401
 from app.models.source_record import SourceRecord  # noqa: F401
 from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.toku_channel import TokuCustomer, TokuInvoice, TokuPaymentMethod, TokuSubscription, TokuTransaction  # noqa: F401

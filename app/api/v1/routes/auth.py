@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -12,6 +12,7 @@ from app.core.security import (
     get_csrf_token,
     get_current_user,
     get_db,
+    hash_password,
     require_csrf,
     verify_password,
 )
@@ -24,6 +25,19 @@ router = APIRouter()
 class LoginRequest(BaseModel):
     username: str = Field(min_length=3, max_length=100)
     password: str = Field(min_length=1, max_length=256)
+
+
+class ProfileUpdate(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_username: str | None = Field(default=None, min_length=3, max_length=100)
+    new_password: str | None = Field(default=None, min_length=6, max_length=256)
+    confirm_password: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def check_passwords_match(self) -> "ProfileUpdate":
+        if self.new_password is not None and self.new_password != self.confirm_password:
+            raise ValueError("Las contraseñas no coinciden")
+        return self
 
 
 def _login_user(db: Session, username: str) -> User | None:
@@ -71,3 +85,27 @@ def me(
     csrf_token: Annotated[str, Depends(get_csrf_token)],
 ) -> dict:
     return {"user": serialize_user(current_user), "csrf_token": csrf_token}
+
+
+@router.patch("/me", tags=["Authentication"])
+def update_profile(
+    body: ProfileUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    _: Annotated[None, Depends(require_csrf)],
+    db: Session = Depends(get_db),  # noqa: B008
+) -> dict:
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contraseña actual incorrecta")
+
+    if body.new_username is not None and body.new_username != current_user.username:
+        existing = db.scalar(select(User).where(User.username == body.new_username))
+        if existing is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El nombre de usuario ya está en uso")
+        current_user.username = body.new_username
+
+    if body.new_password is not None:
+        current_user.password_hash = hash_password(body.new_password)
+
+    db.commit()
+    db.refresh(current_user)
+    return {"user": serialize_user(current_user)}

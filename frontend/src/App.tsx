@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import "./App.css";
 import "./Staging.css";
-import { MonthlySimpleChart, MonthlyStatusChart } from "./MonthlyStatusChart";
+import { ActivacionCaidaChart, ChurnMensualChart, CrecimientoMensualChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
 import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 
@@ -21,21 +21,15 @@ type StagingRecord = {
   resource_type: string;
   external_id: string;
   payload: Record<string, unknown>;
+  last_paid_date?: string | null;
+  secondary_status?: string;
 };
 type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
 type ProviderSection = { source: string; resource: string; label: string };
 type TableColumn = { label: string; value: (record: StagingRecord) => string };
 type Activity = { year: number; month: number; count: number; amount: number };
-type RejectedCharge = {
-  id: string; external_id: string; source: string;
-  subscription_external_id: string | null; client_external_id: string | null;
-  amount: string | null; currency: string | null;
-  charge_date: string | null;
-  rejection_code: string | null; rejection_reason: string | null; rejection_doc_url: string | null;
-};
-type RejectedChargesResp = { items: RejectedCharge[]; total: number; offset: number; limit: number };
-type BatchRetryResult = { charge_id: string; success: boolean; status: string | null; error: string | null };
-type BatchRetryResp = { results: BatchRetryResult[]; succeeded: number; failed: number };
+type RecoveryRow = Record<string, unknown> & { source?: string; external_id?: string; subscription_id?: string; id?: string };
+type RecoveryResponse = { items: RecoveryRow[]; total: number; offset: number; limit: number };
 type VpKpis = {
   mrr: number;
   active_subscribers: number;
@@ -57,6 +51,7 @@ type ChannelDashboard = {
   kpis?: VpKpis;
   // VirtualPOS extended
   charges_monthly?: MonthlyStatusEntry[];
+  rejected_charges_monthly?: MonthlyStatusEntry[];
   payments_monthly?: MonthlyStatusEntry[];
   // Toku extended
   invoices_monthly?: MonthlyStatusEntry[];
@@ -64,6 +59,12 @@ type ChannelDashboard = {
   // Shared
   activation_monthly?: MonthlyStatusEntry[];
   churn_monthly?: MonthlyEntry[] | MonthlyStatusEntry[];
+  churn_rate_monthly?: { year: number; month: number; rate: number }[];
+  churn_rate_monthly_vp1?: { year: number; month: number; rate: number }[];
+  churn_rate_monthly_vp2?: { year: number; month: number; rate: number }[];
+  active_subs_monthly?: { year: number; month: number; count: number }[];
+  cobrable_subs_monthly?: { year: number; month: number; count: number }[];
+  alerts?: DashboardAlert[];
 };
 type VirtualPosClientDetail = {
   client: StagingRecord;
@@ -108,8 +109,10 @@ type EtlRun = {
   channels_processed: string[] | null;
   error_message: string | null;
 };
+type SchedulerJob = { id: string; name: string; cron: string; next_run: string | null; last_run: EtlRun | null; status: string; active_run_id?: string | null };
+type SseEvent = { type: string; phase?: string; pct?: number | null; resource?: string; records?: number; msg?: string; total_records?: number; duration_s?: number };
 type ClientEditField = { name: string; label: string; type?: string; options?: { value: string; label: string }[] };
-type AuthUser = { id: string; username: string; is_active: boolean; roles: { id: string; name: string }[]; permissions: string[] };
+type AuthUser = { id: string; username: string; is_active: boolean; roles: { id: string; name: string }[]; permissions: string[]; created_at?: string | null };
 type AuthSession = { user: AuthUser; csrf_token: string };
 type AdminRole = { id: string; name: string; description: string | null; permission_codes: string[] };
 type TchSummary = {
@@ -121,7 +124,31 @@ type TchSummary = {
   activaciones_mensuales: MonthlyStatusEntry[];
   bajas_mensuales: MonthlyStatusEntry[];
   ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
+  alerts?: DashboardAlert[];
 };
+type DashboardAlert = { id?: string; sev: "alta" | "media" | "baja"; tipo: string; canal: string; detalle: string };
+type AlertDetailItem = {
+  external_id: string | null;
+  rut: string | null;
+  status: string | null;
+  amount: number;
+  suscription_date: string | null;
+  ultimo_cobro?: string | null;
+  ultimo_estado?: string | null;
+  intentos?: number;
+};
+function aggregateChurn(churn: (MonthlyEntry | MonthlyStatusEntry)[]): MonthlyEntry[] {
+  const byMonth = new Map<string, MonthlyEntry>()
+  for (const entry of churn) {
+    const key = `${entry.year}-${entry.month}`
+    const cur = byMonth.get(key) ?? { year: entry.year, month: entry.month, count: 0, amount: 0 }
+    cur.count += entry.count
+    cur.amount += entry.amount
+    byMonth.set(key, cur)
+  }
+  return [...byMonth.values()].sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
+}
+
 type GeneralDashboard = {
   clients: number;
   subscriptions: { active: number; amount: number };
@@ -133,10 +160,11 @@ type GeneralDashboard = {
   cancellations_monthly: MonthlyStatusEntry[];
   debts_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
   transactions_effective_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
+  alerts?: DashboardAlert[];
 };
 type GeneralClient = { rut: string; name: string; origins: string[]; active_origins: string[] };
 type GeneralClients = { items: GeneralClient[]; total: number; offset: number; limit: number };
-type GeneralSubscription = { id: string; platform: string; rut: string; client: string; status: string; started_at: string | null; ended_at: string | null; amount: string | null; currency: string | null };
+type GeneralSubscription = { id: string; platform: string; rut: string; client: string; status: string; started_at: string | null; ended_at: string | null; amount: string | null; currency: string | null; last_paid_date: string | null; secondary_status: string };
 type GeneralSubscriptions = { items: GeneralSubscription[]; total: number; offset: number; limit: number };
 type GeneralClientDetail = {
   rut: string;
@@ -153,6 +181,7 @@ type TchSuscripcion = {
   equivalente_pesos: string | null;
   fecha_rechazo: string | null; fecha_eliminacion: string | null; fecha_fin: string | null;
   razon_baja: string | null; estado: string;
+  last_paid_date: string | null; secondary_status: string;
   created_at: string | null; updated_at: string | null;
 };
 type TchSuscripcionesResp = { total: number; page: number; limit: number; pages: number; items: TchSuscripcion[] };
@@ -209,16 +238,17 @@ const providerGroups: { name: string; sections: ProviderSection[] }[] = [
 const virtualPosMetrics = [
   { resource: "client", label: "Clientes", tone: "blue" },
   { resource: "plan", label: "Planes", tone: "violet" },
-  { resource: "subscription", label: "Subscripciones", tone: "gold", amount: true },
-  { resource: "charge", label: "Cargos", tone: "orange", amount: true },
-  { resource: "payment", label: "Transacciones", tone: "green", amount: true },
+  { resource: "subscription", label: "Subscripciones Activas", tone: "gold", amount: true },
+  { resource: "subscription_cobrable", label: "Subscripciones Cobrables", tone: "teal", amount: true },
+  { resource: "charge", label: "Cargos Pagados", tone: "orange", amount: true },
+  { resource: "payment", label: "Transacciones Pagadas", tone: "green", amount: true },
 ];
 const tokuMetrics = [
   { resource: "customer", label: "Clientes", tone: "blue" },
-  { resource: "subscription", label: "Subscripciones", tone: "violet", amount: true },
-  { resource: "payment_method", label: "Metodos de pago", tone: "gold" },
-  { resource: "invoice", label: "Deudas", tone: "orange", amount: true },
-  { resource: "transaction", label: "Transacciones", tone: "green", amount: true },
+  { resource: "subscription", label: "Subscripciones activas", tone: "violet", amount: true },
+  { resource: "payment_method", label: "Metodos de pago cobrables", tone: "gold" },
+  { resource: "invoice", label: "Deudas pagadas", tone: "orange", amount: true },
+  { resource: "transaction", label: "Transacciones pagadas", tone: "green", amount: true },
 ];
 const paykuMetrics = [
   { resource: "client", label: "Clientes", tone: "blue" },
@@ -272,6 +302,7 @@ const METRIC_COLORS: Record<string, string> = {
   gold: "#c49d30",
   orange: "#d46a2a",
   green: "#3ba675",
+  teal: "#2ab8a8",
 };
 const CHANNEL_COLORS: Record<string, string> = {
   virtualpos: CHART_PRIMARY,
@@ -352,6 +383,8 @@ const fieldLabels: Record<string, string> = {
   canceled_at: "Fecha cancelacion",
   renewal: "Renovacion",
   channel: "Canal",
+  secondary_status: "Estado secundario",
+  last_paid_date: "Último cobro",
   customer: "Cliente",
   customer_id: "ID cliente",
   service_id: "ID servicio",
@@ -410,6 +443,8 @@ const virtualPosPlanFields = [
 ];
 const virtualPosSubscriptionFields = [
   "status",
+  "secondary_status",
+  "last_paid_date",
   "id",
   "service_id",
   "plan_name",
@@ -609,13 +644,13 @@ const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
   virtualpos: {
     client: [{ value: "uuid", label: "UUID" }, { value: "social_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Email" }, { value: "phone_number", label: "Teléfono" }, { value: "status", label: "Estado" }],
     plan: [{ value: "id", label: "ID" }, { value: "name", label: "Nombre" }, { value: "amount", label: "Monto" }, { value: "automatic_renewal", label: "Renovación" }, { value: "is_active", label: "Estado" }, { value: "show_in_terminal", label: "Activo en POS" }],
-    subscription: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "suscription_date", label: "F. Inicio" }, { value: "canceled_at", label: "F. Cancelación" }],
+    subscription: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "secondary_status", label: "Estado sec." }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "suscription_date", label: "F. Inicio" }, { value: "canceled_at", label: "F. Cancelación" }],
     charge: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscription_id", label: "ID subscripción" }, { value: "amount", label: "Monto" }, { value: "charge_date", label: "Fecha de cargo" }],
     payment: [{ value: "uuid", label: "UUID" }, { value: "status", label: "Estado" }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "authorized_at", label: "F. Pago" }],
   },
   toku: {
     customer: [{ value: "id", label: "ID" }, { value: "government_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "mail", label: "Mail" }, { value: "phone_number", label: "Teléfono" }],
-    subscription: [{ value: "id", label: "ID" }, { value: "customer", label: "ID cliente" }, { value: "amount", label: "Monto" }, { value: "status", label: "Estado" }, { value: "anchor", label: "F. Inicio" }, { value: "end_date", label: "F. Cancelación" }],
+    subscription: [{ value: "id", label: "ID" }, { value: "customer", label: "ID cliente" }, { value: "amount", label: "Monto" }, { value: "status", label: "Estado" }, { value: "secondary_status", label: "Estado sec." }, { value: "anchor", label: "F. Inicio" }, { value: "end_date", label: "F. Cancelación" }],
     payment_method: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "customer_id", label: "Cliente" }, { value: "card_brand", label: "Marca" }, { value: "last_digits", label: "Terminación" }, { value: "bank_name", label: "Banco" }, { value: "card_type", label: "Tipo tarjeta" }, { value: "created_at", label: "F. Creación" }],
     invoice: [{ value: "id", label: "ID" }, { value: "customer", label: "Cliente" }, { value: "subscription", label: "Subscripción" }, { value: "amount", label: "Monto" }, { value: "is_paid", label: "Pagado" }, { value: "status", label: "Estado" }, { value: "due_date", label: "Fecha límite" }],
     transaction: [{ value: "id", label: "ID" }, { value: "customer_id", label: "ID cliente" }, { value: "subscription_id", label: "ID subscripción" }, { value: "amount", label: "Monto" }, { value: "transaction_date", label: "Fecha transacción" }],
@@ -688,10 +723,18 @@ async function checkResponse(response: Response): Promise<void> {
   throw new Error(httpErrorMessage(response.status, detail));
 }
 
+async function jsonResponse<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw new Error("La API activa no incluye esta ruta de recuperación. Reinicia el servidor backend y vuelve a intentarlo.");
+  }
+  return response.json() as Promise<T>;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { credentials: "include" });
   await checkResponse(response);
-  return response.json() as Promise<T>;
+  return jsonResponse<T>(response);
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
@@ -705,12 +748,34 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
     body: body ? JSON.stringify(body) : undefined,
   });
   await checkResponse(response);
-  return response.json() as Promise<T>;
+  return jsonResponse<T>(response);
+}
+
+async function downloadFile(path: string, filename: string): Promise<void> {
+  const response = await fetch(path, { credentials: "include" });
+  await checkResponse(response);
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 async function putJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
+    body: JSON.stringify(body),
+  });
+  await checkResponse(response);
+  return response.json() as Promise<T>;
+}
+
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "PATCH",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
     body: JSON.stringify(body),
@@ -737,6 +802,38 @@ async function refreshCsrfToken(): Promise<void> {
 function text(value: unknown, fallback = "Sin dato"): string {
   if (value === null || value === undefined || value === "") return fallback;
   return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function recoveryValue(item: RecoveryRow, ...keys: string[]): unknown {
+  for (const key of keys) {
+    if (item[key] !== undefined && item[key] !== null && item[key] !== "") return item[key];
+  }
+  return undefined;
+}
+
+function recoveryNestedValue(item: RecoveryRow, relation: string, ...keys: string[]): unknown {
+  const value = item[relation];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return recoveryValue(value as RecoveryRow, ...keys);
+}
+
+function recoveryAmount(item: RecoveryRow): string {
+  const amount = recoveryValue(item, "amount", "charge_amount", "subscription_amount");
+  if (amount === undefined) return "—";
+  const numeric = Number(amount);
+  const value = Number.isFinite(numeric) ? numeric.toLocaleString("es-CL") : String(amount);
+  const currency = recoveryValue(item, "currency") ?? recoveryNestedValue(item, "charge", "currency");
+  return currency ? `${currency} ${value}` : value;
+}
+
+function recoveryRowKey(item: RecoveryRow): string {
+  return `${recoveryValue(item, "source") ?? ""}:${recoveryValue(item, "external_id", "id", "subscription_id") ?? ""}`;
+}
+
+function recoveryDisplay(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return text(value, "—");
+  const item = value as RecoveryRow;
+  return text(recoveryValue(item, "name", "full_name", "email", "external_id", "id"), "—");
 }
 
 function documentType(value: unknown): string {
@@ -999,6 +1096,8 @@ function virtualPosColumns(resource: string): TableColumn[] {
         value: (record) => text(record.payload.id, record.external_id),
       },
       { label: "Estado", value: (record) => text(record.payload.status) },
+      { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
+      { label: "Último cobro", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "—" },
       { label: "RUT cliente", value: clientRut },
       { label: "Monto", value: (record) => text(record.payload.amount) },
       {
@@ -1076,6 +1175,8 @@ function tokuColumns(resource: string): TableColumn[] {
       { label: "ID cliente", value: (record) => text(nested(record.payload, "customer", "id") ?? record.payload.customer) },
       { label: "Monto", value: (record) => text(record.payload.amount) },
       { label: "Estado", value: (record) => text(record.payload.status ?? nested(record.payload, "recurring", "status")) },
+      { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
+      { label: "Último cobro", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "—" },
       { label: "F. Inicio", value: (record) => text(record.payload.anchor ?? nested(record.payload, "recurring", "anchor")) },
       {
         label: "F. Cancelacion",
@@ -1160,6 +1261,41 @@ function tokuColumns(resource: string): TableColumn[] {
   ];
 }
 
+function tokuRelatedColumns(resource: string): TableColumn[] {
+  if (resource === "customer") {
+    return [
+      { label: "Nombre", value: (item) => text(item.payload.name) },
+      { label: "RUT", value: (item) => text(item.payload.government_id) },
+      { label: "Estado", value: (item) => text(item.payload.status) },
+    ];
+  }
+  if (resource === "payment_method") {
+    return [
+      { label: "Estado", value: (item) => text(nested(item.payload, "payment_method", "status") ?? item.payload.status) },
+      { label: "Fecha creación", value: (item) => text(nested(item.payload, "payment_method", "created_at") ?? item.payload.created_at) },
+    ];
+  }
+  if (resource === "invoice") {
+    return [
+      { label: "Estado", value: (item) => text(item.payload.status) },
+      { label: "Fecha", value: (item) => text(item.payload.due_date ?? item.payload.created_at) },
+      { label: "Monto", value: (item) => text(item.payload.amount) },
+    ];
+  }
+  if (resource === "transaction") {
+    return [
+      { label: "Estado", value: (item) => text(nested(item.payload, "transaction", "status") ?? item.payload.status) },
+      { label: "Fecha", value: (item) => text(nested(item.payload, "transaction", "transaction_date") ?? item.payload.transaction_date) },
+      { label: "Monto", value: (item) => text(nested(item.payload, "transaction", "amount") ?? item.payload.amount) },
+    ];
+  }
+  return [
+    { label: "Nombre", value: (item) => text(item.payload.name, text(nested(item.payload, "client", "name"))) },
+    { label: "Estado", value: (item) => text(item.payload.status) },
+    { label: "Monto", value: (item) => text(item.payload.amount) },
+  ];
+}
+
 function paykuColumns(resource: string): TableColumn[] {
   if (resource === "client")
     return [
@@ -1194,6 +1330,8 @@ function paykuColumns(resource: string): TableColumn[] {
         value: (record) => text(record.payload.id, record.external_id),
       },
       { label: "Estado", value: (record) => text(record.payload.status) },
+      { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
+      { label: "Último cobro", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "—" },
       {
         label: "RUT",
         value: (record) => text(nested(record.payload, "client", "rut")),
@@ -1235,11 +1373,14 @@ function Sidebar({
   onTch,
   permissions,
   onAdmin,
+  adminOpen,
+  adminTab,
   onLogout,
+  onProfile,
   open,
   onClose,
-  vpRetryOpen,
-  onVpRetry,
+  recoveryOpen,
+  onRecovery,
 }: {
   activeSection: ProviderSection | null;
   channel: string | null;
@@ -1256,12 +1397,15 @@ function Sidebar({
   onTheme: () => void;
   onTch: (view: "summary" | "clientes" | "suscripciones" | "transacciones") => void;
   permissions: string[];
-  onAdmin: () => void;
+  onAdmin: (view: "usuarios" | "sincronizacion") => void;
+  adminOpen: boolean;
+  adminTab: string | null;
   onLogout: () => void;
+  onProfile: () => void;
   open: boolean;
   onClose: () => void;
-  vpRetryOpen: boolean;
-  onVpRetry: () => void;
+  recoveryOpen: boolean;
+  onRecovery: () => void;
 }) {
   const can = (permission: string) => permissions.includes(permission);
   const go = (fn: () => void) => () => { fn(); onClose(); };
@@ -1327,12 +1471,12 @@ function Sidebar({
                       {section.label}
                     </button>
                   ))}
-                  {group.name === "VirtualPOS" && can("virtualpos.charges.retry") ? (
+                  {group.name === "VirtualPOS" && can("virtualpos.recovery.view") ? (
                     <button
-                      className={vpRetryOpen ? "sidebar-item nested active" : "sidebar-item nested"}
-                      onClick={go(onVpRetry)}
+                      className={recoveryOpen ? "sidebar-item nested active" : "sidebar-item nested"}
+                      onClick={go(onRecovery)}
                     >
-                      Reintento de cargos
+                      Recuperador de Socios
                     </button>
                   ) : null}
                 </>
@@ -1366,13 +1510,53 @@ function Sidebar({
             ) : null}
           </section>
         ) : null}
-        {can("users.manage") || can("roles.manage") ? <button className="sidebar-item" onClick={go(onAdmin)}>Administración</button> : null}
+        {can("users.manage") || can("roles.manage") || can("sync_runs.view") || can("sync.run") ? (
+          <section className="sidebar-group">
+            <div className="channel-heading">
+              <button
+                className={adminOpen ? "channel-dashboard active" : "channel-dashboard"}
+                onClick={go(() => onAdmin(can("users.manage") || can("roles.manage") ? "usuarios" : "sincronizacion"))}
+              >
+                Administración
+              </button>
+              <button
+                className="sidebar-expand"
+                aria-label="Expandir Administración"
+                aria-expanded={openProvider === "Administración"}
+                onClick={() => onToggle("Administración")}
+              >
+                {openProvider === "Administración" ? "-" : "+"}
+              </button>
+            </div>
+            {openProvider === "Administración" ? (
+              <>
+                {can("users.manage") || can("roles.manage") ? (
+                  <button
+                    className={adminOpen && adminTab === "usuarios" ? "sidebar-item nested active" : "sidebar-item nested"}
+                    onClick={go(() => onAdmin("usuarios"))}
+                  >
+                    Usuarios
+                  </button>
+                ) : null}
+                {can("sync_runs.view") || can("sync.run") ? (
+                  <button
+                    className={adminOpen && adminTab === "sincronizacion" ? "sidebar-item nested active" : "sidebar-item nested"}
+                    onClick={go(() => onAdmin("sincronizacion"))}
+                  >
+                    Sincronización
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        ) : null}
       </nav>
       <div className="sidebar-footer">
         <button className="theme-btn" onClick={onTheme} aria-label="Cambiar tema">
           <span className="theme-btn-icon">{theme === "dark" ? "☀" : "◐"}</span>
           {theme === "dark" ? "Modo claro" : "Modo oscuro"}
         </button>
+        <button className="theme-btn" onClick={go(onProfile)}>Mi perfil</button>
         <button className="theme-btn" onClick={go(onLogout)}>Cerrar sesión</button>
       </div>
     </aside>
@@ -1409,6 +1593,110 @@ function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
   return <main className="login-shell"><section className="panel login-panel"><p className="eyebrow">CRM SUSCRIPCIONES</p><h1>Iniciar sesión</h1><form className="login-form" onSubmit={submit}><label>Usuario<input name="username" required autoComplete="username" /></label><label>Contraseña<input name="password" type="password" required autoComplete="current-password" /></label><button className="save-button" disabled={submitting}>{submitting ? "Ingresando..." : "Ingresar"}</button></form>{error ? <p className="error-message">{error}</p> : null}</section></main>;
 }
 
+function ProfilePanel({ user, onUpdated, onClose }: { user: AuthUser; onUpdated: (user: AuthUser) => void; onClose: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const newUsername = (form.get("new_username") as string).trim();
+    const currentPassword = form.get("current_password") as string;
+    const newPassword = (form.get("new_password") as string).trim();
+    const confirmPassword = (form.get("confirm_password") as string).trim();
+
+    if (!currentPassword) { setError("Debes ingresar tu contraseña actual."); return; }
+    if (newPassword && newPassword !== confirmPassword) { setError("Las contraseñas nuevas no coinciden."); return; }
+    if (!newUsername && !newPassword) { setError("No hay cambios para guardar."); return; }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const body: Record<string, string> = { current_password: currentPassword };
+      if (newUsername && newUsername !== user.username) body.new_username = newUsername;
+      if (newPassword) { body.new_password = newPassword; body.confirm_password = confirmPassword; }
+      const result = await patchJson<{ user: AuthUser }>("/api/v1/auth/me", body);
+      onUpdated(result.user);
+      setSuccess("Perfil actualizado correctamente.");
+      setEditing(false);
+      event.currentTarget.reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo actualizar el perfil.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString("es-CL", { year: "numeric", month: "long", day: "numeric" }) : null;
+
+  return (
+    <main className="app-shell">
+      <section className="panel">
+        <button className="back-button" onClick={onClose}>Volver</button>
+        <p className="eyebrow">CUENTA</p>
+        <h1>Mi perfil</h1>
+        <div className="profile-info">
+          <div className="profile-info-row">
+            <span className="profile-info-label">Usuario</span>
+            <span className="profile-info-value">{user.username}</span>
+          </div>
+          <div className="profile-info-row">
+            <span className="profile-info-label">Roles</span>
+            <span className="profile-info-value">
+              {user.roles.length > 0 ? user.roles.map((r) => r.name).join(", ") : <em className="muted-copy">Sin roles</em>}
+            </span>
+          </div>
+          <div className="profile-info-row">
+            <span className="profile-info-label">Estado</span>
+            <span className="profile-info-value">
+              <span className={`badge ${user.is_active ? "badge-green" : "badge-gray"}`}>{user.is_active ? "Activo" : "Inactivo"}</span>
+            </span>
+          </div>
+          {memberSince && (
+            <div className="profile-info-row">
+              <span className="profile-info-label">Miembro desde</span>
+              <span className="profile-info-value">{memberSince}</span>
+            </div>
+          )}
+        </div>
+        {success && !editing && <p className="profile-success">{success}</p>}
+        {!editing ? (
+          <button className="edit-button" style={{ marginTop: "1rem" }} onClick={() => { setSuccess(null); setError(null); setEditing(true); }}>
+            Editar perfil
+          </button>
+        ) : (
+          <form className="edit-form-grid profile-edit-form" onSubmit={handleSubmit} noValidate>
+            <p className="eyebrow" style={{ gridColumn: "1 / -1", marginTop: "1.25rem" }}>EDITAR PERFIL</p>
+            <label>
+              Nuevo nombre de usuario
+              <input name="new_username" defaultValue={user.username} minLength={3} maxLength={100} autoComplete="username" />
+            </label>
+            <label>
+              Contraseña actual <span className="field-required" aria-hidden="true">*</span>
+              <input name="current_password" type="password" required autoComplete="current-password" />
+            </label>
+            <label>
+              Nueva contraseña
+              <input name="new_password" type="password" minLength={6} maxLength={256} autoComplete="new-password" placeholder="Dejar en blanco para no cambiar" />
+            </label>
+            <label>
+              Confirmar nueva contraseña
+              <input name="confirm_password" type="password" maxLength={256} autoComplete="new-password" placeholder="Repetir nueva contraseña" />
+            </label>
+            {error && <p className="profile-error" style={{ gridColumn: "1 / -1" }}>{error}</p>}
+            <div className="profile-form-actions" style={{ gridColumn: "1 / -1" }}>
+              <button className="save-button" type="submit" disabled={saving}>{saving ? "Guardando..." : "Guardar cambios"}</button>
+              <button className="cancel-btn" type="button" onClick={() => { setEditing(false); setError(null); }}>Cancelar</button>
+            </div>
+          </form>
+        )}
+      </section>
+    </main>
+  );
+}
+
 function AdminUsers({ canManageUsers }: { canManageUsers: boolean }) {
   const [roles, setRoles] = useState<AdminRole[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -1422,7 +1710,433 @@ function AdminUsers({ canManageUsers }: { canManageUsers: boolean }) {
       setMessage("Usuario creado.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo crear el usuario."); }
   }
-  return <main className="app-shell"><section className="panel"><p className="eyebrow">ADMINISTRACIÓN</p><h1>Usuarios y roles</h1>{canManageUsers ? <form className="edit-form-grid" onSubmit={createUser}><label>Usuario<input name="username" required minLength={3} /></label><label>Contraseña temporal<input name="password" type="password" required minLength={12} /></label><fieldset className="edit-form-wide"><legend>Roles</legend>{roles.map((role) => <label key={role.id}><input type="checkbox" name="role_ids" value={role.id} /> {role.name}</label>)}</fieldset><button className="save-button">Crear usuario</button></form> : <p className="muted-copy">No tiene permiso para crear usuarios.</p>}{message ? <p className="resource-copy">{message}</p> : null}</section></main>;
+  return <section className="panel"><p className="eyebrow">ADMINISTRACIÓN / USUARIOS</p><h1>Usuarios y roles</h1>{canManageUsers ? <form className="edit-form-grid" onSubmit={createUser}><label>Usuario<input name="username" required minLength={3} /></label><label>Contraseña temporal<input name="password" type="password" required minLength={12} /></label><fieldset className="edit-form-wide"><legend>Roles</legend>{roles.map((role) => <label key={role.id}><input type="checkbox" name="role_ids" value={role.id} /> {role.name}</label>)}</fieldset><button className="save-button">Crear usuario</button></form> : <p className="muted-copy">No tiene permiso para crear usuarios.</p>}{message ? <p className="resource-copy">{message}</p> : null}</section>;
+}
+
+const _ALL_PHASES = ["sync_virtualpos1", "sync_virtualpos2", "sync_toku", "sync_payku", "consolidating"];
+const _PHASE_LABELS: Record<string, string> = {
+  sync_virtualpos1: "VirtualPOS VP1",
+  sync_virtualpos2: "VirtualPOS VP2",
+  sync_toku: "Toku",
+  sync_payku: "Payku",
+  consolidating: "Consolidación canónica",
+};
+
+type ChannelKey = "all" | "virtualpos" | "toku" | "payku" | "tch";
+const CHANNEL_OPTS: Array<{ key: ChannelKey; label: string; channels: string[] | null }> = [
+  { key: "all",        label: "Todos",      channels: null },
+  { key: "virtualpos", label: "VirtualPOS", channels: ["virtualpos1", "virtualpos2"] },
+  { key: "toku",       label: "Toku",       channels: ["toku"] },
+  { key: "payku",      label: "Payku",      channels: ["payku"] },
+  { key: "tch",        label: "TCH",        channels: ["tch"] },
+];
+
+function getPhasesForChannels(channels: string[] | null | undefined): string[] {
+  if (!channels) return _ALL_PHASES;
+  const phases: string[] = [];
+  if (channels.includes("virtualpos1")) phases.push("sync_virtualpos1");
+  if (channels.includes("virtualpos2")) phases.push("sync_virtualpos2");
+  if (channels.includes("toku")) phases.push("sync_toku");
+  if (channels.includes("payku")) phases.push("sync_payku");
+  phases.push("consolidating");
+  return phases;
+}
+
+const _RUNS_PAGE = 10;
+
+function cronLabel(cron: string): string {
+  const map: Record<string, string> = {
+    "0 2 * * *": "Diario a las 02:00 (Santiago)",
+    "0 * * * *": "Cada hora",
+    "*/30 * * * *": "Cada 30 min",
+  };
+  return map[cron] ?? cron;
+}
+
+function runTypeLabel(channels: string[] | null): string {
+  if (!channels || channels.length === 0) return "—";
+  const map: Record<string, string> = { virtualpos1: "VP1", virtualpos2: "VP2", toku: "Toku", payku: "Payku", tch: "TCH" };
+  const apiChannels = ["virtualpos1", "virtualpos2", "toku", "payku"];
+  const hasAllApi = apiChannels.every((c) => channels.includes(c));
+  if (hasAllApi && channels.includes("tch")) return "Sync completa";
+  if (hasAllApi) return "Sync completa";
+  if (channels.length === 1 && channels[0] === "tch") return "TCH (rematerialización)";
+  return channels.map((c) => map[c] ?? c).join(" + ");
+}
+
+function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRuns: boolean }) {
+  const [jobs, setJobs] = useState<SchedulerJob[]>([]);
+  const [runs, setRuns] = useState<{ total: number; items: EtlRun[] }>({ total: 0, items: [] });
+  const [runsOffset, setRunsOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [sseEvents, setSseEvents] = useState<SseEvent[]>([]);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [selectedChannelKey, setSelectedChannelKey] = useState<ChannelKey>("all");
+  // Canales activos cuando se disparó la sync (undefined = auto-conectado a run existente)
+  const [triggeredChannels, setTriggeredChannels] = useState<string[] | null | undefined>(undefined);
+
+  const activeRunIdRef = useRef<string | null>(null);
+  activeRunIdRef.current = activeRunId;
+
+  function refreshData() {
+    if (!canViewRuns) return;
+    getJson<SchedulerJob[]>("/api/v1/scheduler/jobs").then((data) => {
+      setJobs(data);
+      const running = data.find((j) => j.active_run_id);
+      if (running?.active_run_id && !activeRunIdRef.current) {
+        setActiveRunId(running.active_run_id);
+        // auto-conectado: canales desconocidos
+        setTriggeredChannels(undefined);
+      }
+    }).catch(() => {});
+    getJson<{ total: number; items: EtlRun[] }>(`/api/v1/scheduler/runs?limit=${_RUNS_PAGE}&offset=0`)
+      .then((data) => { setRuns(data); setRunsOffset(0); })
+      .catch(() => {});
+  }
+
+  useEffect(() => { refreshData(); }, [canViewRuns]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!activeRunId) return;
+    setSseEvents([]);
+    const es = new EventSource(`/api/v1/scheduler/runs/${activeRunId}/stream`);
+    es.onmessage = (e) => {
+      const ev: SseEvent = JSON.parse(e.data as string);
+      setSseEvents((prev) => [...prev, ev]);
+      if (ev.type === "completed" || ev.type === "error" || ev.type === "not_found") {
+        es.close();
+        setTimeout(refreshData, 800);
+      }
+    };
+    es.onerror = () => es.close();
+    return () => es.close();
+  }, [activeRunId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function triggerSync() {
+    const opt = CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)!;
+    setTriggeredChannels(opt.channels);
+    setTriggering(true);
+    setTriggerError(null);
+    try {
+      const r = await postJson<{ run_id: string }>(
+        "/api/v1/scheduler/jobs/sync_all_channels/run",
+        { channels: opt.channels }
+      );
+      setActiveRunId(r.run_id);
+      setTimeout(refreshData, 600);
+    } catch (err) {
+      setTriggerError(friendlyError(err, "No se pudo iniciar la sincronización."));
+    } finally {
+      setTriggering(false);
+    }
+  }
+
+  async function loadMore() {
+    setLoadingMore(true);
+    const nextOffset = runsOffset + _RUNS_PAGE;
+    try {
+      const data = await getJson<{ total: number; items: EtlRun[] }>(`/api/v1/scheduler/runs?limit=${_RUNS_PAGE}&offset=${nextOffset}`);
+      setRuns((prev) => ({ total: data.total, items: [...prev.items, ...data.items] }));
+      setRunsOffset(nextOffset);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  function phaseStatus(phase: string): "pending" | "running" | "done" | "error" {
+    if (sseEvents.some((e) => e.type === "error" && e.phase === phase)) return "error";
+    if (sseEvents.some((e) => e.type === "phase_done" && e.phase === phase)) return "done";
+    if (sseEvents.some((e) => e.type === "phase_start" && e.phase === phase)) return "running";
+    return "pending";
+  }
+
+  function phaseProgress(phase: string): number | null {
+    const evts = sseEvents.filter((e) => e.type === "progress" && e.phase === phase);
+    return evts.length ? (evts[evts.length - 1].pct ?? null) : null;
+  }
+
+  // Fases activas: inferidas de triggeredChannels, o de eventos SSE si fue auto-conectado
+  const activePhases = useMemo(() => {
+    if (triggeredChannels !== undefined) return getPhasesForChannels(triggeredChannels);
+    // Auto-conectado: inferir desde eventos recibidos
+    const seen = new Set(
+      sseEvents
+        .filter((e) => e.phase && e.type !== "error")
+        .map((e) => e.phase!)
+    );
+    const inferred = _ALL_PHASES.filter((p) => seen.has(p));
+    return inferred.length > 0 ? inferred : _ALL_PHASES;
+  }, [triggeredChannels, sseEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Porcentaje global basado en las fases activas de este run
+  const globalPct = useMemo(() => {
+    if (!activeRunId || activePhases.length === 0) return null;
+    let total = 0;
+    let started = 0;
+    for (const phase of activePhases) {
+      const st = phaseStatus(phase);
+      if (st === "done") { total += 100; started++; }
+      else if (st === "running") { total += phaseProgress(phase) ?? 0; started++; }
+    }
+    if (started === 0) return null;
+    return Math.round(total / activePhases.length);
+  }, [sseEvents, activePhases]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isCompleted = sseEvents.some((e) => e.type === "completed");
+  const completedEv = sseEvents.find((e) => e.type === "completed");
+
+  function fmtDate(iso: string | null | undefined): string {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    const dd = d.getDate().toString().padStart(2, "0");
+    const mm = (d.getMonth() + 1).toString().padStart(2, "0");
+    const hh = d.getHours().toString().padStart(2, "0");
+    const min = d.getMinutes().toString().padStart(2, "0");
+    return `${dd}/${mm} ${hh}:${min}`;
+  }
+  function fmtDuration(start: string | null, end: string | null): string {
+    if (!start || !end) return "—";
+    const s = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  }
+  function statusBadge(st: string) {
+    const cls = st === "completed" ? "badge-green" : st === "failed" ? "badge-red" : st === "running" ? "badge-blue" : "badge-gray";
+    const label = st === "completed" ? "OK" : st === "failed" ? "Error" : st === "running" ? "En curso" : st;
+    return <span className={`badge ${cls}`}>{label}</span>;
+  }
+
+  const isRunning = jobs.some((j) => j.status === "running");
+  const hasMore = runs.items.length < runs.total;
+
+  return (
+    <section className="panel scheduler-panel">
+      <p className="eyebrow">ADMINISTRACIÓN / SINCRONIZACIÓN</p>
+      <h1>Orquestador</h1>
+
+      {/* ── Selector de canal ── */}
+      {canSync ? (
+        <div className="channel-selector-wrap">
+          <span className="channel-selector-label">Canal:</span>
+          <div className="channel-selector">
+            {CHANNEL_OPTS.map((opt) => (
+              <button
+                key={opt.key}
+                className={`channel-btn${selectedChannelKey === opt.key ? " active" : ""}`}
+                disabled={isRunning || triggering}
+                onClick={() => setSelectedChannelKey(opt.key)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Jobs ── */}
+      <h3 className="scheduler-section-title">Jobs programados</h3>
+      {triggerError ? <p className="scheduler-error">{triggerError}</p> : null}
+
+      {jobs.length === 0 ? (
+        <p className="muted-copy">Sin jobs registrados.</p>
+      ) : jobs.map((job) => (
+        <div key={job.id} className="scheduler-job-card">
+          <div className="sjc-top">
+            <span className="sjc-name">{job.name}</span>
+            <div className="sjc-top-right">
+              {statusBadge(job.status)}
+              {job.status === "running" && globalPct !== null ? (
+                <span className="sjc-live-pct">{globalPct}%</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="sjc-meta">
+            <span className="sjc-schedule">{cronLabel(job.cron)}</span>
+            <span className="sjc-next">Próx: {fmtDate(job.next_run)}</span>
+            {job.last_run ? <span className="sjc-last">Último: {fmtDate(job.last_run.started_at)}</span> : null}
+          </div>
+          {job.status === "running" && globalPct !== null ? (
+            <div className="sjc-progress-wrap">
+              <div className="sjc-progress-fill" style={{ width: `${globalPct}%` }} />
+            </div>
+          ) : null}
+          <div className="sjc-actions">
+            {canSync && !isRunning ? (
+              <button className="save-button sjc-btn" disabled={triggering} onClick={triggerSync}>
+                {triggering
+                  ? "Iniciando…"
+                  : selectedChannelKey === "all"
+                    ? "Sincronizar todos"
+                    : `Sincronizar ${CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)?.label}`}
+              </button>
+            ) : null}
+            {job.status === "running" && job.active_run_id ? (
+              <button
+                className="save-button sjc-btn sjc-btn-live"
+                onClick={() => { setActiveRunId(job.active_run_id!); setTriggeredChannels(undefined); }}
+              >
+                Ver progreso en vivo
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ))}
+
+      {/* ── Panel SSE ── */}
+      {activeRunId ? (
+        <div className="sse-panel">
+          <div className="sse-header">
+            <div className="sse-header-left">
+              <h3 className="sse-title">
+                {isCompleted
+                  ? `✓ Completado — ${(completedEv?.total_records ?? 0).toLocaleString()} registros en ${Math.floor((completedEv?.duration_s ?? 0) / 60)}m ${(completedEv?.duration_s ?? 0) % 60}s`
+                  : sseEvents.length === 0
+                    ? "Conectando al stream…"
+                    : `Sincronizando… ${globalPct !== null ? `${globalPct}%` : ""}`}
+              </h3>
+              {/* Barra determinada cuando hay progreso */}
+              {!isCompleted && globalPct !== null ? (
+                <div className="sse-global-bar-wrap">
+                  <div className="sse-global-bar-fill" style={{ width: `${globalPct}%` }} />
+                </div>
+              ) : null}
+              {/* Barra indeterminada cuando hay eventos pero sin % todavía */}
+              {!isCompleted && sseEvents.length > 0 && globalPct === null ? (
+                <div className="sse-indeterminate-wrap">
+                  <div className="sse-indeterminate-fill" />
+                </div>
+              ) : null}
+              {/* Shimmer mientras conecta */}
+              {sseEvents.length === 0 ? (
+                <div className="sse-indeterminate-wrap">
+                  <div className="sse-indeterminate-fill" />
+                </div>
+              ) : null}
+            </div>
+            <button className="sse-close-btn" onClick={() => setActiveRunId(null)}>✕</button>
+          </div>
+
+          {sseEvents.length === 0 ? (
+            <p className="sse-connecting-hint">Esperando eventos del servidor…</p>
+          ) : (
+            <ul className="phase-list">
+              {activePhases.map((phase) => {
+                const st = phaseStatus(phase);
+                const pct = phaseProgress(phase);
+                const icon = st === "done" ? "✓" : st === "error" ? "✗" : st === "running" ? "⟳" : "○";
+                const color = st === "done" ? "#16A34A" : st === "error" ? "#DC2626" : st === "running" ? "#2563EB" : "#94A3B8";
+                return (
+                  <li key={phase} className="phase-item">
+                    <span className="phase-icon" style={{ color }}>{icon}</span>
+                    <span className="phase-label">{_PHASE_LABELS[phase]}</span>
+                    {st === "running" && pct === null ? (
+                      <div className="progress-bar-wrap">
+                        <div className="progress-bar-indeterminate" />
+                      </div>
+                    ) : pct !== null ? (
+                      <div className="progress-bar-wrap">
+                        <div className="progress-bar-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    ) : null}
+                    {pct !== null ? <span className="phase-pct">{pct}%</span> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {sseEvents.filter((e) => e.type === "progress" || e.type === "error").length > 0 ? (
+            <div className="sse-log">
+              {sseEvents.filter((e) => e.type === "progress" || e.type === "error").slice(-80).map((e, i) => (
+                <div key={i} style={{ color: e.type === "error" ? "#DC2626" : undefined }}>
+                  [{e.phase}]{e.resource ? ` ${e.resource}` : ""}{e.pct != null ? ` ${e.pct}%` : ""}{e.records != null ? ` (${e.records.toLocaleString()})` : ""}{e.msg ? ` — ${e.msg}` : ""}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* ── Historial ── */}
+      <div className="scheduler-section-header">
+        <h3 className="scheduler-section-title" style={{ margin: 0 }}>Historial</h3>
+        <span className="scheduler-total-count">{runs.total} ejecuciones</span>
+      </div>
+      <div className="table-scroll">
+        <table className="scheduler-jobs-table runs-table">
+          <thead>
+            <tr>
+              <th>Inicio</th>
+              <th className="hide-mobile">Fin</th>
+              <th>Duración</th>
+              <th>Estado</th>
+              <th>Tipo</th>
+              <th>Registros</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs.items.length === 0 ? (
+              <tr><td colSpan={7} className="muted-copy" style={{ textAlign: "center", padding: "1rem" }}>Sin ejecuciones registradas.</td></tr>
+            ) : runs.items.map((run) => {
+              const isThisRunActive = run.status === "running" && activeRunId === run.id;
+              return (
+                <tr key={run.id}>
+                  <td className="runs-date">{fmtDate(run.started_at)}</td>
+                  <td className="runs-date hide-mobile">{fmtDate(run.finished_at)}</td>
+                  <td className="runs-dur">
+                    {isThisRunActive && globalPct !== null
+                      ? <span className="runs-live-dur">⟳ {globalPct}%</span>
+                      : fmtDuration(run.started_at, run.finished_at)}
+                  </td>
+                  <td>{statusBadge(run.status)}</td>
+                  <td className="runs-type">{runTypeLabel(run.channels_processed)}</td>
+                  <td className="runs-rec">
+                    {run.records_upserted != null
+                      ? <span className="runs-rec-val">{run.records_upserted.toLocaleString()}</span>
+                      : <span className="muted-copy">—</span>}
+                  </td>
+                  <td>
+                    {run.status === "running" ? (
+                      isThisRunActive
+                        ? <span className="runs-watching-dot" title="Viendo en vivo">●</span>
+                        : <button className="runs-ver-btn" onClick={() => { setActiveRunId(run.id); setTriggeredChannels(undefined); }}>Ver en vivo</button>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {runs.items.some((r) => r.status === "running" && r.id === activeRunId) && globalPct !== null ? (
+        <div className="runs-active-bar-wrap">
+          <div className="runs-active-bar-fill" style={{ width: `${globalPct}%` }} />
+        </div>
+      ) : null}
+      {hasMore ? (
+        <div className="runs-load-more">
+          <button className="runs-load-more-btn" disabled={loadingMore} onClick={loadMore}>
+            {loadingMore ? "Cargando…" : `Ver más (${runs.total - runs.items.length} restantes)`}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AdminPanel({ permissions, tab }: { permissions: string[]; tab: "usuarios" | "sincronizacion" }) {
+  return (
+    <main className="app-shell">
+      {tab === "usuarios"
+        ? <AdminUsers canManageUsers={permissions.includes("users.manage")} />
+        : <SchedulerPanel canSync={permissions.includes("sync.run")} canViewRuns={permissions.includes("sync_runs.view")} />
+      }
+    </main>
+  );
 }
 
 function Metric({
@@ -1598,9 +2312,60 @@ function ChannelDashboardView({
       : data.source === "toku"
         ? tokuMetrics
         : paykuMetrics;
+  const activeYear = year ?? defaultYear(data.years) ?? null;
+
+  const [churnSource, setChurnSource] = useState<"all" | "vp1" | "vp2">("all");
+  const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
+  const [alertDetail, setAlertDetail] = useState<AlertDetailItem[] | null>(null);
+  const [alertDetailLoading, setAlertDetailLoading] = useState(false);
+
+  function toggleAlert(alertId: string) {
+    if (expandedAlertId === alertId) {
+      setExpandedAlertId(null);
+      setAlertDetail(null);
+      return;
+    }
+    setExpandedAlertId(alertId);
+    setAlertDetail(null);
+    setAlertDetailLoading(true);
+    getJson<{ items: AlertDetailItem[]; total: number }>(
+      `/api/v1/staging/dashboard/${data.source}/alerts/${alertId}`
+    )
+      .then((d) => { setAlertDetail(d.items); setAlertDetailLoading(false); })
+      .catch(() => setAlertDetailLoading(false));
+  }
   const chartData = data.activity
     .filter((entry) => year === null || entry.year === year)
     .map((entry) => ({ ...entry, label: months[entry.month - 1] }));
+
+  const PAID_KW = ["pagad", "aceptad", "accepted", "paid", "success", "cobrad", "aprobad"];
+  const isPaid = (s: string) => PAID_KW.some((k) => s.toLowerCase().includes(k));
+  const resolvedResources = { ...data.resources };
+  const resolvedAmounts = { ...data.resource_amounts };
+  if (data.source.startsWith("virtualpos") && activeYear !== null) {
+    const paidCharges = (data.charges_monthly ?? []).filter(
+      (e) => e.year === activeYear && e.status != null && isPaid(e.status)
+    );
+    resolvedResources["charge"] = paidCharges.reduce((s, e) => s + e.count, 0);
+    resolvedAmounts["charge"] = paidCharges.reduce((s, e) => s + e.amount, 0);
+    const paidPayments = (data.payments_monthly ?? []).filter(
+      (e) => e.year === activeYear && e.status != null && isPaid(e.status)
+    );
+    resolvedResources["payment"] = paidPayments.reduce((s, e) => s + e.count, 0);
+    resolvedAmounts["payment"] = paidPayments.reduce((s, e) => s + e.amount, 0);
+  }
+  if (data.source === "toku" && activeYear !== null) {
+    const paidInvoices = ((data.invoices_monthly as MonthlyStatusEntry[] | undefined) ?? []).filter(
+      (e) => e.year === activeYear && e.status?.toUpperCase() === "PAID"
+    );
+    resolvedResources["invoice"] = paidInvoices.reduce((s, e) => s + e.count, 0);
+    resolvedAmounts["invoice"] = paidInvoices.reduce((s, e) => s + e.amount, 0);
+    const successfulTransactions = ((data.transactions_monthly as MonthlyStatusEntry[] | undefined) ?? []).filter(
+      (e) => e.year === activeYear && e.status?.toUpperCase() === "SUCCESS"
+    );
+    resolvedResources["transaction"] = successfulTransactions.reduce((s, e) => s + e.count, 0);
+    resolvedAmounts["transaction"] = successfulTransactions.reduce((s, e) => s + e.amount, 0);
+  }
   const dataKey = mode;
   const activityTitle =
     data.source === "toku" ? "Actividad de deudas" : "Actividad de cobros";
@@ -1667,18 +2432,18 @@ function ChannelDashboardView({
         </div>
       </header>
       <section
-        className={`metrics provider-metrics ${data.source === "payku" ? "payku-metrics" : ""}`}
+        className={`metrics provider-metrics${data.source === "payku" ? " payku-metrics" : ""}${data.source.startsWith("virtualpos") ? " vp-metrics" : ""}`}
         aria-label={`Metricas ${title(data.source)}`}
       >
         {metrics.map((metric) => (
           <Metric
             key={metric.resource}
             label={metric.label}
-            value={data.resources[metric.resource] ?? 0}
+            value={resolvedResources[metric.resource] ?? 0}
             tone={metric.tone}
             amount={
               "amount" in metric && metric.amount
-                ? (data.resource_amounts[metric.resource] ?? 0)
+                ? (resolvedAmounts[metric.resource] ?? 0)
                 : undefined
             }
             mode={mode}
@@ -1714,6 +2479,7 @@ function ChannelDashboardView({
         </section>
       ) : null}
       <section className="channel-workspace">
+        {data.source !== "virtualpos" && (
         <article className="panel chart-panel">
           <div className="panel-heading">
             <div>
@@ -1721,9 +2487,7 @@ function ChannelDashboardView({
               <h3>Serie mensual</h3>
             </div>
           </div>
-          {data.source === "virtualpos" && data.charges_monthly?.length ? (
-            <MonthlyStatusChart data={data.charges_monthly} mode={dataKey} year={year} />
-          ) : data.source === "toku" && data.invoices_monthly?.length ? (
+          {data.source === "toku" && data.invoices_monthly?.length ? (
             <MonthlyStatusChart data={data.invoices_monthly} mode={dataKey} year={year} />
           ) : data.source === "payku" && (data.transactions_monthly as MonthlyStatusEntry[] | undefined)?.length ? (
             <MonthlyStatusChart data={data.transactions_monthly as MonthlyStatusEntry[]} mode={dataKey} year={year} />
@@ -1743,6 +2507,7 @@ function ChannelDashboardView({
             </p>
           )}
         </article>
+        )}
         <article className="panel status-panel">
           <p className="eyebrow">ESTADOS</p>
           <h3>Distribución disponible</h3>
@@ -1758,7 +2523,10 @@ function ChannelDashboardView({
         data.invoices_monthly?.length ||
         (data.transactions_monthly as MonthlyEntry[] | undefined)?.length ||
         data.activation_monthly?.length ||
-        data.churn_monthly?.length) ? (
+        data.churn_monthly?.length ||
+        data.churn_rate_monthly?.length ||
+        data.active_subs_monthly?.length ||
+        data.cobrable_subs_monthly?.length) ? (
         <section className="extended-charts">
           {data.charges_monthly?.length ? (
             <article className="panel">
@@ -1769,6 +2537,21 @@ function ChannelDashboardView({
                 </div>
               </div>
               <MonthlyStatusChart data={data.charges_monthly} mode={mode} year={year} />
+            </article>
+          ) : null}
+          {data.rejected_charges_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">CARGOS</p>
+                  <h3>Rechazados por motivo</h3>
+                </div>
+              </div>
+              <MonthlyStatusChart
+                data={data.rejected_charges_monthly}
+                mode={mode}
+                year={data.rejected_charges_monthly.some(e => e.year === year) ? year : null}
+              />
             </article>
           ) : null}
           {data.payments_monthly?.length ? (
@@ -1840,8 +2623,172 @@ function ChannelDashboardView({
               )}
             </article>
           ) : null}
+          {data.activation_monthly?.length ? (
+            <>
+              <article className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <p className="eyebrow">SUSCRIPCIONES</p>
+                    <h3>Activación vs Caída</h3>
+                  </div>
+                </div>
+                <ActivacionCaidaChart
+                  activaciones={data.activation_monthly}
+                  caidas={aggregateChurn(data.churn_monthly ?? [])}
+                  year={year}
+                  mode={mode}
+                />
+              </article>
+              <article className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <p className="eyebrow">SUSCRIPCIONES</p>
+                    <h3>Crecimiento real mensual</h3>
+                  </div>
+                </div>
+                <CrecimientoMensualChart
+                  activaciones={data.activation_monthly}
+                  caidas={aggregateChurn(data.churn_monthly ?? [])}
+                  year={year}
+                  mode={mode}
+                />
+              </article>
+            </>
+          ) : null}
+          {data.source === "virtualpos" && data.churn_rate_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">SUSCRIPCIONES</p>
+                  <h3>Churn mensual (%)</h3>
+                </div>
+                <div className="mode-switch" style={{ fontSize: "0.8rem" }}>
+                  <button className={churnSource === "all" ? "active" : ""} onClick={() => setChurnSource("all")}>Todas</button>
+                  <button className={churnSource === "vp1" ? "active" : ""} onClick={() => setChurnSource("vp1")}>VirtualPOS 1</button>
+                  <button className={churnSource === "vp2" ? "active" : ""} onClick={() => setChurnSource("vp2")}>VirtualPOS 2</button>
+                </div>
+              </div>
+              <ChurnMensualChart
+                data={
+                  churnSource === "vp1" ? (data.churn_rate_monthly_vp1 ?? []) :
+                  churnSource === "vp2" ? (data.churn_rate_monthly_vp2 ?? []) :
+                  data.churn_rate_monthly
+                }
+                year={year}
+              />
+            </article>
+          ) : null}
+          {data.payments_monthly?.length &&
+            (data.active_subs_monthly?.length || data.cobrable_subs_monthly?.length) ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">RECAUDACIÓN</p>
+                  <h3>Transacciones vs Suscripciones</h3>
+                </div>
+              </div>
+              <TransaccionesSuscripcionesChart
+                payments={data.payments_monthly as MonthlyStatusEntry[]}
+                activeSubs={data.active_subs_monthly ?? []}
+                cobrableSubs={data.cobrable_subs_monthly ?? []}
+                year={year}
+                mode={mode}
+              />
+            </article>
+          ) : null}
         </section>
       ) : null}
+      {(data.alerts ?? []).length > 0 && (
+        <section className="panel dashboard-alerts-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">ALERTAS OPERATIVAS</p>
+              <h3>
+                {(data.alerts ?? []).filter(a => a.sev === "alta").length > 0 && (
+                  <span className="badge badge-orange" style={{ marginRight: "0.5rem" }}>
+                    {(data.alerts ?? []).filter(a => a.sev === "alta").length} alta{(data.alerts ?? []).filter(a => a.sev === "alta").length !== 1 ? "s" : ""}
+                  </span>
+                )}
+                {(data.alerts ?? []).filter(a => a.sev === "media").length > 0 && (
+                  <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
+                    {(data.alerts ?? []).filter(a => a.sev === "media").length} media{(data.alerts ?? []).filter(a => a.sev === "media").length !== 1 ? "s" : ""}
+                  </span>
+                )}
+                {(data.alerts ?? []).length} alerta{(data.alerts ?? []).length !== 1 ? "s" : ""} detectada{(data.alerts ?? []).length !== 1 ? "s" : ""}
+              </h3>
+            </div>
+          </div>
+          <div className="dashboard-alerts-list">
+            {(data.alerts ?? []).map((alert, idx) => (
+              <Fragment key={idx}>
+                <div className={`dashboard-alert-row dashboard-alert-${alert.sev}`}>
+                  <span className={`badge ${alert.sev === "alta" ? "badge-orange" : alert.sev === "media" ? "badge-blue" : "badge-gray"}`}>
+                    {alert.sev}
+                  </span>
+                  <strong className="dashboard-alert-tipo">{alert.tipo}</strong>
+                  <span className="dashboard-alert-canal">{alert.canal}</span>
+                  <span className="dashboard-alert-detalle">{alert.detalle}</span>
+                  {alert.id && (
+                    <button
+                      className="alert-ver-mas"
+                      onClick={() => toggleAlert(alert.id!)}
+                    >
+                      {expandedAlertId === alert.id ? "Cerrar" : "Ver más"}
+                    </button>
+                  )}
+                </div>
+                {alert.id && expandedAlertId === alert.id && (
+                  <div className="alert-detail-panel">
+                    {alertDetailLoading ? (
+                      <p className="alert-detail-loading">Cargando...</p>
+                    ) : !alertDetail || alertDetail.length === 0 ? (
+                      <p className="alert-detail-empty">Sin registros.</p>
+                    ) : (
+                      <div className="alert-detail-table-wrap">
+                        <table className="alert-detail-table">
+                          <thead>
+                            <tr>
+                              <th>RUT</th>
+                              <th>ID suscripción</th>
+                              <th>Estado</th>
+                              <th>Monto</th>
+                              <th>Fecha suscripción</th>
+                              {alertDetail[0]?.ultimo_cobro !== undefined && <th>Último cobro</th>}
+                              {alertDetail[0]?.ultimo_estado !== undefined && <th>Estado último cobro</th>}
+                              {alertDetail[0]?.intentos !== undefined && <th>Intentos</th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {alertDetail.map((item, i) => (
+                              <tr key={i}>
+                                <td>{item.rut ?? "—"}</td>
+                                <td className="alert-detail-id">{item.external_id ?? "—"}</td>
+                                <td>{item.status ?? "—"}</td>
+                                <td>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td>
+                                <td>{item.suscription_date?.slice(0, 10) ?? "—"}</td>
+                                {alertDetail[0]?.ultimo_cobro !== undefined && (
+                                  <td>{item.ultimo_cobro?.slice(0, 10) ?? "—"}</td>
+                                )}
+                                {alertDetail[0]?.ultimo_estado !== undefined && (
+                                  <td>{item.ultimo_estado ?? "—"}</td>
+                                )}
+                                {alertDetail[0]?.intentos !== undefined && (
+                                  <td>{item.intentos}</td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p className="alert-detail-count">{alertDetail.length} registro{alertDetail.length !== 1 ? "s" : ""}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Fragment>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="panel channel-resources">
         <div>
           <p className="eyebrow">EXPLORAR STAGING</p>
@@ -1904,6 +2851,7 @@ function applyChargeFilter(data: ChargeEntry[], filter: "todas" | "pagada" | "re
 function App() {
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [adminTab, setAdminTab] = useState<"usuarios" | "sincronizacion">("usuarios");
   const [summary, setSummary] = useState<Summary>({ sources: [] });
   const [generalData, setGeneralData] = useState<GeneralDashboard | null>(null);
   const [generalView, setGeneralView] = useState<"summary" | "clients" | "subscriptions">("summary");
@@ -2007,21 +2955,18 @@ function App() {
   const [reportScope, setReportScope] = useState<string | null>(null);
   const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
-  // Reintento de cargos VirtualPOS
-  const [vpRetryOpen, setVpRetryOpen] = useState(false);
-  const [retryCharges, setRetryCharges] = useState<RejectedChargesResp | null>(null);
-  const [retryLoading, setRetryLoading] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
-  const [retryDateFrom, setRetryDateFrom] = useState("");
-  const [retryDateTo, setRetryDateTo] = useState("");
-  const [retryPlatform, setRetryPlatform] = useState<"all" | "virtualpos" | "virtualpos1" | "virtualpos2">("all");
-  const [retryReasonFilter, setRetryReasonFilter] = useState("");
-  const [retryReasonOptions, setRetryReasonOptions] = useState<string[]>([]);
-  const [retrySnapshot, setRetrySnapshot] = useState<Map<string, RejectedCharge>>(new Map());
-  const [retryOffset, setRetryOffset] = useState(0);
-  const [retrySelected, setRetrySelected] = useState<Set<string>>(new Set());
-  const [retrying, setRetrying] = useState(false);
-  const [retryResults, setRetryResults] = useState<BatchRetryResp | null>(null);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryTab, setRecoveryTab] = useState<"cancelled" | "retry" | "card">("cancelled");
+  const [recoveryRows, setRecoveryRows] = useState<RecoveryResponse | null>(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+  const [recoveryDateFrom, setRecoveryDateFrom] = useState("");
+  const [recoveryDateTo, setRecoveryDateTo] = useState("");
+  const [recoveryOffset, setRecoveryOffset] = useState(0);
+  const [recoverySelected, setRecoverySelected] = useState<Set<string>>(new Set());
+  const [recoverySubmitting, setRecoverySubmitting] = useState(false);
+  const [cardLink, setCardLink] = useState<string | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
@@ -2048,6 +2993,9 @@ function App() {
   const [tchTransaccionDetail, setTchTransaccionDetail] = useState<TchTransaccionDetail | null>(null);
   const [tchClienteDetail, setTchClienteDetail] = useState<TchClienteDetail | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const can = (permission: string) => (session?.user?.permissions ?? []).includes(permission);
 
   useEffect(() => {
     getJson<AuthSession>("/api/v1/auth/me")
@@ -2163,7 +3111,7 @@ function App() {
   }, [session, activeSection, filterField, filterQuery, sortColumn, sortDirection, vpPlatform, recordsOffset]);
 
   useEffect(() => {
-    if (!session || !activeSection || filterField !== "status") {
+    if (!session || !activeSection || !["status", "secondary_status"].includes(filterField)) {
       setStatusValues([]);
       return;
     }
@@ -2173,7 +3121,7 @@ function App() {
     const params = new URLSearchParams({
       source,
       resource_type: activeSection.resource,
-      filter_field: "status",
+      filter_field: filterField,
     });
     getJson<{ values: string[] }>(`/api/v1/staging/records/filter-values?${params}`)
       .then((data) => setStatusValues(data.values))
@@ -2917,9 +3865,19 @@ function App() {
     }
   }
 
+  function showAdmin(view: "usuarios" | "sincronizacion") {
+    clearDetails();
+    setChannel(null);
+    setActiveSection(null);
+    setTchView(null);
+    setAdminOpen(true);
+    setAdminTab(view);
+    setProfileOpen(false);
+  }
+
   function showDashboard() {
     setAdminOpen(false);
-    setVpRetryOpen(false);
+    setRecoveryOpen(false);
     clearDetails();
     setActiveSection(null);
     setChannel(null);
@@ -2944,7 +3902,7 @@ function App() {
     setChannel(null);
     setActiveSection(null);
     setAdminOpen(false);
-    setVpRetryOpen(false);
+    setRecoveryOpen(false);
     setError(null);
     setTchSuscripcionDetail(null);
     setTchTransaccionDetail(null);
@@ -2978,7 +3936,7 @@ function App() {
     clearDetails();
     setActiveSection(null);
     setTchView(null);
-    setVpRetryOpen(false);
+    setRecoveryOpen(false);
     setChannelData(null);
     setChannelLoading(true);
     setError(null);
@@ -3047,7 +4005,7 @@ function App() {
   function showSection(section: ProviderSection) {
     clearDetails();
     setChannel(null);
-    setVpRetryOpen(false);
+    setRecoveryOpen(false);
     setLoading(true);
     setError(null);
     setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
@@ -3066,65 +4024,118 @@ function App() {
     if (section) showSection(section);
   }
 
-  function showVpRetry() {
+  function showRecovery() {
     clearDetails();
     setChannel(null);
     setActiveSection(null);
     setTchView(null);
     setAdminOpen(false);
-    setVpRetryOpen(true);
+    setRecoveryOpen(true);
     setOpenProvider("VirtualPOS");
-    setRetryCharges(null);
-    setRetryError(null);
-    setRetryOffset(0);
-    setRetrySelected(new Set());
-    setRetryResults(null);
-    setRetryReasonFilter("");
-    getJson<{ reasons: string[] }>("/api/v1/writes/virtualpos/charges/rejection-reasons")
-      .then((r) => setRetryReasonOptions(r.reasons))
-      .catch(() => setRetryReasonOptions([]));
+    setRecoveryRows(null);
+    setRecoveryError(null);
+    setRecoveryNotice(null);
+    setRecoveryOffset(0);
+    setRecoverySelected(new Set());
+    setCardLink(null);
   }
 
-  async function loadRetryCharges() {
-    setRetryLoading(true);
-    setRetryError(null);
+  async function loadRecoveryRows(offset = recoveryOffset) {
+    setRecoveryLoading(true);
+    setRecoveryError(null);
+    setRecoveryNotice(null);
     try {
-      const params = new URLSearchParams({ offset: String(retryOffset), limit: "50" });
-      if (retryDateFrom) params.set("date_from", retryDateFrom);
-      if (retryDateTo) params.set("date_to", retryDateTo);
-      if (retryPlatform !== "all") params.set("platform", retryPlatform);
-      if (retryReasonFilter.trim()) params.set("rejection_reason", retryReasonFilter.trim());
-      const data = await getJson<RejectedChargesResp>(`/api/v1/writes/virtualpos/charges/rejected?${params}`);
-      setRetryCharges(data);
-      setRetrySelected(new Set());
+      const params = new URLSearchParams({ offset: String(offset), limit: "50" });
+      if (recoveryTab !== "card") {
+        if (recoveryDateFrom) params.set("date_from", recoveryDateFrom);
+        if (recoveryDateTo) params.set("date_to", recoveryDateTo);
+      }
+      const path = recoveryTab === "cancelled"
+        ? "/api/v1/recovery/cancelled"
+        : recoveryTab === "retry"
+          ? "/api/v1/recovery/rejected?bucket=retry"
+          : "/api/v1/recovery/card-expirations";
+      const separator = path.includes("?") ? "&" : "?";
+      const data = await getJson<RecoveryResponse>(`${path}${separator}${params}`);
+      setRecoveryRows(data);
+      setRecoveryOffset(offset);
+      setRecoverySelected(new Set());
     } catch (err) {
-      setRetryError(friendlyError(err, "Error al cargar cargos rechazados."));
+      setRecoveryError(friendlyError(err, "No se pudieron cargar los registros de recuperación."));
     } finally {
-      setRetryLoading(false);
+      setRecoveryLoading(false);
     }
   }
 
-  async function runBatchRetry() {
-    if (retrySelected.size === 0 || retrying) return;
-    setRetrying(true);
-    setRetryResults(null);
-    const snapshot = new Map(
-      (retryCharges?.items ?? [])
-        .filter((c) => retrySelected.has(c.id))
-        .map((c) => [c.id, c])
-    );
-    setRetrySnapshot(snapshot);
+  async function runRecoveryRetries() {
+    if (recoverySelected.size === 0 || recoverySubmitting) return;
+    const items = (recoveryRows?.items ?? []).filter((item) => recoverySelected.has(recoveryRowKey(item))).flatMap((item) => {
+      const source = recoveryValue(item, "source");
+      const externalId = recoveryValue(item, "external_id", "id");
+      return source && externalId ? [{ source: String(source), external_id: String(externalId) }] : [];
+    });
+    if (!items.length) return;
+    setRecoverySubmitting(true);
+    setRecoveryError(null);
     try {
-      const result = await postJson<BatchRetryResp>("/api/v1/writes/virtualpos/charges/batch-retry", {
-        charge_ids: [...retrySelected],
-      });
-      setRetryResults(result);
-      setRetrySelected(new Set());
-      await loadRetryCharges();
+      await refreshCsrfToken();
+      await postJson<unknown>("/api/v1/recovery/retries", { items });
+      setRecoveryNotice(`Se solicitaron ${items.length} reintentos de cobro.`);
+      await loadRecoveryRows();
     } catch (err) {
-      setRetryError(friendlyError(err, "Error al reintentar cargos."));
+      setRecoveryError(friendlyError(err, "No se pudieron solicitar los reintentos."));
     } finally {
-      setRetrying(false);
+      setRecoverySubmitting(false);
+    }
+  }
+
+  async function runRecoveryRetry(item: RecoveryRow) {
+    const source = recoveryValue(item, "source");
+    const externalId = recoveryValue(item, "external_id", "id");
+    if (!source || !externalId || recoverySubmitting) return;
+    setRecoverySubmitting(true);
+    setRecoveryError(null);
+    try {
+      await refreshCsrfToken();
+      await postJson<unknown>("/api/v1/recovery/retries", { items: [{ source: String(source), external_id: String(externalId) }] });
+      setRecoveryNotice(`Se solicitó el reintento del cargo ${String(externalId)}.`);
+      await loadRecoveryRows();
+    } catch (err) {
+      setRecoveryError(friendlyError(err, "No se pudo solicitar el reintento."));
+    } finally {
+      setRecoverySubmitting(false);
+    }
+  }
+
+  async function exportCancelled() {
+    setRecoveryError(null);
+    try {
+      const params = new URLSearchParams();
+      if (recoveryDateFrom) params.set("date_from", recoveryDateFrom);
+      if (recoveryDateTo) params.set("date_to", recoveryDateTo);
+      await downloadFile(`/api/v1/recovery/cancelled/export?${params}`, "socios-cancelados.csv");
+    } catch (err) {
+      setRecoveryError(friendlyError(err, "No se pudo descargar la exportación."));
+    }
+  }
+
+  async function createCardChangeLink(item: RecoveryRow) {
+    const subscriptionId = recoveryValue(item, "subscription_id", "id") ?? recoveryNestedValue(item, "subscription", "id", "external_id");
+    if (!subscriptionId || recoverySubmitting) return;
+    setRecoverySubmitting(true);
+    setRecoveryError(null);
+    setCardLink(null);
+    try {
+      await refreshCsrfToken();
+      const source = recoveryValue(item, "source") ?? "virtualpos1";
+      const result = await postJson<Record<string, unknown>>(`/api/v1/recovery/card-change-links/${encodeURIComponent(String(subscriptionId))}?source=${encodeURIComponent(String(source))}`);
+      const url = recoveryValue(result, "url", "link", "card_change_url");
+      setCardLink(typeof url === "string" ? url : null);
+      setRecoveryNotice(url ? "Enlace de cambio de tarjeta generado." : "Se solicitó el enlace de cambio de tarjeta.");
+    } catch (err) {
+      setRecoveryError(friendlyError(err, "No se pudo generar el enlace de cambio de tarjeta."));
+    } finally {
+      setRecoverySubmitting(false);
     }
   }
   async function openVirtualPosClient(record: StagingRecord) {
@@ -3268,6 +4279,7 @@ function App() {
       csrfToken = "";
       setSession(null);
       setAdminOpen(false);
+      setProfileOpen(false);
     }
   }
   const clientDetailView = clientDetail ? (
@@ -3319,6 +4331,8 @@ function App() {
               <tr>
                 <th>ID Sub</th>
                 <th>Status</th>
+                <th>Estado sec.</th>
+                <th>Último cobro</th>
                 <th>Monto</th>
                 <th>F. Inicio</th>
                 <th>Acción</th>
@@ -3333,6 +4347,8 @@ function App() {
                     </button>
                   </td>
                   <td>{text(subscription.payload.status)}</td>
+                  <td><span className={`badge badge-${subscription.secondary_status === "cobrable" ? "green" : subscription.secondary_status === "incobrable" ? "orange" : subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{subscription.secondary_status ?? "—"}</span></td>
+                  <td>{subscription.last_paid_date ? String(subscription.last_paid_date).slice(0, 10) : "—"}</td>
                   <td>{text(subscription.payload.amount)}</td>
                   <td>{text(subscription.payload.suscription_date)}</td>
                   <td>
@@ -3349,7 +4365,7 @@ function App() {
               ))}
               {clientDetail.subscriptions.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>Sin suscripciones asociadas por RUT.</td>
+                  <td colSpan={7}>Sin suscripciones asociadas por RUT.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -3557,7 +4573,11 @@ function App() {
             <div key={field}>
               <dt>{fieldLabel(field)}</dt>
               <dd>
-                {field === "id"
+                {field === "secondary_status"
+                  ? <span className={`badge badge-${subscriptionDetail.subscription.secondary_status === "cobrable" ? "green" : subscriptionDetail.subscription.secondary_status === "incobrable" ? "orange" : subscriptionDetail.subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{subscriptionDetail.subscription.secondary_status ?? "—"}</span>
+                  : field === "last_paid_date"
+                    ? (subscriptionDetail.subscription.last_paid_date ? String(subscriptionDetail.subscription.last_paid_date).slice(0, 10) : "—")
+                  : field === "id"
                   ? text(
                       subscriptionDetail.subscription.payload.id,
                       subscriptionDetail.subscription.external_id,
@@ -3620,14 +4640,14 @@ function App() {
                   <td>{text(charge.payload.status)}</td>
                   <td>{text(charge.payload.amount)}</td>
                   <td>
-                    {isPendingCharge(charge) ? (
+                    {isPendingCharge(charge) && can("virtualpos.charges.cancel") ? (
                       <button
                         className="cancel-charge-button"
                         onClick={() => { setCancelChargeError(null); setCancelingCharge(charge); }}
                       >
                         Cancelar
                       </button>
-                    ) : isRejectedCharge(charge) ? (
+                    ) : isRejectedCharge(charge) && can("virtualpos.charges.retry") ? (
                       <button
                         className="retry-charge-button"
                         onClick={() => { setRetryChargeError(null); setRetryingCharge(charge); }}
@@ -3665,7 +4685,7 @@ function App() {
             Cancelar en VP
           </button>
         ) : null}
-        {isRejectedCharge(chargeDetail.charge) ? (
+        {isRejectedCharge(chargeDetail.charge) && can("virtualpos.charges.retry") ? (
           <button
             className="retry-charge-button"
             onClick={() => { setRetryChargeError(null); setRetryingCharge(chargeDetail.charge); }}
@@ -3822,9 +4842,9 @@ function App() {
                 <thead>
                   <tr>
                     <th>ID</th>
-                    <th>Nombre</th>
-                    <th>Estado</th>
-                    <th>Monto</th>
+                    {tokuRelatedColumns(group.resource_type).map((column) => (
+                      <th key={column.label}>{column.label}</th>
+                    ))}
                     <th>Acción</th>
                   </tr>
                 </thead>
@@ -3845,14 +4865,9 @@ function App() {
                           {text(item.payload.id, item.external_id)}
                         </button>
                       </td>
-                      <td>
-                        {text(
-                          item.payload.name,
-                          text(nested(item.payload, "client", "name")),
-                        )}
-                      </td>
-                      <td>{text(item.payload.status)}</td>
-                      <td>{text(item.payload.amount)}</td>
+                      {tokuRelatedColumns(group.resource_type).map((column) => (
+                        <td key={column.label}>{column.value(item)}</td>
+                      ))}
                       <td className="action-cell">
                         {item.source === "toku" && group.resource_type === "subscription" ? (
                           <button
@@ -3894,8 +4909,8 @@ function App() {
   const filterOptions = activeSection
     ? (stagingFilters[activeSection.source]?.[activeSection.resource] ?? [])
     : [];
-  const availableStatuses = filterField === "status" ? statusValues : [];
-  const isStatusFilter = filterField === "status";
+  const availableStatuses = ["status", "secondary_status"].includes(filterField) ? statusValues : [];
+  const isStatusFilter = ["status", "secondary_status"].includes(filterField);
   const filterControls = filterOptions.length ? (
     <section
       className="record-filters"
@@ -3923,7 +4938,7 @@ function App() {
         </select>
       </label>
       <label className="record-filter-query">
-        {isStatusFilter ? "Estado" : "Buscar"}
+        {isStatusFilter ? (filterField === "secondary_status" ? "Estado secundario" : "Estado") : "Buscar"}
         {isStatusFilter ? (
           <select
             value={filterQuery}
@@ -3955,176 +4970,50 @@ function App() {
       </button>
     </section>
   ) : null;
-  const allSelected = (retryCharges?.items.length ?? 0) > 0 && retrySelected.size === (retryCharges?.items.length ?? 0);
-  const vpRetryView = vpRetryOpen ? (
-    <main className="app-shell">
+  const recoveryAllSelected = (recoveryRows?.items.length ?? 0) > 0 && recoverySelected.size === recoveryRows?.items.length;
+  const recoveryView = recoveryOpen ? (
+    <main className="app-shell recovery-page">
       <div className="topbar">
         <div>
           <p className="eyebrow">VirtualPOS</p>
-          <h1>Reintento de cargos</h1>
+          <h1>Recuperador de Socios</h1>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 20 }}>
-        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-          Desde
-          <input type="date" value={retryDateFrom} onChange={(e) => setRetryDateFrom(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }} />
-        </label>
-        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-          Hasta
-          <input type="date" value={retryDateTo} onChange={(e) => setRetryDateTo(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }} />
-        </label>
-        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-          Plataforma
-          <select value={retryPlatform} onChange={(e) => setRetryPlatform(e.target.value as typeof retryPlatform)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }}>
-            <option value="all">Todas</option>
-            <option value="virtualpos">VirtualPOS</option>
-            <option value="virtualpos1">VirtualPOS 1</option>
-            <option value="virtualpos2">VirtualPOS 2</option>
-          </select>
-        </label>
-        <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: ".08em", flex: "1 1 220px" }}>
-          Motivo de rechazo
-          <input
-            list="retry-reason-options"
-            value={retryReasonFilter}
-            onChange={(e) => setRetryReasonFilter(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { setRetryOffset(0); loadRetryCharges(); } }}
-            placeholder="Seleccionar o escribir motivo..."
-            style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-1)", font: "inherit" }}
-          />
-          <datalist id="retry-reason-options">
-            {retryReasonOptions.map((r) => <option key={r} value={r} />)}
-          </datalist>
-        </label>
-        <button className="primary-button" onClick={() => { setRetryOffset(0); loadRetryCharges(); }} disabled={retryLoading}>
-          {retryLoading ? "Cargando..." : "Buscar"}
-        </button>
-        {retrySelected.size > 0 ? (
-          <button className="primary-button" style={{ background: "var(--color-danger, #c0392b)" }} onClick={runBatchRetry} disabled={retrying}>
-            {retrying ? "Reintentando..." : `Reintentar seleccionados (${retrySelected.size})`}
+      <div className="recovery-tabs" role="tablist" aria-label="Vistas de recuperación">
+        {(["cancelled", "retry", "card"] as const).map((tab) => (
+          <button key={tab} role="tab" aria-selected={recoveryTab === tab} className={recoveryTab === tab ? "active" : ""} onClick={() => { setRecoveryTab(tab); setRecoveryRows(null); setRecoveryOffset(0); setRecoverySelected(new Set()); setRecoveryError(null); setRecoveryNotice(null); setCardLink(null); }}>
+            {{ cancelled: "Canceladas", retry: "Reintento de Cobros", card: "Tarjetas Vencidas" }[tab]}
           </button>
-        ) : null}
+        ))}
       </div>
-      {retryError ? <p className="error-message">{retryError}</p> : null}
-      {retryResults ? (() => {
-        const failed = retryResults.results.filter((r) => !r.success);
-        const errorGroups = new Map<string, number>();
-        for (const r of failed) {
-          const key = r.error ?? "Error desconocido";
-          errorGroups.set(key, (errorGroups.get(key) ?? 0) + 1);
-        }
-        return (
-          <div style={{ marginBottom: 20 }}>
-            <div className={retryResults.succeeded > 0 && retryResults.failed === 0 ? "success-message" : retryResults.succeeded === 0 ? "error-message" : "success-message"} style={{ marginBottom: failed.length > 0 ? 12 : 0 }}>
-              Reintento completado: <strong>{retryResults.succeeded}</strong> exitosos, <strong>{retryResults.failed}</strong> fallidos.
-            </div>
-            {failed.length > 0 && (
-              <div className="panel" style={{ marginTop: 8, padding: "16px 20px" }}>
-                <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 13, color: "var(--text-2)" }}>Detalle de fallos</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-                  {[...errorGroups.entries()].map(([msg, count]) => (
-                    <div key={msg} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "7px 10px", background: "var(--bg-muted)", borderRadius: 8 }}>
-                      <span style={{ fontSize: 13, color: "var(--text-1)" }}>{msg}</span>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", whiteSpace: "nowrap" }}>{count} cargo{count !== 1 ? "s" : ""}</span>
-                    </div>
-                  ))}
-                </div>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-3)", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>ID externo</th>
-                      <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-3)", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>Monto</th>
-                      <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-3)", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>Error</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {failed.map((r) => {
-                      const charge = retrySnapshot.get(r.charge_id);
-                      return (
-                        <tr key={r.charge_id}>
-                          <td style={{ padding: "6px 8px", fontFamily: "monospace", borderBottom: "1px solid var(--border-subtle)", color: "var(--text-1)" }}>{charge?.external_id ?? r.charge_id}</td>
-                          <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)", color: "var(--text-2)" }}>{charge?.amount ? `${charge.currency ?? ""} ${Number(charge.amount).toLocaleString("es-CL")}` : "—"}</td>
-                          <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)", color: "var(--error-text, #c0392b)" }}>{r.error ?? "Error desconocido"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        );
-      })() : null}
-      {retryCharges ? (
-        <>
-          <div className="table-wrap panel" style={{ marginBottom: 16 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: 36 }}>
-                    <input type="checkbox" checked={allSelected} onChange={(e) => {
-                      if (e.target.checked) setRetrySelected(new Set(retryCharges.items.map((c) => c.id)));
-                      else setRetrySelected(new Set());
-                    }} />
-                  </th>
-                  <th>ID externo</th>
-                  <th>Fuente</th>
-                  <th>Suscripción</th>
-                  <th>Cliente</th>
-                  <th>Monto</th>
-                  <th>Fecha</th>
-                  <th>Motivo rechazo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {retryCharges.items.map((charge) => (
-                  <tr key={charge.id}>
-                    <td>
-                      <input type="checkbox" checked={retrySelected.has(charge.id)} onChange={(e) => {
-                        setRetrySelected((prev) => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(charge.id);
-                          else next.delete(charge.id);
-                          return next;
-                        });
-                      }} />
-                    </td>
-                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{charge.external_id}</td>
-                    <td>{charge.source}</td>
-                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{charge.subscription_external_id ?? "—"}</td>
-                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{charge.client_external_id ?? "—"}</td>
-                    <td>{charge.amount ? `${charge.currency ?? ""} ${Number(charge.amount).toLocaleString("es-CL")}` : "—"}</td>
-                    <td>{charge.charge_date ?? "—"}</td>
-                    <td style={{ maxWidth: 260 }}>
-                      {charge.rejection_reason ? (
-                        <span>
-                          {charge.rejection_code ? <code style={{ fontSize: 11, marginRight: 5, color: "var(--text-3)" }}>[{charge.rejection_code}]</code> : null}
-                          {charge.rejection_doc_url ? (
-                            <a href={charge.rejection_doc_url} target="_blank" rel="noreferrer" title={charge.rejection_reason} style={{ color: "var(--link-color)", textDecoration: "none", fontSize: 13 }}>
-                              {charge.rejection_reason}
-                            </a>
-                          ) : (
-                            <span style={{ fontSize: 13 }} title={charge.rejection_reason}>{charge.rejection_reason}</span>
-                          )}
-                        </span>
-                      ) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button className="primary-button" disabled={retryOffset === 0} onClick={() => { setRetryOffset(Math.max(0, retryOffset - 50)); loadRetryCharges(); }}>← Anterior</button>
-            <span style={{ fontSize: 13, color: "var(--text-3)" }}>
-              {retryOffset + 1}–{Math.min(retryOffset + 50, retryCharges.total)} de {retryCharges.total}
-            </span>
-            <button className="primary-button" disabled={retryOffset + 50 >= retryCharges.total} onClick={() => { setRetryOffset(retryOffset + 50); loadRetryCharges(); }}>Siguiente →</button>
-          </div>
-        </>
-      ) : !retryLoading ? (
-        <p className="muted-copy">Usa los filtros y haz clic en "Buscar" para cargar los cargos rechazados.</p>
-      ) : null}
+      <div className="recovery-controls">
+        {recoveryTab !== "card" ? <>
+          <label>Desde<input type="date" value={recoveryDateFrom} onChange={(event) => setRecoveryDateFrom(event.target.value)} /></label>
+          <label>Hasta<input type="date" value={recoveryDateTo} onChange={(event) => setRecoveryDateTo(event.target.value)} /></label>
+        </> : null}
+        <button className="primary-button" onClick={() => void loadRecoveryRows(0)} disabled={recoveryLoading}>{recoveryLoading ? "Cargando..." : "Buscar"}</button>
+        {recoveryTab === "cancelled" && can("virtualpos.recovery.export") ? <button className="secondary-button" onClick={() => void exportCancelled()}>Exportar</button> : null}
+        {recoveryTab === "retry" && recoverySelected.size > 0 && can("virtualpos.charges.retry") ? <button className="primary-button" onClick={() => void runRecoveryRetries()} disabled={recoverySubmitting}>{recoverySubmitting ? "Solicitando..." : `Reintentar seleccionados (${recoverySelected.size})`}</button> : null}
+      </div>
+      {recoveryError ? <p className="error-message">{recoveryError}</p> : null}
+      {recoveryNotice ? <p className="success-message">{recoveryNotice}</p> : null}
+      {cardLink ? <p className="success-message">Enlace: <a href={cardLink} target="_blank" rel="noreferrer">Abrir cambio de tarjeta</a></p> : null}
+      {recoveryRows ? <>
+        <section className="panel recovery-table"><div className="table-wrap"><table><thead><tr>
+          {recoveryTab === "retry" ? <th><input aria-label="Seleccionar todos" type="checkbox" checked={recoveryAllSelected} onChange={(event) => setRecoverySelected(event.target.checked ? new Set(recoveryRows.items.map(recoveryRowKey)) : new Set())} /></th> : null}
+          <th>Suscripción</th><th>Cliente</th><th>{recoveryTab === "cancelled" ? "Fecha cancelación" : recoveryTab === "retry" ? "Cargo rechazado" : "Vencimiento"}</th><th>Monto</th><th>Fuente</th>
+          {recoveryTab === "retry" ? <><th>Motivo</th><th>Acción</th></> : null}{recoveryTab === "card" ? <th>Acción</th> : null}
+        </tr></thead><tbody>
+          {recoveryRows.items.map((item) => { const key = recoveryRowKey(item); const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id"); const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id"); const date = recoveryTab === "cancelled" ? recoveryValue(item, "cancelled_at", "canceled_at", "date") : recoveryTab === "retry" ? recoveryValue(item, "charge_date", "rejected_at", "date") : recoveryValue(item, "expires_at", "expiration_date", "card_expiration"); return <tr key={key}>
+            {recoveryTab === "retry" ? <td><input aria-label={`Seleccionar ${key}`} type="checkbox" checked={recoverySelected.has(key)} onChange={(event) => setRecoverySelected((current) => { const next = new Set(current); event.target.checked ? next.add(key) : next.delete(key); return next; })} /></td> : null}
+            <td className="recovery-id">{recoveryDisplay(subscription)}</td><td>{recoveryDisplay(client)}</td><td>{text(date, "—")}</td><td>{recoveryAmount(item)}</td><td>{text(recoveryValue(item, "source"), "—")}</td>
+            {recoveryTab === "retry" ? <><td>{text(recoveryValue(item, "rejection_reason", "reason", "rejection_code"), "—")}</td><td>{can("virtualpos.charges.retry") ? <button className="secondary-button" disabled={recoverySubmitting} onClick={() => void runRecoveryRetry(item)}>Reintentar</button> : "—"}</td></> : null}
+            {recoveryTab === "card" ? <td>{can("virtualpos.cards.change") ? <button className="secondary-button" disabled={recoverySubmitting || !subscription} onClick={() => void createCardChangeLink(item)}>Generar enlace</button> : "—"}</td> : null}
+          </tr>; })}
+          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" ? 8 : recoveryTab === "card" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
+        </tbody></table></div></section>
+        <div className="recovery-pagination"><button className="secondary-button" disabled={recoveryOffset === 0 || recoveryLoading} onClick={() => void loadRecoveryRows(Math.max(0, recoveryOffset - 50))}>Anterior</button><span>{recoveryRows.total ? `${recoveryOffset + 1}-${Math.min(recoveryOffset + recoveryRows.limit, recoveryRows.total)} de ${recoveryRows.total}` : "0 registros"}</span><button className="secondary-button" disabled={recoveryOffset + recoveryRows.limit >= recoveryRows.total || recoveryLoading} onClick={() => void loadRecoveryRows(recoveryOffset + recoveryRows.limit)}>Siguiente</button></div>
+      </> : !recoveryLoading ? <p className="muted-copy">Selecciona una pestaña y consulta los registros disponibles.</p> : null}
     </main>
   ) : null;
 
@@ -4266,7 +5155,7 @@ function App() {
                               >
                                 Cancelar
                               </button>
-                            ) : isRejectedCharge(record) ? (
+                            ) : isRejectedCharge(record) && can("virtualpos.charges.retry") ? (
                               <button
                                 className="retry-charge-button"
                                 onClick={() => { setRetryChargeError(null); setRetryingCharge(record); }}
@@ -4349,6 +5238,8 @@ function App() {
                               Eliminar
                             </button>
                           </div>
+                        ) : column.label === "Estado sec." && record.resource_type === "subscription" ? (
+                          <span className={`badge badge-${record.secondary_status === "cobrable" ? "green" : record.secondary_status === "incobrable" ? "orange" : record.secondary_status === "inactiva" ? "gray" : "blue"}`}>{record.secondary_status ?? "—"}</span>
                         ) : (
                           column.value(record)
                         )}
@@ -4416,7 +5307,7 @@ function App() {
       {generalView === "subscriptions" ? (
         <section className="panel">
           <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES CONSOLIDADAS</p><h3>{generalSubscriptions?.total.toLocaleString("es-CL") ?? ""} suscripciones</h3></div><div className="table-filters"><select aria-label="Campo de búsqueda de suscripciones" value={generalSubscriptionFilter} onChange={(event) => { setGeneralSubscriptionFilter(event.target.value as typeof generalSubscriptionFilter); setGeneralSubscriptionOffset(0); }}><option value="all">Todos los campos</option><option value="id">ID</option><option value="rut">RUT</option><option value="client">Cliente</option><option value="platform">Plataforma</option><option value="status">Estado</option></select><input aria-label="Buscar suscripción consolidada" placeholder="Buscar suscripciones" value={generalSubscriptionQuery} onChange={(event) => { setGeneralSubscriptionQuery(event.target.value); setGeneralSubscriptionOffset(0); }} /></div></div>
-          <div className="table-wrap"><table><thead><tr><th>ID</th><th>Cliente</th><th>RUT</th><th>Plataforma</th><th>Estado</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead><tbody>{(generalSubscriptions?.items ?? []).map((subscription) => <tr key={`${subscription.platform}-${subscription.id}`}><td>{subscription.id}</td><td>{subscription.client || "—"}</td><td>{subscription.rut || "—"}</td><td>{subscription.platform}</td><td>{subscription.status || "—"}</td><td>{subscription.started_at ?? "—"}</td><td>{subscription.ended_at ?? "—"}</td><td>{subscription.amount ? `${subscription.currency ?? ""} $${Number(subscription.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{(generalSubscriptions?.items ?? []).length === 0 ? <tr><td colSpan={8}>Sin suscripciones.</td></tr> : null}</tbody></table></div>{generalSubscriptions && generalSubscriptions.total > generalSubscriptions.limit ? <div className="pagination"><button disabled={generalSubscriptionOffset === 0} onClick={() => setGeneralSubscriptionOffset((offset) => Math.max(0, offset - generalSubscriptions.limit))}>← Anterior</button><span>{generalSubscriptionOffset + 1}-{Math.min(generalSubscriptionOffset + generalSubscriptions.items.length, generalSubscriptions.total)} de {generalSubscriptions.total.toLocaleString("es-CL")}</span><button disabled={generalSubscriptionOffset + generalSubscriptions.limit >= generalSubscriptions.total} onClick={() => setGeneralSubscriptionOffset((offset) => offset + generalSubscriptions.limit)}>Siguiente →</button></div> : null}
+          <div className="table-wrap"><table><thead><tr><th>ID</th><th>Cliente</th><th>RUT</th><th>Plataforma</th><th>Estado</th><th>Estado secundario</th><th>Último cobro</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead><tbody>{(generalSubscriptions?.items ?? []).map((subscription) => <tr key={`${subscription.platform}-${subscription.id}`}><td>{subscription.id}</td><td>{subscription.client || "—"}</td><td>{subscription.rut || "—"}</td><td>{subscription.platform}</td><td>{subscription.status || "—"}</td><td><span className={`badge badge-${subscription.secondary_status === "cobrable" ? "green" : subscription.secondary_status === "incobrable" ? "orange" : subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{subscription.secondary_status}</span></td><td>{subscription.last_paid_date ? subscription.last_paid_date.slice(0, 10) : "—"}</td><td>{subscription.started_at ?? "—"}</td><td>{subscription.ended_at ?? "—"}</td><td>{subscription.amount ? `${subscription.currency ?? ""} $${Number(subscription.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{(generalSubscriptions?.items ?? []).length === 0 ? <tr><td colSpan={10}>Sin suscripciones.</td></tr> : null}</tbody></table></div>{generalSubscriptions && generalSubscriptions.total > generalSubscriptions.limit ? <div className="pagination"><button disabled={generalSubscriptionOffset === 0} onClick={() => setGeneralSubscriptionOffset((offset) => Math.max(0, offset - generalSubscriptions.limit))}>← Anterior</button><span>{generalSubscriptionOffset + 1}-{Math.min(generalSubscriptionOffset + generalSubscriptions.items.length, generalSubscriptions.total)} de {generalSubscriptions.total.toLocaleString("es-CL")}</span><button disabled={generalSubscriptionOffset + generalSubscriptions.limit >= generalSubscriptions.total} onClick={() => setGeneralSubscriptionOffset((offset) => offset + generalSubscriptions.limit)}>Siguiente →</button></div> : null}
         </section>
       ) : generalView === "clients" ? (
         <section className="panel">
@@ -4478,6 +5369,40 @@ function App() {
               <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transFilter)} mode={generalMode} year={generalYear} />
             </article>
           </section>
+          {(generalData.alerts ?? []).length > 0 && (
+            <section className="panel dashboard-alerts-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">ALERTAS OPERATIVAS</p>
+                  <h3>
+                    {(generalData.alerts ?? []).filter(a => a.sev === "alta").length > 0 && (
+                      <span className="badge badge-orange" style={{ marginRight: "0.5rem" }}>
+                        {(generalData.alerts ?? []).filter(a => a.sev === "alta").length} alta{(generalData.alerts ?? []).filter(a => a.sev === "alta").length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {(generalData.alerts ?? []).filter(a => a.sev === "media").length > 0 && (
+                      <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
+                        {(generalData.alerts ?? []).filter(a => a.sev === "media").length} media{(generalData.alerts ?? []).filter(a => a.sev === "media").length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {(generalData.alerts ?? []).length} alerta{(generalData.alerts ?? []).length !== 1 ? "s" : ""} detectada{(generalData.alerts ?? []).length !== 1 ? "s" : ""}
+                  </h3>
+                </div>
+              </div>
+              <div className="dashboard-alerts-list">
+                {(generalData.alerts ?? []).map((alert, idx) => (
+                  <div key={idx} className={`dashboard-alert-row dashboard-alert-${alert.sev}`}>
+                    <span className={`badge ${alert.sev === "alta" ? "badge-orange" : alert.sev === "media" ? "badge-blue" : "badge-gray"}`}>
+                      {alert.sev}
+                    </span>
+                    <strong className="dashboard-alert-tipo">{alert.tipo}</strong>
+                    <span className="dashboard-alert-canal">{alert.canal}</span>
+                    <span className="dashboard-alert-detalle">{alert.detalle}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           <section className="source-summary">
             {generalData.channels.map((channel) => {
               const staging = summary.sources.find((source) => source.source === channel.source.toLowerCase());
@@ -4866,7 +5791,63 @@ function App() {
             <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales</h3></div></div>
             <MonthlyStatusChart data={tchSummary.bajas_mensuales} mode={tchMode} year={tchYear} />
           </article>
+          {tchSummary.activaciones_mensuales?.length && tchSummary.bajas_mensuales?.length ? (
+            <>
+              <article className="panel">
+                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activación vs Caída</h3></div></div>
+                <ActivacionCaidaChart
+                  activaciones={tchSummary.activaciones_mensuales}
+                  caidas={aggregateChurn(tchSummary.bajas_mensuales)}
+                  year={tchYear}
+                  mode={tchMode}
+                />
+              </article>
+              <article className="panel">
+                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
+                <CrecimientoMensualChart
+                  activaciones={tchSummary.activaciones_mensuales}
+                  caidas={aggregateChurn(tchSummary.bajas_mensuales)}
+                  year={tchYear}
+                  mode={tchMode}
+                />
+              </article>
+            </>
+          ) : null}
         </section>
+        {(tchSummary.alerts ?? []).length > 0 && (
+          <section className="panel dashboard-alerts-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">ALERTAS OPERATIVAS</p>
+                <h3>
+                  {(tchSummary.alerts ?? []).filter(a => a.sev === "alta").length > 0 && (
+                    <span className="badge badge-orange" style={{ marginRight: "0.5rem" }}>
+                      {(tchSummary.alerts ?? []).filter(a => a.sev === "alta").length} alta{(tchSummary.alerts ?? []).filter(a => a.sev === "alta").length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {(tchSummary.alerts ?? []).filter(a => a.sev === "media").length > 0 && (
+                    <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
+                      {(tchSummary.alerts ?? []).filter(a => a.sev === "media").length} media{(tchSummary.alerts ?? []).filter(a => a.sev === "media").length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {(tchSummary.alerts ?? []).length} alerta{(tchSummary.alerts ?? []).length !== 1 ? "s" : ""} detectada{(tchSummary.alerts ?? []).length !== 1 ? "s" : ""}
+                </h3>
+              </div>
+            </div>
+            <div className="dashboard-alerts-list">
+              {(tchSummary.alerts ?? []).map((alert, idx) => (
+                <div key={idx} className={`dashboard-alert-row dashboard-alert-${alert.sev}`}>
+                  <span className={`badge ${alert.sev === "alta" ? "badge-orange" : alert.sev === "media" ? "badge-blue" : "badge-gray"}`}>
+                    {alert.sev}
+                  </span>
+                  <strong className="dashboard-alert-tipo">{alert.tipo}</strong>
+                  <span className="dashboard-alert-canal">{alert.canal}</span>
+                  <span className="dashboard-alert-detalle">{alert.detalle}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         <section className="panel channel-resources">
           <div><p className="eyebrow">EXPLORAR TCH</p><h3>Vistas disponibles</h3></div>
           <div>
@@ -4881,14 +5862,14 @@ function App() {
         <p className="eyebrow">TCH / CLIENTE</p>
         <header className="detail-header"><div><h2>{[tchClienteDetail.nombre, tchClienteDetail.apellido].filter(Boolean).join(" ") || "Cliente TCH"}</h2><p>{tchClienteDetail.rut}</p></div></header>
         <section className="detail-grid"><article className="panel"><h3>Datos personales</h3><dl><dt>RUT</dt><dd>{tchClienteDetail.rut}</dd><dt>Fecha de nacimiento</dt><dd>{tchClienteDetail.fecha_nacimiento ?? "—"}</dd><dt>Profesión</dt><dd>{tchClienteDetail.profesion ?? "—"}</dd><dt>Tipo de socio</dt><dd>{tchClienteDetail.tipo_socio ?? "—"}</dd></dl></article><article className="panel"><h3>Contacto</h3><dl><dt>Email</dt><dd>{tchClienteDetail.email ?? "—"}</dd><dt>Teléfono</dt><dd>{tchClienteDetail.telefono ?? "—"}</dd><dt>Dirección</dt><dd>{tchClienteDetail.direccion ?? "—"}</dd><dt>Comuna</dt><dd>{tchClienteDetail.comuna ?? "—"}</dd><dt>Ciudad</dt><dd>{tchClienteDetail.ciudad ?? "—"}</dd></dl></article><article className="panel"><h3>Mandatos</h3><p className="metric-value">{(tchClienteDetail.suscripciones ?? []).length.toLocaleString("es-CL")}</p><p className="muted-copy">Suscripciones TCH asociadas</p></article></section>
-        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Mandatos asociados</h3></div></div><div className="table-wrap"><table><thead><tr><th>Ficha</th><th>Inicio</th><th>Fin</th><th>Monto</th><th>Estado</th></tr></thead><tbody>{(tchClienteDetail.suscripciones ?? []).map((s) => <tr key={s.id}><td><button className="record-link" onClick={() => showTchSuscripcion(s.numero_ficha)}>{s.numero_ficha}</button></td><td>{s.fecha_activacion ?? "—"}</td><td>{s.fecha_fin ?? "—"}</td><td>{(s.equivalente_pesos || s.monto) ? `$${Number(s.equivalente_pesos || s.monto).toLocaleString("es-CL")}` : "—"}</td><td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td></tr>)}</tbody></table></div></section>
+        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Mandatos asociados</h3></div></div><div className="table-wrap"><table><thead><tr><th>Ficha</th><th>Inicio</th><th>Fin</th><th>Monto</th><th>Estado</th><th>Estado sec.</th><th>Último cobro</th></tr></thead><tbody>{(tchClienteDetail.suscripciones ?? []).map((s) => <tr key={s.id}><td><button className="record-link" onClick={() => showTchSuscripcion(s.numero_ficha)}>{s.numero_ficha}</button></td><td>{s.fecha_activacion ?? "—"}</td><td>{s.fecha_fin ?? "—"}</td><td>{(s.equivalente_pesos || s.monto) ? `$${Number(s.equivalente_pesos || s.monto).toLocaleString("es-CL")}` : "—"}</td><td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td><td><span className={`badge badge-${s.secondary_status === "cobrable" ? "green" : s.secondary_status === "incobrable" ? "orange" : s.secondary_status === "inactiva" ? "gray" : "blue"}`}>{s.secondary_status}</span></td><td>{s.last_paid_date ? s.last_paid_date.slice(0, 10) : "—"}</td></tr>)}</tbody></table></div></section>
       </main>
     ) : tchView === "suscripcion-detalle" && tchSuscripcionDetail ? (
       <main className="app-shell">
         <button className="back-button" onClick={() => showTch("suscripciones")}>← Suscripciones TCH</button>
         <p className="eyebrow">TCH / SUSCRIPCIÓN</p>
         <header className="detail-header"><div><h2>Ficha {tchSuscripcionDetail.numero_ficha}</h2><p>Mandato físico e historial de cargos.</p></div><span className={`status-pill${tchSuscripcionDetail.estado === "VIGENTE" ? "" : " status-attention"}`}>{tchSuscripcionDetail.estado}</span></header>
-        <section className="detail-grid"><article className="panel"><h3>Mandato</h3><dl><dt>Inicio</dt><dd>{tchSuscripcionDetail.fecha_activacion ?? "—"}</dd><dt>Fin</dt><dd>{tchSuscripcionDetail.fecha_fin ?? "—"}</dd><dt>Motivo</dt><dd>{tchSuscripcionDetail.razon_baja ?? "—"}</dd><dt>Monto (CLP)</dt><dd>{(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto) ? `$${Number(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto).toLocaleString("es-CL")}` : "—"}</dd><dt>Banco</dt><dd>{tchSuscripcionDetail.banco_nombre ?? "—"}</dd><dt>RUT cliente</dt><dd>{tchSuscripcionDetail.cliente_rut ?? "—"}</dd></dl></article><article className="panel"><h3>Captación</h3><dl><dt>Origen</dt><dd>{tchSuscripcionDetail.origen ?? "—"}</dd><dt>Centro de costo</dt><dd>{tchSuscripcionDetail.centro_costo ?? "—"}</dd><dt>Captador</dt><dd>{tchSuscripcionDetail.captador ?? "—"}</dd><dt>Mandato</dt><dd>{tchSuscripcionDetail.numero_mandato ?? "—"}</dd><dt>Tipo de cuenta</dt><dd>{tchSuscripcionDetail.tipo_cuenta ?? "—"}</dd></dl></article></section>
+        <section className="detail-grid"><article className="panel"><h3>Mandato</h3><dl><dt>Inicio</dt><dd>{tchSuscripcionDetail.fecha_activacion ?? "—"}</dd><dt>Fin</dt><dd>{tchSuscripcionDetail.fecha_fin ?? "—"}</dd><dt>Motivo</dt><dd>{tchSuscripcionDetail.razon_baja ?? "—"}</dd><dt>Monto (CLP)</dt><dd>{(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto) ? `$${Number(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto).toLocaleString("es-CL")}` : "—"}</dd><dt>Banco</dt><dd>{tchSuscripcionDetail.banco_nombre ?? "—"}</dd><dt>RUT cliente</dt><dd>{tchSuscripcionDetail.cliente_rut ?? "—"}</dd><dt>Último cobro</dt><dd>{tchSuscripcionDetail.last_paid_date ? tchSuscripcionDetail.last_paid_date.slice(0, 10) : "—"}</dd><dt>Estado sec.</dt><dd><span className={`badge badge-${tchSuscripcionDetail.secondary_status === "cobrable" ? "green" : tchSuscripcionDetail.secondary_status === "incobrable" ? "orange" : tchSuscripcionDetail.secondary_status === "inactiva" ? "gray" : "blue"}`}>{tchSuscripcionDetail.secondary_status}</span></dd></dl></article><article className="panel"><h3>Captación</h3><dl><dt>Origen</dt><dd>{tchSuscripcionDetail.origen ?? "—"}</dd><dt>Centro de costo</dt><dd>{tchSuscripcionDetail.centro_costo ?? "—"}</dd><dt>Captador</dt><dd>{tchSuscripcionDetail.captador ?? "—"}</dd><dt>Mandato</dt><dd>{tchSuscripcionDetail.numero_mandato ?? "—"}</dd><dt>Tipo de cuenta</dt><dd>{tchSuscripcionDetail.tipo_cuenta ?? "—"}</dd></dl></article></section>
         <section className="panel"><div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Historial</h3></div></div><div className="table-wrap"><table><thead><tr><th>Período</th><th>Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>{tchSuscripcionDetail.transacciones.map((t) => <tr key={t.id}><td><button className="record-link" onClick={() => showTchTransaccion(t.id)}>{t.periodo ?? "—"}</button></td><td>{t.monto ? `$${Number(t.monto).toLocaleString("es-CL")}` : "—"}</td><td>{t.fecha_cargo ?? "—"}</td><td><span className={`status-pill${t.estado === "ACEPTADA" ? "" : " status-attention"}`}>{t.estado}</span></td></tr>)}</tbody></table></div></section>
       </main>
     ) : tchView === "transaccion-detalle" && tchTransaccionDetail ? (
@@ -4924,6 +5905,7 @@ function App() {
                 <th>Ficha</th><th>RUT cliente</th><th>Banco</th>
                 <th>Tipo mandato</th><th>Origen</th><th>Centro costo</th>
                 <th>Monto</th><th>F. Activación</th><th>Estado</th>
+                <th>Estado sec.</th><th>Último cobro</th>
               </tr></thead>
               <tbody>
                 {(tchSuscripciones?.items ?? []).map((s) => (
@@ -4937,9 +5919,11 @@ function App() {
                     <td>{(s.equivalente_pesos || s.monto) ? `$${Number(s.equivalente_pesos || s.monto).toLocaleString("es-CL")}` : "—"}</td>
                     <td>{s.fecha_activacion ?? "—"}</td>
                     <td><span className={`status-pill${s.estado === "VIGENTE" ? "" : " status-attention"}`}>{s.estado}</span></td>
+                    <td><span className={`badge badge-${s.secondary_status === "cobrable" ? "green" : s.secondary_status === "incobrable" ? "orange" : s.secondary_status === "inactiva" ? "gray" : "blue"}`}>{s.secondary_status}</span></td>
+                    <td>{s.last_paid_date ? s.last_paid_date.slice(0, 10) : "—"}</td>
                   </tr>
                 ))}
-                {(tchSuscripciones?.items ?? []).length === 0 ? <tr><td colSpan={9}>Sin registros.</td></tr> : null}
+                {(tchSuscripciones?.items ?? []).length === 0 ? <tr><td colSpan={11}>Sin registros.</td></tr> : null}
               </tbody>
             </table>
           </div>
@@ -5007,7 +5991,7 @@ function App() {
     chargeDetailView ??
     paymentDetailView ??
     providerRecordDetailView ??
-    vpRetryView ??
+    recoveryView ??
     providerDetail ??
     tchContent ??
     (channel ? (
@@ -5066,14 +6050,25 @@ function App() {
         onTheme={toggleTheme}
         onTch={showTch}
         permissions={session.user.permissions}
-        onAdmin={() => { clearDetails(); setChannel(null); setActiveSection(null); setTchView(null); setAdminOpen(true); }}
+        onAdmin={showAdmin}
+        adminOpen={adminOpen}
+        adminTab={adminTab}
+        onProfile={() => { clearDetails(); setChannel(null); setActiveSection(null); setTchView(null); setAdminOpen(false); setProfileOpen(true); }}
         onLogout={logout}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        vpRetryOpen={vpRetryOpen}
-        onVpRetry={showVpRetry}
+        recoveryOpen={recoveryOpen}
+        onRecovery={showRecovery}
       />
-      {adminOpen ? <AdminUsers canManageUsers={session.user.permissions.includes("users.manage")} /> : content}
+      {adminOpen ? (
+        <AdminPanel permissions={session.user.permissions} tab={adminTab} />
+      ) : profileOpen ? (
+        <ProfilePanel
+          user={session.user}
+          onUpdated={(updated) => setSession((prev) => prev ? { ...prev, user: updated } : prev)}
+          onClose={() => setProfileOpen(false)}
+        />
+      ) : content}
       {clientEditDialog}
       {creatingPlan ? (
         <div className="edit-dialog-backdrop" role="presentation">

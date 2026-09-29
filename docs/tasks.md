@@ -107,11 +107,15 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | MT-03 | Desglosar gráficos mensuales por estado | Completada | Actividad, cargos, transacciones y activaciones muestran barras apiladas por estado. |
 | TK-03 | Migrar vistas Toku a BD local | Completada | Menú, tablas, fichas y dashboard Toku consultan las entidades canónicas materializadas desde Toku_Local; sincronizar Toku rematerializa solo desde esa BD. |
 | PK-03 | Migrar vistas Payku a BD local | Completada | Menú, tablas, fichas y dashboard Payku consultan las entidades canónicas materializadas desde Payku_Local; sincronizar Payku rematerializa solo desde esa BD. |
-| TK-04 | Ajustar suscripciones activas Toku | Completada | El resumen operativo cuenta y suma solo suscripciones `ACTIVE` vinculadas a un método `chargeable`. |
-| TK-05 | Ajustar deudas y transacciones Toku | Completada | El resumen filtra deudas `PAID` y transacciones `SUCCESS`, muestra sus montos y desglosa los gráficos por estado. |
+| TK-04 | Ajustar suscripciones activas Toku | Completada | El resumen operativo muestra "Subscripciones activas" y MRR/ARPU solo desde suscripciones `ACTIVE` vinculadas a un método `chargeable`; los métodos cuentan solo estado `chargeable`. |
+| TK-05 | Ajustar deudas y transacciones Toku | Completada | El resumen muestra "Deudas pagadas" (`PAID`) y "Transacciones pagadas" (`SUCCESS`) del año seleccionado, con sus montos. |
 | UI-01 | Unificar paleta de gráficos | Completada | Todos los canales usan colores semánticos consistentes para sus estados y series. |
 | TK-06 | Mejorar ficha de método de pago Toku | Completada | La ficha agrupa información útil y omite tokens, BIN y metadatos técnicos. |
 | TK-07 | Mejorar tabla de métodos de pago Toku | Completada | La tabla muestra cliente, tarjeta, banco y asociaciones como valores escalares, sin objetos ni RUT incorrecto. |
+| TK-08 | Corregir relaciones de ficha de cliente Toku | Completada | Los extractores y la consolidación preservan el customer ID aunque Toku lo entregue como texto; la ficha relaciona suscripciones y métodos por ID o RUT normalizado, deudas por suscripción y transacciones por método de pago cuando no hay cliente directo. |
+| TK-09 | Corregir cobros y ficha de suscripción Toku | Completada | Estado secundario y último cobro usan la última transacción `SUCCESS` de `payment_intents[].id_subscription`; la ficha vincula métodos, deudas y transacciones por el ID de suscripción. |
+| TK-10 | Filtrar y ordenar estado secundario Toku | En curso | El código permite filtrar y ordenar globalmente por estado secundario antes de paginar; la instancia API activa en `:8000` conserva un worker anterior y requiere recarga. |
+| TK-11 | Mejorar registros relacionados de suscripciones Toku | Completada | Cliente muestra RUT y estado; métodos de pago muestran estado; deudas y transacciones muestran estado y fecha en sus fichas relacionadas. |
 | UI-02 | Ajustar anchos y márgenes de vistas | Completada | El contenido usa todo el ancho disponible y las tablas conservan sus columnas sin recortarse. |
 | UI-03 | Mejorar filtros y orden de tablas | Completada | Los filtros son claros y cada columna de datos permite ordenar ascendente o descendente. |
 | UI-04 | Hacer visibles los controles de tabla | Completada | El orden es evidente y los campos de estado usan un selector de valores disponibles. |
@@ -127,6 +131,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | DB-01 | Consolidar BDlocales en una sola base por tablas de canal | Completada | Los datos existentes se migran idempotentemente a las tablas prefijadas, sin nueva lectura completa de proveedores; CRM conserva filtros, orden y fichas. |
 | PK-04 | Corregir métricas y gráficos de ciclo de vida Payku | Completada | Transacciones, activaciones y bajas se agrupan por estado; activación usa `start` y caída usa `cancel`/`delete`/`suspended` con `end`. |
 | PK-05 | Corregir rango histórico de transacciones Payku | En curso | La sincronización envía `PAYKU_DATE_INIT` y el fin opcional, pagina todas las respuestas y conserva el upsert idempotente. |
+| REC-01 | Crear Recuperador de Socios VirtualPOS | Completada | Módulo con Canceladas, Reintento de Cobros y Tarjetas Vencidas; acciones y trazabilidad protegidas por permisos. |
 
 ## Plan de consolidacion 2026-09-13
 
@@ -167,7 +172,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 
 - Se incorporaron VP-18 a VP-27: fichas de cargo y pago VirtualPOS, filtros avanzados por campo, modales de edicion y cancelacion visual (escritura remota pendiente), mejoras de etiquetas y navegacion en fichas de los tres canales.
 - Se agrego DOC-02: guia completa de la API VirtualPOS en `docs/Documentacion API VirtualPOS.md`.
-- `Dashboard_referencia.py` se incluye como template Streamlit de referencia para futuros dashboards analiticos; no es codigo productivo.
+- `examples/dashboard_referencia.py` se incluye como template Streamlit de referencia para futuros dashboards analiticos; no es codigo productivo.
 
 ## Hito 2: Operaciones de escritura
 
@@ -337,3 +342,37 @@ Cada tarea sigue el mismo patrón de tres capas:
 - Suscripciones consolidadas está habilitada en el submenú general con ID, cliente, RUT, plataforma, estado, fechas y monto; permite filtrar y paginar. Excluye `SUSCRIPCION_FALLIDA` de VirtualPOS, `RECHAZADA` de TCH y `register` de Payku.
 - Las rutas estáticas de dashboard se registran antes de la ficha dinámica de staging para que `/dashboard/general/clients` y `/dashboard/general/subscriptions` no se interpreten como recursos de proveedor.
 - Se documentaron las rutas de consulta consolidada, reportes operativos y reintento por lote de cargos VirtualPOS en `README.md`.
+
+## Mantenimiento 2026-09-21 (rutas directas de proveedores)
+
+- Completada: se retiraron las rutas directas inactivas de Payku y Toku. La aplicación continúa operando mediante sincronización a staging y rutas internas protegidas; los clientes de integración, sincronizadores y escrituras no cambian.
+- Verificado: migraciones en `head`, PostgreSQL saludable, frontend compilado y FastAPI respondió `200` en `/` y `/health`.
+
+## Mantenimiento 2026-09-21 (artefactos locales)
+
+- Completada: los logs locales de API, frontend y sincronizaciones se centralizaron en `logs/`, carpeta ignorada por Git.
+
+## Mantenimiento 2026-09-21 (ejemplos)
+
+- Completada: el template Streamlit no productivo se movio de la raiz a `examples/dashboard_referencia.py` y se documento su alcance.
+
+## Mantenimiento 2026-09-25 (servicios locales)
+
+- En curso: se detuvieron los dos procesos `cloudflared` que exponian el frontend local.
+- Bloqueada: detener MariaDB, PostgreSQL local y las dos instancias de SQL Server requiere una consola elevada. El contenedor PostgreSQL del CRM en `localhost:5433` permanece saludable y no se modifico.
+- Bloqueada: el listener local en `127.0.0.1:8002` pertenece a un proceso no visible desde la sesion actual; requiere privilegios elevados para identificarlo y detenerlo.
+
+## Investigación 2026-09-25 (VirtualPOS: cargos y transacciones)
+
+- Completada: el contrato oficial define `Charge.payment.order.uuid` como la relación verificable entre cobro recurrente y `Payment`. La lista global de `Payment` no documenta `charge_id`.
+- Hallazgo: los extractores solo buscan `charge_id`/`charge_uuid` en el payload de `Payment`, por lo que `charge_external_id` está vacío en el 100% de los registros pese a que existe la relación inversa en los cargos.
+- Datos locales: se verificaron 39.453 pagos `pagado` asociados exactamente a un cargo `pagado` por UUID (11.517 VP1 y 27.936 VP2). Quedan 5.618 pagos `pagado` sin cargo local coincidente; requieren completar la lectura de cargos y contraste con VirtualPOS antes de clasificarlos como pagos directos.
+- Riesgo operativo: el último log local de sincronización de VirtualPOS terminó con una respuesta no JSON mientras procesaba cargos, por lo que no debe usarse para concluir que los cargos locales están completos.
+- Patrón confirmado: 5.615 de los 5.618 pagos sin cargo local pertenecen a clientes con una suscripción no activa; 5.393 tienen exactamente una suscripción local, actualmente `cancelada`, y su pago ocurrió en o antes de su cancelación. De esos 5.393, 5.391 apuntan a una suscripción sin ningún cargo local.
+- Recurrencia confirmada: 5.318 de 5.615 pagos usan `PAT`; entre los pagos de suscripción no ambigua con pago previo, 3.349 de 3.725 intervalos consecutivos duran 27 a 32 días. Son secuencias mensuales históricas, no un patrón de pagos puntuales.
+- Validación de cancelación: no hay pagos sin cargo local posteriores a todas sus fechas de cancelación candidatas (0 VP1, 0 VP2). Tampoco hay cargos `pagado` enlazados a suscripciones `cancelada` cuya fecha de cargo o autorización sea posterior a `canceled_at` (0 de 119 casos). La evidencia disponible descarta que la cancelación esté dejando cobros posteriores.
+- Exportación local: `scripts/export_virtualpos_unlinked_payments.py` genera `reports/virtualpos_unlinked_payments.csv`, excluida de Git. Incluye UUID de pago, RUT, monto, medio, suscripciones candidatas, fechas de cancelación y una clasificación de evidencia; no incluye datos de tarjeta.
+- Inventario de suscripciones sin historial: el mismo exportador genera `reports/virtualpos_subscriptions_without_charge_history.csv` con ID de suscripción, RUT, plataforma, estado, plan y fechas. Contiene 2.760 suscripciones: 798 VP1 y 1.962 VP2; 1.886 `CANCELADA`, 872 `SUSCRIPCION_FALLIDA` y 2 `SUSCRIBIENDO`.
+- Prueba de recuperación read-only: cinco muestras representativas de suscripciones canceladas sin cargos locales (dos VP1 y tres VP2, entre registros tempranos, recientes y con mayor cantidad de pagos) devolvieron `E-047` en `GET /v3/suscription/{id}/charges`: el plan asociado ya no existe para el proveedor. No es posible recuperar esos cargos por la ruta disponible; se requiere exportación histórica o soporte de VirtualPOS para reconstruirlos.
+- Cobertura por RUT y estado del lote sin cargos: al cruzar exclusivamente las 2.760 suscripciones sin `Charge` local por `plataforma + social_id` contra al menos un `Payment` `pagado`, 1.743 de 1.886 `CANCELADA` tienen pagos (92,4%); 319 de 872 `SUSCRIPCION_FALLIDA`; y ninguna de las 2 `SUSCRIBIENDO`. Este cruce prueba actividad de pago del cliente, pero no asigna un pago a una suscripción concreta cuando el RUT tiene varias.
+- Ambigüedad por RUT del lote sin cargos: 819 de 2.760 suscripciones (29,7%) pertenecen a un RUT con más de una suscripción dentro de la misma plataforma. Solo 89 de 1.886 `CANCELADA` están en ese caso (4,7%); la mayor concentración corresponde a `SUSCRIPCION_FALLIDA` (730 de 872).

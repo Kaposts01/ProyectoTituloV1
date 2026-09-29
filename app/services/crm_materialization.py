@@ -43,6 +43,8 @@ def _card_summaries(payload: dict[str, Any]) -> list[dict[str, str | None]]:
                 "issuer_code": _text(details, "issuer_code"),
                 "last4": _text(details, "last4"),
                 "nacional": _text(details, "nacional"),
+                "expiration_month": _text(details, "expiration_month", "expiry_month"),
+                "expiration_year": _text(details, "expiration_year", "expiry_year"),
             }
         )
     return summaries
@@ -79,7 +81,7 @@ def _values(record: SourceRecord) -> dict[str, Any]:
         "amount": _text(payload, "amount") or _nested_text(payload, "order", "amount"),
         "currency": _text(payload, "currency") or _nested_text(payload, "order", "currency"),
         "status": _text(payload, "status") or _nested_text(payload, "order", "status"),
-        "charge_date": _text(payload, "charge_date"),
+        "charge_date": _text(payload, "charge_date") or _nested_text(payload, "order", "authorized_at", "created_at"),
         "payment_date": _text(payload, "payment_date") or _nested_text(payload, "order", "authorized_at", "created_at"),
     }
 

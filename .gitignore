@@ -18,12 +18,20 @@ build/
 coverage.xml
 htmlcov/
 *.sqlite3
+logs/
 *.local.log
 *.local.error.log
+reports/
 
 # IDE and tool directories
 .opencode/
 .playwright-mcp/
+.claude/
 
 # Local Postman workspace (nested git repo)
 postman/
+
+# Claude Code outputs and uvicorn root logs
+Claude outputs/
+uvicorn.log
+uvicorn_err.log

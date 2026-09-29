@@ -19,6 +19,9 @@ from app.models.tch import (
 from app.services.channel_store import (
     extract_payku_subscription,
     extract_payku_transaction,
+    extract_toku_invoice,
+    extract_toku_payment_method,
+    extract_toku_subscription,
 )
 
 
@@ -619,6 +622,105 @@ def test_toku_detail_and_dashboard_use_canonical_records(db_session) -> None:
     assert {entry["year"] for entry in dashboard["activity"]} >= {2099}
 
 
+def test_toku_dashboard_metrics_only_include_operational_statuses(db_session) -> None:
+    before = staging.channel_dashboard("toku", db=db_session)
+    db_session.add_all(
+        [
+            Subscription(source="toku", external_id="active-chargeable", client_external_id="customer-1", status="ACTIVE", amount="1000"),
+            Subscription(source="toku", external_id="active-not-chargeable", client_external_id="customer-2", status="ACTIVE", amount="2000"),
+            PaymentMethod(source="toku", external_id="chargeable", status="CHARGEABLE", raw_payload={"subscription_ids": ["active-chargeable"]}),
+            PaymentMethod(source="toku", external_id="not-chargeable", status="INACTIVE", raw_payload={"subscription_ids": ["active-not-chargeable"]}),
+            Charge(source="toku", external_id="paid", status="PAID", amount="3000"),
+            Charge(source="toku", external_id="unpaid", status="PENDING", amount="4000"),
+            Payment(source="toku", external_id="success", status="SUCCESS", amount="5000"),
+            Payment(source="toku", external_id="failed", status="FAILED", amount="6000"),
+        ]
+    )
+    db_session.flush()
+
+    dashboard = staging.channel_dashboard("toku", db=db_session)
+
+    assert dashboard["resources"]["subscription"] == before["resources"]["subscription"] + 1
+    assert dashboard["resources"]["payment_method"] == before["resources"]["payment_method"] + 1
+    assert dashboard["resources"]["invoice"] == before["resources"]["invoice"] + 1
+    assert dashboard["resources"]["transaction"] == before["resources"]["transaction"] + 1
+    assert dashboard["resource_amounts"]["subscription"] == before["resource_amounts"]["subscription"] + 1000.0
+    assert dashboard["resource_amounts"]["invoice"] == before["resource_amounts"]["invoice"] + 3000.0
+    assert dashboard["resource_amounts"]["transaction"] == before["resource_amounts"]["transaction"] + 5000.0
+    assert dashboard["kpis"]["mrr"] == before["kpis"]["mrr"] + 1000.0
+    assert dashboard["kpis"]["arpu"] == round(
+        dashboard["kpis"]["mrr"] / dashboard["kpis"]["active_clients"], 0
+    )
+
+
+def test_toku_customer_detail_follows_subscription_and_payment_method_relationships(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(source="toku", external_id="customer-related", social_id="12.345.678-5"),
+            Subscription(
+                source="toku",
+                external_id="subscription-related",
+                status="ACTIVE",
+                raw_payload={"customer": "customer-related"},
+            ),
+            PaymentMethod(
+                source="toku",
+                external_id="method-related",
+                raw_payload={"customer": {"rut": "12.345.678-5"}, "subscription_ids": ["subscription-related"]},
+            ),
+            Charge(
+                source="toku",
+                external_id="invoice-related",
+                raw_payload={"subscription": "subscription-related"},
+            ),
+            Payment(
+                source="toku",
+                external_id="transaction-related",
+                status="SUCCESS",
+                payment_date="2099-04-01",
+                raw_payload={"customer": "customer-related", "payment_intents": [{"id_subscription": "subscription-related"}]},
+            ),
+        ]
+    )
+    db_session.flush()
+
+    detail = staging.provider_record_detail("toku", "customer", "customer-related", db=db_session)
+
+    related = {group["resource_type"]: group["items"] for group in detail["related"]}
+    assert {item["external_id"] for item in related["subscription"]} >= {"subscription-related"}
+    assert {item["external_id"] for item in related["payment_method"]} >= {"method-related"}
+    assert {item["external_id"] for item in related["invoice"]} >= {"invoice-related"}
+    assert {item["external_id"] for item in related["transaction"]} >= {"transaction-related"}
+
+    subscription = staging.provider_record_detail("toku", "subscription", "subscription-related", db=db_session)
+    subscription_related = {group["resource_type"]: group["items"] for group in subscription["related"]}
+    assert {item["external_id"] for item in subscription_related["payment_method"]} >= {"method-related"}
+    assert {item["external_id"] for item in subscription_related["invoice"]} >= {"invoice-related"}
+    assert {item["external_id"] for item in subscription_related["transaction"]} >= {"transaction-related"}
+    assert subscription["record"]["last_paid_date"] == "2099-04-01"
+    assert subscription["record"]["secondary_status"] == "cobrable"
+
+    filtered = staging.list_records(
+        source="toku", resource_type="subscription", filter_field="secondary_status", query="cobrable", db=db_session, limit=1000
+    )
+    assert "subscription-related" in {item["external_id"] for item in filtered["items"]}
+
+    ordered = staging.list_records(
+        source="toku", resource_type="subscription", sort_field="secondary_status", sort_direction="desc", db=db_session, limit=1000
+    )
+    secondary_statuses = [item["secondary_status"].casefold() for item in ordered["items"]]
+    assert secondary_statuses == sorted(secondary_statuses, reverse=True)
+
+    values = staging.list_record_filter_values(
+        source="toku", resource_type="subscription", filter_field="secondary_status", db=db_session
+    )
+    assert "cobrable" in values["values"]
+
+
+def test_extract_toku_relationship_ids_accept_strings_and_objects() -> None:
+    assert extract_toku_subscription({"id": "subscription-1", "customer": "customer-1"})["customer_id"] == "customer-1"
+    assert extract_toku_invoice({"id": "invoice-1", "subscription": {"external_id": "subscription-1"}})["subscription_id"] == "subscription-1"
+    assert extract_toku_payment_method({"payment_method": {"id": "method-1"}, "customer": "customer-1"})["customer_id"] == "customer-1"
 def test_payku_canonical_detail_links_clients_plans_subscriptions_and_transactions(db_session) -> None:
     db_session.add_all(
         [

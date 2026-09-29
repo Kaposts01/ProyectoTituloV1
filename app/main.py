@@ -1,3 +1,5 @@
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -7,6 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1.router import api_router
 from app.api.v1.routes import auth
 from app.core.config import settings
+from app.scheduler.engine import get_scheduler, register_jobs
+
+logger = logging.getLogger(__name__)
 
 _DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
@@ -21,10 +26,52 @@ OPENAPI_TAGS = [
     {"name": "Writes - VirtualPOS", "description": "Operaciones internas autorizadas de VirtualPOS."},
     {"name": "Authentication", "description": "Sesión del CRM."},
     {"name": "Administration", "description": "Usuarios, roles y permisos."},
+    {"name": "Scheduler", "description": "Orquestador de sincronizaciones programadas."},
     {"name": "health", "description": "Estado de la API."},
 ]
 
-app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0", openapi_tags=OPENAPI_TAGS)
+
+def _cleanup_zombie_runs() -> None:
+    """Marca como failed los runs que quedaron en estado 'running' tras un reinicio."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import update
+
+    from app.db.session import SessionLocal
+    from app.models.etl_run import EtlRun
+
+    db = SessionLocal()
+    try:
+        result = db.execute(
+            update(EtlRun)
+            .where(EtlRun.status == "running")
+            .values(
+                status="failed",
+                phase=None,
+                error_message="Servidor reiniciado durante la sincronización.",
+                finished_at=datetime.now(timezone.utc),
+            )
+        )
+        if result.rowcount:
+            logger.warning("Se marcaron %d runs zombie como failed.", result.rowcount)
+        db.commit()
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _cleanup_zombie_runs()
+    sched = get_scheduler()
+    register_jobs(sched)
+    sched.start()
+    logger.info("Scheduler iniciado.")
+    yield
+    sched.shutdown(wait=False)
+    logger.info("Scheduler detenido.")
+
+
+app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0", openapi_tags=OPENAPI_TAGS, lifespan=lifespan)
 app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(api_router, prefix="/api/v1")
 
