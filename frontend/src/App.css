@@ -499,3 +499,24 @@ td:first-child { font-weight: 700; }
   .scheduler-jobs-table td,
   .scheduler-jobs-table th { padding: 0.45rem 0.5rem; }
 }
+
+/* ── SSE polling fallback ── */
+.sse-polled-phase { font-size: 0.82rem; font-weight: 600; color: var(--text); margin: 0.4rem 0 0; }
+
+/* ── VirtualPOS sub-selector ── */
+.vp-sub-selector { margin-top: 0.35rem; margin-left: 0; }
+.channel-btn-sm { font-size: 0.72rem !important; padding: 0.2rem 0.65rem !important; }
+
+/* ── Stale-while-revalidate badge ── */
+@keyframes pulse-badge { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.refreshing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 0.6rem;
+  vertical-align: middle;
+  animation: pulse-badge 1.8s ease-in-out infinite;
+}

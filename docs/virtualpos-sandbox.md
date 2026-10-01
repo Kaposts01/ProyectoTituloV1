@@ -10,7 +10,7 @@
 ## Sincronizacion y consumo local
 
 - El sincronizador `scripts/sync_virtualpos.py` consulta estas colecciones y persiste sus respuestas saneadas en `source_records` con fuente `virtualpos`.
-- La API CRM ofrece recursos canonicos de VirtualPOS bajo `/api/v1/clients`, `/plans`, `/subscriptions`, `/charges` y `/payments`.
+- La API CRM ofrece recursos centralizados de VirtualPOS bajo `/api/v1/clients`, `/plans`, `/subscriptions`, `/charges` y `/payments`.
 - El staging ofrece las fichas `/api/v1/staging/virtualpos/clients/{uuid}`, `/plans/{id}` y `/subscriptions/{id}`. Las relaciones se limitan a `social_id`/RUT para cliente-suscripcion, `plan_id` para plan-suscripcion y el contexto de sincronizacion para suscripcion-cargo.
 
 ## Contrato disponible
@@ -21,7 +21,7 @@
 - Los identificadores se resuelven desde `id`, `uuid`, `_id` y los campos especificos del recurso. Si faltan, se usa un hash del payload, por lo que esos registros requieren validacion adicional antes de considerarlos estables.
 - El staging solo actualiza el payload cuando cambia; `records_processed` contabiliza registros nuevos o modificados. La API del proveedor no ofrece, en el contrato local disponible, un marcador de cambios para evitar leer las colecciones completas.
 
-## Campos canonicos provisionales
+## Campos centralizados provisionales
 
 Los campos se extraen solo si existen y son opcionales hasta obtener registros reales:
 
@@ -30,6 +30,6 @@ Los campos se extraen solo si existen y son opcionales hasta obtener registros r
 - Cargo: `id`, `amount`, `charge_date`, `status`; la suscripcion procede de la URL de consulta.
 - Pago: `order.uuid` es el identificador estable y `order` contiene los datos de estado e importe.
 
-Cada entidad canonica conserva `source`, `external_id` y `source_record_id`, que referencia el payload de staging saneado. Las relaciones de las fichas se aplican solo con los identificadores documentados en este archivo.
+Cada entidad centralizada conserva `source`, `external_id` y `source_record_id`, que referencia el payload de staging saneado. Las relaciones de las fichas se aplican solo con los identificadores documentados en este archivo.
 
 Antes de persistir staging se eliminan campos de tarjeta y seguridad (`card_number`, `card_pan`, `pan`, `cvv`, `cvc` y `security_code`).

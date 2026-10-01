@@ -6,10 +6,10 @@ import re
 from typing import Any
 
 _SENSITIVE = {
-    "api_key", "authorization", "auth_code", "bin", "card_number", "card_pan",
+    "account_number", "api_key", "authorization", "auth_code", "bank_account_number", "bin", "card_number", "card_pan",
     "card_token", "cavv", "cvc", "cvv", "mac", "pan", "password",
     "private_token", "secret", "secret_key", "security_code", "sign",
-    "signature", "token", "verification_key",
+    "numero_cuenta", "signature", "token", "verification_key",
 }
 
 

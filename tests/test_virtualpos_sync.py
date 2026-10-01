@@ -18,7 +18,6 @@ class PaginatedClient:
         self.client_pages: list[int] = []
         self.payment_pages: list[int] = []
         self.subscription_pages: list[int] = []
-        self.charge_subscriptions: list[str] = []
 
     async def __aenter__(self) -> Self:
         return self
@@ -44,13 +43,13 @@ class PaginatedClient:
     async def list_subscriptions(self, page: int = 1, limit: int = 100):
         self.subscription_pages.append(page)
         return {
-            "suscriptions": [{"id": f"test-subscription-{page}", "plan_id": "test-plan-1"}],
+            "suscriptions": [{
+                "id": f"test-subscription-{page}",
+                "plan_id": "test-plan-1",
+                "charge_program": [{"id": f"test-charge-{page}", "amount": 1000, "status": "PENDING"}],
+            }],
             "pagination": {"page": page, "pages": 2, "limit": limit, "total": 2},
         }
-
-    async def list_charges(self, subscription_id: str, page: int = 1, limit: int = 100):
-        self.charge_subscriptions.append(subscription_id)
-        return {"charges": [{"id": f"test-charge-{subscription_id}", "amount": 1000, "status": "PENDING"}]}
 
 
 class FailingClient(PaginatedClient):
@@ -58,23 +57,9 @@ class FailingClient(PaginatedClient):
         raise RuntimeError(f"provider rejected {settings.virtualpos_api_key} with card 4111111111111111")
 
 
-class NonJsonChargesClient(PaginatedClient):
-    """Simula que VirtualPOS devuelve un body no-JSON para los cargos de una suscripción concreta."""
-
-    async def list_subscriptions(self, page: int = 1, limit: int = 100):
-        return {
-            "suscriptions": [
-                {"id": "sub-ok", "plan_id": "test-plan-1"},
-                {"id": "sub-non-json", "plan_id": "test-plan-1"},
-            ]
-        }
-
-    async def list_charges(self, subscription_id: str, page: int = 1, limit: int = 100):
-        self.charge_subscriptions.append(subscription_id)
-        if subscription_id == "sub-non-json":
-            # _get() devuelve {} cuando el proveedor responde con texto/HTML no parseables
-            return {}
-        return {"charges": [{"id": f"charge-{subscription_id}", "amount": 5000, "status": "COBRADO"}]}
+class InvalidEnvelopeClient(PaginatedClient):
+    async def list_clients(self, page: int = 1, limit: int = 100):
+        return {}
 
 
 class ClientsAndPaymentsPaginatedClient(PaginatedClient):
@@ -119,22 +104,16 @@ def test_sync_stages_all_pages_materializes_records_and_is_idempotent(monkeypatc
     assert client.client_pages == [1, 1]
     assert client.payment_pages == [1, 1]
     assert client.subscription_pages == [1, 2, 1, 2]
-    assert client.charge_subscriptions == [
-        "test-subscription-1",
-        "test-subscription-2",
-        "test-subscription-1",
-        "test-subscription-2",
-    ]
     assert db_session.scalars(select(Client).where(Client.external_id == "test-client-1")).one().status == "ACTIVE"
     assert db_session.scalars(select(Plan).where(Plan.external_id == "test-plan-1")).one().name == "Test plan"
     assert db_session.scalars(select(Subscription).where(Subscription.external_id == "test-subscription-2")).one()
-    assert db_session.scalars(select(Charge).where(Charge.external_id == "test-charge-test-subscription-1")).one()
+    assert db_session.scalars(select(Charge).where(Charge.external_id == "test-charge-1")).one()
     payment = db_session.scalars(select(Payment).where(Payment.external_id == "test-payment-1")).one()
     source_payment = db_session.get(SourceRecord, payment.source_record_id)
     assert source_payment is not None
     assert "card_number" not in source_payment.payload["order"]
     assert (
-        db_session.scalars(select(SourceRecord).where(SourceRecord.external_id == "test-charge-test-subscription-1"))
+        db_session.scalars(select(SourceRecord).where(SourceRecord.external_id == "test-charge-1"))
         .one()
         .sync_context
         == {"subscription_external_id": "test-subscription-1"}
@@ -170,20 +149,11 @@ def test_sync_records_sanitized_failure_without_persisting_test_data(monkeypatch
     assert "[redacted]" in failed_run.error_message
 
 
-def test_sync_skips_non_json_charges_and_preserves_valid_ones(monkeypatch, db_session) -> None:
-    """Cuando _get() devuelve {} (body no-JSON del proveedor), la suscripción afectada
-    no produce cargos, pero la sync completa correctamente y los cargos de las demás
-    suscripciones sí se persisten."""
-    client = NonJsonChargesClient()
-    monkeypatch.setattr(virtualpos_sync, "VirtualPOSClient", lambda: client)
+def test_sync_fails_when_a_collection_response_has_an_invalid_envelope(monkeypatch, db_session) -> None:
+    monkeypatch.setattr(virtualpos_sync, "VirtualPOSClient", InvalidEnvelopeClient)
 
-    run = asyncio.run(virtualpos_sync.sync_virtualpos(db_session))
+    with pytest.raises(ValueError, match="unexpected collection response envelope"):
+        asyncio.run(virtualpos_sync.sync_virtualpos(db_session))
 
-    assert run.status == "completed"
-    # La suscripción con respuesta válida sí tiene su cargo almacenado
-    assert db_session.scalars(select(Charge).where(Charge.external_id == "charge-sub-ok")).one()
-    # La suscripción con body no-JSON no genera ningún cargo (vacío, no excepción)
-    assert db_session.scalars(select(Charge).where(Charge.subscription_external_id == "sub-non-json")).first() is None
-    # Se consultaron ambas suscripciones
-    assert "sub-ok" in client.charge_subscriptions
-    assert "sub-non-json" in client.charge_subscriptions
+    failed_run = db_session.scalars(select(SyncRun).where(SyncRun.status == "failed")).first()
+    assert failed_run is not None

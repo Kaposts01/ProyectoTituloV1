@@ -145,7 +145,7 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
 
 
 def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, Any]:
-    """Calculate the VirtualPOS report from canonical local records only."""
+    """Calculate the VirtualPOS report from centralized local records only."""
     subscriptions = db.scalars(select(Subscription).where(Subscription.source.in_(_VP_SOURCES))).all()
     clients = {
         (client.source, client.external_id): client
@@ -338,11 +338,11 @@ def _snapshot(db: Session, scope: str) -> dict[str, Any]:
     if scope == "general":
         return staging._general_dashboard(db)
     if scope == "virtualpos":
-        return staging._vp_canonical_dashboard(scope, db)
+        return staging._vp_centralized_dashboard(scope, db)
     if scope == "toku":
-        return staging._toku_canonical_dashboard(db)
+        return staging._toku_centralized_dashboard(db)
     if scope == "payku":
-        return staging._payku_canonical_dashboard(db)
+        return staging._payku_centralized_dashboard(db)
     return tch.tch_summary()
 
 

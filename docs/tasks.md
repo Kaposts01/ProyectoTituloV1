@@ -10,7 +10,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | VP-02 | Crear API FastAPI y persistencia PostgreSQL | Completada | API saludable, modelos y migración inicial definidos. |
 | VP-03 | Implementar autenticación y cliente VirtualPOS | Completada | Firma HS256 generada localmente y peticiones solo de lectura. |
 | VP-04 | Persistir staging idempotente y ejecuciones de sincronización | Completada | Repetir una sincronización no duplica registros externos. |
-| VP-05 | Normalizar clientes, suscripciones y pagos | Completada | Las vistas canónicas preservan la referencia al origen. |
+| VP-05 | Normalizar clientes, suscripciones y pagos | Completada | Las vistas centralizadas preservan la referencia al origen. |
 | VP-06 | Exponer consulta y estado de sincronización | Completada | Endpoints documentados y cubiertos por pruebas. |
 | VP-07 | Validar contra Sandbox y documentar resultados | Completada | Ejecución real registrada sin exponer secretos. |
 
@@ -51,7 +51,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | --- | --- | --- | --- |
 | VP-08 | Inspeccionar y documentar los payloads reales de Sandbox | Completada | Campos, identificadores y paginación observados en Sandbox y documentados. |
 | VP-09 | Completar paginación y sincronización incremental | Completada | Paginación y upsert condicional validados por dos sincronizaciones consecutivas. |
-| VP-10 | Normalizar modelo canónico | Completada | Clientes, planes, suscripciones, cargos y pagos se materializan desde staging. |
+| VP-10 | Normalizar modelo centralizado | Completada | Clientes, planes, suscripciones, cargos y pagos se materializan desde staging. |
 | VP-11 | Crear API de consulta del CRM | Completada | Endpoints paginados para clientes, suscripciones, pagos y detalle. |
 | VP-12 | Añadir pruebas de integración del sincronizador | Completada | Respuestas simuladas cubren éxito, paginación, duplicados y errores. |
 | VP-13 | Programar sincronizaciones y alertas | Pendiente | Ejecución periódica con reintentos y registro de fallos. |
@@ -93,6 +93,20 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
 | OPS-07 | Levantar servicios y verificar base consolidada | En curso | PostgreSQL, migraciones, API y frontend operativos; tablas por canal verificadas en la base `crm`. |
 | OPS-08 | Ejecutar sincronización manual multicanal | Bloqueada | Toku finalizó y consolidó 36.426 registros. VirtualPOS falló al recibir una respuesta no JSON al consultar cargos; Payku encontró IDs de transacción duplicados dentro de un lote `ON CONFLICT`. Requiere robustecer ambas rutas antes de reintentar. |
+| DOC-03 | Estructurar documentación como vault de Obsidian | Completada | Índice navegable, arquitectura, producto, datos, integraciones, decisiones, memoria y sesiones creados sin modificar código ni configuraciones. |
+| DOC-04 | Inicializar memoria persistente y modelo conceptual | Completada | Estado, decisiones, riesgos y modelo conceptual documentados sin modificar componentes técnicos. |
+| DOC-05 | Normalizar terminología del modelo centralizado | Completada | La documentación activa usa "modelo centralizado" sin renombrar identificadores técnicos de compatibilidad. |
+| DOC-06 | Consolidar instrucciones operativas de agentes | Completada | `AGENTS.md` define contexto, prioridades, arquitectura, memoria, Context7, validación y seguridad sin modificar componentes técnicos. |
+| DOC-07 | Crear skill local project-memory | Completada | Skill Markdown descubierta tras reiniciar OpenCode; gestiona memoria, ADRs, contradicciones y crecimiento documental. |
+| DOC-08 | Crear skill local data-modeling | Completada | Skill Markdown para diseñar y revisar el modelo centralizado sin acoplar Core a proveedores; descubrimiento, ruta y frontmatter validados en una nueva sesión de OpenCode. |
+| DOC-09 | Definir identidad centralizada de socios | Completada | ADR-001 acepta UUID interno, identidades externas trazables, matching conservador, revision manual y merges reversibles sin implementar esquema tecnico. |
+| DOC-10 | Crear skill local provider-integration | Completada | Skill Markdown para estandarizar connectors, Raw/STG, contratos, seguridad y operacion de proveedores; descubrimiento confirmado en OpenCode. |
+| DEV-01 | Asegurar y reproducir configuracion de IA | Completada | `cookies.txt` queda ignorado; configuracion y skills de OpenCode quedan versionables; `AGENTS.md` es la unica jerarquia de instrucciones compartida. |
+| DEV-02 | Consolidar herramientas de IA y vault Obsidian | Completada | OpenCode mantiene Context7 compartido; Claude conserva ajustes locales; el vault se abre desde la raiz y `.obsidian/` queda local. |
+| DEV-03 | Corregir consistencia del entorno local | Completada | Vite redirige `/api` a FastAPI en `127.0.0.1:8000`; el healthcheck de PostgreSQL usa `POSTGRES_USER` y `POSTGRES_DB` de Compose. |
+| DEV-04 | Establecer dependencias bloqueadas y CI | En curso | `.python-version`, `requirements.lock` y CI de backend/frontend creados; la base debe corregir 7 fallos de pytest y 74 hallazgos de Ruff para quedar en verde. |
+| DEV-05 | Completar agentes documentales de OpenCode | Completada | Las definiciones locales `obsidian-vault` y `adr-governance` se validan con el cargador de OpenCode; el vault distingue navegacion de fuente tecnica y refleja que ADR-001 no esta implementado tecnicamente. |
+| CORE-PLAN-01 | Planificar implementacion del Core centralizado | Pendiente | Alcance tecnico, entidades, migraciones, trazabilidad, pruebas y actualizaciones documentales aprobados antes de escribir codigo. |
 | REP-01 | Generar reportes operativos por rango | Completada | VirtualPOS usa el diseño de referencia con snapshot histórico al cierre del rango, cobros y gráficos del período, alertas y tabla de activas; TCH usa su permiso de dashboard sin error 500. |
 | DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
 | DOC-02 | Documentar API VirtualPOS | Completada | `docs/Documentacion API VirtualPOS.md` cubre rutas, contratos, autenticación, paginación y estrategia incremental. |
@@ -105,8 +119,8 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | OPS-05 | Mostrar avance de sincronizaciones manuales | Completada | Scripts de VirtualPOS, Toku y Payku actualizan recurso y avance; usan porcentaje con totales y páginas/registros sin ellos. |
 | MT-02 | Corregir relaciones y métricas VirtualPOS desde BD local | Completada | Clientes relacionan suscripciones por RUT; cargos muestran suscripción; KPIs filtran estados operativos y el monto de suscripciones se materializa desde la BD local. |
 | MT-03 | Desglosar gráficos mensuales por estado | Completada | Actividad, cargos, transacciones y activaciones muestran barras apiladas por estado. |
-| TK-03 | Migrar vistas Toku a BD local | Completada | Menú, tablas, fichas y dashboard Toku consultan las entidades canónicas materializadas desde Toku_Local; sincronizar Toku rematerializa solo desde esa BD. |
-| PK-03 | Migrar vistas Payku a BD local | Completada | Menú, tablas, fichas y dashboard Payku consultan las entidades canónicas materializadas desde Payku_Local; sincronizar Payku rematerializa solo desde esa BD. |
+| TK-03 | Migrar vistas Toku a BD local | Completada | Menú, tablas, fichas y dashboard Toku consultan las entidades centralizadas materializadas desde Toku_Local; sincronizar Toku rematerializa solo desde esa BD. |
+| PK-03 | Migrar vistas Payku a BD local | Completada | Menú, tablas, fichas y dashboard Payku consultan las entidades centralizadas materializadas desde Payku_Local; sincronizar Payku rematerializa solo desde esa BD. |
 | TK-04 | Ajustar suscripciones activas Toku | Completada | El resumen operativo muestra "Subscripciones activas" y MRR/ARPU solo desde suscripciones `ACTIVE` vinculadas a un método `chargeable`; los métodos cuentan solo estado `chargeable`. |
 | TK-05 | Ajustar deudas y transacciones Toku | Completada | El resumen muestra "Deudas pagadas" (`PAID`) y "Transacciones pagadas" (`SUCCESS`) del año seleccionado, con sus montos. |
 | UI-01 | Unificar paleta de gráficos | Completada | Todos los canales usan colores semánticos consistentes para sus estados y series. |
@@ -120,18 +134,30 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | UI-03 | Mejorar filtros y orden de tablas | Completada | Los filtros son claros y cada columna de datos permite ordenar ascendente o descendente. |
 | UI-04 | Hacer visibles los controles de tabla | Completada | El orden es evidente y los campos de estado usan un selector de valores disponibles. |
 | UI-05 | Ordenar registros completos desde la tabla | Completada | El orden usa campos seguros, incluidos anidados, y se aplica antes de paginar los registros. |
-| UI-06 | Crear dashboard general consolidado | Completada | Inicio muestra KPIs, transacciones y activaciones mensuales de VirtualPOS, Toku, Payku y TCH desde sus entidades canónicas. |
+| UI-06 | Crear dashboard general consolidado | Completada | Inicio muestra KPIs, transacciones y activaciones mensuales de VirtualPOS, Toku, Payku y TCH desde sus entidades centralizadas. |
 | UI-07 | Añadir clientes al dashboard general | Completada | Tabla consolidada por RUT muestra origen, suscripciones activas y ficha con IDs, suscripciones, cargos y transacciones relacionadas. |
 | UI-08 | Añadir suscripciones al dashboard general | Completada | El submenú muestra suscripciones consolidadas con cliente, RUT, plataforma, estado, fechas y monto; permite filtrar y paginar; excluye fallidas VirtualPOS, rechazadas TCH y `register` Payku. |
 | UI-09 | Corregir filtros y carga progresiva de tablas | Completada | Los estados se obtienen de todos los registros del recurso y cada tabla permite cargar más resultados. |
 | UI-10 | Mejorar leyendas y fichas del dashboard general | Completada | Los gráficos distinguen sus series por color y cada canal resume operación, staging y última sincronización en una ficha. |
 | UI-11 | Mejorar clientes consolidados | Completada | La tabla muestra RUT, nombre, plataformas y suscripciones activas; permite buscar por RUT, nombre, apellido, plataforma, correo o teléfono. |
-| ETL-01 | Consolidar BDlocales en entidades canónicas | Completada | VirtualPOS, Toku y Payku se materializan de forma idempotente desde sus BDlocales; los payloads saneados mantienen trazabilidad. |
+| ETL-01 | Consolidar BDlocales en entidades centralizadas | Completada | VirtualPOS, Toku y Payku se materializan de forma idempotente desde sus BDlocales; los payloads saneados mantienen trazabilidad. |
 | ETL-02 | Orquestar sync read-only y ETL en segundo plano | Completada | Las rutas `/api/v1/etl/run` y `/api/v1/etl/full-sync` registran estado y fase sin exponer credenciales. |
 | DB-01 | Consolidar BDlocales en una sola base por tablas de canal | Completada | Los datos existentes se migran idempotentemente a las tablas prefijadas, sin nueva lectura completa de proveedores; CRM conserva filtros, orden y fichas. |
 | PK-04 | Corregir métricas y gráficos de ciclo de vida Payku | Completada | Transacciones, activaciones y bajas se agrupan por estado; activación usa `start` y caída usa `cancel`/`delete`/`suspended` con `end`. |
-| PK-05 | Corregir rango histórico de transacciones Payku | En curso | La sincronización envía `PAYKU_DATE_INIT` y el fin opcional, pagina todas las respuestas y conserva el upsert idempotente. |
+| PK-05 | Corregir rango histórico de transacciones Payku | En curso | Payku sincroniza transacciones embebidas sin filtros históricos confiables. El backfill local desde `source_records` reconstruye idempotentemente `p_transactions`; falta certificar cobertura, orden y paginación con el proveedor. |
 | REC-01 | Crear Recuperador de Socios VirtualPOS | Completada | Módulo con Canceladas, Reintento de Cobros y Tarjetas Vencidas; acciones y trazabilidad protegidas por permisos. |
+
+## Auditoria tecnica 2026-10-01
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| AUD-01 | Auditar pendientes, dashboards, sincronizaciones y persistencia | Completada | Se identificaron tareas activas, brechas de paridad entre canales, riesgos de sincronizacion y la topologia PostgreSQL efectiva; los hallazgos se registraron sin exponer secretos. |
+| FE-01 | Modularizar frontend por funcionalidades | En curso | El bloque de alertas operativas se extrajo a `features/dashboard/OperationalAlerts.tsx` y se reutiliza en todos los canales; resta separar navegacion, carga de datos, dashboard y exploradores de `App.tsx`. Los contratos API y permisos vigentes se preservan y la build de frontend queda correcta. |
+| DASH-01 | Dar paridad operativa a Toku, Payku y TCH | Completada | Cada canal presenta KPIs, distribuciones, altas/bajas, suscripciones activas acumuladas, churn mensual y alertas definidos desde datos fechados y estados de su fuente. Toku compara transacciones reales, no facturas; Payku conserva el límite de cobertura histórica documentado; TCH usa reportes ETL locales. |
+| SYNC-01 | Corregir y verificar contratos de sincronizacion por canal | En curso | Payku alinea su lanzador con transacciones embebidas y VirtualPOS conserva cargos embebidos con conciliacion agregada; VirtualPOS rematerializa solo registros cambiados en cada run. Faltan revisar el contrato historico de Payku y completar cobertura TCH. |
+| DB-02 | Verificar topologia y dependencia de PostgreSQL | Completada | La aplicacion usa PostgreSQL 17 en `localhost:5433/crm`, con volumen persistente y revision `20260923_0022` en `head`; el esquema real y los datos por canal fueron verificados sin exponer secretos. |
+| DB-03 | Reconciliar metadata Alembic y estadisticas PostgreSQL | Completada | La migracion `20261001_0023` alinea indices y metadata; `alembic check` no detecta operaciones pendientes y `ANALYZE` actualizo las estadisticas de tablas TCH voluminosas. |
+| OPS-09 | Evaluar entrega de progreso en tiempo real | Pendiente | Se decide y documenta si el SSE actual se mantiene o requiere evolucion a WebSocket/infraestructura compartida, con autenticacion, reconexion y persistencia de eventos evaluadas; no se confunde el transporte al navegador con la lectura de proveedores. |
 
 ## Plan de consolidacion 2026-09-13
 
@@ -141,13 +167,13 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 - La importacion usa la clave remota de cada BDlocal, procesa lotes saneados y no rematerializa TCH durante la carga de proveedores.
 - Se cargaron las 354.921 filas historicas de VirtualPOS, Toku y Payku en `crm`; las sincronizaciones read-only para datos del dia estan en ejecucion y se validan por canal.
 - Se corrigió el dashboard Payku: las activaciones usan `start`; las caídas consideran `cancel`, `delete` y `suspended` con `end`. Los payloads actuales no contienen fecha de reactivación ni historial fechado de estados.
-- Se rematerializaron las 58.338 filas Payku: las 5.699 suscripciones canónicas ya tienen inicio y 1.441 término. Como Payku no entrega monto recurrente en la suscripción, se usa la última transacción `success` asociada como monto operativo para KPIs y gráficos.
+- Se rematerializaron las 58.338 filas Payku: las 5.699 suscripciones centralizadas ya tienen inicio y 1.441 término. Como Payku no entrega monto recurrente en la suscripción, se usa la última transacción `success` asociada como monto operativo para KPIs y gráficos.
 - Los KPIs de Payku cuentan solo suscripciones `active` y transacciones `success`, mostrando sus montos cuando el proveedor los entrega.
 - La consolidación ahora persiste en `p_subscriptions.amount` el monto de la última transacción `success` asociada; 2.283 suscripciones y las 484 activas ya tienen monto materializado.
 
 ## Avance 2026-08-30
 
-- Se aplicaron las migraciones `20260830_0002` y `20260830_0003`, que crean las entidades canónicas y preservan el contexto de la suscripción al sincronizar cargos.
+- Se aplicaron las migraciones `20260830_0002` y `20260830_0003`, que crean las entidades centralizadas y preservan el contexto de la suscripción al sincronizar cargos.
 - Sandbox entrega `25` clientes, `8` planes, `16` suscripciones, `452` cargos y `35` pagos. Los payloads reales, envelopes e identificadores están documentados en `docs/virtualpos-sandbox.md` sin valores sensibles.
 - El sincronizador pagina suscripciones, reconoce los envelopes reales del proveedor y evita reescribir payloads sin cambios; una segunda ejecución procesó `0` registros.
 - Swagger se organiza como Postman: Cliente, Plan, Suscription, Charge y Payment. Se añadieron consultas read-only en `/api/v1/clients`, `/subscriptions`, `/charges` y `/payments`, con detalle por UUID, paginación y filtros por fuente/estado.
@@ -158,7 +184,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 - El dashboard fue validado localmente en `http://127.0.0.1:5173`. La operacion manual esta documentada en `README.md` y `frontend/README.md`.
 - Se retiraron las rutas proxy y metodos de escritura de VirtualPOS. La API publica conserva exclusivamente consultas CRM `GET`; las pruebas impiden reintroducir un proxy del proveedor.
 - VP-14 incorpora detalles de cliente y suscripcion. El detalle de suscripcion devuelve el plan y cargos confirmados por identificadores externos, con paginacion de cargos.
-- VP-14 incorpora el explorador de registros para clientes, planes, suscripciones, cargos y pagos; cada registro abre su detalle CRM. El detalle de cliente incluye los campos canonicos y tarjetas resumidas sin datos de tarjeta completos.
+- VP-14 incorpora el explorador de registros para clientes, planes, suscripciones, cargos y pagos; cada registro abre su detalle CRM. El detalle de cliente incluye los campos centralizados y tarjetas resumidas sin datos de tarjeta completos.
 - Validación: `python -m pytest`, `ruff check app tests alembic scripts`, migración en `head` y sincronización Sandbox correcta.
 
 ## Actualizacion documental 2026-09-09
@@ -178,7 +204,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 
 Cada tarea sigue el mismo patrón de tres capas:
 1. **Backend** — Nueva ruta en `app/api/v1/routes/`; llama al endpoint externo con las credenciales del proveedor.
-2. **Servicio** — Tras respuesta exitosa: actualiza `source_records` en bdlocal y re-materializa el registro canónico (patrón ya establecido en `app/services/crm_materialization.py`).
+2. **Servicio** — Tras respuesta exitosa: actualiza `source_records` en bdlocal y re-materializa el registro centralizado (patrón ya establecido en `app/services/crm_materialization.py`).
 3. **Frontend** — Habilita el botón existente en `frontend/src/App.tsx` (ya presente pero `disabled`) y conecta el `onClick` al nuevo endpoint interno.
 
 ### WR-VP: Escritura VirtualPOS
@@ -188,7 +214,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | WR-VP-01 | Habilitar edición y creación real de clientes VirtualPOS | Completada | `PUT /v3/client/:uuid` y `POST /v3/client` se ejecutan desde modales internos con selector VP1/VP2; bdlocal actualizada; edición y creación operativas. |
 | WR-VP-02 | Habilitar cancelación real de suscripciones VirtualPOS | Completada | `DELETE /v3/suscription/:id` ejecutado desde el modal de confirmación; estado en bdlocal cambia a CANCELADA. |
 | WR-VP-03 | Habilitar cancelación real de cargos VirtualPOS | Completada | `DELETE /v3/charge/:id` ejecutado desde ficha y tabla; cargo actualizado en bdlocal. |
-| WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Completada | `DELETE /v3/payment/:uuid` ejecutado desde la ruta interna `DELETE /api/v1/writes/virtualpos/payments/{id}`; pago actualizado en staging y entidad canónica. |
+| WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Completada | `DELETE /v3/payment/:uuid` ejecutado desde la ruta interna `DELETE /api/v1/writes/virtualpos/payments/{id}`; pago actualizado en staging y entidad centralizada. |
 | WR-VP-05 | Flujo especial: crear cargo en suscripción activa y reasignar | En curso | `POST /v3/charge` disponible desde ficha de suscripción activa; modal de monto/fecha operativo. El flujo de reasignación completo (cancelar pendientes + recrear) requiere integración frontend pendiente. |
 
 ### WR-TK: Escritura Toku
@@ -224,8 +250,8 @@ Cada tarea sigue el mismo patrón de tres capas:
 
 ## Actualización documental 2026-09-11 (consolidación y tablas)
 
-- Se añadieron migraciones `20260911_0007` a `20260911_0010`: soporte para payloads canónicos, relaciones de cliente, ejecuciones ETL y métodos de pago Toku.
-- El ETL consolida las tres BDlocales en las entidades canónicas; la sincronización completa mantiene operaciones contra proveedores exclusivamente en modo read-only.
+- Se añadieron migraciones `20260911_0007` a `20260911_0010`: soporte para payloads centralizados, relaciones de cliente, ejecuciones ETL y métodos de pago Toku.
+- El ETL consolida las tres BDlocales en las entidades centralizadas; la sincronización completa mantiene operaciones contra proveedores exclusivamente en modo read-only.
 - Las tablas aprovechan el ancho disponible, filtran por columnas operativas, ofrecen selector de estados y ordenan globalmente antes de paginar, incluidos campos anidados visibles de Toku.
 - La escritura remota continúa pendiente de autorización e implementación de las tareas `WR-*`; los botones visuales no realizan llamadas de escritura.
 - WR-VP-05 documenta el flujo especial de reasignación de monto/fecha en VirtualPOS: no existe PUT directo sobre suscripciones; el flujo equivalente es cancelar los cargos pendientes y recrearlos con los valores nuevos.
@@ -295,7 +321,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 
 - Se detectó que `cancel_subscription`, `cancel_charge`, `retry_charge`, `update_client`, `create_client`, `create_plan`, `create_charge` y `create_subscription` en `write_virtualpos.py` intentaban reconciliar contra las tres BDlocales por canal (`VirtualPOS_Local`, `Toku_Local`, `Payku_Local`) usando columnas (`platform`, `remote_id`, `raw_payload`) que el esquema real ya no tiene desde la consolidación DB-01. Esto hacía fallar toda escritura de VirtualPOS con `reconciliation_required`, aunque la operación remota hubiera sido exitosa.
 - Se retiró por completo el flujo de bases locales, ya innecesario tras DB-01/ETL-01: se eliminaron `app/services/bdlocales_sync.py`, `bdlocales_import.py`, `etl_consolidation.py`, `etl_orchestration.py` (sin importadores en la app viva) y los scripts `scripts/import_bdlocales.py`/`inspect_bdlocales.py`.
-- Las 8 funciones de escritura de VirtualPOS ahora reconcilian solo `source_records` (staging) y la entidad canónica correspondiente tras el `GET` de confirmación al proveedor, sin resincronizar el canal completo.
+- Las 8 funciones de escritura de VirtualPOS ahora reconcilian solo `source_records` (staging) y la entidad centralizada correspondiente tras el `GET` de confirmación al proveedor, sin resincronizar el canal completo.
 - Se quitaron `virtualpos_db_url`, `toku_db_url` y `payku_db_url` de `app/core/config.py` y las variables `VIRTUALPOS_DB_URL`/`TOKU_DB_URL`/`PAYKU_DB_URL` de `.env`/`.env.example`. `docs/PLAN_CONSOLIDACION_BDLOCAL.md` queda marcado como completado y cerrado.
 - `tests/test_virtualpos_writes.py` se actualizó para verificar la reconciliación contra `SourceRecord` en vez de mockear las funciones locales retiradas.
 
@@ -334,7 +360,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 - **WR-VP-04** Completada: `DELETE /v3/payment/:uuid` implementado en `VirtualPOSClient`; servicio `cancel_payment` con registro `WriteRun` y ruta `DELETE /api/v1/writes/virtualpos/payments/{id}`.
 - **WR-TK-02** Completada: `PUT /invoices/:id` implementado en `TokuClient`; servicio `update_invoice` actualiza el `SourceRecord` correspondiente.
 - **WR-TK-05** Completada: `DELETE /invoices/:id` implementado; servicio `delete_invoice` marca el `SourceRecord` como deleted.
-- **WR-TK-06** Completada: `DELETE /subscriptions/:id` implementado; servicio `delete_subscription` marca la suscripción canónica como deleted.
+- **WR-TK-06** Completada: `DELETE /subscriptions/{id}` implementado; servicio `delete_subscription` marca la suscripción centralizada como deleted.
 
 ## Actualización 2026-09-21 (operación consolidada)
 

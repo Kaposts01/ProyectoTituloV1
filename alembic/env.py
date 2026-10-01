@@ -7,6 +7,23 @@ from app.core.config import settings
 from app.db.session import Base
 from app.models.auth import Permission, Role, User  # noqa: F401
 from app.models.charge_recovery import ChargeRecovery  # noqa: F401
+from app.models.crm import (  # noqa: F401
+    Charge,
+    Client,
+    Payment,
+    PaymentMethod,
+    Plan,
+    Subscription,
+)
+from app.models.etl_run import EtlRun  # noqa: F401
+from app.models.payku_channel import (  # noqa: F401
+    PaykuClient,
+    PaykuPlan,
+    PaykuSubscription,
+    PaykuTransaction,
+)
+from app.models.source_record import SourceRecord  # noqa: F401
+from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.tch import (  # noqa: F401
     TchBanco,
     TchCentroCosto,
@@ -17,19 +34,21 @@ from app.models.tch import (  # noqa: F401
     TchTipoMandato,
     TchTransaccion,
 )
-from app.models.crm import (  # noqa: F401
-    Charge,
-    Client,
-    Payment,
-    PaymentMethod,
-    Plan,
-    Subscription,
+from app.models.toku_channel import (  # noqa: F401
+    TokuCustomer,
+    TokuInvoice,
+    TokuPayment,
+    TokuPaymentMethod,
+    TokuSubscription,
+    TokuTransaction,
 )
-from app.models.payku_channel import PaykuClient, PaykuPlan, PaykuSubscription, PaykuTransaction  # noqa: F401
-from app.models.source_record import SourceRecord  # noqa: F401
-from app.models.sync_run import SyncRun  # noqa: F401
-from app.models.toku_channel import TokuCustomer, TokuInvoice, TokuPaymentMethod, TokuSubscription, TokuTransaction  # noqa: F401
-from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription  # noqa: F401
+from app.models.vp import (  # noqa: F401
+    VpCharge,
+    VpClient,
+    VpPayment,
+    VpPlan,
+    VpSubscription,
+)
 from app.models.write_run import WriteRun  # noqa: F401
 
 config = context.config
@@ -41,6 +60,11 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    """Keep APScheduler's job-store table outside Alembic ownership."""
+    return not (type_ == "table" and name == "apscheduler_jobs")
+
+
 def run_migrations_offline() -> None:
     context.configure(url=settings.database_url, target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
@@ -50,7 +74,7 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(connection=connection, target_metadata=target_metadata, include_object=include_object)
         with context.begin_transaction():
             context.run_migrations()
 

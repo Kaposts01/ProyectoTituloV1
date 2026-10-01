@@ -101,3 +101,5 @@ class PaymentMethod(CanonicalRecord):
 
     client_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     status: Mapped[str | None] = mapped_column(String(50), index=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True)

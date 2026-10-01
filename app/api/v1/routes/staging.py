@@ -16,16 +16,16 @@ from app.models.crm import Payment as CPayment
 from app.models.crm import PaymentMethod as CPaymentMethod
 from app.models.crm import Plan as CPlan
 from app.models.crm import Subscription as CSub
+from app.models.payku_channel import PaykuTransaction as PkTx
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
-from app.models.payku_channel import PaykuTransaction as PkTx
 from app.models.tch import (
     TchCliente,
     TchRecaudacionMensual,
     TchSuscripcion,
     TchTransaccion,
 )
-from app.services.channel_consolidation import consolidate_to_canonical
+from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.payku_sync import sync_payku
 from app.services.rbac import permission_codes, source_permission
 from app.services.toku_sync import sync_toku
@@ -878,6 +878,7 @@ def _channel_alerts(
     activation: list[dict[str, Any]],
     churn: list[dict[str, Any]],
     kpis: dict[str, Any] | None = None,
+    channel: str = "Canal",
 ) -> list[dict[str, Any]]:
     """Genera alertas operativas desde series mensuales ya calculadas."""
     alerts: list[dict[str, Any]] = []
@@ -896,7 +897,7 @@ def _channel_alerts(
             alerts.append({
                 "sev": "media",
                 "tipo": "Saldo negativo de suscripciones",
-                "canal": "—",
+                "canal": channel,
                 "detalle": f"{y}-{m:02d}: {bajas} bajas vs {altas} altas",
             })
 
@@ -907,7 +908,7 @@ def _channel_alerts(
             alerts.insert(0, {
                 "sev": "alta" if cr > 20 else "media",
                 "tipo": "Churn rate elevado",
-                "canal": "—",
+                "canal": channel,
                 "detalle": f"Tasa de abandono histórica: {cr}% — supera umbral operativo",
             })
 
@@ -915,7 +916,7 @@ def _channel_alerts(
 
 
 def _compute_churn_rate_series(subs_list: list) -> list[dict[str, Any]]:
-    """Churn rate mensual desde una lista de objetos CSub (usa columnas canónicas)."""
+    """Churn rate mensual desde una lista de objetos CSub (usa columnas centralizadas)."""
     activation_by_month: defaultdict[tuple[int, int], int] = defaultdict(int)
     churn_by_month: defaultdict[tuple[int, int], int] = defaultdict(int)
     for s in subs_list:
@@ -940,16 +941,16 @@ def _compute_churn_rate_series(subs_list: list) -> list[dict[str, Any]]:
     return series
 
 
-def _vp_canonical_alerts(
+def _vp_centralized_alerts(
     db: Session,
     sources: list[str],
     paid_statuses: tuple,
     active_sub_ids: set[str],
     recently_paid_ids: set[str],
 ) -> list[dict[str, Any]]:
-    """Alertas operativas de nivel canónico para VirtualPOS.
+    """Alertas operativas de nivel centralizado para VirtualPOS.
 
-    Recibe sets precomputados para evitar queries duplicadas con _vp_canonical_dashboard.
+    Recibe sets precomputados para evitar queries duplicadas con _vp_centralized_dashboard.
     """
     alerts: list[dict[str, Any]] = []
     today = date.today()
@@ -1172,7 +1173,7 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         "churn_monthly": churn_flat,
         "churn_rate_monthly": churn_rate_monthly_series,
         "active_subs_monthly": active_subs_monthly_series,
-        "alerts": _channel_alerts(ch_flat, act_flat, churn_flat, kpis),
+        "alerts": _channel_alerts(ch_flat, act_flat, churn_flat, kpis, "VirtualPOS"),
     }
 
 
@@ -1279,15 +1280,30 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         cum_active_toku = max(0, cum_active_toku + activated - cancelled)
         active_subs_monthly_toku.append({"year": _ym[0], "month": _ym[1], "count": cum_active_toku})
 
+    churn_rate_monthly_toku: list[dict[str, Any]] = []
+    for entry in active_subs_monthly_toku:
+        month = (entry["year"], entry["month"])
+        cancelled = int(churn_by_month.get(month, {}).get("count", 0))
+        active_at_start = entry["count"] - sum(
+            int(values["count"]) for values in activation_by_month.get(month, {}).values()
+        ) + cancelled
+        churn_rate_monthly_toku.append({
+            "year": entry["year"],
+            "month": entry["month"],
+            "rate": round(100 * cancelled / active_at_start, 1) if active_at_start > 0 else 0.0,
+        })
+
+    tx_flat = _flatten_by_status(transactions_monthly)
     return {
         "kpis": kpis,
         "invoices_monthly": inv_flat,
-        "payments_monthly": inv_flat,
-        "transactions_monthly": _flatten_by_status(transactions_monthly),
+        "payments_monthly": tx_flat,
+        "transactions_monthly": tx_flat,
         "activation_monthly": act_flat,
         "churn_monthly": churn_flat,
         "active_subs_monthly": active_subs_monthly_toku,
-        "alerts": _channel_alerts(inv_flat, act_flat, churn_flat, kpis),
+        "churn_rate_monthly": churn_rate_monthly_toku,
+        "alerts": _channel_alerts(tx_flat, act_flat, churn_flat, kpis, "Toku"),
     }
 
 
@@ -1373,12 +1389,29 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     tx_flat   = _flatten_by_status(transactions_monthly)
     act_flat  = _flatten_by_status(activation_by_month)
     churn_flat = _flatten_by_status(churn_by_month)
+    all_months_payku = sorted(set(activation_by_month) | set(churn_by_month))
+    active_subs_monthly_payku: list[dict[str, Any]] = []
+    churn_rate_monthly_payku: list[dict[str, Any]] = []
+    active_count = 0
+    for month in all_months_payku:
+        activated = sum(int(values["count"]) for values in activation_by_month.get(month, {}).values())
+        cancelled = sum(int(values["count"]) for values in churn_by_month.get(month, {}).values())
+        churn_rate_monthly_payku.append({
+            "year": month[0],
+            "month": month[1],
+            "rate": round(100 * cancelled / active_count, 1) if active_count > 0 else 0.0,
+        })
+        active_count = max(0, active_count + activated - cancelled)
+        active_subs_monthly_payku.append({"year": month[0], "month": month[1], "count": active_count})
+
     return {
         "kpis": kpis,
         "transactions_monthly": tx_flat,
         "activation_monthly": act_flat,
         "churn_monthly": churn_flat,
-        "alerts": _channel_alerts(tx_flat, act_flat, churn_flat, kpis),
+        "active_subs_monthly": active_subs_monthly_payku,
+        "churn_rate_monthly": churn_rate_monthly_payku,
+        "alerts": _channel_alerts(tx_flat, act_flat, churn_flat, kpis, "Payku"),
     }
 
 
@@ -1513,7 +1546,7 @@ def _sub_enrichment(db: Session, records: list[Any], source_hint: str = "") -> d
 
 
 def _vp_filter(model: Any, rtype: str, ff: str, q: str):
-    """Build a JSONB search expression on raw_payload for canonical VirtualPOS records."""
+    """Build a JSONB search expression on raw_payload for centralized VirtualPOS records."""
     r = model.raw_payload
     fm: dict[str, dict[str, Any]] = {
         "client": {
@@ -1876,8 +1909,8 @@ def _list_payku(
     }
 
 
-def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
-    """Build channel dashboard from canonical CRM tables for VirtualPOS."""
+def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
+    """Build channel dashboard from centralized CRM tables for VirtualPOS."""
     sources = _vp_src(source)
 
     paid_statuses = ("pagado", "aceptado", "accepted", "paid")
@@ -1897,7 +1930,7 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
         for rtype, model in _VP_MODEL.items()
     }
 
-    # Status distribution using canonical status columns
+    # Status distribution using centralized status columns
     statuses: list[dict[str, Any]] = []
     for rtype, model in _VP_MODEL.items():
         rows = db.execute(
@@ -1908,7 +1941,7 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
         for row in rows:
             statuses.append({"resource": rtype, "status": str(row[0]), "count": row[1]})
 
-    # Resource amounts from canonical amount columns
+    # Resource amounts from centralized amount columns
     resource_amounts: dict[str, float] = {}
     for rtype, model in _VP_MODEL.items():
         if hasattr(model, "amount"):
@@ -1944,7 +1977,7 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
     resource_counts["subscription_cobrable"] = len(cobrable_list)
     resource_amounts["subscription_cobrable"] = round(sum(_amount(amt) for _, amt in cobrable_list), 2)
 
-    # Activity: charges grouped by month using canonical charge_date
+    # Activity: charges grouped by month using centralized charge_date
     activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
     charge_rows = db.execute(
         select(CCharge.charge_date, CCharge.amount).where(CCharge.source.in_(sources))
@@ -2021,8 +2054,8 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
         for yr, mo in all_c_months
     ]
 
-    canonical_alerts = _vp_canonical_alerts(db, list(sources), paid_statuses, active_sub_ids_for_alerts, recently_paid_ids)
-    extended["alerts"] = extended.get("alerts", []) + canonical_alerts
+    centralized_alerts = _vp_centralized_alerts(db, list(sources), paid_statuses, active_sub_ids_for_alerts, recently_paid_ids)
+    extended["alerts"] = extended.get("alerts", []) + centralized_alerts
 
     # Churn rate por fuente (virtualpos1 / virtualpos2) para el filtro del gráfico
     extended["churn_rate_monthly_vp1"] = _compute_churn_rate_series([s for s in subs if s.source == "virtualpos1"])
@@ -2070,7 +2103,7 @@ def _vp_canonical_dashboard(source: str, db: Session) -> dict[str, Any]:
     }
 
 
-def _toku_canonical_dashboard(db: Session) -> dict[str, Any]:
+def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
     chargeable_subscription_ids = {
         subscription_id
         for method in db.scalars(
@@ -2213,7 +2246,7 @@ def _toku_canonical_dashboard(db: Session) -> dict[str, Any]:
     }
 
 
-def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
+def _payku_centralized_dashboard(db: Session) -> dict[str, Any]:
     active_subscriptions = db.scalars(
         select(CSub).where(CSub.source == "payku", func.lower(CSub.status) == "active")
     ).all()
@@ -2280,6 +2313,14 @@ def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
     latest_run = db.scalars(
         select(SyncRun).where(SyncRun.source == "payku").order_by(SyncRun.started_at.desc()).limit(1)
     ).first()
+    extended = _payku_extended_data(records)
+    dated_series = (
+        activity
+        + extended.get("transactions_monthly", [])
+        + extended.get("activation_monthly", [])
+        + extended.get("churn_monthly", [])
+        + extended.get("active_subs_monthly", [])
+    )
     return {
         "source": "payku",
         "records": sum(resource_counts.values()),
@@ -2288,7 +2329,7 @@ def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
         "statuses": sorted(statuses, key=lambda item: (item["resource"], item["status"])),
         "activity_resource": "transaction",
         "activity": activity,
-        "years": sorted({entry["year"] for entry in activity}, reverse=True),
+        "years": sorted({entry["year"] for entry in dated_series}, reverse=True),
         "last_sync": (
             {
                 "status": latest_run.status,
@@ -2298,7 +2339,7 @@ def _payku_canonical_dashboard(db: Session) -> dict[str, Any]:
             }
             if latest_run else None
         ),
-        **_payku_extended_data(records),
+        **extended,
     }
 
 
@@ -2672,11 +2713,11 @@ def _toku_record_customer_ids(record: Any) -> set[str]:
     return {customer_id for value in values if (customer_id := _relationship_id(value))}
 
 
-def _canonical_items(records: list[Any], resource_type: str) -> list[dict[str, Any]]:
+def _centralized_items(records: list[Any], resource_type: str) -> list[dict[str, Any]]:
     return [_cstg(record, resource_type) for record in records]
 
 
-def _toku_canonical_related(record: Any, resource_type: str, db: Session) -> list[dict[str, Any]]:
+def _toku_centralized_related(record: Any, resource_type: str, db: Session) -> list[dict[str, Any]]:
     customers = db.scalars(select(CClient).where(CClient.source == "toku")).all()
     subscriptions = db.scalars(select(CSub).where(CSub.source == "toku")).all()
     methods = db.scalars(select(CPaymentMethod).where(CPaymentMethod.source == "toku")).all()
@@ -2701,14 +2742,14 @@ def _toku_canonical_related(record: Any, resource_type: str, db: Session) -> lis
         ]
         method_ids = {item.external_id for item in customer_methods}
         return [
-            _related("Subscripciones", "subscription", _canonical_items(customer_subscriptions, "subscription")),
-            _related("Métodos de pago", "payment_method", _canonical_items(customer_methods, "payment_method")),
-            _related("Deudas", "invoice", _canonical_items([
+            _related("Subscripciones", "subscription", _centralized_items(customer_subscriptions, "subscription")),
+            _related("Métodos de pago", "payment_method", _centralized_items(customer_methods, "payment_method")),
+            _related("Deudas", "invoice", _centralized_items([
                 item for item in invoices
                 if record_id in _toku_record_customer_ids(item)
                 or _toku_invoice_subscription_id(item) in subscription_ids
             ], "invoice")),
-            _related("Transacciones", "transaction", _canonical_items([
+            _related("Transacciones", "transaction", _centralized_items([
                 item for item in transactions
                 if record_id in _toku_record_customer_ids(item)
                 or _toku_transaction_payment_method_id(item) in method_ids
@@ -2716,27 +2757,27 @@ def _toku_canonical_related(record: Any, resource_type: str, db: Session) -> lis
         ]
     if resource_type == "subscription":
         return [
-            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
-            _related("Métodos de pago", "payment_method", _canonical_items([item for item in methods if record_id in _toku_subscription_ids(item)], "payment_method")),
-            _related("Deudas", "invoice", _canonical_items([item for item in invoices if _toku_invoice_subscription_id(item) == record_id], "invoice")),
-            _related("Transacciones", "transaction", _canonical_items([item for item in transactions if record_id in _toku_transaction_subscription_ids(item)], "transaction")),
+            _related("Cliente", "customer", _centralized_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Métodos de pago", "payment_method", _centralized_items([item for item in methods if record_id in _toku_subscription_ids(item)], "payment_method")),
+            _related("Deudas", "invoice", _centralized_items([item for item in invoices if _toku_invoice_subscription_id(item) == record_id], "invoice")),
+            _related("Transacciones", "transaction", _centralized_items([item for item in transactions if record_id in _toku_transaction_subscription_ids(item)], "transaction")),
         ]
     if resource_type == "payment_method":
         subscription_ids = _toku_subscription_ids(record)
         return [
-            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
-            _related("Subscripciones", "subscription", _canonical_items([item for item in subscriptions if item.external_id in subscription_ids], "subscription")),
+            _related("Cliente", "customer", _centralized_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Subscripciones", "subscription", _centralized_items([item for item in subscriptions if item.external_id in subscription_ids], "subscription")),
         ]
     if resource_type == "invoice":
         return [
-            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
-            _related("Subscripción", "subscription", _canonical_items([item for item in subscriptions if item.external_id == record.subscription_external_id], "subscription")),
+            _related("Cliente", "customer", _centralized_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Subscripción", "subscription", _centralized_items([item for item in subscriptions if item.external_id == record.subscription_external_id], "subscription")),
         ]
     if resource_type == "transaction":
         subscription_id = _toku_transaction_subscription_id(record)
         return [
-            _related("Cliente", "customer", _canonical_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
-            _related("Subscripción", "subscription", _canonical_items([item for item in subscriptions if item.external_id == subscription_id], "subscription")),
+            _related("Cliente", "customer", _centralized_items([item for item in customers if item.external_id == record.client_external_id], "customer")),
+            _related("Subscripción", "subscription", _centralized_items([item for item in subscriptions if item.external_id == subscription_id], "subscription")),
         ]
     return []
 
@@ -2769,7 +2810,7 @@ def _payku_transaction_subscription_ids(record: CPayment) -> list[str]:
     return [item_id for value in values if (item_id := _relationship_id(value)) is not None]
 
 
-def _payku_canonical_related(record: Any, resource_type: str, db: Session) -> list[dict[str, Any]]:
+def _payku_centralized_related(record: Any, resource_type: str, db: Session) -> list[dict[str, Any]]:
     clients = db.scalars(select(CClient).where(CClient.source == "payku")).all()
     plans = db.scalars(select(CPlan).where(CPlan.source == "payku")).all()
     subscriptions = db.scalars(select(CSub).where(CSub.source == "payku")).all()
@@ -2777,28 +2818,28 @@ def _payku_canonical_related(record: Any, resource_type: str, db: Session) -> li
     record_id = record.external_id
 
     if resource_type == "client":
-        return [_related("Suscripciones", "subscription", _canonical_items(
+        return [_related("Suscripciones", "subscription", _centralized_items(
             [item for item in subscriptions if item.client_external_id == record_id], "subscription"
         ))]
     if resource_type == "plan":
-        return [_related("Suscripciones", "subscription", _canonical_items(
+        return [_related("Suscripciones", "subscription", _centralized_items(
             [item for item in subscriptions if item.plan_external_id == record_id], "subscription"
         ))]
     if resource_type == "subscription":
         return [
-            _related("Cliente", "client", _canonical_items(
+            _related("Cliente", "client", _centralized_items(
                 [item for item in clients if item.external_id == record.client_external_id], "client"
             )),
-            _related("Plan", "plan", _canonical_items(
+            _related("Plan", "plan", _centralized_items(
                 [item for item in plans if item.external_id == record.plan_external_id], "plan"
             )),
-            _related("Transacciones", "transaction", _canonical_items(
+            _related("Transacciones", "transaction", _centralized_items(
                 [item for item in transactions if record_id in _payku_transaction_subscription_ids(item)], "transaction"
             )),
         ]
     if resource_type == "transaction":
         subscription_ids = _payku_transaction_subscription_ids(record)
-        return [_related("Suscripciones", "subscription", _canonical_items(
+        return [_related("Suscripciones", "subscription", _centralized_items(
             [item for item in subscriptions if item.external_id in subscription_ids], "subscription"
         ))]
     return []
@@ -2806,7 +2847,7 @@ def _payku_canonical_related(record: Any, resource_type: str, db: Session) -> li
 
 @router.get("/dashboard/general", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
 def general_dashboard(db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
-    """Aggregate operational metrics from every canonical channel."""
+    """Aggregate operational metrics from every centralized channel."""
     return _general_dashboard(db)
 
 
@@ -2861,7 +2902,7 @@ def provider_record_detail(
         record = db.scalar(select(model).where(model.source == "toku", model.external_id == external_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Staging record not found")
-        related = _toku_canonical_related(record, resource_type, db)
+        related = _toku_centralized_related(record, resource_type, db)
         extra = _sub_enrichment(db, [record]).get((record.source, record.external_id)) if resource_type == "subscription" else None
         return {"record": _cstg(record, resource_type, extra), "related": _permitted_related(current_user, source, related)}
     if source == "payku":
@@ -2869,7 +2910,7 @@ def provider_record_detail(
         record = db.scalar(select(model).where(model.source == "payku", model.external_id == external_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Staging record not found")
-        related = _payku_canonical_related(record, resource_type, db)
+        related = _payku_centralized_related(record, resource_type, db)
         extra = _sub_enrichment(db, [record], "payku").get((record.source, record.external_id)) if resource_type == "subscription" else None
         return {"record": _cstg(record, resource_type, extra), "related": _permitted_related(current_user, source, related)}
     records = db.scalars(select(SourceRecord).where(SourceRecord.source == source)).all()
@@ -3077,11 +3118,11 @@ def channel_dashboard(
 ) -> dict[str, Any]:
     _require_source_access(current_user, source)
     if source.startswith("virtualpos"):
-        return _vp_canonical_dashboard(source, db)
+        return _vp_centralized_dashboard(source, db)
     if source == "toku":
-        return _toku_canonical_dashboard(db)
+        return _toku_centralized_dashboard(db)
     if source == "payku":
-        return _payku_canonical_dashboard(db)
+        return _payku_centralized_dashboard(db)
     if source not in SOURCES:
         raise HTTPException(status_code=404, detail="Unknown staging source")
 
@@ -3168,7 +3209,7 @@ async def trigger_channel_sync(
 
     _sync_fn = {"virtualpos": sync_virtualpos, "toku": sync_toku, "payku": sync_payku}
     run = await _sync_fn[source](db)
-    consolidate_to_canonical(db, [source])
+    consolidate_to_centralized(db, [source])
     return {
         "run_id": str(run.id),
         "status": run.status,

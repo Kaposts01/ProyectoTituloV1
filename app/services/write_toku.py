@@ -317,7 +317,7 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
 
 
 async def update_invoice(db: Session, invoice_id: str, changes: dict[str, Any]) -> SourceRecord:
-    """Update a Toku invoice via PUT /invoices/{id}. Invoices have no canonical model; reconciles SourceRecord only."""
+    """Update a Toku invoice via PUT /invoices/{id}. Invoices have no centralized model; reconciles SourceRecord only."""
     record = db.scalar(
         select(SourceRecord).where(
             SourceRecord.source == "toku",

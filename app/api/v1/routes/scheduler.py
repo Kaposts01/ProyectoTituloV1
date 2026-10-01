@@ -129,10 +129,13 @@ def list_runs(
     db: Session = Depends(get_db),
 ) -> dict:
     """Últimas ejecuciones del orquestador (excluye runs de TCH)."""
-    from sqlalchemy import func as sqlfunc, not_
+    from sqlalchemy import func as sqlfunc, not_, or_
 
-    # Excluir runs que pertenezcan exclusivamente a TCH
-    _not_tch = not_(EtlRun.channels_processed.any("tch"))
+    # Incluir: runs sin channels_processed (running/failed) + runs que no sean exclusivamente TCH
+    _not_tch = or_(
+        EtlRun.channels_processed.is_(None),
+        not_(EtlRun.channels_processed.any("tch")),
+    )
     base = select(EtlRun).where(_not_tch)
 
     runs = db.scalars(
@@ -159,27 +162,35 @@ async def stream_run(
     except ValueError:
         raise HTTPException(status_code=400, detail="run_id inválido.")
 
+    # Padding de 4 KB para forzar flush del buffer de Cloudflare/proxies
+    _PAD = ": " + ("p" * 4096) + "\n"
+
     async def event_generator():
+        # Flush inicial: fuerza al proxy a abrir el stream antes del primer evento
+        yield _PAD
         q = await event_bus.subscribe(run_id)
         if q is None:
-            # Run terminado o inexistente: emitir EOF inmediatamente
-            yield "data: {\"type\": \"not_found\"}\n\n"
+            yield "data: {\"type\": \"not_found\"}\n\n" + _PAD
             return
         try:
             while True:
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=30.0)
+                    event = await asyncio.wait_for(q.get(), timeout=25.0)
                 except asyncio.TimeoutError:
-                    yield ": keepalive\n\n"
+                    yield ": keepalive\n" + _PAD
                     continue
                 if event is None:
                     break
-                yield f"data: {json.dumps(event)}\n\n"
+                yield f"data: {json.dumps(event)}\n\n" + _PAD
         finally:
             event_bus.unsubscribe(run_id, q)
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
+        },
     )

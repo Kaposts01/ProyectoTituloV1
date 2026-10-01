@@ -130,7 +130,7 @@ class VirtualPOSClient:
             try:
                 response = await self._client.get(path, params=params)
                 break
-            except httpx.ReadTimeout:
+            except (httpx.ReadTimeout, httpx.ReadError, httpx.ConnectError):
                 if attempt == settings.virtualpos_read_retries:
                     raise
                 await asyncio.sleep(2**attempt)

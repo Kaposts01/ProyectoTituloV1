@@ -22,6 +22,7 @@ from app.models.payku_channel import (
 from app.models.toku_channel import (
     TokuCustomer,
     TokuInvoice,
+    TokuPayment,
     TokuPaymentMethod,
     TokuSubscription,
     TokuTransaction,
@@ -251,6 +252,17 @@ def extract_toku_payment_method(p: dict) -> dict:
     }
 
 
+def extract_toku_payment(p: dict) -> dict:
+    return {
+        "external_id": _str(p, "__external_id", "id"),
+        "customer_id": _str(p, "customer"),
+        "invoice_id": _str(p, "invoice"),
+        "amount": _str(p, "amount_paid", "payment_amount"),
+        "transaction_date": _str(p, "transaction_date", "created_at"),
+        "government_id": _str(p, "government_id"),
+    }
+
+
 # ── Extractores Payku ─────────────────────────────────────────────────────────
 
 def extract_payku_client(p: dict) -> dict:
@@ -265,12 +277,18 @@ def extract_payku_client(p: dict) -> dict:
 
 
 def extract_payku_plan(p: dict) -> dict:
+    total = p.get("total_suscription")
+    total_active = p.get("total_suscription_active")
     return {
         "external_id": _str(p, "__external_id", "id"),
         "name": _str(p, "name"),
+        "code": _str(p, "code"),
+        "description": _str(p, "description"),
         "amount": _str(p, "amount"),
         "currency": _str(p, "currency"),
         "status": _str(p, "status"),
+        "total_suscription": int(total) if total is not None else None,
+        "total_suscription_active": int(total_active) if total_active is not None else None,
     }
 
 
@@ -298,18 +316,34 @@ def extract_payku_subscription(p: dict) -> dict:
         "client_id": _str(p, "client_id") or _str(client, "id"),
         "plan_id": _str(p, "plan_id") or _str(plan, "id"),
         "status": _str(p, "status"),
+        "last_status_current_payment": _str(p, "last_status_current_payment"),
+        "start_date": _str(p, "start"),
+        "end_date": _str(p, "end"),
         "amount": amount,
         "currency": _str(p, "currency") or _str(plan, "currency"),
     }
 
 
 def extract_payku_transaction(p: dict) -> dict:
-    sub = p.get("subscription") or p.get("subscriptions") or {}
+    sub = p.get("subscription") or {}
+    subscriptions = p.get("subscriptions")
+    subscription_from_list = None
+    if isinstance(subscriptions, list) and subscriptions:
+        subscription_from_list = _relationship_id(subscriptions[0])
+    elif isinstance(subscriptions, dict):
+        subscription_from_list = _relationship_id(subscriptions)
+    sub_id = (
+        _str(p, "subscription_id")
+        or _str(p, "__subscription_id")
+        or _str(sub, "id")
+        or subscription_from_list
+    )
+    order = p.get("order") or {}
     return {
-        "external_id": _str(p, "__external_id", "id"),
-        "subscription_id": _str(p, "subscription_id") or _str(sub, "id"),
-        "amount": _str(p, "amount"),
-        "currency": _str(p, "currency"),
+        "external_id": _str(p, "__external_id", "id", "transaction"),
+        "subscription_id": sub_id,
+        "amount": _str(p, "amount") or _str(order, "amount"),
+        "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status"),
         "created_at_api": _str(p, "created_at"),
     }
@@ -341,6 +375,7 @@ def store_toku_resources(db: Session, resource_type: str, records: list[dict]) -
         "subscription": (TokuSubscription, extract_toku_subscription),
         "invoice": (TokuInvoice, extract_toku_invoice),
         "transaction": (TokuTransaction, extract_toku_transaction),
+        "payment": (TokuPayment, extract_toku_payment),
         "payment_method": (TokuPaymentMethod, extract_toku_payment_method),
     }
     if resource_type not in _map:

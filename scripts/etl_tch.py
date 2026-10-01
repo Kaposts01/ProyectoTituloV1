@@ -36,6 +36,7 @@ from app.models.tch import (
     TchTipoMandato,
     TchTransaccion,
 )
+from app.services.payload_sanitization import sanitize_payload
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +44,11 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger("etl_tch")
+
+
+def _safe_error_message(exc: Exception) -> str:
+    """Keep ETL run metadata useful without retaining account-like identifiers."""
+    return re.sub(r"\b\d{8,20}\b", "[redacted]", str(exc))[:2000]
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +404,7 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
             continue
         rut = _norm_rut(_col_val(row, c_rut))
 
-        raw = {str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()}
+        raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
 
         sus = {
             "numero_ficha": ficha,
@@ -530,7 +536,7 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
             continue
 
         periodo = _norm_periodo(_col_val(row, c_periodo)) if c_periodo else periodo_fallback
-        raw = {str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()}
+        raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
 
         cuota = _norm_str(_col_val(row, c_cuota), 20) if c_cuota else None
         monto = _norm_monto(_col_val(row, c_monto))
@@ -1022,11 +1028,9 @@ def main() -> None:
     try:
         if args.mode == "full":
             _clear_tch_data(db)
-            db.commit()
             log.info("Proyección TCH anterior eliminada para reconstrucción histórica")
         for archivo in archivos:
             t = _process_file(archivo, db, loaded_history_periods)
-            db.commit()
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             log.info(
                 f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} "
@@ -1037,8 +1041,9 @@ def main() -> None:
         log.info(f"ETL completado. Total procesados: {total}")
     except Exception as exc:
         db.rollback()
-        _finish_run(db, run, total, error=str(exc))
-        log.error(f"ETL fallido: {exc}", exc_info=True)
+        safe_error = _safe_error_message(exc)
+        _finish_run(db, run, total, error=safe_error)
+        log.error("ETL fallido: %s", safe_error)
         sys.exit(1)
     finally:
         db.close()

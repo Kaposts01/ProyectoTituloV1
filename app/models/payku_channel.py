@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, UniqueConstraint, func
+from sqlalchemy import DateTime, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,9 +31,13 @@ class PaykuPlan(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    total_suscription: Mapped[int | None] = mapped_column(nullable=True)
+    total_suscription_active: Mapped[int | None] = mapped_column(nullable=True)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -48,6 +52,9 @@ class PaykuSubscription(Base):
     client_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     plan_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    last_status_current_payment: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    start_date: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    end_date: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

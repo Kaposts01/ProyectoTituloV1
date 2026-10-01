@@ -263,7 +263,7 @@ class PaykuClient:
                     headers={"Sign": build_sign(path, params or {}, settings.payku_secret_key)},
                 )
                 break
-            except httpx.ReadTimeout:
+            except (httpx.ReadTimeout, httpx.ReadError, httpx.ConnectError):
                 if attempt == settings.payku_read_retries:
                     raise
                 await asyncio.sleep(2**attempt)

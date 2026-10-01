@@ -1,5 +1,5 @@
 """ETL de consolidación: lee de tablas canal (vp_*, toku_*, payku_*, tch_*)
-y upserta en las tablas canónicas (clients, subscriptions, charges, payments, plans).
+y upserta en las tablas centralizadas (clients, subscriptions, charges, payments, plans).
 
 Este módulo reemplaza crm_materialization.py para la consolidación principal.
 crm_materialization.py sigue usándose temporalmente en virtualpos_sync para
@@ -54,9 +54,9 @@ def _toku_payment_subscription_id(payload: dict) -> str | None:
     return None
 
 
-# ── Upsert genérico en tabla canónica ─────────────────────────────────────────
+# ── Upsert genérico en tabla centralizada ─────────────────────────────────────
 
-def _upsert_canonical(
+def _upsert_centralized(
     db: Session,
     model: type,
     constraint: str,
@@ -112,7 +112,7 @@ def _consolidate_vp_clients(db: Session) -> int:
             "cards": vp.cards or [],
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_canonical(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
 
 
 def _consolidate_vp_plans(db: Session) -> int:
@@ -131,7 +131,7 @@ def _consolidate_vp_plans(db: Session) -> int:
             "status": vp.status,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_canonical(db, Plan, "uq_plan_source_external_id", rows)
+    return _upsert_centralized(db, Plan, "uq_plan_source_external_id", rows)
 
 
 def _consolidate_vp_subscriptions(db: Session) -> int:
@@ -153,7 +153,7 @@ def _consolidate_vp_subscriptions(db: Session) -> int:
             "currency": vp.currency,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_canonical(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
 
 
 def _consolidate_vp_charges(db: Session) -> int:
@@ -171,7 +171,7 @@ def _consolidate_vp_charges(db: Session) -> int:
             "charge_date": vp.charge_date,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_canonical(db, Charge, "uq_charge_source_external_id", rows)
+    return _upsert_centralized(db, Charge, "uq_charge_source_external_id", rows)
 
 
 def _consolidate_vp_payments(db: Session) -> int:
@@ -189,7 +189,7 @@ def _consolidate_vp_payments(db: Session) -> int:
             "payment_date": vp.payment_date,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_canonical(db, Payment, "uq_payment_source_external_id", rows)
+    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", rows)
 
 
 # ── Toku → Canónicas ──────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ def _consolidate_toku_clients(db: Session) -> int:
             "cards": [],
             "raw_payload": t.raw_payload,
         })
-    return _upsert_canonical(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
 
 
 def _consolidate_toku_subscriptions(db: Session) -> int:
@@ -237,7 +237,7 @@ def _consolidate_toku_subscriptions(db: Session) -> int:
             "currency": t.currency_code,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_canonical(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
 
 
 def _consolidate_toku_invoices(db: Session) -> int:
@@ -256,7 +256,7 @@ def _consolidate_toku_invoices(db: Session) -> int:
             "charge_date": t.due_date,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_canonical(db, Charge, "uq_charge_source_external_id", rows)
+    return _upsert_centralized(db, Charge, "uq_charge_source_external_id", rows)
 
 
 def _consolidate_toku_transactions(db: Session) -> int:
@@ -275,7 +275,7 @@ def _consolidate_toku_transactions(db: Session) -> int:
             "payment_date": t.created_at_api,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_canonical(db, Payment, "uq_payment_source_external_id", rows)
+    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", rows)
 
 
 def _consolidate_toku_payment_methods(db: Session) -> int:
@@ -289,7 +289,7 @@ def _consolidate_toku_payment_methods(db: Session) -> int:
             "status": t.status,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_canonical(db, PaymentMethod, "uq_payment_method_source_external_id", rows)
+    return _upsert_centralized(db, PaymentMethod, "uq_payment_method_source_external_id", rows)
 
 
 # ── Payku → Canónicas ─────────────────────────────────────────────────────────
@@ -314,7 +314,7 @@ def _consolidate_payku_clients(db: Session) -> int:
             "cards": [],
             "raw_payload": p.raw_payload,
         })
-    return _upsert_canonical(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
 
 
 def _consolidate_payku_plans(db: Session) -> int:
@@ -333,7 +333,7 @@ def _consolidate_payku_plans(db: Session) -> int:
             "status": p.status,
             "raw_payload": p.raw_payload,
         })
-    return _upsert_canonical(db, Plan, "uq_plan_source_external_id", rows)
+    return _upsert_centralized(db, Plan, "uq_plan_source_external_id", rows)
 
 
 def _consolidate_payku_subscriptions(db: Session) -> int:
@@ -371,7 +371,7 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
             "currency": p.currency,
             "raw_payload": p.raw_payload,
         })
-    return _upsert_canonical(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
 
 
 def _consolidate_payku_transactions(db: Session) -> int:
@@ -389,7 +389,7 @@ def _consolidate_payku_transactions(db: Session) -> int:
             "payment_date": p.created_at_api,
             "raw_payload": p.raw_payload,
         })
-    return _upsert_canonical(db, Payment, "uq_payment_source_external_id", rows)
+    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", rows)
 
 
 # ── TCH → Canónicas ───────────────────────────────────────────────────────────
@@ -414,7 +414,7 @@ def _consolidate_tch_clients(db: Session) -> int:
             "cards": [],
             "raw_payload": t.raw_payload,
         })
-    return _upsert_canonical(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
 
 
 def _consolidate_tch_subscriptions(db: Session) -> int:
@@ -436,7 +436,7 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
             "currency": "CLP",
             "raw_payload": t.raw_payload,
         })
-    return _upsert_canonical(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
 
 
 def _consolidate_tch_transactions(db: Session) -> int:
@@ -463,7 +463,7 @@ def _consolidate_tch_transactions(db: Session) -> int:
                 "charge_date": t.fecha_cargo,
                 "raw_payload": t.raw_payload,
             })
-        total += _upsert_canonical(db, Charge, "uq_charge_source_external_id", rows)
+        total += _upsert_centralized(db, Charge, "uq_charge_source_external_id", rows)
         offset += _CHUNK
         if len(batch) < _CHUNK:
             break
@@ -501,8 +501,8 @@ _SOURCE_FNS = {
 }
 
 
-def consolidate_to_canonical(db: Session, sources: list[str] | None = None) -> int:
-    """Lee de tablas canal y upserta en tablas canónicas.
+def consolidate_to_centralized(db: Session, sources: list[str] | None = None) -> int:
+    """Lee de tablas canal y upserta en tablas centralizadas.
 
     Args:
         sources: lista de fuentes a consolidar, ej. ['virtualpos', 'toku'].

@@ -33,8 +33,8 @@ TCH ya reside en `crm` con tablas `tch_*` y queda fuera de esta migracion.
 - Existen tablas de canal parcialmente implementadas: `vp_*`, `toku_*` y
   `payku_*`. Las dos ultimas no respetan los prefijos solicitados `tk_*` y
   `p_*`.
-- Coexisten dos ETL: el historico desde BDlocales a entidades canonicas y el
-  nuevo desde tablas de canal a entidades canonicas. Se retirara el primero
+- Coexisten dos ETL: el historico desde BDlocales a entidades centralizadas y el
+  nuevo desde tablas de canal a entidades centralizadas. Se retirara el primero
   una vez validado el nuevo flujo, para mantener una sola ruta de datos.
 
 ## Implementacion
@@ -44,13 +44,13 @@ TCH ya reside en `crm` con tablas `tch_*` y queda fuera de esta migracion.
    pruebas con los nuevos nombres.
 2. Agregar `platform` a cada tabla `vp_*` y hacer sus claves unicas por
    `(platform, external_id)`. VirtualPOS tiene dos cuentas y sus IDs no se
-   deben mezclar. Las entidades canonicas conservaran `virtualpos1` y
+   deben mezclar. Las entidades centralizadas conservaran `virtualpos1` y
    `virtualpos2` como `source`.
 3. Implementar un importador read-only desde las tres BDlocales a las tablas
    de canal. Leera por lotes, saneando cada `raw_payload` antes de persistir.
    Se eliminaran PAN, CVV/CVC, tokens, BIN, codigos de autorizacion y campos
    equivalentes de tarjeta. Los upserts haran el proceso repetible.
-4. Consolidar desde `vp_*`, `tk_*` y `p_*` hacia las entidades canonicas en
+4. Consolidar desde `vp_*`, `tk_*` y `p_*` hacia las entidades centralizadas en
    orden clientes, planes, suscripciones, cargos, metodos de pago y pagos.
    Se corregiran las relaciones para conservar el canal y la cuenta de origen.
 5. Unificar las sincronizaciones read-only para que actualicen las tablas de

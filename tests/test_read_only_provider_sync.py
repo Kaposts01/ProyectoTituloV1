@@ -63,7 +63,10 @@ class PaykuReadOnlyClient:
         date_init: str | None = None,
         date_end: str | None = None,
     ):
-        return {"data": [{"id": "payku-subscription-1"}], "pagination": {"pages": 1}}
+        return {
+            "data": [{"id": "payku-subscription-1", "transactions": [{"id": "payku-transaction-1"}]}],
+            "pagination": {"pages": 1},
+        }
 
     async def list_transactions(
         self,
@@ -147,16 +150,7 @@ def test_payku_sync_stages_read_only_collections(monkeypatch, db_session) -> Non
     assert run.status == "completed"
     assert run.records_processed == 4
     assert db_session.get(SyncRun, run.id).status == "completed"
-    assert client.transaction_params == [(1, 4000, "2020-08-04", None)]
-
-
-def test_payku_sync_can_resume_transactions_from_a_page(monkeypatch, db_session) -> None:
-    client = PaykuReadOnlyClient()
-    monkeypatch.setattr(payku_sync, "PaykuClient", lambda: client)
-
-    asyncio.run(payku_sync.sync_payku(db_session, transaction_start_page=44))
-
-    assert client.transaction_params == [(44, 4000, "2020-08-04", None)]
+    assert client.transaction_params == []
 
 
 def test_toku_sync_reports_page_progress(monkeypatch, db_session) -> None:

@@ -4,9 +4,9 @@
 
 El CRM integra VirtualPOS Sandbox, Toku, Payku y TCH. Los sincronizadores de proveedores en línea usan exclusivamente consultas `GET`; la interfaz consume únicamente la API local y nunca se conecta directamente a un proveedor.
 
-`Proveedor -> source_records (staging, base crm) -> consolidación -> entidades canónicas CRM -> API local -> dashboard React`
+`Proveedor -> source_records (staging, base crm) -> consolidación -> entidades centralizadas CRM -> API local -> dashboard React`
 
-Las entidades canónicas se materializan desde `source_records` de VirtualPOS, Toku y Payku, todo dentro de la base `crm`. Las bases locales por canal (BDlocales) se usaron durante la migración inicial y ya no forman parte del flujo en vivo; ver `docs/PLAN_CONSOLIDACION_BDLOCAL.md`. Toku incluye métodos de pago canónicos; los payloads saneados permanecen como respaldo de trazabilidad.
+Las entidades centralizadas se materializan desde `source_records` de VirtualPOS, Toku y Payku, todo dentro de la base `crm`. Las bases locales por canal (BDlocales) se usaron durante la migración inicial y ya no forman parte del flujo en vivo; ver `docs/PLAN_CONSOLIDACION_BDLOCAL.md`. Toku incluye métodos de pago centralizados; los payloads saneados permanecen como respaldo de trazabilidad.
 
 ## Staging y sincronizacion
 
@@ -23,13 +23,13 @@ Los errores de sincronizacion eliminan secretos configurados y secuencias con fo
 
 ## Consolidación y API
 
-La API FastAPI se publica bajo `/api/v1`. `/staging` ofrece resumen, listas, mini dashboards y fichas desde las entidades canónicas de VirtualPOS, Toku y Payku. `/staging/dashboard/general` consolida KPIs, transacciones y activaciones mensuales de los cuatro canales, incluido TCH. `/tch` expone el resumen, clientes, suscripciones y transacciones del canal TCH con filtros y fichas. `/etl/run` rematerializa `source_records` existentes en las entidades canónicas; `/etl/full-sync` ejecuta lectura read-only de proveedores, actualiza `source_records` y consolida en segundo plano.
+La API FastAPI se publica bajo `/api/v1`. `/staging` ofrece resumen, listas, mini dashboards y fichas desde las entidades centralizadas de VirtualPOS, Toku y Payku. `/staging/dashboard/general` consolida KPIs, transacciones y activaciones mensuales de los cuatro canales, incluido TCH. `/tch` expone el resumen, clientes, suscripciones y transacciones del canal TCH con filtros y fichas. `/etl/run` rematerializa `source_records` existentes en las entidades centralizadas; `/etl/full-sync` ejecuta lectura read-only de proveedores, actualiza `source_records` y consolida en segundo plano.
 
-Las operaciones de escritura están implementadas para los tres proveedores en línea y denegadas por defecto; cada uno requiere su bandera local (`VIRTUALPOS_WRITES_ENABLED`, `TOKU_WRITES_ENABLED` o `PAYKU_WRITES_ENABLED`). VirtualPOS soporta crear y editar clientes, crear planes, crear y cancelar suscripciones, cancelar y reintentar cargos, y crear cargos sobre suscripciones activas. Toku soporta editar y eliminar clientes, y cambiar el estado de suscripciones. Payku soporta editar y eliminar clientes, y eliminar suscripciones. Tras una respuesta remota exitosa, el servicio actualiza el registro saneado en `source_records` (staging) y rematerializa su entidad canónica; un rechazo remoto no modifica los datos locales.
+Las operaciones de escritura están implementadas para los tres proveedores en línea y denegadas por defecto; cada uno requiere su bandera local (`VIRTUALPOS_WRITES_ENABLED`, `TOKU_WRITES_ENABLED` o `PAYKU_WRITES_ENABLED`). VirtualPOS soporta crear y editar clientes, crear planes, crear y cancelar suscripciones, cancelar y reintentar cargos, y crear cargos sobre suscripciones activas. Toku soporta editar y eliminar clientes, y cambiar el estado de suscripciones. Payku soporta editar y eliminar clientes, y eliminar suscripciones. Tras una respuesta remota exitosa, el servicio actualiza el registro saneado en `source_records` (staging) y rematerializa su entidad centralizada; un rechazo remoto no modifica los datos locales.
 
 Cada escritura registra un `write_run` durable con su estado, solicitud y respuesta saneadas. Si el proveedor confirma pero la persistencia local falla, queda en `reconciliation_required` para recuperarlo mediante una lectura autorizada, sin fingir que la operación quedó completada.
 
-El frontend React usa el proxy de Vite hacia la API local. Sus mini dashboards calculan métricas, estados y actividad mensual desde entidades canónicas. Las tablas filtran por columnas operativas, ofrecen estados como selector cuando corresponde y ordenan globalmente mediante la API antes de paginar.
+El frontend React usa el proxy de Vite hacia la API local. Sus mini dashboards calculan métricas, estados y actividad mensual desde entidades centralizadas. Las tablas filtran por columnas operativas, ofrecen estados como selector cuando corresponde y ordenan globalmente mediante la API antes de paginar.
 
 Las relaciones se limitan a identificadores que entrega cada proveedor:
 

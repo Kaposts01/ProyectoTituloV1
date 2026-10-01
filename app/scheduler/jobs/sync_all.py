@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.scheduler import event_bus
-from app.services.channel_consolidation import consolidate_to_canonical
+from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.payku_sync import sync_payku
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
@@ -75,6 +75,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     total_records = 0
     started = datetime.now(timezone.utc)
     channels_done: list[str] = []
+    channels_failed: list[str] = []
 
     try:
         # — VirtualPOS VP1 y VP2 —
@@ -95,6 +96,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 logger.info("%s completado: %d registros", phase, n)
             except Exception:
                 logger.exception("Error en %s", phase)
+                channels_failed.append(platform)
                 event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": f"Error en {phase}"})
             finally:
                 db.close()
@@ -115,6 +117,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 logger.info("%s completado: %d registros", phase, n)
             except Exception:
                 logger.exception("Error en %s", phase)
+                channels_failed.append("toku")
                 event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en sync_toku"})
             finally:
                 db.close()
@@ -135,11 +138,12 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 logger.info("%s completado: %d registros", phase, n)
             except Exception:
                 logger.exception("Error en %s", phase)
+                channels_failed.append("payku")
                 event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en sync_payku"})
             finally:
                 db.close()
 
-        # — Consolidación canónica —
+        # — Consolidación centralizada —
         consolidate_sources: list[str] | None = None
         if channels is not None:
             consolidate_sources = []
@@ -160,7 +164,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         logger.info("Consolidando canales: %s", consolidate_sources or "todos")
         db = SessionLocal()
         try:
-            consolidated = consolidate_to_canonical(db, consolidate_sources)
+            consolidated = consolidate_to_centralized(db, consolidate_sources)
             total_records += consolidated
             if "tch" in requested:
                 channels_done.append("tch")
@@ -173,6 +177,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             db.close()
 
         duration_s = int((datetime.now(timezone.utc) - started).total_seconds())
+        failed_msg = f"Canales con error: {', '.join(channels_failed)}" if channels_failed else None
         _update_run(
             db_run_id,
             status="completed",
@@ -180,11 +185,14 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             channels_processed=channels_done,
             records_upserted=total_records,
             finished_at=datetime.now(timezone.utc),
+            error_message=failed_msg,
         )
         event_bus.emit(run_id, {
             "type": "completed",
             "total_records": total_records,
             "duration_s": duration_s,
+            "channels_done": channels_done,
+            "channels_failed": channels_failed,
         })
         logger.info("sync_all_channels completado: %d registros en %ds", total_records, duration_s)
 

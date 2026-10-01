@@ -279,6 +279,24 @@ def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) ->
     assert response["resource_amounts"]["transaction"] == before["resource_amounts"]["transaction"] + 1200.0
 
 
+def test_payku_dashboard_keeps_year_filter_when_only_subscription_dates_exist(db_session) -> None:
+    db_session.add(
+        Subscription(
+            source="payku",
+            external_id="dashboard-payku-dated-subscription",
+            status="active",
+            amount="1000",
+            suscription_date="2099-03-01",
+            raw_payload={},
+        )
+    )
+    db_session.flush()
+
+    dashboard = staging.channel_dashboard(source="payku", db=db_session)
+
+    assert 2099 in dashboard["years"]
+
+
 def test_payku_dashboard_uses_subscription_dates_amounts_and_terminal_churn() -> None:
     records = [
         SourceRecord(
@@ -314,6 +332,42 @@ def test_payku_dashboard_uses_subscription_dates_amounts_and_terminal_churn() ->
         {"year": 2099, "month": 2, "status": "CANCEL", "count": 1, "amount": 2000.0},
         {"year": 2099, "month": 2, "status": "SUSPENDED", "count": 1, "amount": 3000.0},
     ]
+    assert dashboard["active_subs_monthly"] == [
+        {"year": 2099, "month": 1, "count": 3},
+        {"year": 2099, "month": 2, "count": 1},
+    ]
+    assert dashboard["churn_rate_monthly"] == [
+        {"year": 2099, "month": 1, "rate": 0.0},
+        {"year": 2099, "month": 2, "rate": 66.7},
+    ]
+
+
+def test_toku_dashboard_uses_transactions_for_payment_series_and_labels_alerts() -> None:
+    records = [
+        SourceRecord(source="toku", resource_type="subscription", external_id="active", payload={"status": "active", "anchor": "2099-01-01", "amount": "1000"}),
+        SourceRecord(source="toku", resource_type="subscription", external_id="ended", payload={"status": "cancelled", "anchor": "2099-01-01", "end_date": "2099-02-01", "amount": "1000"}),
+        SourceRecord(source="toku", resource_type="invoice", external_id="invoice", payload={"status": "PAID", "due_date": "2099-01-01", "amount": "1000"}),
+        SourceRecord(source="toku", resource_type="transaction", external_id="transaction", payload={"status": "SUCCESS", "transaction_date": "2099-01-02", "amount": "1000"}),
+    ]
+
+    dashboard = staging._toku_extended_data(records)
+
+    assert dashboard["payments_monthly"] == dashboard["transactions_monthly"]
+    assert dashboard["payments_monthly"] != dashboard["invoices_monthly"]
+    assert {alert["canal"] for alert in dashboard["alerts"]} == {"Toku"}
+    assert dashboard["churn_rate_monthly"][-1] == {"year": 2099, "month": 2, "rate": 50.0}
+
+
+def test_channel_alerts_identify_their_source() -> None:
+    alerts = staging._channel_alerts(
+        [],
+        [{"year": 2099, "month": 1, "count": 1}],
+        [{"year": 2099, "month": 1, "count": 2}],
+        {"churn_rate": 15},
+        "Payku",
+    )
+
+    assert {alert["canal"] for alert in alerts} == {"Payku"}
 
 
 def test_payku_subscription_uses_latest_successful_transaction_amount() -> None:
@@ -338,6 +392,18 @@ def test_payku_transaction_reads_subscription_object() -> None:
     })
 
     assert transaction["subscription_id"] == "subscription-1"
+
+
+def test_payku_transaction_reads_historical_transaction_identifier() -> None:
+    transaction = extract_payku_transaction({
+        "transaction": 12345,
+        "__subscription_id": "subscription-1",
+        "created_at": "2099-01-15T12:00:00",
+    })
+
+    assert transaction["external_id"] == "12345"
+    assert transaction["subscription_id"] == "subscription-1"
+    assert transaction["created_at_api"] == "2099-01-15T12:00:00"
 
 
 def test_payku_consolidation_preserves_subscription_dates_and_rut(db_session) -> None:

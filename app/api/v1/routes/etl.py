@@ -12,7 +12,7 @@ from app.core.security import require_csrf, require_permissions
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.models.source_record import SourceRecord
-from app.services.channel_consolidation import consolidate_to_canonical
+from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.crm_materialization import materialize_records
 from app.services.payku_sync import sync_payku
 from app.services.toku_sync import sync_toku
@@ -85,11 +85,11 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
             except Exception:
                 logger.exception("Error en sync de %s", provider)
 
-        # Consolidación desde tablas canal → tablas canónicas
+        # Consolidación desde tablas canal → tablas centralizadas
         _update_run(run_id, phase="consolidating")
         db = SessionLocal()
         try:
-            consolidated = consolidate_to_canonical(db, providers)
+            consolidated = consolidate_to_centralized(db, providers)
             total += consolidated
             logger.info("Consolidación completada: %d registros", consolidated)
         finally:
@@ -115,7 +115,7 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
 
 
 async def _run_materialization_background(run_id: uuid.UUID) -> None:
-    """BackgroundTask: materializa source_records existentes en entidades canónicas."""
+    """BackgroundTask: materializa source_records existentes en entidades centralizadas."""
     try:
         _update_run(run_id, phase="materializing")
         db = SessionLocal()
@@ -144,7 +144,7 @@ async def _run_materialization_background(run_id: uuid.UUID) -> None:
 
 @router.post("/run", dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)], tags=["ETL"])
 def trigger_etl(background_tasks: BackgroundTasks) -> dict:
-    """Materializa source_records existentes en entidades canónicas."""
+    """Materializa source_records existentes en entidades centralizadas."""
     db = _get_db()
     try:
         run = EtlRun(status="running", records_upserted=0, phase="materializing")

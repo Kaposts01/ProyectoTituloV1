@@ -13,10 +13,11 @@ SOURCE = "toku"
 async def sync_toku(db: Session, progress_callback: ProgressCallback | None = None) -> SyncRun:
     resources: list[Resource] = [
         ("customer", 100, True, lambda client, page: client.list_customers(page=page, page_size=100)),
-        ("invoice", 100, True, lambda client, page: client.list_invoices(page=page, page_size=100)),
-        ("payment_method", 100, True, lambda client, page: client.list_payment_methods(page=page, page_size=100)),
         ("subscription", 100, True, lambda client, page: client.list_subscriptions(page=page, page_size=100)),
+        ("invoice", 100, True, lambda client, page: client.list_invoices(page=page, page_size=100)),
         ("transaction", 100, True, lambda client, page: client.list_transactions(page=page, page_size=100)),
+        ("payment", 100, True, lambda client, page: client.list_payments(page=page, page_size=100)),
+        ("payment_method", 100, True, lambda client, page: client.list_payment_methods(page=page, page_size=100)),
     ]
     return await sync_read_only_provider(
         db,

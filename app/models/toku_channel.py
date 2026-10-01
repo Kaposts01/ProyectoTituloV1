@@ -73,6 +73,22 @@ class TokuTransaction(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class TokuPayment(Base):
+    __tablename__ = "tk_payments"
+    __table_args__ = (UniqueConstraint("external_id", name="uq_tk_payment_external_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    invoice_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    transaction_date: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    government_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class TokuPaymentMethod(Base):
     __tablename__ = "tk_payment_methods"
     __table_args__ = (UniqueConstraint("external_id", name="uq_tk_payment_method_external_id"),)

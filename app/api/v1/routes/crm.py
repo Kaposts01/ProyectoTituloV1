@@ -61,7 +61,7 @@ def get_counts(
     source: str | None = None,
     db: Session = Depends(get_db),  # noqa: B008
 ) -> dict[str, int]:
-    """Conteo de registros canónicos por entidad, opcionalmente filtrado por source."""
+    """Conteo de registros centralizados por entidad, opcionalmente filtrado por source."""
     models = {
         "clients": Client,
         "plans": Plan,

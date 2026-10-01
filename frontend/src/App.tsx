@@ -1,9 +1,11 @@
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { getCached, setCached, invalidateCache } from "./apiCache";
 import "./App.css";
 import "./Staging.css";
 import { ActivacionCaidaChart, ChurnMensualChart, CrecimientoMensualChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
 import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
+import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
 
 const ChannelActivityChart = lazy(() => import("./ChannelActivityChart"));
 
@@ -123,6 +125,8 @@ type TchSummary = {
   transacciones_mensuales: MonthlyStatusEntry[];
   activaciones_mensuales: MonthlyStatusEntry[];
   bajas_mensuales: MonthlyStatusEntry[];
+  active_subs_monthly: { year: number; month: number; count: number }[];
+  churn_rate_monthly: { year: number; month: number; rate: number }[];
   ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
   alerts?: DashboardAlert[];
 };
@@ -1719,16 +1723,22 @@ const _PHASE_LABELS: Record<string, string> = {
   sync_virtualpos2: "VirtualPOS VP2",
   sync_toku: "Toku",
   sync_payku: "Payku",
-  consolidating: "Consolidación canónica",
+  consolidating: "Consolidación centralizada",
 };
 
 type ChannelKey = "all" | "virtualpos" | "toku" | "payku" | "tch";
+type VpSubKey = "both" | "vp1" | "vp2";
 const CHANNEL_OPTS: Array<{ key: ChannelKey; label: string; channels: string[] | null }> = [
   { key: "all",        label: "Todos",      channels: null },
   { key: "virtualpos", label: "VirtualPOS", channels: ["virtualpos1", "virtualpos2"] },
   { key: "toku",       label: "Toku",       channels: ["toku"] },
   { key: "payku",      label: "Payku",      channels: ["payku"] },
   { key: "tch",        label: "TCH",        channels: ["tch"] },
+];
+const VP_SUB_OPTS: Array<{ key: VpSubKey; label: string; channels: string[] }> = [
+  { key: "both", label: "VP1 + VP2", channels: ["virtualpos1", "virtualpos2"] },
+  { key: "vp1",  label: "Solo VP1",  channels: ["virtualpos1"] },
+  { key: "vp2",  label: "Solo VP2",  channels: ["virtualpos2"] },
 ];
 
 function getPhasesForChannels(channels: string[] | null | undefined): string[] {
@@ -1774,6 +1784,8 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [selectedChannelKey, setSelectedChannelKey] = useState<ChannelKey>("all");
+  const [vpSubKey, setVpSubKey] = useState<VpSubKey>("both");
+  const [polledPhase, setPolledPhase] = useState<string | null>(null);
   // Canales activos cuando se disparó la sync (undefined = auto-conectado a run existente)
   const [triggeredChannels, setTriggeredChannels] = useState<string[] | null | undefined>(undefined);
 
@@ -1801,28 +1813,71 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
   useEffect(() => {
     if (!activeRunId) return;
     setSseEvents([]);
+    setPolledPhase(null);
+
+    let sseReceived = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    function startPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(() => {
+        getJson<{ items: EtlRun[] }>(`/api/v1/scheduler/runs?limit=5&offset=0`)
+          .then((data) => {
+            const run = data.items.find((r) => r.id === activeRunId);
+            if (!run) return;
+            setPolledPhase(run.phase ?? run.status);
+            if (run.status !== "running") {
+              if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+              if (run.status === "completed") invalidateCache();
+              setTimeout(refreshData, 800);
+            }
+          })
+          .catch(() => {});
+      }, 4000);
+    }
+
+    // Si en 6s no llegó ningún evento SSE, activar polling como fallback
+    const fallbackTimeout = setTimeout(() => {
+      if (!sseReceived) startPolling();
+    }, 6000);
+
     const es = new EventSource(`/api/v1/scheduler/runs/${activeRunId}/stream`);
     es.onmessage = (e) => {
+      if (!sseReceived) {
+        sseReceived = true;
+        clearTimeout(fallbackTimeout);
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        setPolledPhase(null);
+      }
       const ev: SseEvent = JSON.parse(e.data as string);
       setSseEvents((prev) => [...prev, ev]);
       if (ev.type === "completed" || ev.type === "error" || ev.type === "not_found") {
         es.close();
+        if (ev.type === "completed") invalidateCache();
         setTimeout(refreshData, 800);
       }
     };
-    es.onerror = () => es.close();
-    return () => es.close();
+    es.onerror = () => { /* SSE falló — el polling de fallback ya cubre esto */ };
+
+    return () => {
+      es.close();
+      clearTimeout(fallbackTimeout);
+      if (pollTimer) clearInterval(pollTimer);
+    };
   }, [activeRunId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function triggerSync() {
     const opt = CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)!;
-    setTriggeredChannels(opt.channels);
+    const channels = selectedChannelKey === "virtualpos"
+      ? VP_SUB_OPTS.find((o) => o.key === vpSubKey)!.channels
+      : opt.channels;
+    setTriggeredChannels(channels);
     setTriggering(true);
     setTriggerError(null);
     try {
       const r = await postJson<{ run_id: string }>(
         "/api/v1/scheduler/jobs/sync_all_channels/run",
-        { channels: opt.channels }
+        { channels }
       );
       setActiveRunId(r.run_id);
       setTimeout(refreshData, 600);
@@ -1933,6 +1988,20 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
               </button>
             ))}
           </div>
+          {selectedChannelKey === "virtualpos" && (
+            <div className="channel-selector vp-sub-selector">
+              {VP_SUB_OPTS.map((sub) => (
+                <button
+                  key={sub.key}
+                  className={`channel-btn channel-btn-sm${vpSubKey === sub.key ? " active" : ""}`}
+                  disabled={isRunning || triggering}
+                  onClick={() => setVpSubKey(sub.key)}
+                >
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -1998,6 +2067,12 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
                     : `Sincronizando… ${globalPct !== null ? `${globalPct}%` : ""}`}
               </h3>
               {/* Barra determinada cuando hay progreso */}
+              {/* Fase del polling cuando SSE no llega */}
+              {sseEvents.length === 0 && polledPhase && (
+                <p className="sse-polled-phase">
+                  {_PHASE_LABELS[polledPhase] ?? polledPhase} — actualizando cada 4s
+                </p>
+              )}
               {!isCompleted && globalPct !== null ? (
                 <div className="sse-global-bar-wrap">
                   <div className="sse-global-bar-fill" style={{ width: `${globalPct}%` }} />
@@ -2020,7 +2095,11 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
           </div>
 
           {sseEvents.length === 0 ? (
-            <p className="sse-connecting-hint">Esperando eventos del servidor…</p>
+            <p className="sse-connecting-hint">
+              {polledPhase
+                ? `Stream no disponible vía tunnel — usando polling`
+                : "Esperando eventos del servidor…"}
+            </p>
           ) : (
             <ul className="phase-list">
               {activePhases.map((phase) => {
@@ -2290,6 +2369,7 @@ function ChannelDashboardView({
   mode,
   year,
   syncing,
+  refreshing,
   onMode,
   onYear,
   onOpenResource,
@@ -2300,6 +2380,7 @@ function ChannelDashboardView({
   mode: "count" | "amount";
   year: number | null;
   syncing: boolean;
+  refreshing?: boolean;
   onMode: (mode: "count" | "amount") => void;
   onYear: (year: number) => void;
   onOpenResource: (resource: string) => void;
@@ -2315,25 +2396,6 @@ function ChannelDashboardView({
   const activeYear = year ?? defaultYear(data.years) ?? null;
 
   const [churnSource, setChurnSource] = useState<"all" | "vp1" | "vp2">("all");
-  const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
-  const [alertDetail, setAlertDetail] = useState<AlertDetailItem[] | null>(null);
-  const [alertDetailLoading, setAlertDetailLoading] = useState(false);
-
-  function toggleAlert(alertId: string) {
-    if (expandedAlertId === alertId) {
-      setExpandedAlertId(null);
-      setAlertDetail(null);
-      return;
-    }
-    setExpandedAlertId(alertId);
-    setAlertDetail(null);
-    setAlertDetailLoading(true);
-    getJson<{ items: AlertDetailItem[]; total: number }>(
-      `/api/v1/staging/dashboard/${data.source}/alerts/${alertId}`
-    )
-      .then((d) => { setAlertDetail(d.items); setAlertDetailLoading(false); })
-      .catch(() => setAlertDetailLoading(false));
-  }
   const chartData = data.activity
     .filter((entry) => year === null || entry.year === year)
     .map((entry) => ({ ...entry, label: months[entry.month - 1] }));
@@ -2372,12 +2434,13 @@ function ChannelDashboardView({
   const metricSections =
     providerGroups.find((group) => group.sections[0].source === data.source)
       ?.sections ?? [];
+  const transactionStatusSeries = (data.payments_monthly ?? data.transactions_monthly ?? []) as MonthlyStatusEntry[];
   return (
     <main className="app-shell channel-dashboard-page">
       <p className="eyebrow">{title(data.source).toUpperCase()} / STAGING</p>
       <header className="channel-hero">
         <div>
-          <h2>Resumen operativo</h2>
+          <h2>Resumen operativo {refreshing && <span className="refreshing-badge">⟳ Actualizando</span>}</h2>
           <p>
             Datos locales sincronizados, pendientes de consolidación en
             BD_Central.
@@ -2554,7 +2617,7 @@ function ChannelDashboardView({
               />
             </article>
           ) : null}
-          {data.payments_monthly?.length ? (
+          {data.source === "virtualpos" && data.payments_monthly?.length ? (
             <article className="panel">
               <div className="panel-heading">
                 <div>
@@ -2678,7 +2741,13 @@ function ChannelDashboardView({
               />
             </article>
           ) : null}
-          {data.payments_monthly?.length &&
+          {data.source !== "virtualpos" && data.churn_rate_monthly?.length ? (
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
+              <ChurnMensualChart data={data.churn_rate_monthly} year={year} />
+            </article>
+          ) : null}
+          {transactionStatusSeries.length &&
             (data.active_subs_monthly?.length || data.cobrable_subs_monthly?.length) ? (
             <article className="panel">
               <div className="panel-heading">
@@ -2688,7 +2757,7 @@ function ChannelDashboardView({
                 </div>
               </div>
               <TransaccionesSuscripcionesChart
-                payments={data.payments_monthly as MonthlyStatusEntry[]}
+                payments={transactionStatusSeries}
                 activeSubs={data.active_subs_monthly ?? []}
                 cobrableSubs={data.cobrable_subs_monthly ?? []}
                 year={year}
@@ -2698,97 +2767,12 @@ function ChannelDashboardView({
           ) : null}
         </section>
       ) : null}
-      {(data.alerts ?? []).length > 0 && (
-        <section className="panel dashboard-alerts-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">ALERTAS OPERATIVAS</p>
-              <h3>
-                {(data.alerts ?? []).filter(a => a.sev === "alta").length > 0 && (
-                  <span className="badge badge-orange" style={{ marginRight: "0.5rem" }}>
-                    {(data.alerts ?? []).filter(a => a.sev === "alta").length} alta{(data.alerts ?? []).filter(a => a.sev === "alta").length !== 1 ? "s" : ""}
-                  </span>
-                )}
-                {(data.alerts ?? []).filter(a => a.sev === "media").length > 0 && (
-                  <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
-                    {(data.alerts ?? []).filter(a => a.sev === "media").length} media{(data.alerts ?? []).filter(a => a.sev === "media").length !== 1 ? "s" : ""}
-                  </span>
-                )}
-                {(data.alerts ?? []).length} alerta{(data.alerts ?? []).length !== 1 ? "s" : ""} detectada{(data.alerts ?? []).length !== 1 ? "s" : ""}
-              </h3>
-            </div>
-          </div>
-          <div className="dashboard-alerts-list">
-            {(data.alerts ?? []).map((alert, idx) => (
-              <Fragment key={idx}>
-                <div className={`dashboard-alert-row dashboard-alert-${alert.sev}`}>
-                  <span className={`badge ${alert.sev === "alta" ? "badge-orange" : alert.sev === "media" ? "badge-blue" : "badge-gray"}`}>
-                    {alert.sev}
-                  </span>
-                  <strong className="dashboard-alert-tipo">{alert.tipo}</strong>
-                  <span className="dashboard-alert-canal">{alert.canal}</span>
-                  <span className="dashboard-alert-detalle">{alert.detalle}</span>
-                  {alert.id && (
-                    <button
-                      className="alert-ver-mas"
-                      onClick={() => toggleAlert(alert.id!)}
-                    >
-                      {expandedAlertId === alert.id ? "Cerrar" : "Ver más"}
-                    </button>
-                  )}
-                </div>
-                {alert.id && expandedAlertId === alert.id && (
-                  <div className="alert-detail-panel">
-                    {alertDetailLoading ? (
-                      <p className="alert-detail-loading">Cargando...</p>
-                    ) : !alertDetail || alertDetail.length === 0 ? (
-                      <p className="alert-detail-empty">Sin registros.</p>
-                    ) : (
-                      <div className="alert-detail-table-wrap">
-                        <table className="alert-detail-table">
-                          <thead>
-                            <tr>
-                              <th>RUT</th>
-                              <th>ID suscripción</th>
-                              <th>Estado</th>
-                              <th>Monto</th>
-                              <th>Fecha suscripción</th>
-                              {alertDetail[0]?.ultimo_cobro !== undefined && <th>Último cobro</th>}
-                              {alertDetail[0]?.ultimo_estado !== undefined && <th>Estado último cobro</th>}
-                              {alertDetail[0]?.intentos !== undefined && <th>Intentos</th>}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {alertDetail.map((item, i) => (
-                              <tr key={i}>
-                                <td>{item.rut ?? "—"}</td>
-                                <td className="alert-detail-id">{item.external_id ?? "—"}</td>
-                                <td>{item.status ?? "—"}</td>
-                                <td>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td>
-                                <td>{item.suscription_date?.slice(0, 10) ?? "—"}</td>
-                                {alertDetail[0]?.ultimo_cobro !== undefined && (
-                                  <td>{item.ultimo_cobro?.slice(0, 10) ?? "—"}</td>
-                                )}
-                                {alertDetail[0]?.ultimo_estado !== undefined && (
-                                  <td>{item.ultimo_estado ?? "—"}</td>
-                                )}
-                                {alertDetail[0]?.intentos !== undefined && (
-                                  <td>{item.intentos}</td>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <p className="alert-detail-count">{alertDetail.length} registro{alertDetail.length !== 1 ? "s" : ""}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </Fragment>
-            ))}
-          </div>
-        </section>
-      )}
+      <OperationalAlerts
+        alerts={data.alerts ?? []}
+        loadDetail={(alertId) => getJson<{ items: AlertDetailItem[] }>(
+          `/api/v1/staging/dashboard/${data.source}/alerts/${alertId}`,
+        ).then((response) => response.items)}
+      />
       <section className="panel channel-resources">
         <div>
           <p className="eyebrow">EXPLORAR STAGING</p>
@@ -2880,6 +2864,10 @@ function App() {
   const [statusValues, setStatusValues] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [channelLoading, setChannelLoading] = useState(false);
+  const [summaryRefreshing, setSummaryRefreshing] = useState(false);
+  const [generalRefreshing, setGeneralRefreshing] = useState(false);
+  const [channelRefreshing, setChannelRefreshing] = useState(false);
+  const [tchRefreshing, setTchRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [clientDetail, setClientDetail] =
     useState<VirtualPosClientDetail | null>(null);
@@ -3013,16 +3001,24 @@ function App() {
 
   useEffect(() => {
     if (!session) return;
+    const stale = getCached<Summary>("staging:summary", 5 * 60 * 1000);
+    if (stale) {
+      setSummary(stale);
+      setLoading(false);
+      setSummaryRefreshing(true);
+    }
     let mounted = true;
     getJson<Summary>("/api/v1/staging/summary")
       .then((data) => {
-        if (mounted) setSummary(data);
+        if (!mounted) return;
+        setCached("staging:summary", data);
+        setSummary(data);
       })
       .catch((err: unknown) => {
         if (mounted) setError(friendlyError(err, "No se pudo cargar el resumen de staging."));
       })
       .finally(() => {
-        if (mounted) setLoading(false);
+        if (mounted) { setLoading(false); setSummaryRefreshing(false); }
       });
     return () => {
       mounted = false;
@@ -3031,17 +3027,24 @@ function App() {
 
   useEffect(() => {
     if (!session) return;
+    const stale = getCached<GeneralDashboard>("dashboard:general", 5 * 60 * 1000);
+    if (stale) {
+      setGeneralData(stale);
+      setGeneralYear((current) => current ?? defaultYear(stale.years));
+      setGeneralRefreshing(true);
+    }
     let mounted = true;
     getJson<GeneralDashboard>("/api/v1/staging/dashboard/general")
       .then((data) => {
-        if (mounted) {
-          setGeneralData(data);
-          setGeneralYear((current) => current ?? defaultYear(data.years));
-        }
+        if (!mounted) return;
+        setCached("dashboard:general", data);
+        setGeneralData(data);
+        setGeneralYear((current) => current ?? defaultYear(data.years));
       })
       .catch((err: unknown) => {
         if (mounted) setError(friendlyError(err, "No se pudo cargar el dashboard general."));
-      });
+      })
+      .finally(() => { if (mounted) setGeneralRefreshing(false); });
     return () => {
       mounted = false;
     };
@@ -3130,19 +3133,27 @@ function App() {
 
   useEffect(() => {
     if (!session || !channel) return;
+    const cacheKey = `dashboard:${channel}`;
+    const stale = getCached<ChannelDashboard>(cacheKey, 5 * 60 * 1000);
+    if (stale) {
+      setChannelData(stale);
+      setYear(defaultYear(stale.years));
+      setChannelLoading(false);
+      setChannelRefreshing(true);
+    }
     let mounted = true;
     getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${channel}`)
       .then((data) => {
-        if (mounted) {
-          setChannelData(data);
-          setYear(defaultYear(data.years));
-        }
+        if (!mounted) return;
+        setCached(cacheKey, data);
+        setChannelData(data);
+        setYear(defaultYear(data.years));
       })
       .catch((err: unknown) => {
         if (mounted) setError(friendlyError(err, "No se pudo cargar el dashboard del canal."));
       })
       .finally(() => {
-        if (mounted) setChannelLoading(false);
+        if (mounted) { setChannelLoading(false); setChannelRefreshing(false); }
       });
     return () => {
       mounted = false;
@@ -3152,19 +3163,28 @@ function App() {
   useEffect(() => {
     if (!session || !tchView) return;
     let mounted = true;
-    setTchLoading(true);
     setTchError(null);
     if (tchView === "summary") {
+      const stale = getCached<TchSummary>("tch:summary", 10 * 60 * 1000);
+      if (stale) {
+        setTchSummary(stale);
+        setTchYear((current) => current ?? defaultYear(stale.years));
+        setTchLoading(false);
+        setTchRefreshing(true);
+      } else {
+        setTchLoading(true);
+      }
       getJson<TchSummary>("/api/v1/tch/summary")
         .then((d) => {
-          if (mounted) {
-            setTchSummary(d);
-            setTchYear((current) => current ?? defaultYear(d.years));
-          }
+          if (!mounted) return;
+          setCached("tch:summary", d);
+          setTchSummary(d);
+          setTchYear((current) => current ?? defaultYear(d.years));
         })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar el resumen TCH.")); })
-        .finally(() => { if (mounted) setTchLoading(false); });
+        .finally(() => { if (mounted) { setTchLoading(false); setTchRefreshing(false); } });
     } else if (tchView === "clientes") {
+      setTchLoading(true);
       const params = new URLSearchParams({ limit: "50", page: String(tchClientesPage) });
       if (tchClienteFiltro) params.set("nombre", tchClienteFiltro);
       getJson<TchClientesResp>(`/api/v1/tch/clientes?${params}`)
@@ -3172,6 +3192,7 @@ function App() {
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar los clientes TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     } else if (tchView === "suscripciones") {
+      setTchLoading(true);
       const params = new URLSearchParams({ limit: "50", page: String(tchSusPage) });
       if (tchSusFiltroEstado) params.set("estado", tchSusFiltroEstado);
       getJson<TchSuscripcionesResp>(`/api/v1/tch/suscripciones?${params}`)
@@ -3179,6 +3200,7 @@ function App() {
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar las suscripciones TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     } else if (tchView === "transacciones") {
+      setTchLoading(true);
       const params = new URLSearchParams({ limit: "100", page: String(tchTransPage) });
       if (tchTransFiltroPeriodo) params.set("periodo", tchTransFiltroPeriodo);
       getJson<TchTransaccionesResp>(`/api/v1/tch/transacciones?${params}`)
@@ -3186,16 +3208,19 @@ function App() {
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar las transacciones TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     } else if (tchView === "suscripcion-detalle" && tchSuscripcionDetail) {
+      setTchLoading(true);
       getJson<TchSuscripcionDetail>(`/api/v1/tch/suscripciones/${tchSuscripcionDetail.numero_ficha}`)
         .then((d) => { if (mounted) setTchSuscripcionDetail(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     } else if (tchView === "transaccion-detalle" && tchTransaccionDetail) {
+      setTchLoading(true);
       getJson<TchTransaccionDetail>(`/api/v1/tch/transacciones/${tchTransaccionDetail.id}`)
         .then((d) => { if (mounted) setTchTransaccionDetail(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     } else if (tchView === "cliente-detalle" && tchClienteDetail) {
+      setTchLoading(true);
       getJson<TchClienteDetail>(`/api/v1/tch/clientes/${encodeURIComponent(tchClienteDetail.rut)}`)
         .then((d) => { if (mounted) setTchClienteDetail(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha del cliente TCH.")); })
@@ -5284,6 +5309,7 @@ function App() {
             Operación consolidada,
             <br />
             desde todos los canales.
+            {(generalRefreshing || summaryRefreshing) && <span className="refreshing-badge">⟳ Actualizando</span>}
           </h2>
         </div>
         {generalData ? (
@@ -5300,7 +5326,7 @@ function App() {
             <button className="sync-btn sync-btn-secondary" onClick={() => setReportScope("general")}>Generar reporte</button>
           </div>
         ) : (
-          <p className="sync-copy">KPIs y actividad mensual calculados desde las entidades canónicas y TCH.</p>
+          <p className="sync-copy">KPIs y actividad mensual calculados desde las entidades centralizadas y TCH.</p>
         )}
       </section>
       {error ? <p className="error-message">{error}</p> : null}
@@ -5417,7 +5443,7 @@ function App() {
                     <div><span>Operación</span><strong>{channel.clients.toLocaleString("es-CL")} clientes · {channel.accepted.toLocaleString("es-CL")} aceptadas</strong></div>
                     <div><span>Recaudación</span><strong>${channel.amount.toLocaleString("es-CL")}</strong></div>
                     <div><span>{staging ? "Carga staging" : "Carga local"}</span><strong>{staging ? `${staging.records.toLocaleString("es-CL")} registros` : "Histórico TCH integrado"}</strong></div>
-                    <div><span>Consolidación</span><strong>Entidades canónicas disponibles</strong></div>
+                    <div><span>Consolidación</span><strong>Entidades centralizadas disponibles</strong></div>
                   </div>
                   {staging ? <p className="resource-copy">{Object.entries(staging.resources).map(([resource, count]) => `${resource}: ${count}`).join(" · ")}</p> : null}
                   {lastSync?.finished_at ? <p className="channel-summary-sync">Última carga: {new Date(lastSync.finished_at).toLocaleString("es-CL")} · {lastSync.records_processed.toLocaleString("es-CL")} procesados</p> : null}
@@ -5450,7 +5476,7 @@ function App() {
             className="sync-btn sync-btn-secondary"
             disabled={etlRunning}
             onClick={runEtl}
-            title="Solo ETL: rematerializa staging → canonical sin re-sync desde APIs"
+            title="Solo ETL: rematerializa staging → centralizada sin re-sync desde APIs"
           >
             Solo ETL
           </button>
@@ -5713,7 +5739,7 @@ function App() {
         <p className="eyebrow">TCH / CANAL</p>
         <header className="channel-hero">
           <div>
-            <h2>Resumen operativo</h2>
+            <h2>Resumen operativo {tchRefreshing && <span className="refreshing-badge">⟳ Actualizando</span>}</h2>
             <p>Datos cargados desde reportes Excel mensuales vía ETL.</p>
           </div>
           <div className="channel-hero-controls">
@@ -5813,41 +5839,14 @@ function App() {
               </article>
             </>
           ) : null}
+          {tchSummary.churn_rate_monthly.length ? (
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
+              <ChurnMensualChart data={tchSummary.churn_rate_monthly} year={tchYear} />
+            </article>
+          ) : null}
         </section>
-        {(tchSummary.alerts ?? []).length > 0 && (
-          <section className="panel dashboard-alerts-panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">ALERTAS OPERATIVAS</p>
-                <h3>
-                  {(tchSummary.alerts ?? []).filter(a => a.sev === "alta").length > 0 && (
-                    <span className="badge badge-orange" style={{ marginRight: "0.5rem" }}>
-                      {(tchSummary.alerts ?? []).filter(a => a.sev === "alta").length} alta{(tchSummary.alerts ?? []).filter(a => a.sev === "alta").length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {(tchSummary.alerts ?? []).filter(a => a.sev === "media").length > 0 && (
-                    <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
-                      {(tchSummary.alerts ?? []).filter(a => a.sev === "media").length} media{(tchSummary.alerts ?? []).filter(a => a.sev === "media").length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {(tchSummary.alerts ?? []).length} alerta{(tchSummary.alerts ?? []).length !== 1 ? "s" : ""} detectada{(tchSummary.alerts ?? []).length !== 1 ? "s" : ""}
-                </h3>
-              </div>
-            </div>
-            <div className="dashboard-alerts-list">
-              {(tchSummary.alerts ?? []).map((alert, idx) => (
-                <div key={idx} className={`dashboard-alert-row dashboard-alert-${alert.sev}`}>
-                  <span className={`badge ${alert.sev === "alta" ? "badge-orange" : alert.sev === "media" ? "badge-blue" : "badge-gray"}`}>
-                    {alert.sev}
-                  </span>
-                  <strong className="dashboard-alert-tipo">{alert.tipo}</strong>
-                  <span className="dashboard-alert-canal">{alert.canal}</span>
-                  <span className="dashboard-alert-detalle">{alert.detalle}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        <OperationalAlerts alerts={tchSummary.alerts ?? []} />
         <section className="panel channel-resources">
           <div><p className="eyebrow">EXPLORAR TCH</p><h3>Vistas disponibles</h3></div>
           <div>
@@ -6005,6 +6004,7 @@ function App() {
           mode={mode}
           year={year}
           syncing={syncing}
+          refreshing={channelRefreshing}
           onMode={setMode}
           onYear={setYear}
           onOpenResource={openChannelResource}

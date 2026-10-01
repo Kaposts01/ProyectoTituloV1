@@ -13,7 +13,7 @@ CRM interno para consultar y operar datos de suscripciones, clientes y cobros. V
 ## Inicio local
 
 1. Activa el entorno: `.\.venv\Scripts\Activate.ps1`.
-2. Instala dependencias: `python -m pip install -r requirements.txt`.
+2. Instala dependencias bloqueadas: `python -m pip install -r requirements.lock`.
 3. Crea la configuracion local: `Copy-Item .env.example .env`.
 4. Configura en `.env` solo las credenciales de los proveedores que vayas a sincronizar.
    Para Toku, usa `TOKU_BASE_URL=https://api.trytoku.com`.

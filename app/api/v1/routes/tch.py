@@ -217,6 +217,20 @@ def tch_summary() -> dict:
                 .order_by(periodo_eliminacion)
             ).all()
         )
+        lifecycle_months = sorted({(entry["year"], entry["month"]) for entry in activaciones_mensuales + bajas_mensuales})
+        active_subs_monthly: list[dict] = []
+        churn_rate_monthly: list[dict] = []
+        active_count = 0
+        for year, month in lifecycle_months:
+            activated = sum(entry["count"] for entry in activaciones_mensuales if (entry["year"], entry["month"]) == (year, month))
+            cancelled = sum(entry["count"] for entry in bajas_mensuales if (entry["year"], entry["month"]) == (year, month))
+            churn_rate_monthly.append({
+                "year": year,
+                "month": month,
+                "rate": round(100 * cancelled / active_count, 1) if active_count else 0.0,
+            })
+            active_count = max(0, active_count + activated - cancelled)
+            active_subs_monthly.append({"year": year, "month": month, "count": active_count})
         years = sorted(
             {entry["year"] for entry in transacciones_mensuales + activaciones_mensuales + bajas_mensuales},
             reverse=True,
@@ -298,7 +312,15 @@ def tch_summary() -> dict:
             "transacciones_mensuales": transacciones_mensuales,
             "activaciones_mensuales": activaciones_mensuales,
             "bajas_mensuales": bajas_mensuales,
-            "alerts": _channel_alerts(transacciones_mensuales, activaciones_mensuales, bajas_mensuales, tch_kpis),
+            "active_subs_monthly": active_subs_monthly,
+            "churn_rate_monthly": churn_rate_monthly,
+            "alerts": _channel_alerts(
+                transacciones_mensuales,
+                activaciones_mensuales,
+                bajas_mensuales,
+                tch_kpis,
+                "TCH",
+            ),
             "ultimo_etl": {
                 "id": str(ultimo_run.id) if ultimo_run else None,
                 "status": ultimo_run.status if ultimo_run else None,

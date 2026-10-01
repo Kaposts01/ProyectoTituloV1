@@ -44,7 +44,7 @@ def _records_from_response(response: Any) -> list[dict[str, Any]]:
         for key in ("data", "results", "items", "clients", "plans", "suscriptions", "payments", "charges"):
             if isinstance(response.get(key), list):
                 return [record for record in response[key] if isinstance(record, dict)]
-    return []
+    raise ValueError("VirtualPOS returned an unexpected collection response envelope")
 
 
 def _external_id(record: dict[str, Any]) -> str:
@@ -90,6 +90,7 @@ def _store_records(
     resource_type: str,
     records: Iterable[dict[str, Any]],
     sync_context: dict[str, Any] | None = None,
+    materialize_ids: set[Any] | None = None,
 ) -> int:
     processed = 0
     for record in records:
@@ -114,7 +115,11 @@ def _store_records(
             ),
         )
         result = db.execute(statement.returning(SourceRecord.id))
-        processed += int(result.scalar_one_or_none() is not None)
+        source_record_id = result.scalar_one_or_none()
+        if source_record_id is not None:
+            processed += 1
+            if materialize_ids is not None:
+                materialize_ids.add(source_record_id)
     return processed
 
 
@@ -131,6 +136,7 @@ async def sync_virtualpos(
         client_factory = VirtualPOSClient if platform == "virtualpos1" else lambda: VirtualPOSClient(platform)
         async with client_factory() as client:
             processed = 0
+            materialize_ids: set[Any] = set()
             limit = 100
             for resource_type, read_page in (
                 ("client", client.list_clients),
@@ -143,7 +149,7 @@ async def sync_virtualpos(
                     records = _records_from_response(response)
                     resource_records += len(records)
                     sanitized = [_sanitize_record(record) for record in records]
-                    processed += _store_records(db, platform, resource_type, sanitized)
+                    processed += _store_records(db, platform, resource_type, sanitized, materialize_ids=materialize_ids)
                     store_vp_resources(db, resource_type, sanitized, platform=platform)
                     if progress_callback:
                         total_records, total_pages = pagination_totals(response)
@@ -153,7 +159,7 @@ async def sync_virtualpos(
                     page += 1
 
             plans = [_sanitize_record(record) for record in _records_from_response(await client.list_plans())]
-            processed += _store_records(db, platform, "plan", plans)
+            processed += _store_records(db, platform, "plan", plans, materialize_ids=materialize_ids)
             store_vp_resources(db, "plan", plans, platform=platform)
             if progress_callback:
                 progress_callback("plan", 1, len(plans), None, None)
@@ -165,39 +171,37 @@ async def sync_virtualpos(
                 subscriptions = _records_from_response(response)
                 subscription_records += len(subscriptions)
                 sanitized_subs = [_sanitize_record(s) for s in subscriptions]
-                processed += _store_records(db, platform, "subscription", sanitized_subs)
+                processed += _store_records(db, platform, "subscription", sanitized_subs, materialize_ids=materialize_ids)
                 store_vp_resources(db, "subscription", sanitized_subs, platform=platform)
                 for subscription in sanitized_subs:
                     subscription_id = _subscription_id(subscription)
                     if subscription_id is None:
                         continue
-                    charge_page = 1
-                    charge_records_processed = 0
-                    while True:
-                        charges = await client.list_charges(subscription_id, page=charge_page, limit=limit)
-                        charge_records = _records_from_response(charges)
-                        charge_records_processed += len(charge_records)
-                        sanitized_charges = [_sanitize_record(charge) for charge in charge_records]
-                        processed += _store_records(
-                            db,
-                            platform,
-                            "charge",
-                            sanitized_charges,
-                            sync_context={"subscription_external_id": subscription_id},
+                    sub_currency = subscription.get("currency")
+                    charge_program = subscription.get("charge_program") or []
+                    charge_records = [
+                        {**c, "currency": c.get("currency") or sub_currency}
+                        for c in charge_program
+                        if isinstance(c, dict)
+                    ]
+                    sanitized_charges = [_sanitize_record(c) for c in charge_records]
+                    processed += _store_records(
+                        db,
+                        platform,
+                        "charge",
+                        sanitized_charges,
+                        sync_context={"subscription_external_id": subscription_id},
+                        materialize_ids=materialize_ids,
+                    )
+                    store_vp_resources(db, "charge", sanitized_charges, platform=platform, subscription_external_id=subscription_id)
+                    if progress_callback:
+                        progress_callback(
+                            f"charge ({subscription_id})",
+                            1,
+                            len(sanitized_charges),
+                            len(sanitized_charges),
+                            1,
                         )
-                        store_vp_resources(db, "charge", sanitized_charges, platform=platform, subscription_external_id=subscription_id)
-                        if progress_callback:
-                            total_records, total_pages = pagination_totals(charges)
-                            progress_callback(
-                                f"charge ({subscription_id})",
-                                charge_page,
-                                charge_records_processed,
-                                total_records,
-                                total_pages,
-                            )
-                        if not _has_next_page(charges, charge_records, charge_page, limit):
-                            break
-                        charge_page += 1
                 if progress_callback:
                     total_records, total_pages = pagination_totals(response)
                     progress_callback("subscription", page, subscription_records, total_records, total_pages)
@@ -205,8 +209,9 @@ async def sync_virtualpos(
                     break
                 page += 1
 
-            staged_records = db.scalars(select(SourceRecord).where(SourceRecord.source == platform)).all()
-            materialize_records(db, staged_records)
+            if materialize_ids:
+                staged_records = db.scalars(select(SourceRecord).where(SourceRecord.id.in_(materialize_ids))).all()
+                materialize_records(db, staged_records)
             reconcile_charge_recoveries(db, platform)
 
             run.status = "completed"

@@ -1,10 +1,15 @@
 import asyncio
 import hashlib
 import json
+import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_MAX_PAGES = 2000
 
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -48,6 +53,9 @@ def records_from_response(response: Any) -> list[dict[str, Any]]:
 
 def has_next_page(response: Any, records: list[dict[str, Any]], page: int, limit: int) -> bool:
     if isinstance(response, dict):
+        # Cursor-based (Toku): si la clave existe, es la autoridad — null/vacío = última página
+        if "next_cursor" in response:
+            return bool(response.get("next_cursor"))
         for key in ("pagination", "meta"):
             metadata = response.get(key)
             if isinstance(metadata, dict):
@@ -90,7 +98,7 @@ def store_records(db: Session, source: str, resource_type: str, records: Iterabl
 
 
 def safe_error_message(exc: Exception, secrets: Iterable[str]) -> str:
-    message = str(exc)
+    message = str(exc) or f"{type(exc).__name__} (sin mensaje)"
     for secret in secrets:
         if secret:
             message = message.replace(secret, "[redacted]")
@@ -121,7 +129,7 @@ async def sync_read_only_provider(
             for resource_type, page_size, paginated, read_page in resources:
                 page = 1
                 resource_records = 0
-                while True:
+                while page <= _MAX_PAGES:
                     response = await read_page(client, page)
                     records = records_from_response(response)
                     resource_records += len(records)
@@ -136,6 +144,8 @@ async def sync_read_only_provider(
                     page += 1
                     if source == "toku" and resource_type == "transaction":
                         await asyncio.sleep(1)
+                else:
+                    logger.warning("%s/%s: se alcanzó el límite de %d páginas, abortando paginación", source, resource_type, _MAX_PAGES)
         run.status = "completed"
         run.records_processed = processed
         run.finished_at = datetime.now(UTC)
