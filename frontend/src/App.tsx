@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { getCached, setCached, invalidateCache } from "./apiCache";
+import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
 import "./App.css";
 import "./Staging.css";
 import { ActivacionCaidaChart, ChurnMensualChart, CrecimientoMensualChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
@@ -8,6 +8,26 @@ import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
 
 const ChannelActivityChart = lazy(() => import("./ChannelActivityChart"));
+
+class ContentErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <main className="app-shell">
+          <p className="error-message">No se pudo mostrar esta vista.</p>
+          <button className="sync-btn" onClick={() => window.location.reload()}>Recargar aplicación</button>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type SyncRun = { status: string; records_processed: number; started_at?: string | null; finished_at?: string | null };
 type SourceSummary = {
@@ -130,6 +150,22 @@ type TchSummary = {
   ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
   alerts?: DashboardAlert[];
 };
+
+function normalizeTchSummary(data: Partial<TchSummary>): TchSummary {
+  return {
+    suscripciones: data.suscripciones ?? { vigentes: 0, eliminadas: 0, total: 0, monto_vigentes: 0, monto_eliminadas: 0, monto_total: 0 },
+    transacciones: data.transacciones ?? { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: 0, monto: 0 },
+    kpis: data.kpis ?? { mrr: 0, arpu: 0, active_clients: 0, active_subscribers: 0, churn_rate: 0, ltv: 0 },
+    years: data.years ?? [],
+    transacciones_mensuales: data.transacciones_mensuales ?? [],
+    activaciones_mensuales: data.activaciones_mensuales ?? [],
+    bajas_mensuales: data.bajas_mensuales ?? [],
+    active_subs_monthly: data.active_subs_monthly ?? [],
+    churn_rate_monthly: data.churn_rate_monthly ?? [],
+    ultimo_etl: data.ultimo_etl ?? { id: null, status: null, started_at: null, records_upserted: null },
+    alerts: data.alerts ?? [],
+  };
+}
 type DashboardAlert = { id?: string; sev: "alta" | "media" | "baja"; tipo: string; canal: string; detalle: string };
 type AlertDetailItem = {
   external_id: string | null;
@@ -735,10 +771,19 @@ async function jsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { credentials: "include" });
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, { credentials: "include", signal });
   await checkResponse(response);
   return jsonResponse<T>(response);
+}
+
+function useDebouncedValue<T>(value: T, delayMs = 300): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedValue(value), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [value, delayMs]);
+  return debouncedValue;
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
@@ -2435,16 +2480,21 @@ function ChannelDashboardView({
     providerGroups.find((group) => group.sections[0].source === data.source)
       ?.sections ?? [];
   const transactionStatusSeries = (data.payments_monthly ?? data.transactions_monthly ?? []) as MonthlyStatusEntry[];
+  const isVirtualPos = data.source === "virtualpos";
+  const syncLabel = data.last_sync?.status === "completed"
+    ? "Sincronización completada"
+    : data.last_sync?.status === "running"
+      ? "Sincronización en curso"
+      : data.last_sync?.status === "failed"
+        ? "Última sincronización con errores"
+        : "Sin sincronizaciones registradas";
   return (
     <main className="app-shell channel-dashboard-page">
-      <p className="eyebrow">{title(data.source).toUpperCase()} / STAGING</p>
+      <p className="eyebrow">{title(data.source).toUpperCase()}</p>
       <header className="channel-hero">
         <div>
           <h2>Resumen operativo {refreshing && <span className="refreshing-badge">⟳ Actualizando</span>}</h2>
-          <p>
-            Datos locales sincronizados, pendientes de consolidación en
-            BD_Central.
-          </p>
+          <p>Indicadores y actividad del período seleccionado.</p>
         </div>
         <div className="channel-hero-controls">
           <div className="dashboard-controls">
@@ -2481,7 +2531,7 @@ function ChannelDashboardView({
               className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}
             >
               <span />
-              {data.last_sync?.status ?? "Sin sincronización"}
+              {syncLabel}
             </div>
             <button
               className={`sync-btn ${syncing ? "syncing" : ""}`}
@@ -2494,6 +2544,25 @@ function ChannelDashboardView({
           </div>
         </div>
       </header>
+      <section className="channel-resources channel-resources-quick" aria-label="Explorar recursos">
+        <div>
+          <p className="eyebrow">EXPLORAR</p>
+          <h3>Ir a un recurso</h3>
+        </div>
+        <div>
+          {metricSections.map((section) => (
+            <button key={section.resource} onClick={() => onOpenResource(section.resource)}>
+              {section.label}<span>{data.resources[section.resource] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+      <div className="dashboard-section-heading">
+        <div>
+          <p className="eyebrow">OPERACIÓN DEL PERÍODO</p>
+          <h3>Indicadores clave</h3>
+        </div>
+      </div>
       <section
         className={`metrics provider-metrics${data.source === "payku" ? " payku-metrics" : ""}${data.source.startsWith("virtualpos") ? " vp-metrics" : ""}`}
         aria-label={`Metricas ${title(data.source)}`}
@@ -2514,7 +2583,14 @@ function ChannelDashboardView({
         ))}
       </section>
       {data.kpis ? (
-        <section className="metrics kpi-metrics" aria-label="KPIs técnicos">
+        <>
+          <div className="dashboard-section-heading dashboard-section-heading-compact">
+            <div>
+              <p className="eyebrow">CARTERA</p>
+              <h3>Salud de suscripciones</h3>
+            </div>
+          </div>
+          <section className="metrics kpi-metrics" aria-label="KPIs de suscripciones">
           <KpiCard
             label="MRR"
             value={`$${data.kpis.mrr.toLocaleString("es-CL")}`}
@@ -2539,9 +2615,10 @@ function ChannelDashboardView({
             caption="ARPU / churn rate"
             tone="violet"
           />
-        </section>
+          </section>
+        </>
       ) : null}
-      <section className="channel-workspace">
+      <section className={`channel-workspace${isVirtualPos ? " channel-workspace-status" : ""}`}>
         {data.source !== "virtualpos" && (
         <article className="panel chart-panel">
           <div className="panel-heading">
@@ -2573,7 +2650,7 @@ function ChannelDashboardView({
         )}
         <article className="panel status-panel">
           <p className="eyebrow">ESTADOS</p>
-          <h3>Distribución disponible</h3>
+          <h3>Estados de la operación</h3>
           <StatusBars
             source={data.source}
             statuses={data.statuses}
@@ -2590,9 +2667,16 @@ function ChannelDashboardView({
         data.churn_rate_monthly?.length ||
         data.active_subs_monthly?.length ||
         data.cobrable_subs_monthly?.length) ? (
-        <section className="extended-charts">
+        <>
+          <div className="dashboard-section-heading dashboard-section-heading-charts">
+            <div>
+              <p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p>
+              <h3>Lectura mensual</h3>
+            </div>
+          </div>
+          <section className="extended-charts">
           {data.charges_monthly?.length ? (
-            <article className="panel">
+            <article className={`panel${isVirtualPos ? " chart-order-charges" : ""}`}>
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">CARGOS</p>
@@ -2603,7 +2687,7 @@ function ChannelDashboardView({
             </article>
           ) : null}
           {data.rejected_charges_monthly?.length ? (
-            <article className="panel">
+            <article className={`panel${isVirtualPos ? " chart-order-rejected" : ""}`}>
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">CARGOS</p>
@@ -2618,7 +2702,7 @@ function ChannelDashboardView({
             </article>
           ) : null}
           {data.source === "virtualpos" && data.payments_monthly?.length ? (
-            <article className="panel">
+            <article className="panel chart-order-transactions">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">TRANSACCIONES</p>
@@ -2660,7 +2744,7 @@ function ChannelDashboardView({
               <MonthlyStatusChart data={data.transactions_monthly as MonthlyStatusEntry[]} mode={mode} year={year} />
             </article>
           ) : null}
-          {data.activation_monthly?.length ? (
+          {data.activation_monthly?.length && !isVirtualPos ? (
             <article className="panel">
               <div className="panel-heading">
                 <div>
@@ -2671,8 +2755,8 @@ function ChannelDashboardView({
               <MonthlyStatusChart data={data.activation_monthly} mode={mode} year={year} />
             </article>
           ) : null}
-          {data.churn_monthly?.length ? (
-            <article className="panel">
+          {data.churn_monthly?.length && !isVirtualPos ? (
+            <article className="panel chart-panel-wide">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">SUSCRIPCIONES</p>
@@ -2688,7 +2772,7 @@ function ChannelDashboardView({
           ) : null}
           {data.activation_monthly?.length ? (
             <>
-              <article className="panel">
+              <article className={`panel${isVirtualPos ? " chart-order-activation" : ""}`}>
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">SUSCRIPCIONES</p>
@@ -2702,7 +2786,7 @@ function ChannelDashboardView({
                   mode={mode}
                 />
               </article>
-              <article className="panel">
+              <article className={`panel${isVirtualPos ? " chart-order-growth" : ""}`}>
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">SUSCRIPCIONES</p>
@@ -2719,7 +2803,7 @@ function ChannelDashboardView({
             </>
           ) : null}
           {data.source === "virtualpos" && data.churn_rate_monthly?.length ? (
-            <article className="panel">
+            <article className="panel chart-order-churn">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">SUSCRIPCIONES</p>
@@ -2749,7 +2833,7 @@ function ChannelDashboardView({
           ) : null}
           {transactionStatusSeries.length &&
             (data.active_subs_monthly?.length || data.cobrable_subs_monthly?.length) ? (
-            <article className="panel">
+            <article className={`panel chart-panel-wide${isVirtualPos ? " chart-order-comparison" : ""}`}>
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">RECAUDACIÓN</p>
@@ -2765,7 +2849,8 @@ function ChannelDashboardView({
               />
             </article>
           ) : null}
-        </section>
+          </section>
+        </>
       ) : null}
       <OperationalAlerts
         alerts={data.alerts ?? []}
@@ -2773,23 +2858,6 @@ function ChannelDashboardView({
           `/api/v1/staging/dashboard/${data.source}/alerts/${alertId}`,
         ).then((response) => response.items)}
       />
-      <section className="panel channel-resources">
-        <div>
-          <p className="eyebrow">EXPLORAR STAGING</p>
-          <h3>Recursos del canal</h3>
-        </div>
-        <div>
-          {metricSections.map((section) => (
-            <button
-              key={section.resource}
-              onClick={() => onOpenResource(section.resource)}
-            >
-              {section.label}
-              <span>{data.resources[section.resource] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-      </section>
     </main>
   );
 }
@@ -2982,6 +3050,9 @@ function App() {
   const [tchClienteDetail, setTchClienteDetail] = useState<TchClienteDetail | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
+  const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
+  const debouncedFilterQuery = useDebouncedValue(filterQuery);
 
   const can = (permission: string) => (session?.user?.permissions ?? []).includes(permission);
 
@@ -3000,18 +3071,11 @@ function App() {
   const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
 
   useEffect(() => {
-    if (!session) return;
-    const stale = getCached<Summary>("staging:summary", 5 * 60 * 1000);
-    if (stale) {
-      setSummary(stale);
-      setLoading(false);
-      setSummaryRefreshing(true);
-    }
+    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileOpen) return;
     let mounted = true;
-    getJson<Summary>("/api/v1/staging/summary")
+    getCachedOrFetch("staging:summary", 5 * 60 * 1000, () => getJson<Summary>("/api/v1/staging/summary"))
       .then((data) => {
         if (!mounted) return;
-        setCached("staging:summary", data);
         setSummary(data);
       })
       .catch((err: unknown) => {
@@ -3023,21 +3087,14 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [session]);
+  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileOpen]);
 
   useEffect(() => {
-    if (!session) return;
-    const stale = getCached<GeneralDashboard>("dashboard:general", 5 * 60 * 1000);
-    if (stale) {
-      setGeneralData(stale);
-      setGeneralYear((current) => current ?? defaultYear(stale.years));
-      setGeneralRefreshing(true);
-    }
+    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileOpen) return;
     let mounted = true;
-    getJson<GeneralDashboard>("/api/v1/staging/dashboard/general")
+    getCachedOrFetch("dashboard:general", 5 * 60 * 1000, () => getJson<GeneralDashboard>("/api/v1/staging/dashboard/general"))
       .then((data) => {
         if (!mounted) return;
-        setCached("dashboard:general", data);
         setGeneralData(data);
         setGeneralYear((current) => current ?? defaultYear(data.years));
       })
@@ -3048,29 +3105,35 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [session, lastEtlRun?.finished_at]);
+  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileOpen, lastEtlRun?.finished_at]);
 
   useEffect(() => {
     if (!session || generalView !== "clients") return;
     const params = new URLSearchParams({ limit: "100", offset: String(generalClientOffset), filter_field: generalClientFilter });
-    if (generalClientQuery.trim()) params.set("query", generalClientQuery.trim());
-    getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${params}`)
+    if (debouncedGeneralClientQuery.trim()) params.set("query", debouncedGeneralClientQuery.trim());
+    const controller = new AbortController();
+    getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${params}`, controller.signal)
       .then(setGeneralClients)
-      .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")));
-  }, [session, generalView, generalClientQuery, generalClientFilter, generalClientOffset]);
+      .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")); });
+    return () => controller.abort();
+  }, [session, generalView, debouncedGeneralClientQuery, generalClientFilter, generalClientOffset]);
 
   useEffect(() => {
     if (!session || generalView !== "subscriptions") return;
     const params = new URLSearchParams({ limit: "100", offset: String(generalSubscriptionOffset), filter_field: generalSubscriptionFilter });
-    if (generalSubscriptionQuery.trim()) params.set("query", generalSubscriptionQuery.trim());
-    getJson<GeneralSubscriptions>(`/api/v1/staging/dashboard/general/subscriptions?${params}`)
+    if (debouncedGeneralSubscriptionQuery.trim()) params.set("query", debouncedGeneralSubscriptionQuery.trim());
+    const controller = new AbortController();
+    getJson<GeneralSubscriptions>(`/api/v1/staging/dashboard/general/subscriptions?${params}`, controller.signal)
       .then(setGeneralSubscriptions)
-      .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar las suscripciones consolidadas.")));
-  }, [session, generalView, generalSubscriptionQuery, generalSubscriptionFilter, generalSubscriptionOffset]);
+      .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar las suscripciones consolidadas.")); });
+    return () => controller.abort();
+  }, [session, generalView, debouncedGeneralSubscriptionQuery, generalSubscriptionFilter, generalSubscriptionOffset]);
 
   useEffect(() => {
     if (!session || !activeSection) return;
+    if (filterQuery !== debouncedFilterQuery) return;
     let mounted = true;
+    const controller = new AbortController();
     const effectiveSource =
       activeSection.source === "virtualpos" && vpPlatform !== "all"
         ? vpPlatform
@@ -3081,9 +3144,10 @@ function App() {
       offset: String(recordsOffset),
       limit: String(RECORDS_PAGE_SIZE),
     });
-    if (filterField && filterQuery.trim()) {
+    const effectiveFilterQuery = filterQuery ? debouncedFilterQuery : "";
+    if (filterField && effectiveFilterQuery.trim()) {
       params.set("filter_field", filterField);
-      params.set("query", filterQuery.trim());
+      params.set("query", effectiveFilterQuery.trim());
     }
     const sortField = sortColumn
       ? filterFieldForColumn(activeSection.source, activeSection.resource, sortColumn)
@@ -3094,7 +3158,7 @@ function App() {
     }
     const path = `/api/v1/staging/records?${params}`;
     setLoading(true);
-    getJson<StagingResponse>(path)
+    getJson<StagingResponse>(path, controller.signal)
       .then((data) => {
         if (mounted) {
           setRecords((current) => recordsOffset === 0
@@ -3103,15 +3167,16 @@ function App() {
         }
       })
       .catch((err: unknown) => {
-        if (mounted) setError(friendlyError(err, "No se pudieron cargar los registros."));
+        if (mounted && !(err instanceof DOMException && err.name === "AbortError")) setError(friendlyError(err, "No se pudieron cargar los registros."));
       })
       .finally(() => {
         if (mounted) setLoading(false);
       });
     return () => {
       mounted = false;
+      controller.abort();
     };
-  }, [session, activeSection, filterField, filterQuery, sortColumn, sortDirection, vpPlatform, recordsOffset]);
+  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, sortColumn, sortDirection, vpPlatform, recordsOffset]);
 
   useEffect(() => {
     if (!session || !activeSection || !["status", "secondary_status"].includes(filterField)) {
@@ -3134,18 +3199,10 @@ function App() {
   useEffect(() => {
     if (!session || !channel) return;
     const cacheKey = `dashboard:${channel}`;
-    const stale = getCached<ChannelDashboard>(cacheKey, 5 * 60 * 1000);
-    if (stale) {
-      setChannelData(stale);
-      setYear(defaultYear(stale.years));
-      setChannelLoading(false);
-      setChannelRefreshing(true);
-    }
     let mounted = true;
-    getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${channel}`)
+    getCachedOrFetch(cacheKey, 5 * 60 * 1000, () => getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${channel}`))
       .then((data) => {
         if (!mounted) return;
-        setCached(cacheKey, data);
         setChannelData(data);
         setYear(defaultYear(data.years));
       })
@@ -3165,21 +3222,22 @@ function App() {
     let mounted = true;
     setTchError(null);
     if (tchView === "summary") {
-      const stale = getCached<TchSummary>("tch:summary", 10 * 60 * 1000);
-      if (stale) {
-        setTchSummary(stale);
-        setTchYear((current) => current ?? defaultYear(stale.years));
+      const cached = getCached<TchSummary>("tch:summary", 10 * 60 * 1000);
+      if (cached) {
+        const summary = normalizeTchSummary(cached);
+        setTchSummary(summary);
+        setTchYear((current) => current ?? defaultYear(summary.years));
         setTchLoading(false);
-        setTchRefreshing(true);
-      } else {
-        setTchLoading(true);
+        return () => { mounted = false; };
       }
+      setTchLoading(true);
       getJson<TchSummary>("/api/v1/tch/summary")
         .then((d) => {
           if (!mounted) return;
-          setCached("tch:summary", d);
-          setTchSummary(d);
-          setTchYear((current) => current ?? defaultYear(d.years));
+          const summary = normalizeTchSummary(d);
+          setCached("tch:summary", summary);
+          setTchSummary(summary);
+          setTchYear((current) => current ?? defaultYear(summary.years));
         })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar el resumen TCH.")); })
         .finally(() => { if (mounted) { setTchLoading(false); setTchRefreshing(false); } });
@@ -3962,8 +4020,9 @@ function App() {
     setActiveSection(null);
     setTchView(null);
     setRecoveryOpen(false);
-    setChannelData(null);
-    setChannelLoading(true);
+    const cached = getCached<ChannelDashboard>(`dashboard:${source}`, 5 * 60 * 1000);
+    setChannelData(cached);
+    setChannelLoading(!cached);
     setError(null);
     setYear(null);
     setChannel(source);
@@ -4016,11 +4075,13 @@ function App() {
     setError(null);
     postJson<{ status: string }>(`/api/v1/staging/sync/${source}`)
       .then(() => {
+        invalidateCache();
         setChannelData(null);
         setChannelLoading(true);
         return getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${source}`);
       })
       .then((data) => {
+        setCached(`dashboard:${source}`, data);
         setChannelData(data);
         setYear(defaultYear(data.years));
       })
@@ -6068,7 +6129,11 @@ function App() {
           onUpdated={(updated) => setSession((prev) => prev ? { ...prev, user: updated } : prev)}
           onClose={() => setProfileOpen(false)}
         />
-      ) : content}
+      ) : (
+        <ContentErrorBoundary>
+          <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>{content}</Suspense>
+        </ContentErrorBoundary>
+      )}
       {clientEditDialog}
       {creatingPlan ? (
         <div className="edit-dialog-backdrop" role="presentation">

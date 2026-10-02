@@ -177,7 +177,6 @@ export function CrecimientoMensualChart({
     return { label: monthLabel(mo, yr), net }
   })
   if (!rows.length) return <p className="empty-chart">Sin datos para este período.</p>
-
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
@@ -266,6 +265,10 @@ export function TransaccionesSuscripcionesChart({
     }
   })
   if (!rows.length) return <p className="empty-chart">Sin datos para este período.</p>
+  const subscriptionAxisMax = Math.max(
+    1,
+    Math.ceil(Math.max(...rows.map(row => Math.max(row.activas, row.cobrables))) / 1000) * 1000,
+  )
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -273,7 +276,15 @@ export function TransaccionesSuscripcionesChart({
         <CartesianGrid stroke="#e1e7e5" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
         <YAxis yAxisId="tx" tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} />
-        <YAxis yAxisId="subs" orientation="right" tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} />
+        <YAxis
+          yAxisId="subs"
+          orientation="right"
+          domain={[0, subscriptionAxisMax]}
+          tickLine={false}
+          axisLine={false}
+          width={48}
+          tick={{ fontSize: 10 }}
+        />
         <Tooltip formatter={(v: unknown, name: unknown) =>
           name === 'Transacciones pagadas' ? fmtVal(v, mode) : Number(v).toLocaleString('es-CL')
         } />

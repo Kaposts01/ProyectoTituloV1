@@ -1,6 +1,6 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-01.
+Fecha de actualizacion: 2026-10-02.
 
 ## Estado actual
 
@@ -21,6 +21,8 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - El vault de Obsidian se abre desde la raiz del repositorio para incluir `docs/` y `knowledge/`; `.obsidian/` conserva solo preferencias locales.
 - El frontend usa el proxy de Vite hacia la API local en `127.0.0.1:8000`; el healthcheck de PostgreSQL usa las variables de Compose.
 - Python 3.14.5 y sus dependencias quedan bloqueados en `.python-version` y `requirements.lock`; existe CI para backend y frontend.
+- El resumen operativo de VirtualPOS prioriza recursos, indicadores, estados y tendencias. Su estado de sincronizacion proviene del ultimo `SyncRun` de sus dos cuentas y no presenta una consolidacion pendiente como hecho.
+- Los dashboards de frontend usan caché en memoria con TTL de cinco minutos y deduplicación de solicitudes; la navegación reutiliza resultados válidos y las sincronizaciones invalidan la caché. TCH normaliza sus colecciones de resumen antes del render para tolerar series ausentes; el diferimiento de gráficos mensuales queda pendiente de una extracción segura de vistas.
 
 ## En progreso
 

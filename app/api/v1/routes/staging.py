@@ -2056,6 +2056,12 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
 
     centralized_alerts = _vp_centralized_alerts(db, list(sources), paid_statuses, active_sub_ids_for_alerts, recently_paid_ids)
     extended["alerts"] = extended.get("alerts", []) + centralized_alerts
+    latest_run = db.scalars(
+        select(SyncRun)
+        .where(SyncRun.source.in_(sources))
+        .order_by(SyncRun.started_at.desc())
+        .limit(1)
+    ).first()
 
     # Churn rate por fuente (virtualpos1 / virtualpos2) para el filtro del gráfico
     extended["churn_rate_monthly_vp1"] = _compute_churn_rate_series([s for s in subs if s.source == "virtualpos1"])
@@ -2098,7 +2104,16 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
         "activity_resource": "charge",
         "activity": activity,
         "years": sorted({e["year"] for e in activity}, reverse=True),
-        "last_sync": None,
+        "last_sync": (
+            {
+                "status": latest_run.status,
+                "started_at": latest_run.started_at,
+                "finished_at": latest_run.finished_at,
+                "records_processed": latest_run.records_processed,
+            }
+            if latest_run
+            else None
+        ),
         **extended,
     }
 

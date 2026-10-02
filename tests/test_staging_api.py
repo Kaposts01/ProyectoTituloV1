@@ -279,6 +279,18 @@ def test_channel_dashboard_aggregates_local_activity_and_statuses(db_session) ->
     assert response["resource_amounts"]["transaction"] == before["resource_amounts"]["transaction"] + 1200.0
 
 
+def test_virtualpos_dashboard_returns_its_latest_sync_run(db_session) -> None:
+    db_session.add(
+        SyncRun(source="virtualpos1", status="completed", records_processed=12, finished_at=datetime.now(UTC))
+    )
+    db_session.flush()
+
+    dashboard = staging.channel_dashboard(source="virtualpos", db=db_session)
+
+    assert dashboard["last_sync"]["status"] == "completed"
+    assert dashboard["last_sync"]["records_processed"] == 12
+
+
 def test_payku_dashboard_keeps_year_filter_when_only_subscription_dates_exist(db_session) -> None:
     db_session.add(
         Subscription(
