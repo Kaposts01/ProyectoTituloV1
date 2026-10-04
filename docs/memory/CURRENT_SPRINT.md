@@ -31,4 +31,10 @@ Las tareas operativas existentes se conservan en [tasks.md](../tasks.md); esta n
 
 **Status: Planned**
 
-La auditoria `AUD-01` incorporo las tareas `SYNC-01`, `DB-02`, `DASH-01`, `FE-01` y `OPS-09` en [tasks.md](../tasks.md). `DB-02` confirmo la instancia efectiva y `DB-03` reconcilio la metadata Alembic y las estadisticas antes de migraciones. `DASH-01` está completada: la paridad se limita a datos fechados y estados verificables; Payku conserva su cobertura histórica no certificada. `FE-01` está en curso: las alertas son reutilizables, pero `App.tsx` todavía concentra navegación, carga y exploradores. La evaluacion de WebSocket debe partir del SSE existente para progreso de sincronizaciones y no modifica el flujo de ingestion de proveedores sin una decision posterior.
+La auditoria `AUD-01` incorporo las tareas `SYNC-01`, `DB-02`, `DASH-01`, `FE-01` y `OPS-09` en [tasks.md](../tasks.md). `DB-02` confirmo la instancia efectiva y `DB-03` reconcilio la metadata Alembic y las estadisticas antes de migraciones. `DASH-01` está completada: la paridad se limita a datos fechados y estados verificables; Payku conserva su cobertura histórica no certificada. `FE-01` está en curso: las alertas, rutas de proveedor, ficha TCH por `numero_ficha` y estado de listado seguro en URL son reutilizables; `App.tsx` todavía concentra carga y exploradores. La evaluacion de WebSocket debe partir del SSE existente para progreso de sincronizaciones y no modifica el flujo de ingestion de proveedores sin una decision posterior.
+
+## Mantenimiento estructural
+
+**Status: Completed**
+
+`STR-01` separo los artefactos locales de la raiz, los scripts operativos de mantenimiento/diagnostico y la documentacion vigente de los antecedentes historicos, sin alterar la arquitectura de aplicacion ni los comandos operativos documentados.

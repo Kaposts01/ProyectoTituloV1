@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 # Direct execution places scripts/ first on sys.path; add the project root for app imports.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.db.session import SessionLocal
 

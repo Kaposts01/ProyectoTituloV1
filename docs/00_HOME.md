@@ -22,10 +22,11 @@ El repositorio ya implementa un CRM interno con FastAPI, PostgreSQL y React/Vite
 ## Referencias existentes
 
 - [Tareas historicas](tasks.md)
-- [Arquitectura anterior](architecture.md)
-- [Plan de consolidacion cerrado](PLAN_CONSOLIDACION_BDLOCAL.md)
-- [Documentacion VirtualPOS](Documentacion%20API%20VirtualPOS.md)
-- [Plan ETL TCH historico](ETL_PLAN_CRM_SUBSCRIPCIONES.md)
+- [Arquitectura anterior](history/architecture/observed-architecture-pre-reorg.md)
+- [Plan de consolidacion cerrado](history/migrations/bdlocales-consolidation-closed.md)
+- [Investigacion historica de VirtualPOS](history/integrations/virtualpos-appscript-research.md)
+- [Plan ETL TCH historico](history/tch/2026-09-etl-plan.md)
+- [Colecciones Postman](reference/postman/)
 
 ## Uso en Obsidian
 

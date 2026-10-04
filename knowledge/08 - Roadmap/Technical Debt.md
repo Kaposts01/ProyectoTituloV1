@@ -19,7 +19,7 @@ Esta nota resume deuda documentada o comprobable. La prioridad refleja el sentid
 - Las relaciones operativas dependen en parte de IDs externos y contexto de origen.
 - La trazabilidad de todos los datos consolidados hacia `source_records` no esta completamente determinada.
 - El scheduler puede terminar con errores por canal sin representar un fallo total de la ejecucion.
-- No se encontraron pruebas frontend ni configuracion CI/CD.
+- La cobertura de pruebas frontend sigue pendiente; existe CI para backend y frontend, pero la base actual no supera todas sus verificaciones.
 - Documentacion historica y actual puede ser contradictoria.
 
 ### Baja

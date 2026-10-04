@@ -8,6 +8,7 @@ __pycache__/
 # Secrets and local configuration
 .env
 cookies.txt
+.local/
 
 # Build and editor artifacts
 dist/
@@ -23,6 +24,7 @@ logs/
 *.local.log
 *.local.error.log
 reports/
+data/local/
 
 # IDE and tool directories
 .opencode/node_modules/

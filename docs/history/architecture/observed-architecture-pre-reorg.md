@@ -6,7 +6,7 @@ El CRM integra VirtualPOS Sandbox, Toku, Payku y TCH. Los sincronizadores de pro
 
 `Proveedor -> source_records (staging, base crm) -> consolidación -> entidades centralizadas CRM -> API local -> dashboard React`
 
-Las entidades centralizadas se materializan desde `source_records` de VirtualPOS, Toku y Payku, todo dentro de la base `crm`. Las bases locales por canal (BDlocales) se usaron durante la migración inicial y ya no forman parte del flujo en vivo; ver `docs/PLAN_CONSOLIDACION_BDLOCAL.md`. Toku incluye métodos de pago centralizados; los payloads saneados permanecen como respaldo de trazabilidad.
+Las entidades centralizadas se materializan desde `source_records` de VirtualPOS, Toku y Payku, todo dentro de la base `crm`. Las bases locales por canal (BDlocales) se usaron durante la migración inicial y ya no forman parte del flujo en vivo; ver `docs/history/migrations/bdlocales-consolidation-closed.md`. Toku incluye métodos de pago centralizados; los payloads saneados permanecen como respaldo de trazabilidad.
 
 ## Staging y sincronizacion
 
@@ -41,7 +41,7 @@ Las tablas de los tres canales filtran en la API local mediante `filter_field` y
 
 El frontend incluye modales de edicion visual para clientes y cancelacion de suscripciones VirtualPOS. Se habilitan solo cuando su ruta interna de escritura esté implementada y autorizada mediante la bandera local del proveedor.
 
-La documentacion del proveedor VirtualPOS (rutas, contratos, autenticacion y estrategia incremental) esta en `docs/Documentacion API VirtualPOS.md`.
+La documentacion histórica del proveedor VirtualPOS (rutas, contratos, autenticacion y estrategia incremental) esta en `docs/history/integrations/virtualpos-appscript-research.md`.
 
 ## Seguridad
 

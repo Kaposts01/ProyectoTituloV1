@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.db.session import SessionLocal
 from app.models.source_record import SourceRecord

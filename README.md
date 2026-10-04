@@ -68,7 +68,7 @@ Las operaciones de escritura solo se exponen mediante rutas internas implementad
 - Recuperador de Socios VirtualPOS: reúne suscripciones canceladas exportables, cargos rechazados recuperables y rechazos asociados a tarjeta/cuenta. Los ciclos de reintento se cierran al cuarto día desde el envío según la siguiente sincronización disponible. Los links de cambio de tarjeta se muestran solo al solicitante y no se guardan.
 - API Recuperador: `GET /api/v1/recovery/cancelled`, `GET /api/v1/recovery/cancelled/export`, `GET /api/v1/recovery/rejected?bucket=retry|card`, `GET /api/v1/recovery/card-expirations`, `POST /api/v1/recovery/retries` y `POST /api/v1/recovery/card-change-links/{subscription_id}`.
 
-Consulta `docs/architecture.md` para el flujo de datos y `docs/tasks.md` para el estado de las tareas.
+Consulta `docs/architecture/overview.md` para la arquitectura vigente y `docs/tasks.md` para el estado de las tareas.
 
 Los clientes VirtualPOS disponen de una interfaz de edición desde la tabla y su ficha. El formulario usa la ruta interna correspondiente cuando `WR-VP-01` está habilitada mediante su bandera local.
 

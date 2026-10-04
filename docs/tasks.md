@@ -90,6 +90,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
+| STR-01 | Reorganizar estructura del repositorio | Completada | Artefactos locales quedan fuera de la raiz y excluidos de Git; scripts, documentacion vigente/historica y referencias quedan organizados sin romper comandos ni enlaces. |
 | MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
 | OPS-07 | Levantar servicios y verificar base consolidada | En curso | PostgreSQL, migraciones, API y frontend operativos; tablas por canal verificadas en la base `crm`. |
 | OPS-08 | Ejecutar sincronización manual multicanal | Bloqueada | Toku finalizó y consolidó 36.426 registros. VirtualPOS falló al recibir una respuesta no JSON al consultar cargos; Payku encontró IDs de transacción duplicados dentro de un lote `ON CONFLICT`. Requiere robustecer ambas rutas antes de reintentar. |
@@ -109,7 +110,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | CORE-PLAN-01 | Planificar implementacion del Core centralizado | Pendiente | Alcance tecnico, entidades, migraciones, trazabilidad, pruebas y actualizaciones documentales aprobados antes de escribir codigo. |
 | REP-01 | Generar reportes operativos por rango | Completada | VirtualPOS usa el diseño de referencia con snapshot histórico al cierre del rango, cobros y gráficos del período, alertas y tabla de activas; TCH usa su permiso de dashboard sin error 500. |
 | DOC-01 | Actualizar documentación del proyecto | Completada | Tareas, operación, arquitectura y proveedores reflejan el estado actual sin datos de pago sensibles. |
-| DOC-02 | Documentar API VirtualPOS | Completada | `docs/Documentacion API VirtualPOS.md` cubre rutas, contratos, autenticación, paginación y estrategia incremental. |
+| DOC-02 | Documentar API VirtualPOS | Completada | `docs/history/integrations/virtualpos-appscript-research.md` conserva la investigación histórica de rutas, contratos, autenticación, paginación y estrategia incremental. |
 | OPS-01 | Corregir configuración de sincronización local | Completada | VirtualPOS confirmó una sincronización idempotente; Toku se sincronizó correctamente con 21 registros y una segunda ejecución idempotente de 0 registros usando `api.trytoku.com`. No se expusieron credenciales. |
 | OPS-02 | Robustecer sincronización read-only de Toku | Completada | Reintenta hasta dos `ReadTimeout` de solicitudes GET y configura 120 segundos por intento; prueba automatizada validada. |
 | OPS-03 | Robustecer sincronización read-only de Payku | Completada | Reintenta hasta dos `ReadTimeout` de solicitudes GET y configura 120 segundos por intento; prueba automatizada validada. |
@@ -153,6 +154,11 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | --- | --- | --- | --- |
 | AUD-01 | Auditar pendientes, dashboards, sincronizaciones y persistencia | Completada | Se identificaron tareas activas, brechas de paridad entre canales, riesgos de sincronizacion y la topologia PostgreSQL efectiva; los hallazgos se registraron sin exponer secretos. |
 | FE-01 | Modularizar frontend por funcionalidades | En curso | El bloque de alertas operativas se extrajo a `features/dashboard/OperationalAlerts.tsx` y se reutiliza en todos los canales; resta separar navegacion, carga de datos, dashboard y exploradores de `App.tsx`. Los contratos API y permisos vigentes se preservan y la build de frontend queda correcta. |
+| UI-12 | Incorporar rutas navegables del CRM | Completada | Las vistas principales se abren mediante rutas SPA estables, soportan carga directa, recarga e historial sin modificar endpoints ni permisos existentes. |
+| UI-13 | Incorporar rutas de fichas de proveedor | Completada | Las fichas de recursos de VirtualPOS, Toku y Payku usan identificadores externos en la URL, soportan carga directa e historial sin exponer atributos personales. |
+| UI-14 | Conservar estado seguro de listados en URL | Completada | Los listados consolidado y de proveedores conservan paginación, selección de campo, estado, orden y cuenta VirtualPOS mediante query parameters sin incluir términos de búsqueda ni atributos personales. |
+| UI-15 | Incorporar rutas de suscripciones TCH | Completada | La ficha de suscripción TCH usa `numero_ficha` de DUES, único en la proyección, con carga directa e historial sin exponer RUT. |
+| UI-16 | Reordenar tablas y enlaces de VirtualPOS | Completada | Las cinco tablas de VirtualPOS priorizan campos operativos y abren las fichas desde los atributos solicitados, sin exponer identificadores técnicos como columna. |
 | PERF-01 | Reducir esperas de navegacion en frontend | Completada | Los dashboards respetan caché local de cinco minutos sin revalidar en cada navegación; las solicitudes se deduplican, búsquedas y listados cancelan cargas obsoletas. La caché se invalida tras una sincronización. El diferimiento de gráficos mensuales queda pendiente de una extracción segura de vistas. |
 | UI-09 | Reordenar resumen operativo VirtualPOS | Completada | El dashboard prioriza recursos, indicadores, estados y tendencias; elimina el mensaje de consolidacion pendiente, muestra el ultimo `SyncRun` real y evita duplicar graficos de activacion y caida para VirtualPOS. |
 | DASH-01 | Dar paridad operativa a Toku, Payku y TCH | Completada | Cada canal presenta KPIs, distribuciones, altas/bajas, suscripciones activas acumuladas, churn mensual y alertas definidos desde datos fechados y estados de su fuente. Toku compara transacciones reales, no facturas; Payku conserva el límite de cobertura histórica documentado; TCH usa reportes ETL locales. |
@@ -164,7 +170,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 ## Plan de consolidacion 2026-09-13
 
 - Se inventariaron las BDlocales: VirtualPOS tiene 260.179 registros, Payku 58.338 y Toku 36.404. Se eligio migrar estos datos existentes en vez de ejecutar una sincronizacion completa contra los proveedores.
-- El plan operativo, los riesgos de identidad de las dos cuentas VirtualPOS y la validacion de datos sensibles estan en `docs/PLAN_CONSOLIDACION_BDLOCAL.md`.
+- El plan operativo, los riesgos de identidad de las dos cuentas VirtualPOS y la validacion de datos sensibles estan en `docs/history/migrations/bdlocales-consolidation-closed.md`.
 - Se aplico la migracion `20260913_0020`: las tablas de canal usan `vp_*`, `tk_*` y `p_*`; VirtualPOS conserva la plataforma en su identidad unica.
 - La importacion usa la clave remota de cada BDlocal, procesa lotes saneados y no rematerializa TCH durante la carga de proveedores.
 - Se cargaron las 354.921 filas historicas de VirtualPOS, Toku y Payku en `crm`; las sincronizaciones read-only para datos del dia estan en ejecucion y se validan por canal.
@@ -176,7 +182,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 ## Avance 2026-08-30
 
 - Se aplicaron las migraciones `20260830_0002` y `20260830_0003`, que crean las entidades centralizadas y preservan el contexto de la suscripción al sincronizar cargos.
-- Sandbox entrega `25` clientes, `8` planes, `16` suscripciones, `452` cargos y `35` pagos. Los payloads reales, envelopes e identificadores están documentados en `docs/virtualpos-sandbox.md` sin valores sensibles.
+- Sandbox entrega `25` clientes, `8` planes, `16` suscripciones, `452` cargos y `35` pagos. Los payloads reales, envelopes e identificadores están documentados en `docs/history/integrations/virtualpos-sandbox-2026-08.md` sin valores sensibles.
 - El sincronizador pagina suscripciones, reconoce los envelopes reales del proveedor y evita reescribir payloads sin cambios; una segunda ejecución procesó `0` registros.
 - Swagger se organiza como Postman: Cliente, Plan, Suscription, Charge y Payment. Se añadieron consultas read-only en `/api/v1/clients`, `/subscriptions`, `/charges` y `/payments`, con detalle por UUID, paginación y filtros por fuente/estado.
 - Los campos de tarjeta y seguridad se eliminan antes de staging; la comprobación local sobre los 536 registros confirmó que no permanecen almacenados.
@@ -193,13 +199,13 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 
 - Se corrigio el estado de VP-14: el dashboard y las vistas CRM iniciales estan implementados.
 - PK-01 queda bloqueada hasta completar la lectura de transacciones Payku; clientes, planes y suscripciones ya se validaron localmente.
-- `README.md`, `docs/architecture.md`, `frontend/README.md` y la referencia de Payku describen el staging de VirtualPOS, Toku y Payku, sus limites actuales y la operacion local.
+- `README.md`, `docs/architecture/overview.md`, `frontend/README.md` y la referencia de Payku describen el staging de VirtualPOS, Toku y Payku, sus limites actuales y la operacion local.
 - Se retiraron ejemplos de numeros de tarjeta y CVV de la documentacion versionada.
 
 ## Actualizacion documental 2026-09-11
 
 - Se incorporaron VP-18 a VP-27: fichas de cargo y pago VirtualPOS, filtros avanzados por campo, modales de edicion y cancelacion visual (escritura remota pendiente), mejoras de etiquetas y navegacion en fichas de los tres canales.
-- Se agrego DOC-02: guia completa de la API VirtualPOS en `docs/Documentacion API VirtualPOS.md`.
+- Se agrego DOC-02: guia completa de la API VirtualPOS, conservada como investigación histórica en `docs/history/integrations/virtualpos-appscript-research.md`.
 - `examples/dashboard_referencia.py` se incluye como template Streamlit de referencia para futuros dashboards analiticos; no es codigo productivo.
 
 ## Hito 2: Operaciones de escritura
@@ -278,6 +284,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | TCH-04 | Añadir clientes TCH | Completada | El menú expone clientes TCH, la tabla permite buscar y paginar, y la ficha muestra mandatos asociados. |
 | TCH-05 | Añadir contacto y equivalente TCH | Completada | Fichas de clientes muestran contacto y dirección; suscripciones muestran el equivalente en pesos del mandato. |
 | TCH-06 | Conciliar cobros TCH con control mensual | Completada | Migración `20260916_0021` crea `tch_recaudacion_mensual`; el resumen y el dashboard general usan los controles mensuales oficiales para montos y cantidades; el detalle de mandatos y cargos queda en las tablas de trazabilidad. |
+| TCH-07 | Importar reportes TCH desde administración | Completada | Solo el rol `admin` puede seleccionar un archivo `.xlsx`; la carga incremental queda registrada y no expone ni conserva el archivo temporal. |
 
 ## Actualización 2026-09-12 (identidad)
 
@@ -324,7 +331,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 - Se detectó que `cancel_subscription`, `cancel_charge`, `retry_charge`, `update_client`, `create_client`, `create_plan`, `create_charge` y `create_subscription` en `write_virtualpos.py` intentaban reconciliar contra las tres BDlocales por canal (`VirtualPOS_Local`, `Toku_Local`, `Payku_Local`) usando columnas (`platform`, `remote_id`, `raw_payload`) que el esquema real ya no tiene desde la consolidación DB-01. Esto hacía fallar toda escritura de VirtualPOS con `reconciliation_required`, aunque la operación remota hubiera sido exitosa.
 - Se retiró por completo el flujo de bases locales, ya innecesario tras DB-01/ETL-01: se eliminaron `app/services/bdlocales_sync.py`, `bdlocales_import.py`, `etl_consolidation.py`, `etl_orchestration.py` (sin importadores en la app viva) y los scripts `scripts/import_bdlocales.py`/`inspect_bdlocales.py`.
 - Las 8 funciones de escritura de VirtualPOS ahora reconcilian solo `source_records` (staging) y la entidad centralizada correspondiente tras el `GET` de confirmación al proveedor, sin resincronizar el canal completo.
-- Se quitaron `virtualpos_db_url`, `toku_db_url` y `payku_db_url` de `app/core/config.py` y las variables `VIRTUALPOS_DB_URL`/`TOKU_DB_URL`/`PAYKU_DB_URL` de `.env`/`.env.example`. `docs/PLAN_CONSOLIDACION_BDLOCAL.md` queda marcado como completado y cerrado.
+- Se quitaron `virtualpos_db_url`, `toku_db_url` y `payku_db_url` de `app/core/config.py` y las variables `VIRTUALPOS_DB_URL`/`TOKU_DB_URL`/`PAYKU_DB_URL` de `.env`/`.env.example`. `docs/history/migrations/bdlocales-consolidation-closed.md` queda marcado como completado y cerrado.
 - `tests/test_virtualpos_writes.py` se actualizó para verificar la reconciliación contra `SourceRecord` en vez de mockear las funciones locales retiradas.
 
 ## Operación local 2026-09-16
@@ -399,7 +406,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 - Patrón confirmado: 5.615 de los 5.618 pagos sin cargo local pertenecen a clientes con una suscripción no activa; 5.393 tienen exactamente una suscripción local, actualmente `cancelada`, y su pago ocurrió en o antes de su cancelación. De esos 5.393, 5.391 apuntan a una suscripción sin ningún cargo local.
 - Recurrencia confirmada: 5.318 de 5.615 pagos usan `PAT`; entre los pagos de suscripción no ambigua con pago previo, 3.349 de 3.725 intervalos consecutivos duran 27 a 32 días. Son secuencias mensuales históricas, no un patrón de pagos puntuales.
 - Validación de cancelación: no hay pagos sin cargo local posteriores a todas sus fechas de cancelación candidatas (0 VP1, 0 VP2). Tampoco hay cargos `pagado` enlazados a suscripciones `cancelada` cuya fecha de cargo o autorización sea posterior a `canceled_at` (0 de 119 casos). La evidencia disponible descarta que la cancelación esté dejando cobros posteriores.
-- Exportación local: `scripts/export_virtualpos_unlinked_payments.py` genera `reports/virtualpos_unlinked_payments.csv`, excluida de Git. Incluye UUID de pago, RUT, monto, medio, suscripciones candidatas, fechas de cancelación y una clasificación de evidencia; no incluye datos de tarjeta.
+- Exportación local: `scripts/maintenance/export_virtualpos_unlinked_payments.py` genera `reports/virtualpos_unlinked_payments.csv`, excluida de Git. Incluye UUID de pago, RUT, monto, medio, suscripciones candidatas, fechas de cancelación y una clasificación de evidencia; no incluye datos de tarjeta.
 - Inventario de suscripciones sin historial: el mismo exportador genera `reports/virtualpos_subscriptions_without_charge_history.csv` con ID de suscripción, RUT, plataforma, estado, plan y fechas. Contiene 2.760 suscripciones: 798 VP1 y 1.962 VP2; 1.886 `CANCELADA`, 872 `SUSCRIPCION_FALLIDA` y 2 `SUSCRIBIENDO`.
 - Prueba de recuperación read-only: cinco muestras representativas de suscripciones canceladas sin cargos locales (dos VP1 y tres VP2, entre registros tempranos, recientes y con mayor cantidad de pagos) devolvieron `E-047` en `GET /v3/suscription/{id}/charges`: el plan asociado ya no existe para el proveedor. No es posible recuperar esos cargos por la ruta disponible; se requiere exportación histórica o soporte de VirtualPOS para reconstruirlos.
 - Cobertura por RUT y estado del lote sin cargos: al cruzar exclusivamente las 2.760 suscripciones sin `Charge` local por `plataforma + social_id` contra al menos un `Payment` `pagado`, 1.743 de 1.886 `CANCELADA` tienen pagos (92,4%); 319 de 872 `SUSCRIPCION_FALLIDA`; y ninguna de las 2 `SUSCRIBIENDO`. Este cruce prueba actividad de pago del cliente, pero no asigna un pago a una suscripción concreta cuando el RUT tiene varias.

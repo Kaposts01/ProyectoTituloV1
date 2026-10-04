@@ -12,6 +12,7 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - Tablas y vistas operativas por canal, dashboards y reportes existentes.
 - Autenticacion, permisos y registro de sincronizaciones y escrituras autorizadas.
 - Vault documental de Obsidian y documentacion conceptual inicial.
+- La estructura versionada separa scripts operativos, mantenimiento y diagnostico; la documentacion historica y las colecciones Postman tienen ubicaciones explicitas; los insumos locales se excluyen bajo `data/local/` y `.local/`.
 - Skill local `project-memory` disponible para gestionar memoria persistente y ADRs compactos; su descubrimiento fue confirmado en una sesion reiniciada de OpenCode.
 - Skill local `data-modeling` disponible para disenar y revisar el modelo centralizado; su descubrimiento, ruta y frontmatter fueron confirmados en una nueva sesion de OpenCode.
 - Skill local `provider-integration` disponible para estandarizar connectors, Raw/STG, contratos y seguridad de proveedores; su descubrimiento fue confirmado en OpenCode.
@@ -23,12 +24,15 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - Python 3.14.5 y sus dependencias quedan bloqueados en `.python-version` y `requirements.lock`; existe CI para backend y frontend.
 - El resumen operativo de VirtualPOS prioriza recursos, indicadores, estados y tendencias. Su estado de sincronizacion proviene del ultimo `SyncRun` de sus dos cuentas y no presenta una consolidacion pendiente como hecho.
 - Los dashboards de frontend usan caché en memoria con TTL de cinco minutos y deduplicación de solicitudes; la navegación reutiliza resultados válidos y las sincronizaciones invalidan la caché. TCH normaliza sus colecciones de resumen antes del render para tolerar series ausentes; el diferimiento de gráficos mensuales queda pendiente de una extracción segura de vistas.
+- La SPA usa rutas navegables para la operación consolidada, canales, administración, perfil y fichas de VirtualPOS, Toku y Payku. Las fichas de proveedor usan identificadores externos; las fichas que hoy dependen de RUT conservan navegación interna hasta disponer de identificadores no personales. La URL se sincroniza con la vista, historial y permisos visibles sin cambiar contratos API ni controles de FastAPI.
+- Los listados consolidado y de proveedores conservan su estado operativo seguro en query parameters: paginación, campo seleccionado, estado, orden y cuenta VirtualPOS. Los términos de búsqueda no se incluyen para evitar exponer atributos personales en URL.
+- Las fichas de suscripción TCH usan `numero_ficha` de DUES en la ruta. Es un identificador único de la proyección TCH y no expone atributos personales.
 
 ## En progreso
 
 - Tareas operativas registradas en [tasks.md](../tasks.md), incluidas Payku, Toku, administracion de usuarios y un flujo de VirtualPOS.
 - Los dashboards operativos de VirtualPOS, Toku, Payku y TCH tienen paridad de KPIs, distribuciones, altas/bajas, series de suscripciones activas, churn y alertas usando solamente los campos verificables de cada fuente. Toku usa transacciones reales para su comparación con suscripciones; Payku mantiene su límite de cobertura histórica; TCH se basa en su proyección ETL.
-- Payku reconoce el identificador histórico `transaction` cuando su payload no trae `id`. La reconstrucción local `scripts/backfill_payku_transactions.py` materializa transacciones ya preservadas en `source_records` hacia `p_transactions`; luego el ETL normal las proyecta a `payments`, restaurando los años y la actividad mensual verificables del dashboard.
+- Payku reconoce el identificador histórico `transaction` cuando su payload no trae `id`. La reconstrucción local `scripts/maintenance/backfill_payku_transactions.py` materializa transacciones ya preservadas en `source_records` hacia `p_transactions`; luego el ETL normal las proyecta a `payments`, restaurando los años y la actividad mensual verificables del dashboard.
 
 ## Pendiente
 
@@ -59,10 +63,10 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 
 ## Deuda tecnica conocida
 
-- La base actual no supera CI: `pytest` presenta 7 fallos y `ruff check app tests alembic scripts` reporta 74 hallazgos; requieren una tarea dedicada sin mezclar cambios funcionales en curso.
+- La base actual no supera CI: `pytest` presenta 7 fallos y `ruff check app tests alembic scripts` reporta 62 hallazgos; requieren una tarea dedicada sin mezclar cambios funcionales en curso.
 - Documentos historicos de arquitectura y ETL son antecedentes y pueden no reflejar la arquitectura vigente.
 - Auditoria 2026-10-01: Payku no certifica cobertura historica de transacciones y TCH requiere ampliar su cobertura ETL mas alla de la suite focalizada inicial. Estos limites deben considerarse al usar sus metricas como evidencia completa.
-- El frontend concentra navegacion, estado, carga de datos, dashboards y exploradores en `frontend/src/App.tsx`. Las alertas operativas se extrajeron a `frontend/src/features/dashboard/OperationalAlerts.tsx`, reutilizado por todos los canales; la modularización restante debe preservar permisos y contratos API por canal.
+- El frontend concentra estado, carga de datos, dashboards y exploradores en `frontend/src/App.tsx`. La resolución de rutas se extrajo a `frontend/src/routes.ts` y las alertas operativas a `frontend/src/features/dashboard/OperationalAlerts.tsx`; la modularización restante debe preservar permisos y contratos API por canal.
 - Auditoria 2026-10-01: VirtualPOS conserva los cargos embebidos en suscripciones porque los pagos no incluyen una referencia que permita unirlos 1:1. La conciliacion actual solo puede ser agregada por plataforma, estado y monto. Payku sincroniza transacciones embebidas, sin certificar cobertura historica. El ETL TCH sanea Raw y su modo `full` es atomico; su suite focalizada inicial esta disponible.
 - VirtualPOS materializa solo los `source_records` que cambiaron durante la sincronizacion. Antes releia y rematerializaba todo el historial de la plataforma, lo que degradaba las sincronizaciones y bloqueaba sus pruebas contra bases con datos reales.
 - DB-02 y DB-03 confirmadas: la instancia efectiva es PostgreSQL 17 en `localhost:5433/crm`, persiste en `crm_projectotitulo_postgres_data` y esta en Alembic `20261001_0023` (`head`). La migracion reconcilio imports, metadata e indices; `alembic check` no detecta operaciones pendientes y las estadisticas TCH se actualizaron.

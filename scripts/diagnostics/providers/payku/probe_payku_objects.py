@@ -1,7 +1,9 @@
 """Sondea todos los endpoints de Payku para mapear objetos, conteos y paginacion."""
 import asyncio
 import sys
-sys.path.insert(0, ".")
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 from app.integrations.payku.client import PaykuClient
 

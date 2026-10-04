@@ -4,9 +4,14 @@ Hipótesis principal: list_subscriptions() de la API no devuelve suscripciones
 canceladas, por lo que sus cargos nunca se descargan, pero sus pagos PAT sí
 aparecen en el endpoint global /v3/payments.
 """
-import json
-from app.db.session import SessionLocal
+import sys
+from pathlib import Path
+
 from sqlalchemy import text
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+
+from app.db.session import SessionLocal
 
 db = SessionLocal()
 

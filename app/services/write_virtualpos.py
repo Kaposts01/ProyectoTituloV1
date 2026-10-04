@@ -559,7 +559,7 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
     db.commit()
 
     try:
-        # BDlocales ya no forma parte del flujo en vivo (ver docs/PLAN_CONSOLIDACION_BDLOCAL.md);
+        # BDlocales ya no forma parte del flujo en vivo (ver docs/history/migrations/bdlocales-consolidation-closed.md);
         # basta con reconciliar SourceRecord (staging) y la entidad centralizada.
         source_record = db.scalar(
             select(SourceRecord).where(
@@ -744,7 +744,7 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
 
     try:
         # No se escribe en BDlocales: esa base quedó fuera del flujo en vivo tras la
-        # consolidación (ver docs/PLAN_CONSOLIDACION_BDLOCAL.md) y su esquema real ya
+        # consolidación (ver docs/history/migrations/bdlocales-consolidation-closed.md) y su esquema real ya
         # no tiene las columnas platform/remote_id/raw_payload que este write asumía.
         # Basta con reconciliar el registro tocado en SourceRecord (staging) y en la
         # entidad centralizada; no hace falta resincronizar todo el canal.
@@ -912,7 +912,7 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None) -
     db.commit()
 
     try:
-        # BDlocales ya no forma parte del flujo en vivo (ver docs/PLAN_CONSOLIDACION_BDLOCAL.md);
+        # BDlocales ya no forma parte del flujo en vivo (ver docs/history/migrations/bdlocales-consolidation-closed.md);
         # basta con reconciliar SourceRecord (staging) y la entidad centralizada.
         source_record = db.scalar(
             select(SourceRecord).where(

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 # Direct execution places scripts/ first on sys.path; add the project root for app imports.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 from app.integrations.virtualpos.client import VirtualPOSClient
 
