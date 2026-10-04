@@ -25,6 +25,21 @@ from app.services.channel_store import (
 )
 
 
+def test_cstg_exposes_virtualpos_charge_subscription_id() -> None:
+    record = SimpleNamespace(
+        id="charge-1",
+        source="virtualpos1",
+        external_id="charge-1",
+        raw_payload={"id": "charge-1"},
+        subscription_external_id="subscription-1",
+        updated_at=None,
+    )
+
+    result = staging._cstg(record, "charge")
+
+    assert result["payload"]["subscription_id"] == "subscription-1"
+
+
 @pytest.fixture
 def db_session():
     connection = engine.connect()
@@ -86,6 +101,28 @@ def test_virtualpos_records_filter_by_operational_fields_and_order_dates(db_sess
     assert "plan-2" not in active_plan_ids
     assert charge_ids.index("charge-new") < charge_ids.index("charge-old")
     assert payment_ids.index("payment-new") < payment_ids.index("payment-old")
+
+
+def test_virtualpos_charge_subscription_filter_falls_back_to_raw_payload(db_session) -> None:
+    db_session.add(
+        Charge(
+            source="virtualpos1",
+            external_id="legacy-charge",
+            subscription_external_id=None,
+            raw_payload={"suscription_id": "legacy-subscription"},
+        )
+    )
+    db_session.flush()
+
+    response = staging.list_records(
+        source="virtualpos",
+        resource_type="charge",
+        filter_field="subscription_id",
+        query="legacy-subscription",
+        db=db_session,
+    )
+
+    assert [item["external_id"] for item in response["items"]] == ["legacy-charge"]
 
 
 def test_status_filter_values_include_records_outside_the_current_page(db_session) -> None:

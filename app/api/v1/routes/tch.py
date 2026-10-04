@@ -1,13 +1,25 @@
+import logging
+import tempfile
 import uuid
+import zipfile
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from sqlalchemy import Numeric, case, cast, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.staging import _channel_alerts
-from app.core.security import require_permissions
+from app.core.security import require_csrf, require_permissions, require_role
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.models.tch import (
@@ -18,12 +30,44 @@ from app.models.tch import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _TCH_PAID = {"aceptada", "aceptado", "pagada", "pagado", "cobrada", "cobrado", "aprobada", "aprobado"}
+_MAX_REPORT_BYTES = 250 * 1024 * 1024
+_MAX_REPORT_ARCHIVE_ENTRIES = 1_000
+_MAX_REPORT_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
 
 
 def _get_db() -> Session:
     return SessionLocal()
+
+
+def _import_report_background(run_id: str, report_path: str) -> None:
+    """Processes the isolated upload and removes it whether the ETL succeeds or fails."""
+    try:
+        from scripts import etl_tch
+
+        etl_tch.import_incremental_file(Path(report_path), uuid.UUID(run_id))
+    except Exception:
+        logger.exception("La importación del reporte TCH falló (run_id=%s)", run_id)
+    finally:
+        Path(report_path).unlink(missing_ok=True)
+
+
+def _validate_xlsx_archive(path: Path) -> None:
+    """Reject malformed or disproportionately expanded XLSX archives before ETL."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = archive.infolist()
+            if len(entries) > _MAX_REPORT_ARCHIVE_ENTRIES:
+                raise ValueError("El reporte contiene demasiados archivos internos.")
+            if sum(entry.file_size for entry in entries) > _MAX_REPORT_UNCOMPRESSED_BYTES:
+                raise ValueError("El reporte supera el tamaño descomprimido permitido.")
+            names = {entry.filename for entry in entries}
+            if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
+                raise ValueError("El archivo no contiene una estructura XLSX válida.")
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise ValueError("El archivo no es un reporte XLSX válido.") from exc
 
 
 def _tch_last_paid_map(db: Session, fichas: list[int]) -> dict[int, str]:
@@ -515,6 +559,64 @@ def get_transaccion(transaction_id: uuid.UUID) -> dict:
         return data
     finally:
         db.close()
+
+
+@router.post(
+    "/import-report",
+    dependencies=[Depends(require_role("admin")), Depends(require_csrf)],
+    tags=["TCH"],
+    status_code=202,
+)
+async def import_report(
+    background_tasks: BackgroundTasks,
+    report: Annotated[UploadFile, File(description="Reporte Excel TCH (.xlsx)")],
+) -> dict:
+    """Imports one TCH report incrementally from an administrator-only upload."""
+    filename = report.filename or ""
+    if Path(filename).suffix.lower() != ".xlsx":
+        raise HTTPException(status_code=422, detail="Seleccione un reporte Excel .xlsx.")
+
+    temporary_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="synkmetrix-tch-", suffix=".xlsx", delete=False) as temporary:
+            temporary_path = temporary.name
+            size = 0
+            while chunk := await report.read(1024 * 1024):
+                size += len(chunk)
+                if size > _MAX_REPORT_BYTES:
+                    raise HTTPException(status_code=413, detail="El reporte supera el tamaño máximo permitido.")
+                temporary.write(chunk)
+    except Exception:
+        if temporary_path:
+            Path(temporary_path).unlink(missing_ok=True)
+        raise
+    finally:
+        await report.close()
+
+    db = _get_db()
+    try:
+        active = db.scalar(select(EtlRun).where(EtlRun.status == "running").limit(1))
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ya hay una sincronización activa (run_id={active.id}). Espera a que termine.",
+            )
+        try:
+            _validate_xlsx_archive(Path(temporary_path))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        run = EtlRun(status="running", channels_processed=["tch"], records_upserted=0, phase="tch_import")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+    except Exception:
+        Path(temporary_path).unlink(missing_ok=True)
+        raise
+    finally:
+        db.close()
+
+    background_tasks.add_task(_import_report_background, str(run.id), temporary_path)
+    return {"run_id": str(run.id), "status": "accepted"}
 
 
 @router.get(

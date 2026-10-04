@@ -986,6 +986,30 @@ def _finish_run(db, run: EtlRun, total: int, error: str | None = None) -> None:
     db.commit()
 
 
+def import_incremental_file(filepath: Path, run_id=None) -> int:
+    """Carga un reporte TCH individual y deja el resultado trazado en ``etl_runs``."""
+    db = SessionLocal()
+    run = None
+    total = 0
+    try:
+        run = db.get(EtlRun, run_id) if run_id else _start_run(db)
+        if run is None:
+            raise ValueError("Ejecución ETL no encontrada")
+        run.phase = "tch_import"
+        db.commit()
+        totals = _process_file(filepath, db, set())
+        total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
+        _finish_run(db, run, total)
+        return total
+    except Exception as exc:
+        db.rollback()
+        if run is not None:
+            _finish_run(db, run, total, error=_safe_error_message(exc))
+        raise
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Punto de entrada
 # ---------------------------------------------------------------------------

@@ -1471,6 +1471,8 @@ def _cstg(record: Any, rtype: str, extra: dict | None = None) -> dict[str, Any]:
     payload = dict(record.raw_payload or {})
     if rtype == "client" and getattr(record, "private_note", None):
         payload["private_note"] = record.private_note
+    if rtype == "charge" and getattr(record, "subscription_external_id", None):
+        payload["subscription_id"] = record.subscription_external_id
     result: dict[str, Any] = {
         "id": str(record.id),
         "source": record.source,
@@ -1576,7 +1578,7 @@ def _vp_filter(model: Any, rtype: str, ff: str, q: str):
         "charge": {
             "id": func.coalesce(r["id"].astext, model.external_id),
             "status": r["status"].astext,
-            "subscription_id": r["suscription_id"].astext,
+            "subscription_id": func.coalesce(model.subscription_external_id, r["suscription_id"].astext),
             "amount": r["amount"].astext,
             "charge_date": r["charge_date"].astext,
         },
@@ -1740,7 +1742,7 @@ def _vp_sort_field(model: Any, rtype: str, field_name: str):
         "client": {"uuid": func.coalesce(raw["uuid"].astext, model.external_id), "social_id": raw["social_id"].astext, "name": func.concat_ws(" ", raw["first_name"].astext, raw["last_name"].astext), "email": raw["email"].astext, "phone_number": raw["phone_number"].astext, "status": raw["status"].astext},
         "plan": {"id": func.coalesce(raw["id"].astext, model.external_id), "name": raw["name"].astext, "amount": raw["amount"].astext, "automatic_renewal": raw["automatic_renewal"].astext, "is_active": raw["is_active"].astext, "show_in_terminal": raw["show_in_terminal"].astext},
         "subscription": {"id": func.coalesce(raw["id"].astext, model.external_id), "status": raw["status"].astext, "social_id": raw["client"]["social_id"].astext, "amount": raw["amount"].astext, "suscription_date": raw["suscription_date"].astext, "canceled_at": raw["canceled_at"].astext},
-        "charge": {"id": func.coalesce(raw["id"].astext, model.external_id), "status": raw["status"].astext, "subscription_id": raw["suscription_id"].astext, "amount": raw["amount"].astext, "charge_date": raw["charge_date"].astext},
+        "charge": {"id": func.coalesce(raw["id"].astext, model.external_id), "status": raw["status"].astext, "subscription_id": func.coalesce(model.subscription_external_id, raw["suscription_id"].astext), "amount": raw["amount"].astext, "charge_date": raw["charge_date"].astext},
         "payment": {"uuid": func.coalesce(raw["order"]["uuid"].astext, model.external_id), "status": raw["order"]["status"].astext, "social_id": raw["client"]["social_id"].astext, "amount": raw["order"]["amount"].astext, "authorized_at": raw["order"]["authorized_at"].astext},
     }
     field = fields.get(rtype, {}).get(field_name)

@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
 import "./App.css";
 import "./Staging.css";
@@ -6,6 +6,7 @@ import { ActivacionCaidaChart, ChurnMensualChart, CrecimientoMensualChart, Month
 import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
+import { parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
 
 const ChannelActivityChart = lazy(() => import("./ChannelActivityChart"));
 
@@ -47,7 +48,7 @@ type StagingRecord = {
   secondary_status?: string;
 };
 type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
-type ProviderSection = { source: string; resource: string; label: string };
+type ProviderSection = { source: ProviderSource; resource: string; label: string };
 type TableColumn = { label: string; value: (record: StagingRecord) => string };
 type Activity = { year: number; month: number; count: number; amount: number };
 type RecoveryRow = Record<string, unknown> & { source?: string; external_id?: string; subscription_id?: string; id?: string };
@@ -800,6 +801,17 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return jsonResponse<T>(response);
 }
 
+async function postForm<T>(path: string, body: FormData): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
+    body,
+  });
+  await checkResponse(response);
+  return jsonResponse<T>(response);
+}
+
 async function downloadFile(path: string, filename: string): Promise<void> {
   const response = await fetch(path, { credentials: "include" });
   await checkResponse(response);
@@ -1098,11 +1110,6 @@ function virtualPosColumns(resource: string): TableColumn[] {
   const plataforma: TableColumn = { label: "Plataforma", value: vpPlatformLabel };
   if (resource === "client")
     return [
-      plataforma,
-      {
-        label: "UUID",
-        value: (record) => text(record.payload.uuid, record.external_id),
-      },
       { label: "RUT", value: (record) => text(record.payload.social_id) },
       {
         label: "Nombre",
@@ -1115,16 +1122,12 @@ function virtualPosColumns(resource: string): TableColumn[] {
         label: "Telefono",
         value: (record) => text(record.payload.phone_number),
       },
+      plataforma,
       { label: "Estado", value: (record) => text(record.payload.status) },
       { label: "Acciones", value: () => "Editar" },
     ];
   if (resource === "plan")
     return [
-      plataforma,
-      {
-        label: "ID",
-        value: (record) => text(record.payload.id, record.external_id),
-      },
       { label: "Nombre", value: (record) => text(record.payload.name) },
       { label: "Monto", value: (record) => text(record.payload.amount) },
       {
@@ -1136,18 +1139,13 @@ function virtualPosColumns(resource: string): TableColumn[] {
         label: "Activo en POS",
         value: (record) => active(record.payload.show_in_terminal),
       },
+      plataforma,
     ];
   if (resource === "subscription")
     return [
-      plataforma,
-      {
-        label: "ID",
-        value: (record) => text(record.payload.id, record.external_id),
-      },
+      { label: "RUT cliente", value: clientRut },
       { label: "Estado", value: (record) => text(record.payload.status) },
       { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
-      { label: "Último cobro", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "—" },
-      { label: "RUT cliente", value: clientRut },
       { label: "Monto", value: (record) => text(record.payload.amount) },
       {
         label: "F. Inicio",
@@ -1157,44 +1155,37 @@ function virtualPosColumns(resource: string): TableColumn[] {
         label: "F. Cancelacion",
         value: (record) => text(record.payload.canceled_at),
       },
+      { label: "Último cobro", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "—" },
+      plataforma,
       { label: "Acciones", value: () => "Cancelar" },
     ];
   if (resource === "charge")
     return [
-      plataforma,
+      { label: "ID subscripción", value: (record) => text(record.payload.subscription_id ?? record.payload.suscription_id) },
       {
         label: "Fecha de cargo",
         value: (record) => text(record.payload.charge_date),
       },
-      {
-        label: "ID",
-        value: (record) => text(record.payload.id, record.external_id),
-      },
       { label: "Estado", value: (record) => text(record.payload.status) },
-      { label: "ID subscripción", value: (record) => text(record.payload.suscription_id) },
       { label: "Monto", value: (record) => text(record.payload.amount) },
+      plataforma,
       { label: "Acciones", value: () => "Eliminar" },
     ];
   return [
-    plataforma,
+    { label: "RUT cliente", value: clientRut },
     {
       label: "F. Pago",
       value: (record) => text(nested(record.payload, "order", "authorized_at")),
     },
     {
-      label: "UUID",
-      value: (record) =>
-        text(nested(record.payload, "order", "uuid") ?? record.external_id),
+      label: "Monto",
+      value: (record) => text(nested(record.payload, "order", "amount")),
     },
     {
       label: "Estado",
       value: (record) => text(nested(record.payload, "order", "status")),
     },
-    { label: "RUT cliente", value: clientRut },
-    {
-      label: "Monto",
-      value: (record) => text(nested(record.payload, "order", "amount")),
-    },
+    plataforma,
     { label: "Acciones", value: () => "Eliminar" },
   ];
 }
@@ -1440,7 +1431,7 @@ function Sidebar({
   generalView: "summary" | "clients" | "subscriptions";
   onGeneralClients: () => void;
   onGeneralSubscriptions: () => void;
-  onChannel: (source: string) => void;
+  onChannel: (source: ProviderSource) => void;
   onSection: (section: ProviderSection) => void;
   onToggle: (provider: string) => void;
   onTheme: () => void;
@@ -1642,8 +1633,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
   return <main className="login-shell"><section className="panel login-panel"><p className="eyebrow">CRM SUSCRIPCIONES</p><h1>Iniciar sesión</h1><form className="login-form" onSubmit={submit}><label>Usuario<input name="username" required autoComplete="username" /></label><label>Contraseña<input name="password" type="password" required autoComplete="current-password" /></label><button className="save-button" disabled={submitting}>{submitting ? "Ingresando..." : "Ingresar"}</button></form>{error ? <p className="error-message">{error}</p> : null}</section></main>;
 }
 
-function ProfilePanel({ user, onUpdated, onClose }: { user: AuthUser; onUpdated: (user: AuthUser) => void; onClose: () => void }) {
-  const [editing, setEditing] = useState(false);
+function ProfilePanel({ user, editing, onUpdated, onClose, onEdit, onCancelEdit }: { user: AuthUser; editing: boolean; onUpdated: (user: AuthUser) => void; onClose: () => void; onEdit: () => void; onCancelEdit: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -1669,7 +1659,7 @@ function ProfilePanel({ user, onUpdated, onClose }: { user: AuthUser; onUpdated:
       const result = await patchJson<{ user: AuthUser }>("/api/v1/auth/me", body);
       onUpdated(result.user);
       setSuccess("Perfil actualizado correctamente.");
-      setEditing(false);
+      onCancelEdit();
       event.currentTarget.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo actualizar el perfil.");
@@ -1712,7 +1702,7 @@ function ProfilePanel({ user, onUpdated, onClose }: { user: AuthUser; onUpdated:
         </div>
         {success && !editing && <p className="profile-success">{success}</p>}
         {!editing ? (
-          <button className="edit-button" style={{ marginTop: "1rem" }} onClick={() => { setSuccess(null); setError(null); setEditing(true); }}>
+          <button className="edit-button" style={{ marginTop: "1rem" }} onClick={() => { setSuccess(null); setError(null); onEdit(); }}>
             Editar perfil
           </button>
         ) : (
@@ -1737,7 +1727,7 @@ function ProfilePanel({ user, onUpdated, onClose }: { user: AuthUser; onUpdated:
             {error && <p className="profile-error" style={{ gridColumn: "1 / -1" }}>{error}</p>}
             <div className="profile-form-actions" style={{ gridColumn: "1 / -1" }}>
               <button className="save-button" type="submit" disabled={saving}>{saving ? "Guardando..." : "Guardar cambios"}</button>
-              <button className="cancel-btn" type="button" onClick={() => { setEditing(false); setError(null); }}>Cancelar</button>
+              <button className="cancel-btn" type="button" onClick={() => { setError(null); onCancelEdit(); }}>Cancelar</button>
             </div>
           </form>
         )}
@@ -1815,11 +1805,11 @@ function runTypeLabel(channels: string[] | null): string {
   const hasAllApi = apiChannels.every((c) => channels.includes(c));
   if (hasAllApi && channels.includes("tch")) return "Sync completa";
   if (hasAllApi) return "Sync completa";
-  if (channels.length === 1 && channels[0] === "tch") return "TCH (rematerialización)";
+  if (channels.length === 1 && channels[0] === "tch") return "TCH (importación)";
   return channels.map((c) => map[c] ?? c).join(" + ");
 }
 
-function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRuns: boolean }) {
+function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boolean; canViewRuns: boolean; canImportTch: boolean }) {
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [runs, setRuns] = useState<{ total: number; items: EtlRun[] }>({ total: 0, items: [] });
   const [runsOffset, setRunsOffset] = useState(0);
@@ -1835,6 +1825,7 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
   const [triggeredChannels, setTriggeredChannels] = useState<string[] | null | undefined>(undefined);
 
   const activeRunIdRef = useRef<string | null>(null);
+  const reportInputRef = useRef<HTMLInputElement>(null);
   activeRunIdRef.current = activeRunId;
 
   function refreshData() {
@@ -1896,7 +1887,12 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
       }
       const ev: SseEvent = JSON.parse(e.data as string);
       setSseEvents((prev) => [...prev, ev]);
-      if (ev.type === "completed" || ev.type === "error" || ev.type === "not_found") {
+      if (ev.type === "not_found") {
+        es.close();
+        startPolling();
+        return;
+      }
+      if (ev.type === "completed" || ev.type === "error") {
         es.close();
         if (ev.type === "completed") invalidateCache();
         setTimeout(refreshData, 800);
@@ -1928,6 +1924,26 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
       setTimeout(refreshData, 600);
     } catch (err) {
       setTriggerError(friendlyError(err, "No se pudo iniciar la sincronización."));
+    } finally {
+      setTriggering(false);
+    }
+  }
+
+  async function importTchReport(event: ChangeEvent<HTMLInputElement>) {
+    const report = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!report || triggering) return;
+    setTriggeredChannels(["tch"]);
+    setTriggering(true);
+    setTriggerError(null);
+    try {
+      const form = new FormData();
+      form.append("report", report);
+      const response = await postForm<{ run_id: string }>("/api/v1/tch/import-report", form);
+      setActiveRunId(response.run_id);
+      setTimeout(refreshData, 600);
+    } catch (err) {
+      setTriggerError(friendlyError(err, "No se pudo importar el reporte TCH."));
     } finally {
       setTriggering(false);
     }
@@ -2022,7 +2038,7 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
         <div className="channel-selector-wrap">
           <span className="channel-selector-label">Canal:</span>
           <div className="channel-selector">
-            {CHANNEL_OPTS.map((opt) => (
+            {CHANNEL_OPTS.filter((opt) => opt.key !== "tch" || canImportTch).map((opt) => (
               <button
                 key={opt.key}
                 className={`channel-btn${selectedChannelKey === opt.key ? " active" : ""}`}
@@ -2078,7 +2094,14 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
             </div>
           ) : null}
           <div className="sjc-actions">
-            {canSync && !isRunning ? (
+            {selectedChannelKey === "tch" && canImportTch && !isRunning ? (
+              <>
+                <input ref={reportInputRef} type="file" accept=".xlsx" hidden onChange={importTchReport} />
+                <button className="save-button sjc-btn" disabled={triggering} onClick={() => reportInputRef.current?.click()}>
+                  {triggering ? "Importando…" : "Importar reporte"}
+                </button>
+              </>
+            ) : canSync && !isRunning ? (
               <button className="save-button sjc-btn" disabled={triggering} onClick={triggerSync}>
                 {triggering
                   ? "Iniciando…"
@@ -2252,12 +2275,12 @@ function SchedulerPanel({ canSync, canViewRuns }: { canSync: boolean; canViewRun
   );
 }
 
-function AdminPanel({ permissions, tab }: { permissions: string[]; tab: "usuarios" | "sincronizacion" }) {
+function AdminPanel({ permissions, isAdmin, tab }: { permissions: string[]; isAdmin: boolean; tab: "usuarios" | "sincronizacion" }) {
   return (
     <main className="app-shell">
       {tab === "usuarios"
         ? <AdminUsers canManageUsers={permissions.includes("users.manage")} />
-        : <SchedulerPanel canSync={permissions.includes("sync.run")} canViewRuns={permissions.includes("sync_runs.view")} />
+        : <SchedulerPanel canSync={permissions.includes("sync.run")} canViewRuns={permissions.includes("sync_runs.view")} canImportTch={isAdmin} />
       }
     </main>
   );
@@ -2902,6 +2925,7 @@ function applyChargeFilter(data: ChargeEntry[], filter: "todas" | "pagada" | "re
 
 function App() {
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
+  const [routeLocation, setRouteLocation] = useState(() => window.location.pathname + window.location.search);
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminTab, setAdminTab] = useState<"usuarios" | "sincronizacion">("usuarios");
   const [summary, setSummary] = useState<Summary>({ sources: [] });
@@ -3049,7 +3073,7 @@ function App() {
   const [tchTransaccionDetail, setTchTransaccionDetail] = useState<TchTransaccionDetail | null>(null);
   const [tchClienteDetail, setTchClienteDetail] = useState<TchClienteDetail | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileView, setProfileView] = useState<"summary" | "edit" | null>(null);
   const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
   const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
   const debouncedFilterQuery = useDebouncedValue(filterQuery);
@@ -3071,7 +3095,7 @@ function App() {
   const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
 
   useEffect(() => {
-    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileOpen) return;
+    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileView) return;
     let mounted = true;
     getCachedOrFetch("staging:summary", 5 * 60 * 1000, () => getJson<Summary>("/api/v1/staging/summary"))
       .then((data) => {
@@ -3087,10 +3111,10 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileOpen]);
+  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileView]);
 
   useEffect(() => {
-    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileOpen) return;
+    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileView) return;
     let mounted = true;
     getCachedOrFetch("dashboard:general", 5 * 60 * 1000, () => getJson<GeneralDashboard>("/api/v1/staging/dashboard/general"))
       .then((data) => {
@@ -3105,7 +3129,7 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileOpen, lastEtlRun?.finished_at]);
+  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileView, lastEtlRun?.finished_at]);
 
   useEffect(() => {
     if (!session || generalView !== "clients") return;
@@ -3948,17 +3972,64 @@ function App() {
     }
   }
 
-  function showAdmin(view: "usuarios" | "sincronizacion") {
+  function navigate(route: AppRoute, replace = false) {
+    const path = routePath(route);
+    if (window.location.pathname !== path) {
+      window.history[replace ? "replaceState" : "pushState"]({}, "", path);
+    }
+    setRouteLocation(path);
+  }
+
+  function replaceListSearch(params: URLSearchParams) {
+    const search = params.toString();
+    const location = `${window.location.pathname}${search ? `?${search}` : ""}`;
+    if (window.location.pathname + window.location.search !== location) {
+      window.history.replaceState({}, "", location);
+    }
+  }
+
+  function listOffset(params: URLSearchParams) {
+    const value = Number(params.get("offset") ?? "0");
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  }
+
+  function canAccessRoute(route: AppRoute) {
+    if (route.kind === "central") return can("dashboard.view");
+    if (route.kind === "resource" || route.kind === "record") return can(resourcePermission(route.source, route.resource));
+    if (route.kind === "channel") {
+      return providerGroups.find((group) => group.sections[0].source === route.source)?.sections.some((section) => can(resourcePermission(section.source, section.resource))) ?? false;
+    }
+    if (route.kind === "recovery") return can("virtualpos.recovery.view");
+    if (route.kind === "tchSubscription") return can("tch.suscripciones.view");
+    if (route.kind === "tch") return route.view === "summary"
+      ? can("tch.dashboard.view")
+      : can(`tch.${route.view}.view`);
+    if (route.kind === "admin") return route.view === "usuarios"
+      ? can("users.manage") || can("roles.manage")
+      : can("sync_runs.view") || can("sync.run");
+    return true;
+  }
+
+  function fallbackRoute() {
+    if (can("dashboard.view")) return { kind: "central", view: "summary" } as const;
+    const section = providerGroups.flatMap((group) => group.sections).find((entry) => can(resourcePermission(entry.source, entry.resource)));
+    return section
+      ? { kind: "resource", source: section.source, resource: section.resource } as const
+      : { kind: "profile", view: "summary" } as const;
+  }
+
+  function showAdmin(view: "usuarios" | "sincronizacion", updateUrl = true) {
     clearDetails();
     setChannel(null);
     setActiveSection(null);
     setTchView(null);
     setAdminOpen(true);
     setAdminTab(view);
-    setProfileOpen(false);
+    setProfileView(null);
+    if (updateUrl) navigate({ kind: "admin", view });
   }
 
-  function showDashboard() {
+  function showDashboard(updateUrl = true) {
     setAdminOpen(false);
     setRecoveryOpen(false);
     clearDetails();
@@ -3968,19 +4039,23 @@ function App() {
     setGeneralView("summary");
     setGeneralClientDetail(null);
     setError(null);
+    setProfileView(null);
+    if (updateUrl) navigate({ kind: "central", view: "summary" });
   }
 
-  function showGeneralClients() {
-    showDashboard();
+  function showGeneralClients(updateUrl = true) {
+    showDashboard(false);
     setGeneralView("clients");
+    if (updateUrl) navigate({ kind: "central", view: "clients" });
   }
 
-  function showGeneralSubscriptions() {
-    showDashboard();
+  function showGeneralSubscriptions(updateUrl = true) {
+    showDashboard(false);
     setGeneralView("subscriptions");
+    if (updateUrl) navigate({ kind: "central", view: "subscriptions" });
   }
 
-  function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones") {
+  function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones", updateUrl = true) {
     clearDetails();
     setChannel(null);
     setActiveSection(null);
@@ -3992,11 +4067,16 @@ function App() {
     setTchClienteDetail(null);
     setTchView(view);
     setOpenProvider("TCH");
+    setProfileView(null);
+    if (updateUrl) navigate({ kind: "tch", view });
   }
 
-  function showTchSuscripcion(numeroFicha: number) {
-    setTchClienteDetail(null);
-    setTchTransaccionDetail(null);
+  function showTchSuscripcion(numeroFicha: number, updateUrl = true) {
+    if (updateUrl) {
+      navigate({ kind: "tchSubscription", numeroFicha });
+      return;
+    }
+    showTch("suscripciones", false);
     setTchSuscripcionDetail({ numero_ficha: numeroFicha } as TchSuscripcionDetail);
     setTchView("suscripcion-detalle");
   }
@@ -4015,11 +4095,12 @@ function App() {
     setTchView("cliente-detalle");
   }
 
-  function showChannel(source: string) {
+  function showChannel(source: ProviderSource, updateUrl = true) {
     clearDetails();
     setActiveSection(null);
     setTchView(null);
     setRecoveryOpen(false);
+    setAdminOpen(false);
     const cached = getCached<ChannelDashboard>(`dashboard:${source}`, 5 * 60 * 1000);
     setChannelData(cached);
     setChannelLoading(!cached);
@@ -4027,6 +4108,8 @@ function App() {
     setYear(null);
     setChannel(source);
     setOpenProvider(title(source));
+    setProfileView(null);
+    if (updateUrl) navigate({ kind: "channel", source });
   }
   function _pollEtlRun(run_id: string) {
     const poll = setInterval(() => {
@@ -4088,10 +4171,11 @@ function App() {
       .catch((err: unknown) => setError(friendlyError(err, "Error al sincronizar el canal.")))
       .finally(() => setSyncing(false));
   }
-  function showSection(section: ProviderSection) {
+  function showSection(section: ProviderSection, updateUrl = true) {
     clearDetails();
     setChannel(null);
     setRecoveryOpen(false);
+    setAdminOpen(false);
     setLoading(true);
     setError(null);
     setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
@@ -4102,6 +4186,8 @@ function App() {
     if (section.source === "virtualpos") setVpPlatform("all");
     setActiveSection(section);
     setOpenProvider(title(section.source));
+    setProfileView(null);
+    if (updateUrl) navigate({ kind: "resource", source: section.source, resource: section.resource });
   }
   function openChannelResource(resource: string) {
     const section = providerGroups
@@ -4110,7 +4196,15 @@ function App() {
     if (section) showSection(section);
   }
 
-  function showRecovery() {
+  function showResourceList(source: ProviderSource, resource: string) {
+    const section = providerGroups
+      .flatMap((group) => group.sections)
+      .find((entry) => entry.source === source && entry.resource === resource);
+    if (section) showSection(section);
+    else showDashboard();
+  }
+
+  function showRecovery(updateUrl = true) {
     clearDetails();
     setChannel(null);
     setActiveSection(null);
@@ -4124,7 +4218,26 @@ function App() {
     setRecoveryOffset(0);
     setRecoverySelected(new Set());
     setCardLink(null);
+    setProfileView(null);
+    if (updateUrl) navigate({ kind: "recovery" });
   }
+
+  function showProfile(view: "summary" | "edit", updateUrl = true) {
+    clearDetails();
+    setChannel(null);
+    setActiveSection(null);
+    setTchView(null);
+    setRecoveryOpen(false);
+    setAdminOpen(false);
+    setProfileView(view);
+    if (updateUrl) navigate({ kind: "profile", view });
+  }
+
+  useEffect(() => {
+    const onPopState = () => setRouteLocation(window.location.pathname + window.location.search);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   async function loadRecoveryRows(offset = recoveryOffset) {
     setRecoveryLoading(true);
@@ -4224,7 +4337,11 @@ function App() {
       setRecoverySubmitting(false);
     }
   }
-  async function openVirtualPosClient(record: StagingRecord) {
+  async function openVirtualPosClient(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
+    if (updateUrl) {
+      navigate({ kind: "record", source: "virtualpos", resource: "client", externalId: record.external_id });
+      return;
+    }
     setPlanDetail(null);
     setSubscriptionDetail(null);
     setChargeDetail(null);
@@ -4243,7 +4360,11 @@ function App() {
       setDetailLoading(false);
     }
   }
-  async function openVirtualPosPlan(record: Pick<StagingRecord, "external_id">) {
+  async function openVirtualPosPlan(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
+    if (updateUrl) {
+      navigate({ kind: "record", source: "virtualpos", resource: "plan", externalId: record.external_id });
+      return;
+    }
     setClientDetail(null);
     setSubscriptionDetail(null);
     setChargeDetail(null);
@@ -4262,7 +4383,11 @@ function App() {
       setDetailLoading(false);
     }
   }
-  async function openVirtualPosSubscription(record: StagingRecord) {
+  async function openVirtualPosSubscription(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
+    if (updateUrl) {
+      navigate({ kind: "record", source: "virtualpos", resource: "subscription", externalId: record.external_id });
+      return;
+    }
     setClientDetail(null);
     setPlanDetail(null);
     setChargeDetail(null);
@@ -4281,7 +4406,11 @@ function App() {
       setDetailLoading(false);
     }
   }
-  async function openVirtualPosCharge(record: StagingRecord) {
+  async function openVirtualPosCharge(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
+    if (updateUrl) {
+      navigate({ kind: "record", source: "virtualpos", resource: "charge", externalId: record.external_id });
+      return;
+    }
     setClientDetail(null);
     setPlanDetail(null);
     setSubscriptionDetail(null);
@@ -4300,7 +4429,11 @@ function App() {
       setDetailLoading(false);
     }
   }
-  async function openVirtualPosPayment(record: StagingRecord) {
+  async function openVirtualPosPayment(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
+    if (updateUrl) {
+      navigate({ kind: "record", source: "virtualpos", resource: "payment", externalId: record.external_id });
+      return;
+    }
     setClientDetail(null);
     setPlanDetail(null);
     setSubscriptionDetail(null);
@@ -4320,10 +4453,15 @@ function App() {
     }
   }
   async function openProviderRecord(
-    source: string,
+    source: ProviderSource,
     resource: string,
-    record: StagingRecord,
+    record: Pick<StagingRecord, "external_id">,
+    updateUrl = true,
   ) {
+    if (updateUrl) {
+      navigate({ kind: "record", source, resource, externalId: record.external_id });
+      return;
+    }
     clearDetails();
     setDetailLoading(true);
     setError(null);
@@ -4339,6 +4477,123 @@ function App() {
       setDetailLoading(false);
     }
   }
+
+  function openRecord(source: ProviderSource, resource: string, externalId: string, updateUrl = true) {
+    const record = { external_id: externalId };
+    if (source === "virtualpos") {
+      if (resource === "client") return openVirtualPosClient(record, updateUrl);
+      if (resource === "plan") return openVirtualPosPlan(record, updateUrl);
+      if (resource === "subscription") return openVirtualPosSubscription(record, updateUrl);
+      if (resource === "charge") return openVirtualPosCharge(record, updateUrl);
+      if (resource === "payment") return openVirtualPosPayment(record, updateUrl);
+      return;
+    }
+    return openProviderRecord(source, resource, record, updateUrl);
+  }
+
+  const applyRoute = useEffectEvent(() => {
+    if (!session) return;
+    const location = new URL(routeLocation, window.location.origin);
+    const route = parseRoute(location.pathname);
+    if (!route || !canAccessRoute(route)) {
+      navigate(fallbackRoute(), true);
+      return;
+    }
+    if (route.kind === "central") {
+      if (route.view === "summary") showDashboard(false);
+      else if (route.view === "clients") {
+        showGeneralClients(false);
+        const field = location.searchParams.get("campo");
+        if (["all", "rut", "name", "last_name", "platform", "email", "phone"].includes(field ?? "")) {
+          setGeneralClientFilter(field as typeof generalClientFilter);
+        }
+        setGeneralClientQuery("");
+        setGeneralClientOffset(listOffset(location.searchParams));
+      } else {
+        showGeneralSubscriptions(false);
+        const field = location.searchParams.get("campo");
+        if (["all", "id", "rut", "client", "platform", "status"].includes(field ?? "")) {
+          setGeneralSubscriptionFilter(field as typeof generalSubscriptionFilter);
+        }
+        setGeneralSubscriptionQuery("");
+        setGeneralSubscriptionOffset(listOffset(location.searchParams));
+      }
+    } else if (route.kind === "channel") {
+      showChannel(route.source, false);
+    } else if (route.kind === "resource" || route.kind === "record") {
+      const section = providerGroups
+        .flatMap((group) => group.sections)
+        .find((entry) => entry.source === route.source && entry.resource === route.resource);
+      if (section) {
+        showSection(section, false);
+        const filter = location.searchParams.get("filtro");
+        const status = location.searchParams.get("estado");
+        if ((filter === "status" || filter === "secondary_status") && status) {
+          setFilterField(filter);
+          setFilterQuery(status);
+        }
+        const sort = location.searchParams.get("orden");
+        const direction = location.searchParams.get("direccion");
+        setSortColumn(sort || null);
+        setSortDirection(direction === "desc" ? "desc" : "asc");
+        setRecordsOffset(listOffset(location.searchParams));
+        if (route.source === "virtualpos") {
+          const platform = location.searchParams.get("cuenta");
+          setVpPlatform(platform === "virtualpos1" || platform === "virtualpos2" ? platform : "all");
+        }
+        if (route.kind === "record") void openRecord(route.source, route.resource, route.externalId, false);
+      } else navigate(fallbackRoute(), true);
+    } else if (route.kind === "recovery") {
+      showRecovery(false);
+    } else if (route.kind === "tch") {
+      showTch(route.view, false);
+    } else if (route.kind === "tchSubscription") {
+      showTchSuscripcion(route.numeroFicha, false);
+    } else if (route.kind === "admin") {
+      showAdmin(route.view, false);
+    } else {
+      showProfile(route.view, false);
+    }
+  });
+
+  useEffect(() => {
+    applyRoute();
+  }, [session, routeLocation]);
+
+  useEffect(() => {
+    const route = parseRoute(window.location.pathname);
+    if (!session || route?.kind !== "central" || route.view !== "clients") return;
+    const params = new URLSearchParams();
+    if (generalClientFilter !== "all") params.set("campo", generalClientFilter);
+    if (generalClientOffset > 0) params.set("offset", String(generalClientOffset));
+    replaceListSearch(params);
+  }, [session, generalView, generalClientFilter, generalClientOffset]);
+
+  useEffect(() => {
+    const route = parseRoute(window.location.pathname);
+    if (!session || route?.kind !== "central" || route.view !== "subscriptions") return;
+    const params = new URLSearchParams();
+    if (generalSubscriptionFilter !== "all") params.set("campo", generalSubscriptionFilter);
+    if (generalSubscriptionOffset > 0) params.set("offset", String(generalSubscriptionOffset));
+    replaceListSearch(params);
+  }, [session, generalView, generalSubscriptionFilter, generalSubscriptionOffset]);
+
+  useEffect(() => {
+    const route = parseRoute(window.location.pathname);
+    if (!session || !activeSection || route?.kind !== "resource") return;
+    const params = new URLSearchParams();
+    if ((filterField === "status" || filterField === "secondary_status") && filterQuery.trim()) {
+      params.set("filtro", filterField);
+      params.set("estado", filterQuery.trim());
+    }
+    if (sortColumn) {
+      params.set("orden", sortColumn);
+      params.set("direccion", sortDirection);
+    }
+    if (recordsOffset > 0) params.set("offset", String(recordsOffset));
+    if (activeSection.source === "virtualpos" && vpPlatform !== "all") params.set("cuenta", vpPlatform);
+    replaceListSearch(params);
+  }, [session, activeSection, filterField, filterQuery, sortColumn, sortDirection, recordsOffset, vpPlatform]);
 
   const columns: TableColumn[] =
     activeSection?.source === "virtualpos"
@@ -4365,12 +4620,13 @@ function App() {
       csrfToken = "";
       setSession(null);
       setAdminOpen(false);
-      setProfileOpen(false);
+      setProfileView(null);
+      navigate({ kind: "central", view: "summary" }, true);
     }
   }
   const clientDetailView = clientDetail ? (
     <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => setClientDetail(null)}>
+      <button className="back-button" onClick={() => showResourceList("virtualpos", "client")}>
         Volver a clientes VirtualPOS
       </button>
       <p className="eyebrow">VIRTUALPOS / CLIENTE</p>
@@ -4548,7 +4804,7 @@ function App() {
   ) : null;
   const planDetailView = planDetail ? (
     <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => setPlanDetail(null)}>
+      <button className="back-button" onClick={() => showResourceList("virtualpos", "plan")}>
         Volver a planes VirtualPOS
       </button>
       <p className="eyebrow">VIRTUALPOS / PLAN</p>
@@ -4624,7 +4880,7 @@ function App() {
     <main className="app-shell detail-page">
       <button
         className="back-button"
-        onClick={() => setSubscriptionDetail(null)}
+        onClick={() => showResourceList("virtualpos", "subscription")}
       >
         Volver al listado VirtualPOS
       </button>
@@ -4757,7 +5013,7 @@ function App() {
   ) : null;
   const chargeDetailView = chargeDetail ? (
     <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => setChargeDetail(null)}>
+      <button className="back-button" onClick={() => showResourceList("virtualpos", "charge")}>
         Volver a cargos VirtualPOS
       </button>
       <p className="eyebrow">VIRTUALPOS / CARGO</p>
@@ -4795,7 +5051,7 @@ function App() {
   ) : null;
   const paymentDetailView = paymentDetail ? (
     <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => setPaymentDetail(null)}>
+      <button className="back-button" onClick={() => showResourceList("virtualpos", "payment")}>
         Volver a transacciones VirtualPOS
       </button>
       <p className="eyebrow">VIRTUALPOS / TRANSACCIÓN</p>
@@ -4835,7 +5091,7 @@ function App() {
     <main className="app-shell detail-page">
       <button
         className="back-button"
-        onClick={() => setProviderRecordDetail(null)}
+        onClick={() => showResourceList(providerRecordDetail.record.source as ProviderSource, providerRecordDetail.record.resource_type)}
       >
         Volver al listado {title(providerRecordDetail.record.source)}
       </button>
@@ -4942,7 +5198,7 @@ function App() {
                           className="record-link"
                           onClick={() =>
                             void openProviderRecord(
-                              item.source,
+                              item.source as ProviderSource,
                               group.resource_type,
                               item,
                             )
@@ -5212,7 +5468,7 @@ function App() {
                           )
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "charge" &&
-                          column.label === "ID" ? (
+                          column.label === "ID subscripción" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de cargo ${column.value(record)}`}
@@ -5222,7 +5478,7 @@ function App() {
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "payment" &&
-                          column.label === "UUID" ? (
+                          column.label === "RUT cliente" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de transacción ${column.value(record)}`}
@@ -5261,7 +5517,7 @@ function App() {
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "client" &&
-                          column.label === "UUID" ? (
+                          column.label === "RUT" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de cliente ${column.value(record)}`}
@@ -5271,7 +5527,7 @@ function App() {
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "plan" &&
-                          column.label === "ID" ? (
+                          column.label === "Nombre" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de plan ${column.value(record)}`}
@@ -5281,7 +5537,7 @@ function App() {
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "subscription" &&
-                          column.label === "ID" ? (
+                          column.label === "RUT cliente" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de subscripción ${column.value(record)}`}
@@ -6114,7 +6370,7 @@ function App() {
         onAdmin={showAdmin}
         adminOpen={adminOpen}
         adminTab={adminTab}
-        onProfile={() => { clearDetails(); setChannel(null); setActiveSection(null); setTchView(null); setAdminOpen(false); setProfileOpen(true); }}
+        onProfile={() => showProfile("summary")}
         onLogout={logout}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -6122,12 +6378,15 @@ function App() {
         onRecovery={showRecovery}
       />
       {adminOpen ? (
-        <AdminPanel permissions={session.user.permissions} tab={adminTab} />
-      ) : profileOpen ? (
+        <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
+      ) : profileView ? (
         <ProfilePanel
           user={session.user}
+          editing={profileView === "edit"}
           onUpdated={(updated) => setSession((prev) => prev ? { ...prev, user: updated } : prev)}
-          onClose={() => setProfileOpen(false)}
+          onClose={() => showDashboard()}
+          onEdit={() => showProfile("edit")}
+          onCancelEdit={() => showProfile("summary")}
         />
       ) : (
         <ContentErrorBoundary>

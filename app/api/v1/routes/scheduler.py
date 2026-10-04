@@ -6,8 +6,6 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -128,20 +126,15 @@ def list_runs(
     _user=Depends(require_permissions("sync_runs.view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Últimas ejecuciones del orquestador (excluye runs de TCH)."""
-    from sqlalchemy import func as sqlfunc, not_, or_
+    """Últimas ejecuciones del orquestador e importaciones TCH."""
+    from sqlalchemy import func as sqlfunc
 
-    # Incluir: runs sin channels_processed (running/failed) + runs que no sean exclusivamente TCH
-    _not_tch = or_(
-        EtlRun.channels_processed.is_(None),
-        not_(EtlRun.channels_processed.any("tch")),
-    )
-    base = select(EtlRun).where(_not_tch)
+    base = select(EtlRun)
 
     runs = db.scalars(
         base.order_by(desc(EtlRun.started_at)).offset(offset).limit(limit)
     ).all()
-    count_q = db.scalar(select(sqlfunc.count()).select_from(EtlRun).where(_not_tch))
+    count_q = db.scalar(select(sqlfunc.count()).select_from(EtlRun))
     return {
         "total": count_q or 0,
         "offset": offset,
