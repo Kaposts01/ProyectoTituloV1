@@ -125,6 +125,35 @@ def test_virtualpos_charge_subscription_filter_falls_back_to_raw_payload(db_sess
     assert [item["external_id"] for item in response["items"]] == ["legacy-charge"]
 
 
+def test_virtualpos_multiple_column_filters_and_typed_ordering(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(source="virtualpos1", external_id="client-alpha", raw_payload={"uuid": "client-alpha", "first_name": "Alba", "last_name": "Rios", "email": "alba.filterestunique@example.org", "status": "ACTIVO"}),
+            Client(source="virtualpos1", external_id="client-zeta", raw_payload={"uuid": "client-zeta", "first_name": "Zoe", "last_name": "Rios", "email": "zoe.filterestunique@example.org", "status": "INACTIVO"}),
+            Plan(source="virtualpos1", external_id="plan-20", raw_payload={"id": "plan-20", "name": "Plan veinte", "amount": "20"}),
+            Plan(source="virtualpos1", external_id="plan-100", raw_payload={"id": "plan-100", "name": "Plan cien", "amount": "100"}),
+            Charge(source="virtualpos1", external_id="charge-april", charge_date="2099-04-01", raw_payload={"id": "charge-april", "amount": "20", "charge_date": "2099-04-01"}),
+            Charge(source="virtualpos1", external_id="charge-may", charge_date="2099-05-01", raw_payload={"id": "charge-may", "amount": "100", "charge_date": "2099-05-01"}),
+        ]
+    )
+    db_session.flush()
+
+    clients = staging._list_vp(
+        "virtualpos", db_session, "client", None, None, "name", "asc", 0, 50,
+        filters=["email:filterestunique", "status:ACTIVO"],
+    )
+    plans = staging._list_vp("virtualpos", db_session, "plan", None, None, "amount", "asc", 0, 50)
+    charges = staging._list_vp(
+        "virtualpos", db_session, "charge", None, None, "charge_date", "desc", 0, 50,
+        amount_min="50", date_from="2099-05-01", date_to="2099-05-31",
+    )
+
+    assert [item["external_id"] for item in clients["items"]] == ["client-alpha"]
+    plan_ids = [item["external_id"] for item in plans["items"]]
+    assert plan_ids.index("plan-20") < plan_ids.index("plan-100")
+    assert [item["external_id"] for item in charges["items"]] == ["charge-may"]
+
+
 def test_status_filter_values_include_records_outside_the_current_page(db_session) -> None:
     db_session.add_all([
         Subscription(source="payku", external_id="active", status="active", raw_payload={}),
@@ -536,7 +565,7 @@ def test_virtualpos_plan_detail_lists_subscriptions_by_plan_id(db_session) -> No
             Subscription(
                 source="virtualpos1",
                 external_id="plan-subscription-1",
-                plan_external_id="detail-plan-1",
+                plan_external_id=None,
                 raw_payload={"plan_id": "detail-plan-1"},
             ),
             Subscription(
@@ -553,6 +582,93 @@ def test_virtualpos_plan_detail_lists_subscriptions_by_plan_id(db_session) -> No
 
     assert response["subscription_total"] == 1
     assert response["subscriptions"][0]["external_id"] == "plan-subscription-1"
+
+
+def test_virtualpos_plan_list_counts_non_failed_active_and_cobrable_subscriptions(db_session) -> None:
+    db_session.add_all(
+        [
+            Plan(source="virtualpos1", external_id="metrics-plan", raw_payload={"id": "metrics-plan"}),
+            Subscription(source="virtualpos1", external_id="active-cobrable", plan_external_id="metrics-plan", status="ACTIVA", raw_payload={}),
+            Subscription(source="virtualpos1", external_id="active-uncobrable", plan_external_id="metrics-plan", status="ACTIVA", raw_payload={}),
+            Subscription(source="virtualpos1", external_id="cancelled", plan_external_id="metrics-plan", status="CANCELADA", raw_payload={}),
+            Subscription(source="virtualpos1", external_id="failed", plan_external_id="metrics-plan", status="SUSCRIPCION_FALLIDA", raw_payload={}),
+            Charge(source="virtualpos1", external_id="recent-paid", subscription_external_id="active-cobrable", status="pagado", charge_date="2099-01-01", raw_payload={}),
+            Charge(source="virtualpos1", external_id="old-paid", subscription_external_id="active-uncobrable", status="pagado", charge_date="2000-01-01", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+
+    response = staging.list_records(source="virtualpos", resource_type="plan", db=db_session)
+    plan = next(item for item in response["items"] if item["external_id"] == "metrics-plan")
+
+    assert plan["subscription_count"] == 3
+    assert plan["active_subscription_count"] == 2
+    assert plan["cobrable_subscription_count"] == 1
+
+
+def test_virtualpos_charge_and_payment_details_include_verified_relationships(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(source="virtualpos1", external_id="related-client", social_id="11.111.111-1", first_name="Ana", last_name="Rios", raw_payload={}),
+            Plan(source="virtualpos1", external_id="related-plan", name="Plan mensual", raw_payload={}),
+            Subscription(source="virtualpos1", external_id="related-subscription", client_external_id="related-client", client_social_id="11.111.111-1", plan_external_id="related-plan", raw_payload={}),
+            Charge(source="virtualpos1", external_id="related-charge", subscription_external_id="related-subscription", raw_payload={"payment": {"order": {"uuid": "related-payment"}}}),
+            Payment(source="virtualpos1", external_id="related-payment", raw_payload={"order": {"uuid": "related-payment"}}),
+            Payment(source="virtualpos1", external_id="direct-payment", client_external_id="related-client", raw_payload={"order": {"uuid": "direct-payment"}}),
+        ]
+    )
+    db_session.flush()
+
+    charge = staging.virtualpos_charge_detail(external_id="related-charge", db=db_session)
+    payment = staging.virtualpos_payment_detail(external_id="related-payment", db=db_session)
+    direct_payment = staging.virtualpos_payment_detail(external_id="direct-payment", db=db_session)
+    charges = staging.list_records(source="virtualpos", resource_type="charge", filter_field="id", query="related-charge", db=db_session)
+    payments = staging.list_records(source="virtualpos", resource_type="payment", filter_field="uuid", query="related-payment", db=db_session)
+    listed_charge = next(item for item in charges["items"] if item["external_id"] == "related-charge")
+    listed_payment = next(item for item in payments["items"] if item["external_id"] == "related-payment")
+
+    assert charge["subscription"]["external_id"] == "related-subscription"
+    assert charge["client"]["external_id"] == "related-client"
+    assert charge["payment"]["external_id"] == "related-payment"
+    assert payment["charge"]["external_id"] == "related-charge"
+    assert payment["subscription"]["plan_name"] == "Plan mensual"
+    assert listed_charge["client_name"] == "Ana Rios"
+    assert listed_charge["client_social_id"] == "11.111.111-1"
+    assert listed_payment["client_name"] == "Ana Rios"
+    assert direct_payment["client"]["external_id"] == "related-client"
+    assert direct_payment["charge"] is None
+    assert direct_payment["subscription"] is None
+
+
+def test_virtualpos_client_and_subscription_details_list_payments_by_client_social_id(db_session) -> None:
+    db_session.add_all(
+        [
+            Client(source="virtualpos1", external_id="payment-client", social_id="22.222.222-2", raw_payload={}),
+            Subscription(source="virtualpos1", external_id="payment-subscription", client_social_id="22.222.222-2", raw_payload={}),
+            Payment(source="virtualpos1", external_id="payment-by-rut", raw_payload={"client": {"social_id": "22.222.222-2"}, "order": {"uuid": "payment-by-rut"}}),
+        ]
+    )
+    db_session.flush()
+
+    client = staging.virtualpos_client_detail(external_id="payment-client", db=db_session)
+    subscription = staging.virtualpos_subscription_detail(external_id="payment-subscription", db=db_session)
+
+    assert [payment["external_id"] for payment in client["payments"]] == ["payment-by-rut"]
+    assert [payment["external_id"] for payment in subscription["payments"]] == ["payment-by-rut"]
+
+
+def test_virtualpos_charge_uses_embedded_subscription_client_name_when_client_is_missing(db_session) -> None:
+    db_session.add_all(
+        [
+            Subscription(source="virtualpos1", external_id="embedded-client-subscription", client_social_id="33.333.333-3", raw_payload={"client": {"first_name": "Ana", "last_name": "Sin ficha", "social_id": "33.333.333-3"}}),
+            Charge(source="virtualpos1", external_id="embedded-client-charge", subscription_external_id="embedded-client-subscription", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+
+    response = staging.list_records(source="virtualpos", resource_type="charge", filter_field="id", query="embedded-client-charge", db=db_session)
+
+    assert response["items"][0]["client_name"] == "Ana Sin ficha"
 
 
 def test_virtualpos_subscription_detail_returns_payment_method_and_charges(db_session) -> None:

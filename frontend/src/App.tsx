@@ -46,10 +46,24 @@ type StagingRecord = {
   payload: Record<string, unknown>;
   last_paid_date?: string | null;
   secondary_status?: string;
+  subscription_count?: number;
+  active_subscription_count?: number;
+  cobrable_subscription_count?: number;
+  subscription_id?: string;
+  plan_name?: string;
+  client_name?: string;
+  client_social_id?: string;
 };
 type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
 type ProviderSection = { source: ProviderSource; resource: string; label: string };
 type TableColumn = { label: string; value: (record: StagingRecord) => string };
+type VirtualPosDetailColumn = {
+  label: string;
+  kind?: "text" | "amount" | "date";
+  filterable?: boolean;
+  value: (record: StagingRecord) => string;
+  render?: (record: StagingRecord) => ReactNode;
+};
 type Activity = { year: number; month: number; count: number; amount: number };
 type RecoveryRow = Record<string, unknown> & { source?: string; external_id?: string; subscription_id?: string; id?: string };
 type RecoveryResponse = { items: RecoveryRow[]; total: number; offset: number; limit: number };
@@ -108,9 +122,11 @@ type VirtualPosSubscriptionDetail = {
   payment_method: unknown;
   charges: StagingRecord[];
   charge_total: number;
+  payments: StagingRecord[];
+  payment_total: number;
 };
-type VirtualPosChargeDetail = { charge: StagingRecord };
-type VirtualPosPaymentDetail = { payment: StagingRecord };
+type VirtualPosChargeDetail = { charge: StagingRecord; subscription: StagingRecord | null; client: StagingRecord | null; payment: StagingRecord | null };
+type VirtualPosPaymentDetail = { payment: StagingRecord; charge: StagingRecord | null; subscription: StagingRecord | null; client: StagingRecord | null };
 type RelatedRecords = {
   label: string;
   resource_type: string;
@@ -705,7 +721,20 @@ const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
 };
 const RECORDS_PAGE_SIZE = 100;
 
+const vpColumnFields: Record<string, Record<string, string>> = {
+  client: { RUT: "social_id", Nombre: "name", Email: "email", Telefono: "phone_number", Estado: "status" },
+  plan: { Nombre: "name", Monto: "amount", Renovacion: "automatic_renewal", Estado: "is_active", "Activo en POS": "show_in_terminal" },
+  subscription: { "RUT cliente": "social_id", Estado: "status", "Estado sec.": "secondary_status", Monto: "amount", "F. Inicio": "suscription_date", "F. Cancelacion": "canceled_at" },
+  charge: { "ID subscripción": "subscription_id", "Fecha de cargo": "charge_date", Estado: "status", Monto: "amount" },
+  payment: { "RUT cliente": "social_id", "F. Pago": "authorized_at", Monto: "amount", Estado: "status" },
+};
+
+function virtualPosFieldForColumn(resource: string, label: string): string | null {
+  return vpColumnFields[resource]?.[label] ?? null;
+}
+
 function filterFieldForColumn(source: string, resource: string, label: string): string | null {
+  if (source === "virtualpos") return virtualPosFieldForColumn(resource, label);
   const normalize = (value: string) => value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -972,6 +1001,68 @@ function nested(
     : undefined;
 }
 
+function VirtualPosDetailTable({
+  records,
+  columns,
+  empty,
+}: {
+  records: StagingRecord[];
+  columns: VirtualPosDetailColumn[];
+  empty: string;
+}) {
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sort, setSort] = useState<{ index: number; direction: SortDirection } | null>(null);
+  const visible = records
+    .filter((record) => columns.every((column, index) => {
+      if (column.filterable === false) return true;
+      const value = filters[String(index)]?.trim().toLocaleLowerCase() ?? "";
+      const from = filters[`${index}:from`] ?? "";
+      const to = filters[`${index}:to`] ?? "";
+      const cell = column.value(record);
+      if (column.kind === "amount") {
+        const amount = Number(cell);
+        return (!from || (Number.isFinite(amount) && amount >= Number(from))) && (!to || (Number.isFinite(amount) && amount <= Number(to)));
+      }
+      if (column.kind === "date") {
+        const day = cell.slice(0, 10);
+        return (!from || day >= from) && (!to || day <= to);
+      }
+      return !value || cell.toLocaleLowerCase().includes(value);
+    }))
+    .sort((left, right) => {
+      if (!sort) return 0;
+      const column = columns[sort.index];
+      const leftValue = column.value(left);
+      const rightValue = column.value(right);
+      const comparison = column.kind === "amount"
+        ? Number(leftValue) - Number(rightValue)
+        : column.kind === "date"
+          ? leftValue.slice(0, 10).localeCompare(rightValue.slice(0, 10))
+          : leftValue.localeCompare(rightValue, "es", { sensitivity: "base" });
+      return sort.direction === "asc" ? comparison : -comparison;
+    });
+  const update = (key: string, value: string) => setFilters((current) => ({ ...current, [key]: value }));
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>{columns.map((column, index) => <th key={column.label}>{column.filterable === false ? column.label : <button className={`table-sort-button${sort?.index === index ? " active" : ""}`} onClick={() => setSort((current) => current?.index === index ? { index, direction: current.direction === "asc" ? "desc" : "asc" } : { index, direction: "asc" })}>{column.label}<span aria-hidden="true">{sort?.index === index ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span></button>}</th>)}</tr>
+          <tr className="table-column-filters">{columns.map((column, index) => {
+            if (column.filterable === false) return <th key={column.label} />;
+            if (column.kind === "amount") return <th key={column.label} className="range-filter"><input aria-label={`${column.label} mínimo`} type="number" placeholder="Mín." value={filters[`${index}:from`] ?? ""} onChange={(event) => update(`${index}:from`, event.target.value)} /><input aria-label={`${column.label} máximo`} type="number" placeholder="Máx." value={filters[`${index}:to`] ?? ""} onChange={(event) => update(`${index}:to`, event.target.value)} /></th>;
+            if (column.kind === "date") return <th key={column.label} className="range-filter"><input aria-label={`${column.label} desde`} type="date" value={filters[`${index}:from`] ?? ""} onChange={(event) => update(`${index}:from`, event.target.value)} /><input aria-label={`${column.label} hasta`} type="date" value={filters[`${index}:to`] ?? ""} onChange={(event) => update(`${index}:to`, event.target.value)} /></th>;
+            return <th key={column.label}><input aria-label={`Buscar por ${column.label}`} placeholder="Buscar" value={filters[String(index)] ?? ""} onChange={(event) => update(String(index), event.target.value)} /></th>;
+          })}</tr>
+        </thead>
+        <tbody>
+          {visible.map((record) => <tr key={record.id}>{columns.map((column) => <td key={column.label}>{column.render ? column.render(record) : column.value(record)}</td>)}</tr>)}
+          {!visible.length ? <tr><td colSpan={columns.length}>{empty}</td></tr> : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function objectEntries(value: unknown): [string, unknown][] {
   return value && typeof value === "object" && !Array.isArray(value)
     ? Object.entries(value as Record<string, unknown>)
@@ -1130,6 +1221,9 @@ function virtualPosColumns(resource: string): TableColumn[] {
     return [
       { label: "Nombre", value: (record) => text(record.payload.name) },
       { label: "Monto", value: (record) => text(record.payload.amount) },
+      { label: "Subscripciones", value: (record) => String(record.subscription_count ?? 0) },
+      { label: "Activas", value: (record) => String(record.active_subscription_count ?? 0) },
+      { label: "Cobrables", value: (record) => String(record.cobrable_subscription_count ?? 0) },
       {
         label: "Renovacion",
         value: (record) => active(record.payload.automatic_renewal),
@@ -1161,7 +1255,9 @@ function virtualPosColumns(resource: string): TableColumn[] {
     ];
   if (resource === "charge")
     return [
-      { label: "ID subscripción", value: (record) => text(record.payload.subscription_id ?? record.payload.suscription_id) },
+      { label: "ID subscripción", value: (record) => record.subscription_id ?? text(record.payload.subscription_id ?? record.payload.suscription_id) },
+      { label: "Cliente", value: (record) => record.client_name ?? "Sin dato" },
+      { label: "RUT cliente", value: (record) => record.client_social_id ?? "Sin dato" },
       {
         label: "Fecha de cargo",
         value: (record) => text(record.payload.charge_date),
@@ -1173,6 +1269,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
     ];
   return [
     { label: "RUT cliente", value: clientRut },
+    { label: "Cliente", value: (record) => record.client_name ?? "Sin dato" },
     {
       label: "F. Pago",
       value: (record) => text(nested(record.payload, "order", "authorized_at")),
@@ -3025,6 +3122,7 @@ function App() {
   const [tokuSubStatusError, setTokuSubStatusError] = useState<string | null>(null);
   const [filterField, setFilterField] = useState("");
   const [filterQuery, setFilterQuery] = useState("");
+  const [vpColumnFilters, setVpColumnFilters] = useState<Record<string, string>>({});
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [error, setError] = useState<string | null>(null);
@@ -3077,6 +3175,7 @@ function App() {
   const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
   const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
   const debouncedFilterQuery = useDebouncedValue(filterQuery);
+  const debouncedVpColumnFilters = useDebouncedValue(vpColumnFilters);
 
   const can = (permission: string) => (session?.user?.permissions ?? []).includes(permission);
 
@@ -3169,7 +3268,16 @@ function App() {
       limit: String(RECORDS_PAGE_SIZE),
     });
     const effectiveFilterQuery = filterQuery ? debouncedFilterQuery : "";
-    if (filterField && effectiveFilterQuery.trim()) {
+    if (activeSection.source === "virtualpos") {
+      for (const [field, value] of Object.entries(debouncedVpColumnFilters)) {
+        if (!value.trim()) continue;
+        if (field.endsWith("_min") || field.endsWith("_max") || field.endsWith("_from") || field.endsWith("_to")) {
+          params.set(field, value.trim());
+        } else {
+          params.append("filters", `${field}:${value.trim()}`);
+        }
+      }
+    } else if (filterField && effectiveFilterQuery.trim()) {
       params.set("filter_field", filterField);
       params.set("query", effectiveFilterQuery.trim());
     }
@@ -3200,7 +3308,7 @@ function App() {
       mounted = false;
       controller.abort();
     };
-  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, sortColumn, sortDirection, vpPlatform, recordsOffset]);
+  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, debouncedVpColumnFilters, sortColumn, sortDirection, vpPlatform, recordsOffset]);
 
   useEffect(() => {
     if (!session || !activeSection || !["status", "secondary_status"].includes(filterField)) {
@@ -4180,6 +4288,7 @@ function App() {
     setError(null);
     setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
     setFilterQuery("");
+    setVpColumnFilters({});
     setRecordsOffset(0);
     setSortColumn(null);
     setSortDirection("asc");
@@ -4667,52 +4776,15 @@ function App() {
           </div>
           <span>{clientDetail.subscription_total} total</span>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID Sub</th>
-                <th>Status</th>
-                <th>Estado sec.</th>
-                <th>Último cobro</th>
-                <th>Monto</th>
-                <th>F. Inicio</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clientDetail.subscriptions.map((subscription) => (
-                <tr key={subscription.id}>
-                  <td>
-                    <button className="record-link" onClick={() => void openVirtualPosSubscription(subscription)}>
-                      {text(subscription.payload.id, subscription.external_id)}
-                    </button>
-                  </td>
-                  <td>{text(subscription.payload.status)}</td>
-                  <td><span className={`badge badge-${subscription.secondary_status === "cobrable" ? "green" : subscription.secondary_status === "incobrable" ? "orange" : subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{subscription.secondary_status ?? "—"}</span></td>
-                  <td>{subscription.last_paid_date ? String(subscription.last_paid_date).slice(0, 10) : "—"}</td>
-                  <td>{text(subscription.payload.amount)}</td>
-                  <td>{text(subscription.payload.suscription_date)}</td>
-                  <td>
-                    {isActiveSubscription(subscription) ? (
-                      <button
-                        className="cancel-subscription-button"
-                        onClick={() => { setCancelSubscriptionError(null); setCancelingSubscription(subscription); }}
-                      >
-                        Cancelar
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {clientDetail.subscriptions.length === 0 ? (
-                <tr>
-                  <td colSpan={7}>Sin suscripciones asociadas por RUT.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <VirtualPosDetailTable records={clientDetail.subscriptions} empty="Sin suscripciones asociadas por RUT." columns={[
+          { label: "ID Sub", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
+          { label: "Status", value: (record) => text(record.payload.status) },
+          { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
+          { label: "Último cobro", kind: "date", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "" },
+          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
+          { label: "F. Inicio", kind: "date", value: (record) => text(record.payload.suscription_date, "") },
+          { label: "Acción", filterable: false, value: () => "", render: (record) => isActiveSubscription(record) ? <button className="cancel-subscription-button" onClick={() => { setCancelSubscriptionError(null); setCancelingSubscription(record); }}>Cancelar</button> : null },
+        ]} />
       </section>
       <section className="panel">
         <div className="panel-heading">
@@ -4722,39 +4794,13 @@ function App() {
           </div>
           <span>{clientDetail.charge_total} total{clientDetail.charge_total > 100 ? " · mostrando últimos 100" : ""}</span>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>ID Cargo</th>
-                <th>Suscripción</th>
-                <th>Estado</th>
-                <th>Monto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clientDetail.charges.map((charge) => (
-                <tr key={charge.id}>
-                  <td>{text(charge.payload.charge_date)}</td>
-                  <td>
-                    <button className="record-link" onClick={() => void openVirtualPosCharge(charge)}>
-                      {text(charge.payload.id, charge.external_id)}
-                    </button>
-                  </td>
-                  <td>{text(charge.payload.suscription_id, "—")}</td>
-                  <td>{text(charge.payload.status)}</td>
-                  <td>{text(charge.payload.amount)}</td>
-                </tr>
-              ))}
-              {clientDetail.charges.length === 0 ? (
-                <tr>
-                  <td colSpan={5}>Sin cargos registrados para este cliente.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <VirtualPosDetailTable records={clientDetail.charges} empty="Sin cargos registrados para este cliente." columns={[
+          { label: "Fecha", kind: "date", value: (record) => text(record.payload.charge_date, "") },
+          { label: "ID Cargo", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosCharge(record)}>{text(record.payload.id, record.external_id)}</button> },
+          { label: "Plan", value: (record) => record.plan_name ?? "", render: (record) => record.subscription_id ? <button className="record-link" onClick={() => void openVirtualPosSubscription({ external_id: record.subscription_id! })}>{record.plan_name ?? "Sin plan"}</button> : "Sin plan" },
+          { label: "Estado", value: (record) => text(record.payload.status) },
+          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
+        ]} />
       </section>
       <section className="panel">
         <div className="panel-heading">
@@ -4764,41 +4810,14 @@ function App() {
           </div>
           <span>{clientDetail.payment_total} total</span>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Fecha autorización</th>
-                <th>ID Transacción</th>
-                <th>Estado</th>
-                <th>Monto bruto</th>
-                <th>Abono neto</th>
-                <th>Tipo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clientDetail.payments.map((payment) => {
-                const order = (payment.payload as Record<string, Record<string, unknown>>).order ?? {};
-                const deposit = (Array.isArray(order.deposits) ? order.deposits[0] : null) as Record<string, unknown> | null;
-                return (
-                  <tr key={payment.id}>
-                    <td>{text(order.authorized_at as string)}</td>
-                    <td>{text(payment.external_id)}</td>
-                    <td>{text(order.status as string)}</td>
-                    <td>{text(order.amount as string)}</td>
-                    <td>{deposit ? text(String(deposit.payout_amount ?? "—")) : "—"}</td>
-                    <td>{text(order.payment_type_code as string, "—")}</td>
-                  </tr>
-                );
-              })}
-              {clientDetail.payments.length === 0 ? (
-                <tr>
-                  <td colSpan={6}>Sin transacciones procesadas para este cliente.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <VirtualPosDetailTable records={clientDetail.payments} empty="Sin transacciones procesadas para este cliente." columns={[
+          { label: "Fecha autorización", kind: "date", value: (record) => text(nested(record.payload, "order", "authorized_at"), "") },
+          { label: "ID Transacción", value: (record) => record.external_id, render: (record) => <button className="record-link" onClick={() => void openVirtualPosPayment(record)}>{record.external_id}</button> },
+          { label: "Estado", value: (record) => text(nested(record.payload, "order", "status")) },
+          { label: "Monto bruto", kind: "amount", value: (record) => text(nested(record.payload, "order", "amount"), "0") },
+          { label: "Abono neto", kind: "amount", value: (record) => { const order = record.payload.order as Record<string, unknown> | undefined; const deposit = Array.isArray(order?.deposits) ? order.deposits[0] as Record<string, unknown> : undefined; return text(deposit?.payout_amount, "0"); } },
+          { label: "Tipo", value: (record) => text(nested(record.payload, "order", "payment_type_code"), "") },
+        ]} />
       </section>
     </main>
   ) : null;
@@ -4837,42 +4856,12 @@ function App() {
           </div>
           <span>{planDetail.subscription_total} total</span>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID Sub</th>
-                <th>Nombre cliente</th>
-                <th>Monto</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {planDetail.subscriptions.map((subscription) => (
-                <tr key={subscription.id}>
-                  <td>
-                    <button
-                      className="record-link"
-                      onClick={() =>
-                        void openVirtualPosSubscription(subscription)
-                      }
-                    >
-                      {text(subscription.payload.id, subscription.external_id)}
-                    </button>
-                  </td>
-                  <td>{virtualPosClientName(subscription)}</td>
-                  <td>{text(subscription.payload.amount)}</td>
-                  <td>{text(subscription.payload.status)}</td>
-                </tr>
-              ))}
-              {planDetail.subscriptions.length === 0 ? (
-                <tr>
-                  <td colSpan={4}>Sin suscripciones asociadas al plan.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <VirtualPosDetailTable records={planDetail.subscriptions} empty="Sin suscripciones asociadas al plan." columns={[
+          { label: "ID Sub", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
+          { label: "Nombre cliente", value: virtualPosClientName },
+          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
+          { label: "Status", value: (record) => text(record.payload.status) },
+        ]} />
       </section>
     </main>
   ) : null;
@@ -4959,55 +4948,29 @@ function App() {
           </div>
           <span>{subscriptionDetail.charge_total} total</span>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Fecha de cargo</th>
-                <th>ID Cargo</th>
-                <th>Estado</th>
-                <th>Monto</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subscriptionDetail.charges.map((charge) => (
-                <tr key={charge.id}>
-                  <td>{text(charge.payload.charge_date)}</td>
-                  <td>
-                    <button className="record-link" onClick={() => void openVirtualPosCharge(charge)}>
-                      {text(charge.payload.id, charge.external_id)}
-                    </button>
-                  </td>
-                  <td>{text(charge.payload.status)}</td>
-                  <td>{text(charge.payload.amount)}</td>
-                  <td>
-                    {isPendingCharge(charge) && can("virtualpos.charges.cancel") ? (
-                      <button
-                        className="cancel-charge-button"
-                        onClick={() => { setCancelChargeError(null); setCancelingCharge(charge); }}
-                      >
-                        Cancelar
-                      </button>
-                    ) : isRejectedCharge(charge) && can("virtualpos.charges.retry") ? (
-                      <button
-                        className="retry-charge-button"
-                        onClick={() => { setRetryChargeError(null); setRetryingCharge(charge); }}
-                      >
-                        Reintentar
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {subscriptionDetail.charges.length === 0 ? (
-                <tr>
-                  <td colSpan={5}>Sin cargos asociados a la subscripción.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+        <VirtualPosDetailTable records={subscriptionDetail.charges} empty="Sin cargos asociados a la subscripción." columns={[
+          { label: "Fecha de cargo", kind: "date", value: (record) => text(record.payload.charge_date, "") },
+          { label: "ID Cargo", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosCharge(record)}>{text(record.payload.id, record.external_id)}</button> },
+          { label: "Estado", value: (record) => text(record.payload.status) },
+          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
+          { label: "Acción", filterable: false, value: () => "", render: (record) => isPendingCharge(record) && can("virtualpos.charges.cancel") ? <button className="cancel-charge-button" onClick={() => { setCancelChargeError(null); setCancelingCharge(record); }}>Cancelar</button> : isRejectedCharge(record) && can("virtualpos.charges.retry") ? <button className="retry-charge-button" onClick={() => { setRetryChargeError(null); setRetryingCharge(record); }}>Reintentar</button> : null },
+        ]} />
+      </section>
+      <section className="panel client-subscriptions">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">TRANSACCIONES DEL CLIENTE</p>
+            <h3>Disponibles por RUT en la misma cuenta</h3>
+          </div>
+          <span>{subscriptionDetail.payment_total} total</span>
         </div>
+        <p className="field-hint">VirtualPOS no entrega un identificador de subscripción en las transacciones, por lo que esta tabla no las asigna individualmente.</p>
+        <VirtualPosDetailTable records={subscriptionDetail.payments} empty="Sin transacciones disponibles para este cliente." columns={[
+          { label: "Fecha autorización", kind: "date", value: (record) => text(nested(record.payload, "order", "authorized_at"), "") },
+          { label: "ID Transacción", value: (record) => record.external_id, render: (record) => <button className="record-link" onClick={() => void openVirtualPosPayment(record)}>{record.external_id}</button> },
+          { label: "Estado", value: (record) => text(nested(record.payload, "order", "status")) },
+          { label: "Monto", kind: "amount", value: (record) => text(nested(record.payload, "order", "amount"), "0") },
+        ]} />
       </section>
     </main>
   ) : null;
@@ -5047,6 +5010,15 @@ function App() {
           ))}
         </dl>
       </section>
+      <section className="panel">
+        <p className="eyebrow">RELACIONES</p>
+        <dl className="field-list">
+          <div><dt>Cliente</dt><dd>{chargeDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(chargeDetail.client!)}>{virtualPosClientName(chargeDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
+          <div><dt>RUT cliente</dt><dd>{chargeDetail.client ? text(chargeDetail.client.payload.social_id) : "—"}</dd></div>
+          <div><dt>Subscripción</dt><dd>{chargeDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(chargeDetail.subscription!)}>{chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id}</button> : "Sin subscripción relacionada"}</dd></div>
+          <div><dt>Transacción</dt><dd>{chargeDetail.payment ? <button className="record-link" onClick={() => void openVirtualPosPayment(chargeDetail.payment!)}>{chargeDetail.payment.external_id}</button> : "Sin transacción relacionada"}</dd></div>
+        </dl>
+      </section>
     </main>
   ) : null;
   const paymentDetailView = paymentDetail ? (
@@ -5083,6 +5055,15 @@ function App() {
               </div>,
             ];
           })}
+        </dl>
+      </section>
+      <section className="panel">
+        <p className="eyebrow">RELACIONES</p>
+        <dl className="field-list">
+          <div><dt>Cliente</dt><dd>{paymentDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(paymentDetail.client!)}>{virtualPosClientName(paymentDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
+          <div><dt>RUT cliente</dt><dd>{paymentDetail.client ? text(paymentDetail.client.payload.social_id) : "—"}</dd></div>
+          <div><dt>Subscripción</dt><dd>{paymentDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(paymentDetail.subscription!)}>{paymentDetail.subscription.plan_name ?? paymentDetail.subscription.external_id}</button> : "Sin subscripción relacionada"}</dd></div>
+          <div><dt>Cargo</dt><dd>{paymentDetail.charge ? <button className="record-link" onClick={() => void openVirtualPosCharge(paymentDetail.charge!)}>{text(paymentDetail.charge.payload.id, paymentDetail.charge.external_id)}</button> : "Sin cargo relacionado"}</dd></div>
         </dl>
       </section>
     </main>
@@ -5253,7 +5234,7 @@ function App() {
     : [];
   const availableStatuses = ["status", "secondary_status"].includes(filterField) ? statusValues : [];
   const isStatusFilter = ["status", "secondary_status"].includes(filterField);
-  const filterControls = filterOptions.length ? (
+  const filterControls = activeSection?.source === "virtualpos" ? null : filterOptions.length ? (
     <section
       className="record-filters"
       aria-label={`Filtros ${activeSection?.label}`}
@@ -5383,6 +5364,13 @@ function App() {
               {p === "all" ? "Todas" : p === "virtualpos1" ? "VP 1" : "VP 2"}
             </button>
           ))}
+          <button
+            className="clear-filter-button"
+            disabled={!Object.values(vpColumnFilters).some((value) => value.trim())}
+            onClick={() => { setVpColumnFilters({}); setRecordsOffset(0); }}
+          >
+            Limpiar filtros
+          </button>
         </div>
       ) : null}
       <section className="panel provider-panel">
@@ -5413,8 +5401,8 @@ function App() {
         {records.items.length > 0 ? (
           <div className="table-wrap">
             <table>
-              <thead>
-                <tr>
+                <thead>
+                  <tr>
                   {columns.map((column) => {
                     const sortable = Boolean(activeSection && filterFieldForColumn(activeSection.source, activeSection.resource, column.label));
                     const activeSort = sortColumn === column.label;
@@ -5438,8 +5426,27 @@ function App() {
                       </th>
                     );
                   })}
-                </tr>
-              </thead>
+                  </tr>
+                  {activeSection.source === "virtualpos" ? (
+                    <tr className="table-column-filters">
+                      {columns.map((column) => {
+                        const field = virtualPosFieldForColumn(activeSection.resource, column.label);
+                        if (!field) return <th key={column.label} />;
+                        const update = (key: string, value: string) => {
+                          setVpColumnFilters((current) => ({ ...current, [key]: value }));
+                          setRecordsOffset(0);
+                        };
+                        if (field === "amount") {
+                          return <th key={column.label} className="range-filter"><input aria-label="Monto mínimo" type="number" value={vpColumnFilters.amount_min ?? ""} onChange={(event) => update("amount_min", event.target.value)} placeholder="Mín." /><input aria-label="Monto máximo" type="number" value={vpColumnFilters.amount_max ?? ""} onChange={(event) => update("amount_max", event.target.value)} placeholder="Máx." /></th>;
+                        }
+                        if (["suscription_date", "canceled_at", "charge_date", "authorized_at"].includes(field)) {
+                          return <th key={column.label} className="range-filter"><input aria-label={`${column.label} desde`} type="date" value={vpColumnFilters.date_from ?? ""} onChange={(event) => update("date_from", event.target.value)} /><input aria-label={`${column.label} hasta`} type="date" value={vpColumnFilters.date_to ?? ""} onChange={(event) => update("date_to", event.target.value)} /></th>;
+                        }
+                        return <th key={column.label}><input aria-label={`Buscar por ${column.label}`} value={vpColumnFilters[field] ?? ""} onChange={(event) => update(field, event.target.value)} placeholder="Buscar" /></th>;
+                      })}
+                    </tr>
+                  ) : null}
+                </thead>
               <tbody>
                 {records.items.map((record) => (
                   <tr key={record.id}>
@@ -5471,8 +5478,8 @@ function App() {
                           column.label === "ID subscripción" ? (
                           <button
                             className="record-link"
-                            aria-label={`Ver ficha de cargo ${column.value(record)}`}
-                            onClick={() => void openVirtualPosCharge(record)}
+                            aria-label={`Ver ficha de subscripción ${column.value(record)}`}
+                            onClick={() => void openVirtualPosSubscription({ external_id: column.value(record) })}
                           >
                             {column.value(record)}
                           </button>
