@@ -1159,6 +1159,13 @@ function virtualPosClientName(record: StagingRecord): string {
   );
 }
 
+function vpClientRecordName(record: StagingRecord): string {
+  return (
+    `${text(record.payload.first_name, "")} ${text(record.payload.last_name, "")}`.trim() ||
+    "Sin dato"
+  );
+}
+
 function active(value: unknown): string {
   return String(value).toLowerCase() === "true" ? "Activo" : "Inactivo";
 }
@@ -5013,7 +5020,7 @@ function App() {
       <section className="panel">
         <p className="eyebrow">RELACIONES</p>
         <dl className="field-list">
-          <div><dt>Cliente</dt><dd>{chargeDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(chargeDetail.client!)}>{virtualPosClientName(chargeDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
+          <div><dt>Cliente</dt><dd>{chargeDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(chargeDetail.client!)}>{vpClientRecordName(chargeDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
           <div><dt>RUT cliente</dt><dd>{chargeDetail.client ? text(chargeDetail.client.payload.social_id) : "—"}</dd></div>
           <div><dt>Subscripción</dt><dd>{chargeDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(chargeDetail.subscription!)}>{chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id}</button> : "Sin subscripción relacionada"}</dd></div>
           <div><dt>Transacción</dt><dd>{chargeDetail.payment ? <button className="record-link" onClick={() => void openVirtualPosPayment(chargeDetail.payment!)}>{chargeDetail.payment.external_id}</button> : "Sin transacción relacionada"}</dd></div>
@@ -5060,7 +5067,7 @@ function App() {
       <section className="panel">
         <p className="eyebrow">RELACIONES</p>
         <dl className="field-list">
-          <div><dt>Cliente</dt><dd>{paymentDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(paymentDetail.client!)}>{virtualPosClientName(paymentDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
+          <div><dt>Cliente</dt><dd>{paymentDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(paymentDetail.client!)}>{vpClientRecordName(paymentDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
           <div><dt>RUT cliente</dt><dd>{paymentDetail.client ? text(paymentDetail.client.payload.social_id) : "—"}</dd></div>
           <div><dt>Subscripción</dt><dd>{paymentDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(paymentDetail.subscription!)}>{paymentDetail.subscription.plan_name ?? paymentDetail.subscription.external_id}</button> : "Sin subscripción relacionada"}</dd></div>
           <div><dt>Cargo</dt><dd>{paymentDetail.charge ? <button className="record-link" onClick={() => void openVirtualPosCharge(paymentDetail.charge!)}>{text(paymentDetail.charge.payload.id, paymentDetail.charge.external_id)}</button> : "Sin cargo relacionado"}</dd></div>
@@ -5476,13 +5483,17 @@ function App() {
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "charge" &&
                           column.label === "ID subscripción" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de subscripción ${column.value(record)}`}
-                            onClick={() => void openVirtualPosSubscription({ external_id: column.value(record) })}
-                          >
-                            {column.value(record)}
-                          </button>
+                          record.subscription_id ? (
+                            <button
+                              className="record-link"
+                              aria-label={`Ver ficha de subscripción ${record.subscription_id}`}
+                              onClick={() => void openVirtualPosSubscription({ external_id: record.subscription_id! })}
+                            >
+                              {record.subscription_id}
+                            </button>
+                          ) : (
+                            <span>{column.value(record)}</span>
+                          )
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "payment" &&
                           column.label === "RUT cliente" ? (

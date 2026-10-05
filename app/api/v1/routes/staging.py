@@ -1535,6 +1535,7 @@ def _vp_client_payments(db: Session, sources: tuple[str, ...] | list[str], socia
             CPayment.raw_payload["client"]["social_id"].astext == social_id,
         )
         .order_by(CPayment.payment_date.desc().nullslast(), CPayment.updated_at.desc())
+        .limit(200)
     ).all()
 
 
@@ -1570,7 +1571,7 @@ def _vp_related_extras(db: Session, records: list[Any], resource_type: str) -> d
     sources = {record.source for record in records}
     if resource_type == "charge":
         subscription_ids = {record.subscription_external_id for record in records if record.subscription_external_id}
-        record_keys = {(record.source, record.external_id): record.subscription_external_id for record in records}
+        record_keys = {(record.source, record.external_id): record.subscription_external_id for record in records if record.subscription_external_id}
     else:
         payment_ids = {record.external_id for record in records}
         matched_charges = db.scalars(
@@ -1808,6 +1809,7 @@ def _vp_filter(model: Any, rtype: str, ff: str, q: str):
             return cast(field, String).ilike("%true%") | cast(field, String).ilike("%t%")
         if lo in {"inactivo", "inactiva", "false", "f", "0", "no"}:
             return cast(field, String).ilike("%false%") | cast(field, String).ilike("%f%")
+        raise HTTPException(status_code=422, detail=f"Expected boolean-like value for field '{ff}'")
     # Escape SQL wildcards so user text is always a literal partial match.
     needle = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return cast(field, String).ilike(f"%{needle}%", escape="\\")
@@ -1850,7 +1852,9 @@ def _list_vp(
     stmt = select(model).where(model.source.in_(sources))
     cnt = select(func.count()).select_from(model).where(model.source.in_(sources))
     for field_name, value in requested_filters:
-        if resource_type == "subscription" and field_name == "secondary_status":
+        if field_name == "secondary_status":
+            if resource_type != "subscription":
+                raise HTTPException(status_code=422, detail="secondary_status filter is only valid for subscription")
             continue
         expr = _vp_filter(model, resource_type, field_name, value)
         stmt = stmt.where(expr)
