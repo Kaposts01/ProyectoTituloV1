@@ -32,28 +32,49 @@ OPENAPI_TAGS = [
 
 
 def _cleanup_zombie_runs() -> None:
-    """Marca como failed los runs que quedaron en estado 'running' tras un reinicio."""
+    """Marca como failed los runs que quedaron en estado 'running' tras un reinicio.
+
+    Cubre `etl_runs` y `sync_runs`: una corrida interrumpida deja un registro por
+    canal en `sync_runs`, y sin limpiarlos quedan en 'running' indefinidamente.
+    """
     from datetime import datetime, timezone
 
     from sqlalchemy import update
 
     from app.db.session import SessionLocal
     from app.models.etl_run import EtlRun
+    from app.models.sync_run import SyncRun
+
+    mensaje = "Servidor reiniciado durante la sincronización."
+    finished_at = datetime.now(timezone.utc)
 
     db = SessionLocal()
     try:
-        result = db.execute(
+        etl_result = db.execute(
             update(EtlRun)
             .where(EtlRun.status == "running")
             .values(
                 status="failed",
                 phase=None,
-                error_message="Servidor reiniciado durante la sincronización.",
-                finished_at=datetime.now(timezone.utc),
+                error_message=mensaje,
+                finished_at=finished_at,
             )
         )
-        if result.rowcount:
-            logger.warning("Se marcaron %d runs zombie como failed.", result.rowcount)
+        sync_result = db.execute(
+            update(SyncRun)
+            .where(SyncRun.status == "running")
+            .values(
+                status="failed",
+                error_message=mensaje,
+                finished_at=finished_at,
+            )
+        )
+        if etl_result.rowcount or sync_result.rowcount:
+            logger.warning(
+                "Se marcaron %d etl_runs y %d sync_runs zombie como failed.",
+                etl_result.rowcount,
+                sync_result.rowcount,
+            )
         db.commit()
     finally:
         db.close()
