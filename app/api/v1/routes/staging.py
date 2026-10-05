@@ -1670,6 +1670,48 @@ def _list_vp(
     }
 
 
+def _toku_client_lookup(column: Any, model: Any) -> Any:
+    """Resuelve un campo del cliente Toku desde la suscripcion o la deuda.
+
+    Los payloads de Toku solo traen el id del cliente y `client_social_id` no se
+    materializa para este canal, asi que el RUT y el nombre se buscan en `clients`.
+    """
+    return (
+        select(column)
+        .where(CClient.source == "toku", CClient.external_id == model.client_external_id)
+        .correlate(model)
+        .scalar_subquery()
+    )
+
+
+def _toku_sub_client(column: Any) -> Any:
+    return _toku_client_lookup(column, CSub)
+
+
+def _toku_charge_client(column: Any) -> Any:
+    return _toku_client_lookup(column, CCharge)
+
+
+_TOKU_SUB_CLIENT_NAME = func.trim(func.concat_ws(" ", CClient.first_name, CClient.last_name))
+
+
+def _toku_sub_client_data(db: Session, records: list[Any]) -> dict[str, dict]:
+    """Mapea {external_id del registro: {client_rut, client_name}} en una consulta."""
+    client_ids = {r.client_external_id for r in records if r.client_external_id}
+    if not client_ids:
+        return {}
+    rows = db.execute(
+        select(CClient.external_id, CClient.social_id, _TOKU_SUB_CLIENT_NAME)
+        .where(CClient.source == "toku", CClient.external_id.in_(client_ids))
+    ).all()
+    by_client = {row[0]: {"client_rut": row[1], "client_name": row[2]} for row in rows}
+    return {
+        record.external_id: by_client.get(record.client_external_id, {})
+        for record in records
+        if record.client_external_id
+    }
+
+
 def _toku_filter(model: Any, rtype: str, ff: str, q: str):
     raw = model.raw_payload
     fields: dict[str, dict[str, Any]] = {
@@ -1683,6 +1725,8 @@ def _toku_filter(model: Any, rtype: str, ff: str, q: str):
         "subscription": {
             "id": model.external_id,
             "customer": CSub.client_external_id,
+            "client_rut": _toku_sub_client(CClient.social_id),
+            "client_name": _toku_sub_client(_TOKU_SUB_CLIENT_NAME),
             "amount": CSub.amount,
             "status": CSub.status,
             "anchor": CSub.suscription_date,
@@ -1702,6 +1746,8 @@ def _toku_filter(model: Any, rtype: str, ff: str, q: str):
             "id": model.external_id,
             "customer": CCharge.client_external_id,
             "subscription": CCharge.subscription_external_id,
+            "client_rut": _toku_charge_client(CClient.social_id),
+            "client_name": _toku_charge_client(_TOKU_SUB_CLIENT_NAME),
             "amount": CCharge.amount,
             "is_paid": raw["is_paid"].astext,
             "status": CCharge.status,
@@ -1710,6 +1756,8 @@ def _toku_filter(model: Any, rtype: str, ff: str, q: str):
         "transaction": {
             "id": model.external_id,
             "customer_id": CPayment.client_external_id,
+            "client_rut": raw["customer"]["government_id"].astext,
+            "client_name": raw["customer"]["name"].astext,
             "subscription_id": func.coalesce(raw["subscription_id"].astext, raw["transaction"]["subscription_id"].astext),
             "amount": CPayment.amount,
             "transaction_date": CPayment.payment_date,
@@ -1725,10 +1773,10 @@ def _toku_sort_field(model: Any, rtype: str, field_name: str):
     raw = model.raw_payload
     fields = {
         "customer": {"id": model.external_id, "government_id": CClient.social_id, "name": CClient.first_name, "mail": CClient.email, "phone_number": CClient.phone_number},
-        "subscription": {"id": model.external_id, "customer": CSub.client_external_id, "amount": CSub.amount, "status": CSub.status, "anchor": CSub.suscription_date, "end_date": CSub.canceled_at},
+        "subscription": {"id": model.external_id, "customer": CSub.client_external_id, "client_rut": _toku_sub_client(CClient.social_id), "client_name": _toku_sub_client(_TOKU_SUB_CLIENT_NAME), "amount": CSub.amount, "status": CSub.status, "anchor": CSub.suscription_date, "end_date": CSub.canceled_at},
         "payment_method": {"id": model.external_id, "status": CPaymentMethod.status, "created_at": func.coalesce(raw["created_at"].astext, raw["payment_method"]["created_at"].astext), "bank_name": func.coalesce(raw["bank_name"].astext, raw["payment_method"]["card"]["bank_name"].astext), "card_brand": func.coalesce(raw["card_brand"].astext, raw["payment_method"]["card"]["card_brand"].astext), "last_digits": func.coalesce(raw["last_digits"].astext, raw["payment_method"]["card"]["last_digits"].astext), "card_type": func.coalesce(raw["card_type"].astext, raw["payment_method"]["card"]["card_type"].astext), "customer_id": CPaymentMethod.client_external_id},
-        "invoice": {"id": model.external_id, "customer": CCharge.client_external_id, "subscription": CCharge.subscription_external_id, "amount": CCharge.amount, "is_paid": raw["is_paid"].astext, "status": CCharge.status, "due_date": CCharge.charge_date},
-        "transaction": {"id": model.external_id, "customer_id": CPayment.client_external_id, "subscription_id": func.coalesce(raw["subscription_id"].astext, raw["transaction"]["subscription_id"].astext), "amount": CPayment.amount, "transaction_date": CPayment.payment_date},
+        "invoice": {"id": model.external_id, "customer": CCharge.client_external_id, "subscription": CCharge.subscription_external_id, "client_rut": _toku_charge_client(CClient.social_id), "client_name": _toku_charge_client(_TOKU_SUB_CLIENT_NAME), "amount": CCharge.amount, "is_paid": raw["is_paid"].astext, "status": CCharge.status, "due_date": CCharge.charge_date},
+        "transaction": {"id": model.external_id, "customer_id": CPayment.client_external_id, "client_rut": raw["customer"]["government_id"].astext, "client_name": raw["customer"]["name"].astext, "subscription_id": func.coalesce(raw["subscription_id"].astext, raw["transaction"]["subscription_id"].astext), "amount": CPayment.amount, "transaction_date": CPayment.payment_date},
     }
     field = fields.get(rtype, {}).get(field_name)
     if field is None:
@@ -1807,12 +1855,31 @@ def _list_toku(
             )
         total = len(records)
         records = records[offset : offset + limit]
-        items = [_cstg(record, resource_type, enrichment.get((record.source, record.external_id))) for record in records]
+        client_data = _toku_sub_client_data(db, list(records))
+        items = [
+            _cstg(
+                record,
+                resource_type,
+                {**(enrichment.get((record.source, record.external_id)) or {}), **client_data.get(record.external_id, {})},
+            )
+            for record in records
+        ]
         return {"items": items, "total": total, "offset": offset, "limit": limit}
     records = db.scalars(statement.offset(offset).limit(limit)).all()
     if resource_type == "subscription" and records:
         enrichment = _sub_enrichment(db, list(records))
-        items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in records]
+        client_data = _toku_sub_client_data(db, list(records))
+        items = [
+            _cstg(
+                r,
+                resource_type,
+                {**(enrichment.get((r.source, r.external_id)) or {}), **client_data.get(r.external_id, {})},
+            )
+            for r in records
+        ]
+    elif resource_type == "invoice" and records:
+        client_data = _toku_sub_client_data(db, list(records))
+        items = [_cstg(r, resource_type, client_data.get(r.external_id)) for r in records]
     else:
         items = [_cstg(record, resource_type) for record in records]
     return {
@@ -1869,6 +1936,41 @@ def _payku_sort_field(model: Any, rtype: str, field_name: str):
     return field
 
 
+def _payku_plan_counts(db: Session, records: list[Any]) -> dict[str, dict]:
+    """Mapea {external_id del plan: {active_subscriptions, collectible_subscriptions}}.
+
+    `active_subscriptions` cuenta por el estado de la suscripcion; `collectible_subscriptions`
+    aplica el mismo criterio de estado secundario `cobrable` que `_sub_enrichment`.
+    """
+    plan_ids = {r.external_id for r in records if r.external_id}
+    if not plan_ids:
+        return {}
+    subscriptions = db.execute(
+        select(CSub.external_id, CSub.plan_external_id, CSub.status)
+        .where(CSub.source == "payku", CSub.plan_external_id.in_(plan_ids))
+    ).all()
+    if not subscriptions:
+        return {plan_id: {"active_subscriptions": 0, "collectible_subscriptions": 0} for plan_id in plan_ids}
+    rows = db.execute(
+        select(PkTx.subscription_id, func.max(PkTx.created_at_api).label("last_date"))
+        .where(
+            PkTx.subscription_id.in_({sub.external_id for sub in subscriptions}),
+            func.lower(PkTx.status) == "success",
+        )
+        .group_by(PkTx.subscription_id)
+    ).all()
+    last_paid_map = {row.subscription_id: row.last_date for row in rows if row.last_date}
+    counts = {plan_id: {"active_subscriptions": 0, "collectible_subscriptions": 0} for plan_id in plan_ids}
+    for sub in subscriptions:
+        bucket = counts.get(sub.plan_external_id)
+        if bucket is None or str(sub.status or "").lower() not in _ACTIVE_STATUSES:
+            continue
+        bucket["active_subscriptions"] += 1
+        if _secondary_status(sub.status or "", last_paid_map.get(sub.external_id)) == "cobrable":
+            bucket["collectible_subscriptions"] += 1
+    return counts
+
+
 def _list_payku(
     db: Session,
     resource_type: str | None,
@@ -1901,6 +2003,9 @@ def _list_payku(
     if resource_type == "subscription" and records:
         enrichment = _sub_enrichment(db, list(records), "payku")
         items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in records]
+    elif resource_type == "plan" and records:
+        plan_counts = _payku_plan_counts(db, list(records))
+        items = [_cstg(r, resource_type, plan_counts.get(r.external_id)) for r in records]
     else:
         items = [_cstg(record, resource_type) for record in records]
     return {
