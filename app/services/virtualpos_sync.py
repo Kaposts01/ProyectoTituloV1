@@ -22,6 +22,10 @@ from app.services.sync_progress import ProgressCallback, pagination_totals
 SOURCE = "virtualpos1"
 SENSITIVE_PAYMENT_FIELDS = {"card_number", "card_pan", "pan", "cvv", "cvc", "security_code"}
 
+# Postgres admite como maximo 65535 parametros por consulta; los ids se
+# materializan por lotes para no superar ese limite en cuentas grandes.
+_MATERIALIZE_CHUNK = 2000
+
 
 def _sanitize_record(value: Any) -> Any:
     """Keep provider payloads useful for auditing without retaining card data."""
@@ -210,8 +214,13 @@ async def sync_virtualpos(
                 page += 1
 
             if materialize_ids:
-                staged_records = db.scalars(select(SourceRecord).where(SourceRecord.id.in_(materialize_ids))).all()
-                materialize_records(db, staged_records)
+                pending_ids = list(materialize_ids)
+                for start in range(0, len(pending_ids), _MATERIALIZE_CHUNK):
+                    chunk = pending_ids[start : start + _MATERIALIZE_CHUNK]
+                    staged_records = db.scalars(
+                        select(SourceRecord).where(SourceRecord.id.in_(chunk))
+                    ).all()
+                    materialize_records(db, staged_records)
             reconcile_charge_recoveries(db, platform)
 
             run.status = "completed"
