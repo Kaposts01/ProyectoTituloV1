@@ -51,8 +51,11 @@ type StagingRecord = {
   cobrable_subscription_count?: number;
   subscription_id?: string;
   plan_name?: string;
-  client_name?: string;
+  client_name?: string | null;
   client_social_id?: string;
+  client_rut?: string | null;
+  active_subscriptions?: number | null;
+  collectible_subscriptions?: number | null;
 };
 type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
 type ProviderSection = { source: ProviderSource; resource: string; label: string };
@@ -707,10 +710,10 @@ const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
   },
   toku: {
     customer: [{ value: "id", label: "ID" }, { value: "government_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "mail", label: "Mail" }, { value: "phone_number", label: "Teléfono" }],
-    subscription: [{ value: "id", label: "ID" }, { value: "customer", label: "ID cliente" }, { value: "amount", label: "Monto" }, { value: "status", label: "Estado" }, { value: "secondary_status", label: "Estado sec." }, { value: "anchor", label: "F. Inicio" }, { value: "end_date", label: "F. Cancelación" }],
+    subscription: [{ value: "client_rut", label: "RUT cliente" }, { value: "client_name", label: "Cliente" }, { value: "id", label: "ID" }, { value: "amount", label: "Monto" }, { value: "status", label: "Estado" }, { value: "secondary_status", label: "Estado sec." }, { value: "anchor", label: "F. Inicio" }, { value: "end_date", label: "F. Cancelación" }],
     payment_method: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "customer_id", label: "Cliente" }, { value: "card_brand", label: "Marca" }, { value: "last_digits", label: "Terminación" }, { value: "bank_name", label: "Banco" }, { value: "card_type", label: "Tipo tarjeta" }, { value: "created_at", label: "F. Creación" }],
-    invoice: [{ value: "id", label: "ID" }, { value: "customer", label: "Cliente" }, { value: "subscription", label: "Subscripción" }, { value: "amount", label: "Monto" }, { value: "is_paid", label: "Pagado" }, { value: "status", label: "Estado" }, { value: "due_date", label: "Fecha límite" }],
-    transaction: [{ value: "id", label: "ID" }, { value: "customer_id", label: "ID cliente" }, { value: "subscription_id", label: "ID subscripción" }, { value: "amount", label: "Monto" }, { value: "transaction_date", label: "Fecha transacción" }],
+    invoice: [{ value: "client_rut", label: "RUT cliente" }, { value: "client_name", label: "Cliente" }, { value: "id", label: "ID" }, { value: "amount", label: "Monto" }, { value: "is_paid", label: "Pagado" }, { value: "status", label: "Estado" }, { value: "due_date", label: "Fecha límite" }],
+    transaction: [{ value: "client_rut", label: "RUT cliente" }, { value: "client_name", label: "Cliente" }, { value: "id", label: "ID" }, { value: "amount", label: "Monto" }, { value: "transaction_date", label: "Fecha transacción" }],
   },
   payku: {
     client: [{ value: "id", label: "ID" }, { value: "rut", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Email" }, { value: "phone", label: "Teléfono" }],
@@ -892,6 +895,22 @@ async function refreshCsrfToken(): Promise<void> {
 function text(value: unknown, fallback = "Sin dato"): string {
   if (value === null || value === undefined || value === "") return fallback;
   return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function dateOnly(value: unknown, fallback = "Sin dato"): string {
+  const raw = text(value, "");
+  if (!raw) return fallback;
+  // Toku entrega marcas de tiempo ISO (2026-10-04T08:04:55.505517); se muestra solo la fecha.
+  return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : raw;
+}
+
+function clp(value: unknown, fallback = "Sin dato"): string {
+  const raw = text(value, "");
+  if (!raw) return fallback;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return raw;
+  // Los proveedores entregan 10000 o 10000.0; el peso chileno se muestra sin decimales.
+  return `$${Math.round(numeric).toLocaleString("es-CL")}`;
 }
 
 function recoveryValue(item: RecoveryRow, ...keys: string[]): unknown {
@@ -1227,7 +1246,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
   if (resource === "plan")
     return [
       { label: "Nombre", value: (record) => text(record.payload.name) },
-      { label: "Monto", value: (record) => text(record.payload.amount) },
+      { label: "Monto", value: (record) => clp(record.payload.amount) },
       { label: "Subscripciones", value: (record) => String(record.subscription_count ?? 0) },
       { label: "Activas", value: (record) => String(record.active_subscription_count ?? 0) },
       { label: "Cobrables", value: (record) => String(record.cobrable_subscription_count ?? 0) },
@@ -1247,7 +1266,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
       { label: "RUT cliente", value: clientRut },
       { label: "Estado", value: (record) => text(record.payload.status) },
       { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
-      { label: "Monto", value: (record) => text(record.payload.amount) },
+      { label: "Monto", value: (record) => clp(record.payload.amount) },
       {
         label: "F. Inicio",
         value: (record) => text(record.payload.suscription_date),
@@ -1270,7 +1289,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
         value: (record) => text(record.payload.charge_date),
       },
       { label: "Estado", value: (record) => text(record.payload.status) },
-      { label: "Monto", value: (record) => text(record.payload.amount) },
+      { label: "Monto", value: (record) => clp(record.payload.amount) },
       plataforma,
       { label: "Acciones", value: () => "Eliminar" },
     ];
@@ -1283,7 +1302,7 @@ function virtualPosColumns(resource: string): TableColumn[] {
     },
     {
       label: "Monto",
-      value: (record) => text(nested(record.payload, "order", "amount")),
+      value: (record) => clp(nested(record.payload, "order", "amount")),
     },
     {
       label: "Estado",
@@ -1297,10 +1316,6 @@ function virtualPosColumns(resource: string): TableColumn[] {
 function tokuColumns(resource: string): TableColumn[] {
   if (resource === "customer")
     return [
-      {
-        label: "ID",
-        value: (record) => text(record.payload.id, record.external_id),
-      },
       { label: "RUT", value: (record) => text(record.payload.government_id) },
       { label: "Nombre", value: (record) => text(record.payload.name) },
       { label: "Mail", value: (record) => text(record.payload.mail) },
@@ -1312,19 +1327,16 @@ function tokuColumns(resource: string): TableColumn[] {
     ];
   if (resource === "subscription")
     return [
-      {
-        label: "ID",
-        value: (record) => text(record.payload.id, record.external_id),
-      },
-      { label: "ID cliente", value: (record) => text(nested(record.payload, "customer", "id") ?? record.payload.customer) },
-      { label: "Monto", value: (record) => text(record.payload.amount) },
+      { label: "RUT cliente", value: (record) => text(record.client_rut) },
+      { label: "Cliente", value: (record) => text(record.client_name) },
+      { label: "Monto", value: (record) => clp(record.payload.amount) },
       { label: "Estado", value: (record) => text(record.payload.status ?? nested(record.payload, "recurring", "status")) },
       { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
       { label: "Último cobro", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "—" },
-      { label: "F. Inicio", value: (record) => text(record.payload.anchor ?? nested(record.payload, "recurring", "anchor")) },
+      { label: "F. Inicio", value: (record) => dateOnly(record.payload.anchor ?? nested(record.payload, "recurring", "anchor")) },
       {
         label: "F. Cancelacion",
-        value: (record) => text(record.payload.end_date ?? nested(record.payload, "recurring", "end_date")),
+        value: (record) => dateOnly(record.payload.end_date ?? nested(record.payload, "recurring", "end_date")),
       },
       { label: "Acciones", value: () => "Acciones" },
     ];
@@ -1344,7 +1356,7 @@ function tokuColumns(resource: string): TableColumn[] {
       { label: "Estado", value: (item) => text(method(item).status ?? item.payload.status) },
       {
         label: "F. Creacion",
-        value: (item) => text(method(item).created_at ?? item.payload.created_at),
+        value: (item) => dateOnly(method(item).created_at ?? item.payload.created_at),
       },
       {
         label: "Cliente",
@@ -1366,41 +1378,30 @@ function tokuColumns(resource: string): TableColumn[] {
   }
   if (resource === "invoice")
     return [
-      {
-        label: "ID",
-        value: (record) => text(record.payload.id, record.external_id),
-      },
-      { label: "Cliente", value: (record) => text(record.payload.customer) },
-      {
-        label: "Subscripcion",
-        value: (record) => text(record.payload.subscription),
-      },
-      { label: "Monto", value: (record) => text(record.payload.amount) },
+      { label: "RUT cliente", value: (record) => text(record.client_rut) },
+      { label: "Cliente", value: (record) => text(record.client_name) },
+      { label: "Monto", value: (record) => clp(record.payload.amount) },
       { label: "Pagado", value: (record) => paid(record.payload.is_paid) },
       { label: "Estado", value: (record) => text(record.payload.status) },
       {
         label: "Fecha limite",
-        value: (record) => text(record.payload.due_date),
+        value: (record) => dateOnly(record.payload.due_date),
       },
       { label: "Acciones", value: () => "Acciones" },
     ];
   return [
     {
-      label: "ID",
-      value: (record) => text(nested(record.payload, "transaction", "id") ?? record.payload.id, record.external_id),
+      label: "RUT cliente",
+      value: (record) => text(nested(record.payload, "customer", "government_id") ?? record.client_rut),
     },
     {
-      label: "ID cliente",
-      value: (record) => text(nested(record.payload, "customer", "id") ?? record.payload.customer_id),
+      label: "Cliente",
+      value: (record) => text(nested(record.payload, "customer", "name") ?? record.client_name),
     },
-    {
-      label: "ID subscripcion",
-      value: (record) => text(record.payload.subscription_id),
-    },
-    { label: "Monto", value: (record) => text(nested(record.payload, "transaction", "amount") ?? record.payload.amount) },
+    { label: "Monto", value: (record) => clp(nested(record.payload, "transaction", "amount") ?? record.payload.amount) },
     {
       label: "Fecha transaccion",
-        value: (record) => text(nested(record.payload, "transaction", "transaction_date") ?? record.payload.transaction_date),
+        value: (record) => dateOnly(nested(record.payload, "transaction", "transaction_date") ?? record.payload.transaction_date),
     },
   ];
 }
@@ -1416,27 +1417,27 @@ function tokuRelatedColumns(resource: string): TableColumn[] {
   if (resource === "payment_method") {
     return [
       { label: "Estado", value: (item) => text(nested(item.payload, "payment_method", "status") ?? item.payload.status) },
-      { label: "Fecha creación", value: (item) => text(nested(item.payload, "payment_method", "created_at") ?? item.payload.created_at) },
+      { label: "Fecha creación", value: (item) => dateOnly(nested(item.payload, "payment_method", "created_at") ?? item.payload.created_at) },
     ];
   }
   if (resource === "invoice") {
     return [
       { label: "Estado", value: (item) => text(item.payload.status) },
-      { label: "Fecha", value: (item) => text(item.payload.due_date ?? item.payload.created_at) },
-      { label: "Monto", value: (item) => text(item.payload.amount) },
+      { label: "Fecha", value: (item) => dateOnly(item.payload.due_date ?? item.payload.created_at) },
+      { label: "Monto", value: (item) => clp(item.payload.amount) },
     ];
   }
   if (resource === "transaction") {
     return [
       { label: "Estado", value: (item) => text(nested(item.payload, "transaction", "status") ?? item.payload.status) },
-      { label: "Fecha", value: (item) => text(nested(item.payload, "transaction", "transaction_date") ?? item.payload.transaction_date) },
-      { label: "Monto", value: (item) => text(nested(item.payload, "transaction", "amount") ?? item.payload.amount) },
+      { label: "Fecha", value: (item) => dateOnly(nested(item.payload, "transaction", "transaction_date") ?? item.payload.transaction_date) },
+      { label: "Monto", value: (item) => clp(nested(item.payload, "transaction", "amount") ?? item.payload.amount) },
     ];
   }
   return [
     { label: "Nombre", value: (item) => text(item.payload.name, text(nested(item.payload, "client", "name"))) },
     { label: "Estado", value: (item) => text(item.payload.status) },
-    { label: "Monto", value: (item) => text(item.payload.amount) },
+    { label: "Monto", value: (item) => clp(item.payload.amount) },
   ];
 }
 
@@ -1466,6 +1467,14 @@ function paykuColumns(resource: string): TableColumn[] {
       },
       { label: "Estado", value: (record) => text(record.payload.status) },
       { label: "Nombre", value: (record) => text(record.payload.name) },
+      {
+        label: "Subscripciones activas",
+        value: (record) => (record.active_subscriptions ?? 0).toLocaleString("es-CL"),
+      },
+      {
+        label: "Subscripciones cobrables",
+        value: (record) => (record.collectible_subscriptions ?? 0).toLocaleString("es-CL"),
+      },
     ];
   if (resource === "subscription")
     return [
@@ -1494,7 +1503,7 @@ function paykuColumns(resource: string): TableColumn[] {
       label: "ID subscripciones",
       value: (record) => text(record.payload.subscriptions),
     },
-    { label: "Monto", value: (record) => text(record.payload.amount) },
+    { label: "Monto", value: (record) => clp(record.payload.amount) },
     { label: "F. Pago", value: (record) => text(record.payload.created_at) },
   ];
 }
@@ -5561,6 +5570,33 @@ function App() {
                             aria-label={`Ver ficha de subscripción ${column.value(record)}`}
                             onClick={() =>
                               void openVirtualPosSubscription(record)
+                            }
+                          >
+                            {column.value(record)}
+                          </button>
+                        ) : activeSection.source === "toku" &&
+                          activeSection.resource === "customer" &&
+                          column.label === "RUT" ? (
+                          <button
+                            className="record-link"
+                            aria-label={`Ver ficha de cliente ${column.value(record)}`}
+                            onClick={() =>
+                              void openProviderRecord("toku", "customer", record)
+                            }
+                          >
+                            {column.value(record)}
+                          </button>
+                        ) : activeSection.source === "toku" &&
+                          column.label === "RUT cliente" ? (
+                          <button
+                            className="record-link"
+                            aria-label={`Ver ficha de ${activeSection.label} ${column.value(record)}`}
+                            onClick={() =>
+                              void openProviderRecord(
+                                "toku",
+                                activeSection.resource,
+                                record,
+                              )
                             }
                           >
                             {column.value(record)}
