@@ -32,7 +32,18 @@ def _records_from(response: Any) -> list[dict[str, Any]]:
             val = response.get(key)
             if isinstance(val, list):
                 return [r for r in val if isinstance(r, dict)]
+        # Al pedir una pagina posterior a la ultima, Payku responde
+        # {"status": "failed", "type": "there are no records"}. Es una coleccion
+        # vacia, no un error: ocurre siempre que el total es multiplo de per_page.
+        if _is_empty_page(response):
+            return []
     raise ValueError("Payku returned an unexpected collection response envelope")
+
+
+def _is_empty_page(response: dict[str, Any]) -> bool:
+    if str(response.get("status", "")).lower() != "failed":
+        return False
+    return "no records" in str(response.get("type", "")).lower()
 
 
 def _has_more(records: list, per_page: int) -> bool:
