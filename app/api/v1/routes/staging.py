@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Numeric, String, and_, case, cast, func, or_, select
+from sqlalchemy import Date, Numeric, String, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_csrf, require_permissions
@@ -1488,6 +1488,193 @@ def _cstg(record: Any, rtype: str, extra: dict | None = None) -> dict[str, Any]:
     return result
 
 
+def _vp_plan_id(subscription: CSub) -> str | None:
+    raw = subscription.raw_payload or {}
+    plan_id = subscription.plan_external_id or raw.get("plan_id")
+    return str(plan_id) if plan_id is not None else None
+
+
+def _vp_client_maps(db: Session, subscriptions: list[CSub]) -> tuple[dict[tuple[str, str], CClient], dict[tuple[str, str], CClient]]:
+    sources = {subscription.source for subscription in subscriptions}
+    external_ids = {subscription.client_external_id for subscription in subscriptions if subscription.client_external_id}
+    social_ids = {subscription.client_social_id for subscription in subscriptions if subscription.client_social_id}
+    if not sources or not (external_ids or social_ids):
+        return {}, {}
+    clients = db.scalars(
+        select(CClient).where(
+            CClient.source.in_(sources),
+            or_(CClient.external_id.in_(external_ids), CClient.social_id.in_(social_ids)),
+        )
+    ).all()
+    return (
+        {(client.source, client.external_id): client for client in clients},
+        {(client.source, client.social_id): client for client in clients if client.social_id},
+    )
+
+
+def _vp_subscription_client_values(subscription: CSub, client: CClient | None) -> tuple[str, str]:
+    if client:
+        name = " ".join(part for part in [client.first_name, client.last_name] if part)
+        return name or "Sin dato", client.social_id or subscription.client_social_id or "Sin dato"
+    raw_client = (subscription.raw_payload or {}).get("client", {})
+    name = " ".join(
+        part
+        for part in [raw_client.get("first_name"), raw_client.get("last_name"), raw_client.get("name")]
+        if part
+    )
+    return name or "Sin dato", subscription.client_social_id or raw_client.get("social_id") or "Sin dato"
+
+
+def _vp_client_payments(db: Session, sources: tuple[str, ...] | list[str], social_id: str | None) -> list[CPayment]:
+    if not social_id:
+        return []
+    return db.scalars(
+        select(CPayment)
+        .where(
+            CPayment.source.in_(sources),
+            CPayment.raw_payload["client"]["social_id"].astext == social_id,
+        )
+        .order_by(CPayment.payment_date.desc().nullslast(), CPayment.updated_at.desc())
+        .limit(200)
+    ).all()
+
+
+def _vp_related_extras(db: Session, records: list[Any], resource_type: str) -> dict[tuple[str, str], dict[str, str]]:
+    """Enriches VP records from provider-scoped identifiers already stored in staging."""
+    if not records:
+        return {}
+    if resource_type == "plan":
+        sources = {plan.source for plan in records}
+        plan_ids = {plan.external_id for plan in records}
+        subscriptions = db.scalars(
+            select(CSub).where(
+                CSub.source.in_(sources),
+                func.coalesce(CSub.plan_external_id, CSub.raw_payload["plan_id"].astext).in_(plan_ids),
+            )
+        ).all()
+        enrichment = _sub_enrichment(db, subscriptions)
+        counts: dict[tuple[str, str], dict[str, int]] = defaultdict(
+            lambda: {"subscription_count": 0, "active_subscription_count": 0, "cobrable_subscription_count": 0}
+        )
+        for subscription in subscriptions:
+            plan_id = _vp_plan_id(subscription)
+            if not plan_id or (subscription.status or "").upper() == "SUSCRIPCION_FALLIDA":
+                continue
+            values = counts[(subscription.source, plan_id)]
+            values["subscription_count"] += 1
+            if (subscription.status or "").lower() in _ACTIVE_STATUSES:
+                values["active_subscription_count"] += 1
+            if enrichment.get((subscription.source, subscription.external_id), {}).get("secondary_status") == "cobrable":
+                values["cobrable_subscription_count"] += 1
+        return {key: values for key, values in counts.items()}
+
+    sources = {record.source for record in records}
+    if resource_type == "charge":
+        subscription_ids = {record.subscription_external_id for record in records if record.subscription_external_id}
+        record_keys = {(record.source, record.external_id): record.subscription_external_id for record in records if record.subscription_external_id}
+    else:
+        payment_ids = {record.external_id for record in records}
+        matched_charges = db.scalars(
+            select(CCharge).where(
+                CCharge.source.in_(sources),
+                CCharge.raw_payload["payment"]["order"]["uuid"].astext.in_(payment_ids),
+            )
+        ).all()
+        matched_by_payment: dict[tuple[str, str], list[CCharge]] = defaultdict(list)
+        for charge in matched_charges:
+            payment_id = str((charge.raw_payload or {}).get("payment", {}).get("order", {}).get("uuid"))
+            matched_by_payment[(charge.source, payment_id)].append(charge)
+        record_keys = {
+            key: charges[0].subscription_external_id
+            for key, charges in matched_by_payment.items()
+            if len(charges) == 1
+        }
+        subscription_ids = {subscription_id for subscription_id in record_keys.values() if subscription_id}
+    subscriptions = db.scalars(
+        select(CSub).where(CSub.source.in_(sources), CSub.external_id.in_(subscription_ids))
+    ).all() if subscription_ids else []
+    subscription_map = {(subscription.source, subscription.external_id): subscription for subscription in subscriptions}
+    plan_ids = {plan_id for subscription in subscriptions if (plan_id := _vp_plan_id(subscription))}
+    plans = db.scalars(
+        select(CPlan).where(CPlan.source.in_(sources), CPlan.external_id.in_(plan_ids))
+    ).all() if plan_ids else []
+    plan_map = {(plan.source, plan.external_id): plan for plan in plans}
+    clients_by_id, clients_by_social_id = _vp_client_maps(db, subscriptions)
+    direct_client_ids = {getattr(record, "client_external_id", None) for record in records} - {None}
+    direct_social_ids = {
+        (getattr(record, "raw_payload", None) or {}).get("client", {}).get("social_id")
+        for record in records
+    } - {None}
+    direct_clients = db.scalars(
+        select(CClient).where(
+            CClient.source.in_(sources),
+            or_(CClient.external_id.in_(direct_client_ids), CClient.social_id.in_(direct_social_ids)),
+        )
+    ).all() if direct_client_ids or direct_social_ids else []
+    direct_clients_by_id = {(client.source, client.external_id): client for client in direct_clients}
+    direct_clients_by_social_id = {
+        (client.source, client.social_id): client for client in direct_clients if client.social_id
+    }
+    result: dict[tuple[str, str], dict[str, str]] = {}
+    for record in records:
+        subscription_id = record_keys.get((record.source, record.external_id))
+        subscription = subscription_map.get((record.source, subscription_id)) if subscription_id else None
+        client = (
+            clients_by_id.get((record.source, subscription.client_external_id or ""))
+            or clients_by_social_id.get((record.source, subscription.client_social_id or ""))
+            if subscription
+            else None
+        )
+        raw = record.raw_payload or {}
+        client = client or direct_clients_by_id.get((record.source, getattr(record, "client_external_id", "") or "")) or direct_clients_by_social_id.get((record.source, raw.get("client", {}).get("social_id", "")))
+        if subscription is None:
+            if client:
+                result[(record.source, record.external_id)] = {
+                    "client_name": " ".join(part for part in [client.first_name, client.last_name] if part) or "Sin dato",
+                    "client_social_id": client.social_id or "Sin dato",
+                }
+            continue
+        plan_id = _vp_plan_id(subscription)
+        client_name, client_social_id = _vp_subscription_client_values(subscription, client)
+        result[(record.source, record.external_id)] = {
+            "subscription_id": subscription.external_id,
+            "plan_name": plan_map.get((record.source, plan_id)).name if plan_id and plan_map.get((record.source, plan_id)) else "Sin plan",
+            "client_name": client_name,
+            "client_social_id": client_social_id,
+        }
+    return result
+
+
+def _vp_subscription_detail_data(db: Session, subscription: CSub | None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if subscription is None:
+        return None, None
+    plan_id = _vp_plan_id(subscription)
+    plan = db.scalar(
+        select(CPlan).where(CPlan.source == subscription.source, CPlan.external_id == plan_id)
+    ) if plan_id else None
+    clients_by_id, clients_by_social_id = _vp_client_maps(db, [subscription])
+    client = clients_by_id.get((subscription.source, subscription.client_external_id or "")) or clients_by_social_id.get((subscription.source, subscription.client_social_id or ""))
+    data = _cstg(subscription, "subscription", _sub_enrichment(db, [subscription]).get((subscription.source, subscription.external_id)))
+    if plan:
+        data["plan_name"] = plan.name or plan.external_id
+    return data, _cstg(client, "client") if client else None
+
+
+def _vp_direct_client_data(db: Session, record: CCharge | CPayment) -> dict[str, Any] | None:
+    raw = record.raw_payload or {}
+    client_id = record.client_external_id
+    social_id = raw.get("client", {}).get("social_id")
+    if not client_id and not social_id:
+        return None
+    client = db.scalar(
+        select(CClient).where(
+            CClient.source == record.source,
+            or_(CClient.external_id == client_id, CClient.social_id == social_id),
+        )
+    )
+    return _cstg(client, "client") if client else None
+
+
 def _sub_enrichment(db: Session, records: list[Any], source_hint: str = "") -> dict[tuple[str, str], dict]:
     """Calcula {(source, external_id): {last_paid_date, secondary_status}} para suscripciones."""
     if not records:
@@ -1547,10 +1734,15 @@ def _sub_enrichment(db: Session, records: list[Any], source_hint: str = "") -> d
     }
 
 
-def _vp_filter(model: Any, rtype: str, ff: str, q: str):
-    """Build a JSONB search expression on raw_payload for centralized VirtualPOS records."""
+def _vp_charge_subscription_field(model: Any, raw: Any):
+    materialized = getattr(model, "subscription_external_id", None)
+    return func.coalesce(materialized, raw["suscription_id"].astext) if materialized is not None else raw["suscription_id"].astext
+
+
+def _vp_fields(model: Any, rtype: str) -> dict[str, Any]:
+    """Return the allowlisted VirtualPOS expressions used by filters and sorting."""
     r = model.raw_payload
-    fm: dict[str, dict[str, Any]] = {
+    fields: dict[str, dict[str, Any]] = {
         "client": {
             "uuid": func.coalesce(r["uuid"].astext, model.external_id),
             "social_id": r["social_id"].astext,
@@ -1578,7 +1770,7 @@ def _vp_filter(model: Any, rtype: str, ff: str, q: str):
         "charge": {
             "id": func.coalesce(r["id"].astext, model.external_id),
             "status": r["status"].astext,
-            "subscription_id": func.coalesce(model.subscription_external_id, r["suscription_id"].astext),
+            "subscription_id": _vp_charge_subscription_field(model, r),
             "amount": r["amount"].astext,
             "charge_date": r["charge_date"].astext,
         },
@@ -1590,16 +1782,37 @@ def _vp_filter(model: Any, rtype: str, ff: str, q: str):
             "authorized_at": r["order"]["authorized_at"].astext,
         },
     }
-    field = fm.get(rtype, {}).get(ff)
+    return fields.get(rtype, {})
+
+
+def _vp_numeric(expression: Any):
+    value = cast(expression, String)
+    return case((value.op("~")(r"^\s*-?\d+(\.\d+)?\s*$"), cast(value, Numeric)), else_=None)
+
+
+def _vp_date(expression: Any):
+    value = cast(expression, String)
+    # VirtualPOS dates are ISO strings. Invalid or incomplete values remain last.
+    return case((value.op("~")(r"^\d{4}-\d{2}-\d{2}"), cast(func.substring(value, 1, 10), Date)), else_=None)
+
+
+def _vp_filter(model: Any, rtype: str, ff: str, q: str):
+    """Build a JSONB search expression on raw_payload for centralized VirtualPOS records."""
+    field = _vp_fields(model, rtype).get(ff)
     if field is None:
         raise HTTPException(status_code=422, detail="Invalid filter field")
     lo = q.strip().lower()
+    if ff == "status":
+        return func.lower(cast(field, String)) == lo
     if ff in {"automatic_renewal", "is_active", "show_in_terminal"}:
         if lo in {"activo", "activa", "true", "t", "1", "si", "sí"}:
             return cast(field, String).ilike("%true%") | cast(field, String).ilike("%t%")
         if lo in {"inactivo", "inactiva", "false", "f", "0", "no"}:
             return cast(field, String).ilike("%false%") | cast(field, String).ilike("%f%")
-    return cast(field, String).ilike(f"%{q.strip()}%")
+        raise HTTPException(status_code=422, detail=f"Expected boolean-like value for field '{ff}'")
+    # Escape SQL wildcards so user text is always a literal partial match.
+    needle = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return cast(field, String).ilike(f"%{needle}%", escape="\\")
 
 
 def _list_vp(
@@ -1612,41 +1825,106 @@ def _list_vp(
     sort_direction: Literal["asc", "desc"],
     offset: int,
     limit: int,
+    filters: list[str] | None = None,
+    amount_min: str | None = None,
+    amount_max: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict[str, Any]:
     if not resource_type or resource_type not in _VP_MODEL:
         return {"items": [], "total": 0, "offset": offset, "limit": limit}
     model = _VP_MODEL[resource_type]
     sources = _vp_src(source)
-    secondary_status_filter = resource_type == "subscription" and filter_field == "secondary_status"
+    requested_filters: list[tuple[str, str]] = []
+    if filter_field and query:
+        requested_filters.append((filter_field, query))
+    for item in filters or []:
+        field_name, separator, value = item.partition(":")
+        if not separator or not field_name or not value.strip():
+            raise HTTPException(status_code=422, detail="Filters must use field:value format")
+        requested_filters.append((field_name, value))
+    secondary_status_filters = [
+        value for field_name, value in requested_filters
+        if resource_type == "subscription" and field_name == "secondary_status"
+    ]
+    secondary_status_filter = bool(secondary_status_filters)
     secondary_status_sort = resource_type == "subscription" and sort_field == "secondary_status"
     stmt = select(model).where(model.source.in_(sources))
     cnt = select(func.count()).select_from(model).where(model.source.in_(sources))
-    if filter_field and query and resource_type and not secondary_status_filter:
-        expr = _vp_filter(model, resource_type, filter_field, query)
+    for field_name, value in requested_filters:
+        if field_name == "secondary_status":
+            if resource_type != "subscription":
+                raise HTTPException(status_code=422, detail="secondary_status filter is only valid for subscription")
+            continue
+        expr = _vp_filter(model, resource_type, field_name, value)
         stmt = stmt.where(expr)
         cnt = cnt.where(expr)
+    fields = _vp_fields(model, resource_type)
+    if amount_min is not None or amount_max is not None:
+        amount = fields.get("amount")
+        if amount is None:
+            raise HTTPException(status_code=422, detail="Amount range is unsupported for this resource")
+        if amount_min is not None:
+            try:
+                minimum = float(amount_min)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="amount_min must be numeric") from exc
+            expr = _vp_numeric(amount) >= minimum
+            stmt = stmt.where(expr)
+            cnt = cnt.where(expr)
+        if amount_max is not None:
+            try:
+                maximum = float(amount_max)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="amount_max must be numeric") from exc
+            expr = _vp_numeric(amount) <= maximum
+            stmt = stmt.where(expr)
+            cnt = cnt.where(expr)
+    date_field = {
+        "subscription": "suscription_date",
+        "charge": "charge_date",
+        "payment": "authorized_at",
+    }.get(resource_type)
+    if date_from is not None or date_to is not None:
+        if date_field is None:
+            raise HTTPException(status_code=422, detail="Date range is unsupported for this resource")
+        date_expression = _vp_date(fields[date_field])
+        for value, operator, parameter_name in (
+            (date_from, ">=", "date_from"),
+            (date_to, "<=", "date_to"),
+        ):
+            if value is None:
+                continue
+            try:
+                parsed = date.fromisoformat(value)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=f"{parameter_name} must use YYYY-MM-DD") from exc
+            expr = date_expression >= parsed if operator == ">=" else date_expression <= parsed
+            stmt = stmt.where(expr)
+            cnt = cnt.where(expr)
     if sort_field and not secondary_status_sort:
         expression = _vp_sort_field(model, resource_type, sort_field)
         stmt = stmt.order_by(
             (expression.asc() if sort_direction == "asc" else expression.desc()).nullslast(),
             model.updated_at.desc(),
+            model.external_id.asc(),
         )
     elif not secondary_status_sort:
         if resource_type == "charge":
-            stmt = stmt.order_by(model.charge_date.desc().nullslast(), model.updated_at.desc())
+            stmt = stmt.order_by(_vp_date(fields["charge_date"]).desc().nullslast(), model.updated_at.desc(), model.external_id.asc())
         elif resource_type == "payment":
-            stmt = stmt.order_by(model.payment_date.desc().nullslast(), model.updated_at.desc())
+            stmt = stmt.order_by(_vp_date(fields["authorized_at"]).desc().nullslast(), model.updated_at.desc(), model.external_id.asc())
         else:
-            stmt = stmt.order_by(model.updated_at.desc())
+            stmt = stmt.order_by(model.updated_at.desc(), model.external_id.asc())
     if secondary_status_filter or secondary_status_sort:
         records = db.scalars(stmt).all()
         enrichment = _sub_enrichment(db, list(records))
         if secondary_status_filter:
-            needle = query.strip().lower() if query else ""
-            records = [
-                r for r in records
-                if needle == (enrichment.get((r.source, r.external_id), {}).get("secondary_status") or "").lower()
-            ]
+            for needle in secondary_status_filters:
+                records = [
+                    r for r in records
+                    if needle.strip().lower() == (enrichment.get((r.source, r.external_id), {}).get("secondary_status") or "").lower()
+                ]
         if secondary_status_sort:
             records.sort(
                 key=lambda r: (enrichment.get((r.source, r.external_id), {}).get("secondary_status") or "").casefold(),
@@ -1659,6 +1937,9 @@ def _list_vp(
     records = db.scalars(stmt.offset(offset).limit(limit)).all()
     if resource_type == "subscription" and records:
         enrichment = _sub_enrichment(db, list(records))
+        items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in records]
+    elif resource_type in {"plan", "charge", "payment"} and records:
+        enrichment = _vp_related_extras(db, list(records), resource_type)
         items = [_cstg(r, resource_type, enrichment.get((r.source, r.external_id))) for r in records]
     else:
         items = [_cstg(r, resource_type) for r in records]
@@ -1785,18 +2066,14 @@ def _toku_sort_field(model: Any, rtype: str, field_name: str):
 
 
 def _vp_sort_field(model: Any, rtype: str, field_name: str):
-    raw = model.raw_payload
-    fields = {
-        "client": {"uuid": func.coalesce(raw["uuid"].astext, model.external_id), "social_id": raw["social_id"].astext, "name": func.concat_ws(" ", raw["first_name"].astext, raw["last_name"].astext), "email": raw["email"].astext, "phone_number": raw["phone_number"].astext, "status": raw["status"].astext},
-        "plan": {"id": func.coalesce(raw["id"].astext, model.external_id), "name": raw["name"].astext, "amount": raw["amount"].astext, "automatic_renewal": raw["automatic_renewal"].astext, "is_active": raw["is_active"].astext, "show_in_terminal": raw["show_in_terminal"].astext},
-        "subscription": {"id": func.coalesce(raw["id"].astext, model.external_id), "status": raw["status"].astext, "social_id": raw["client"]["social_id"].astext, "amount": raw["amount"].astext, "suscription_date": raw["suscription_date"].astext, "canceled_at": raw["canceled_at"].astext},
-        "charge": {"id": func.coalesce(raw["id"].astext, model.external_id), "status": raw["status"].astext, "subscription_id": func.coalesce(model.subscription_external_id, raw["suscription_id"].astext), "amount": raw["amount"].astext, "charge_date": raw["charge_date"].astext},
-        "payment": {"uuid": func.coalesce(raw["order"]["uuid"].astext, model.external_id), "status": raw["order"]["status"].astext, "social_id": raw["client"]["social_id"].astext, "amount": raw["order"]["amount"].astext, "authorized_at": raw["order"]["authorized_at"].astext},
-    }
-    field = fields.get(rtype, {}).get(field_name)
+    field = _vp_fields(model, rtype).get(field_name)
     if field is None:
         raise HTTPException(status_code=422, detail="Invalid sort field")
-    return field
+    if field_name == "amount":
+        return _vp_numeric(field)
+    if field_name in {"suscription_date", "canceled_at", "charge_date", "authorized_at"}:
+        return _vp_date(field)
+    return func.lower(cast(field, String))
 
 
 def _list_toku(
@@ -2477,10 +2754,18 @@ def list_records(
     sort_direction: Literal["asc", "desc"] = "asc",
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
+    filters: Annotated[list[str] | None, Query()] = None,
+    amount_min: str | None = None,
+    amount_max: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict[str, Any]:
     _require_source_access(current_user, source, resource_type)
     if source.startswith("virtualpos"):
-        return _list_vp(source, db, resource_type, filter_field, query, sort_field, sort_direction, offset, limit)
+        return _list_vp(
+            source, db, resource_type, filter_field, query, sort_field, sort_direction, offset, limit,
+            filters, amount_min, amount_max, date_from, date_to,
+        )
     if source == "toku":
         return _list_toku(db, resource_type, filter_field, query, sort_field, sort_direction, offset, limit)
     if source == "payku":
@@ -2584,42 +2869,24 @@ def virtualpos_client_detail(
         ).all()
         charge_total = db.scalar(select(func.count()).select_from(CCharge).where(*charge_filters)) or 0
 
-        # Pagos: link via raw_payload.payment.order.uuid (charge_external_id no se popula en VP)
-        payment_uuids = list(
-            {
-                uuid
-                for uuid in db.scalars(
-                    select(CCharge.raw_payload["payment"]["order"]["uuid"].astext)
-                    .where(*charge_filters)
-                    .where(CCharge.raw_payload["payment"]["order"]["uuid"].astext.isnot(None))
-                ).all()
-            }
-        )
-        if payment_uuids:
-            payments = db.scalars(
-                select(CPayment).where(
-                    CPayment.source.in_(_VP_SRCS),
-                    CPayment.external_id.in_(payment_uuids),
-                ).order_by(CPayment.payment_date.desc())
-            ).all()
-            payment_total = len(payments)
-        else:
-            payments = []
-            payment_total = 0
+        payments = _vp_client_payments(db, _VP_SRCS, social_id)
+        payment_total = len(payments)
     else:
         charges = []
         charge_total = 0
-        payments = []
-        payment_total = 0
+        payments = _vp_client_payments(db, _VP_SRCS, social_id)
+        payment_total = len(payments)
 
     sub_enrichment = _sub_enrichment(db, list(subscriptions))
+    charge_enrichment = _vp_related_extras(db, list(charges), "charge")
+    payment_enrichment = _vp_related_extras(db, list(payments), "payment")
     return {
         "client": _cstg(client, "client"),
         "subscriptions": [_cstg(s, "subscription", sub_enrichment.get((s.source, s.external_id))) for s in subscriptions],
         "subscription_total": subscription_total,
-        "charges": [_cstg(c, "charge") for c in charges],
+        "charges": [_cstg(c, "charge", charge_enrichment.get((c.source, c.external_id))) for c in charges],
         "charge_total": charge_total,
-        "payments": [_cstg(p, "payment") for p in payments],
+        "payments": [_cstg(p, "payment", payment_enrichment.get((p.source, p.external_id))) for p in payments],
         "payment_total": payment_total,
     }
 
@@ -2638,7 +2905,10 @@ def virtualpos_plan_detail(
     )
     if plan is None:
         raise HTTPException(status_code=404, detail="VirtualPOS plan not found")
-    filters = (CSub.source == plan.source, CSub.plan_external_id == plan.external_id)
+    filters = (
+        CSub.source == plan.source,
+        func.coalesce(CSub.plan_external_id, CSub.raw_payload["plan_id"].astext) == plan.external_id,
+    )
     subscriptions = db.scalars(
         select(CSub).where(*filters).order_by(CSub.updated_at.desc()).offset(offset).limit(limit)
     ).all()
@@ -2676,11 +2946,15 @@ def virtualpos_subscription_detail(
     total = db.scalar(select(func.count()).select_from(CCharge).where(*filters)) or 0
     raw = subscription.raw_payload or {}
     enrichment = _sub_enrichment(db, [subscription])
+    payments = _vp_client_payments(db, [subscription.source], subscription.client_social_id)
+    payment_enrichment = _vp_related_extras(db, list(payments), "payment")
     return {
         "subscription": _cstg(subscription, "subscription", enrichment.get((subscription.source, subscription.external_id))),
         "payment_method": raw.get("payment_method"),
         "charges": [_cstg(c, "charge") for c in charges],
         "charge_total": total,
+        "payments": [_cstg(p, "payment", payment_enrichment.get((p.source, p.external_id))) for p in payments],
+        "payment_total": len(payments),
     }
 
 
@@ -2696,7 +2970,23 @@ def virtualpos_charge_detail(
     )
     if charge is None:
         raise HTTPException(status_code=404, detail="VirtualPOS charge not found")
-    return {"charge": _cstg(charge, "charge")}
+    subscription_id = charge.subscription_external_id or (charge.raw_payload or {}).get("suscription_id")
+    subscription = db.scalar(
+        select(CSub).where(CSub.source == charge.source, CSub.external_id == subscription_id)
+    ) if subscription_id else None
+    payment_uuid = (charge.raw_payload or {}).get("payment", {}).get("order", {}).get("uuid")
+    payments = db.scalars(
+        select(CPayment).where(CPayment.source == charge.source, CPayment.external_id == str(payment_uuid))
+    ).all() if payment_uuid else []
+    payment = payments[0] if len(payments) == 1 else None
+    subscription_data, client_data = _vp_subscription_detail_data(db, subscription)
+    client_data = client_data or _vp_direct_client_data(db, charge)
+    return {
+        "charge": _cstg(charge, "charge"),
+        "subscription": subscription_data,
+        "client": client_data,
+        "payment": _cstg(payment, "payment") if payment else None,
+    }
 
 
 @router.get("/virtualpos/payments/{external_id}", tags=["Staging"])
@@ -2711,7 +3001,25 @@ def virtualpos_payment_detail(
     )
     if payment is None:
         raise HTTPException(status_code=404, detail="VirtualPOS payment not found")
-    return {"payment": _cstg(payment, "payment")}
+    charges = db.scalars(
+        select(CCharge).where(
+            CCharge.source == payment.source,
+            CCharge.raw_payload["payment"]["order"]["uuid"].astext == payment.external_id,
+        )
+    ).all()
+    charge = charges[0] if len(charges) == 1 else None
+    subscription_id = charge.subscription_external_id or (charge.raw_payload or {}).get("suscription_id") if charge else None
+    subscription = db.scalar(
+        select(CSub).where(CSub.source == payment.source, CSub.external_id == subscription_id)
+    ) if subscription_id else None
+    subscription_data, client_data = _vp_subscription_detail_data(db, subscription)
+    client_data = client_data or _vp_direct_client_data(db, payment)
+    return {
+        "payment": _cstg(payment, "payment"),
+        "charge": _cstg(charge, "charge") if charge else None,
+        "subscription": subscription_data,
+        "client": client_data,
+    }
 
 
 def _record_value(record: SourceRecord) -> str:
