@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,6 +29,21 @@ from app.services.write_virtualpos import (
 router = APIRouter()
 _SOURCES = ("virtualpos1", "virtualpos2")
 _REJECTED = {"rechazado", "rejected", "failed", "failure", "declined", "error"}
+_ACTIVE_STATUSES = {"activa", "activo", "active", "vigente"}
+
+
+def _secondary_status(status: str, last_paid: str | None) -> str:
+    if str(status).lower() not in _ACTIVE_STATUSES:
+        return "inactiva"
+    if not last_paid:
+        return "nunca_cobrado"
+    try:
+        paid_date = date.fromisoformat(str(last_paid)[:10])
+        if paid_date <= date.today() - timedelta(days=182):
+            return "incobrable"
+        return "cobrable"
+    except (ValueError, TypeError):
+        return "nunca_cobrado"
 
 
 def _date(value: str | None, name: str) -> date | None:
@@ -153,6 +168,147 @@ def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: st
 @router.get("/cancelled", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
 def cancelled_subscriptions(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
     return _page(_cancelled_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to")), offset, limit)
+
+
+def _group_rows(db: Session, group: str, start: date | None, end: date | None) -> list[dict]:
+    """Return subscriptions filtered by secondary_status group with last_paid enrichment."""
+    subscriptions = db.scalars(select(Subscription).where(Subscription.source.in_(_SOURCES))).all()
+
+    # Build client lookups: primary by external_id, fallback by social_id (RUT).
+    # VirtualPOS subscriptions have client_external_id=NULL but client_social_id (RUT) populated,
+    # so the RUT-based fallback is required to resolve names and emails.
+    all_clients = db.scalars(select(Client).where(Client.source.in_(_SOURCES))).all()
+    clients_by_id: dict[tuple[str, str], Client] = {(c.source, c.external_id): c for c in all_clients}
+    clients_by_rut: dict[tuple[str, str], Client] = {}
+    for c in all_clients:
+        if c.social_id:
+            key = (c.source, c.social_id)
+            if key not in clients_by_rut:
+                clients_by_rut[key] = c
+
+    # Build last_paid_date, ever_paid, and has_charges per (source, subscription_external_id)
+    # using Charge directly — it has subscription_external_id as a first-class field,
+    # which avoids the fragile Payment→charge_external_id→Charge→subscription chain.
+    charges = db.scalars(select(Charge).where(Charge.source.in_(_SOURCES))).all()
+    last_paid_map: dict[tuple[str, str], str] = {}
+    ever_paid: set[tuple[str, str]] = set()    # at least one accepted charge
+    has_charges: set[tuple[str, str]] = set()  # at least one charge attempt of any status
+
+    for charge in charges:
+        if not charge.subscription_external_id:
+            continue
+        key = (charge.source, charge.subscription_external_id)
+        has_charges.add(key)
+        if str(charge.status or "").strip().lower() in PAID_STATUSES:
+            ever_paid.add(key)
+            cdate = str(charge.charge_date or "")
+            if not last_paid_map.get(key) or cdate > last_paid_map[key]:
+                last_paid_map[key] = cdate
+
+    # First pass: collect candidates matching the group and date filter
+    candidates: list[Subscription] = []
+    for sub in subscriptions:
+        last_paid = last_paid_map.get((sub.source, sub.external_id))
+        ss = _secondary_status(sub.status or "", last_paid)
+
+        if ss != group:
+            continue
+
+        if group == "inactiva":
+            # Exclude subs fallidas: never had any charge attempt registered
+            if (sub.source, sub.external_id) not in has_charges:
+                continue
+            if not _in_range(sub.canceled_at, start, end):
+                continue
+        else:
+            # For incobrable / nunca_cobrado, date filter on suscription_date is optional
+            if (start or end) and not _in_range(sub.suscription_date, start, end):
+                continue
+
+        candidates.append(sub)
+
+    # For incobrable / nunca_cobrado: deduplicate to one row per client.
+    # Key priority: client_external_id > client_social_id (RUT) > subscription external_id.
+    # VirtualPOS has client_external_id=NULL, so RUT is the effective dedup key.
+    if group != "inactiva":
+        candidates.sort(key=lambda s: str(s.suscription_date or ""), reverse=True)
+        seen_clients: set[tuple[str, str]] = set()
+        deduped: list[Subscription] = []
+        for sub in candidates:
+            client_key = (sub.source, sub.client_external_id or sub.client_social_id or sub.external_id)
+            if client_key not in seen_clients:
+                seen_clients.add(client_key)
+                deduped.append(sub)
+        candidates = deduped
+
+    rows = []
+    for sub in candidates:
+        last_paid = last_paid_map.get((sub.source, sub.external_id))
+        # Dual client lookup: external_id first, then RUT fallback
+        client: Client | None = clients_by_id.get((sub.source, sub.client_external_id or "")) if sub.client_external_id else None
+        if client is None and sub.client_social_id:
+            client = clients_by_rut.get((sub.source, sub.client_social_id))
+        antiquity_days = None
+        try:
+            ref_end = date.fromisoformat(str(sub.canceled_at)[:10]) if group == "inactiva" else date.today()
+            antiquity_days = (ref_end - date.fromisoformat(str(sub.suscription_date)[:10])).days
+        except (TypeError, ValueError):
+            pass
+
+        rows.append({
+            "source": sub.source,
+            "subscription_id": sub.external_id,
+            "external_id": sub.external_id,
+            "secondary_status": group,
+            "rut": client.social_id if client else sub.client_social_id,
+            "client_name": _name(client),
+            "started_at": sub.suscription_date,
+            "cancelled_at": sub.canceled_at,
+            "last_paid_date": last_paid,
+            "antiquity_days": antiquity_days,
+            "amount": sub.amount,
+            "currency": sub.currency,
+            "email": client.email if client else None,
+            "phone": client.phone_number if client else None,
+        })
+
+    sort_key = "cancelled_at" if group == "inactiva" else "started_at"
+    return sorted(rows, key=lambda r: str(r.get(sort_key) or ""), reverse=True)
+
+
+@router.get("/group", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
+def group_subscriptions(
+    db: Annotated[Session, Depends(get_db)],
+    group: Literal["inactiva", "incobrable", "nunca_cobrado"] = "inactiva",
+    date_from: str | None = None,
+    date_to: str | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+) -> dict:
+    return _page(_group_rows(db, group, _date(date_from, "date_from"), _date(date_to, "date_to")), offset, limit)
+
+
+@router.get("/group/export", dependencies=[Depends(require_permissions("virtualpos.recovery.export"))], tags=["Recovery"])
+def export_group_subscriptions(
+    db: Annotated[Session, Depends(get_db)],
+    group: Literal["inactiva", "incobrable", "nunca_cobrado"] = "inactiva",
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> Response:
+    group_labels = {"inactiva": "Fecha cancelación", "incobrable": "Último cobro", "nunca_cobrado": "Fecha inicio"}
+    date_col = group_labels.get(group, "Fecha")
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["ID_SUB", "RUT", "Nombre completo", "Fecha inicio", date_col, "Estado secundario", "Último cobro", "Antigüedad (días)", "Monto mensual", "Email", "Teléfono"])
+    for row in _group_rows(db, group, _date(date_from, "date_from"), _date(date_to, "date_to")):
+        date_val = row["cancelled_at"] if group == "inactiva" else row["last_paid_date"] if group == "incobrable" else row["started_at"]
+        writer.writerow([
+            row["subscription_id"], row["rut"], row["client_name"], row["started_at"],
+            date_val, row["secondary_status"], row["last_paid_date"], row["antiquity_days"],
+            row["amount"], row["email"], row["phone"],
+        ])
+    filename = f"socios-{group}.csv"
+    return Response(output.getvalue().encode("utf-8-sig"), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 @router.get("/cancelled/export", dependencies=[Depends(require_permissions("virtualpos.recovery.export"))], tags=["Recovery"])
