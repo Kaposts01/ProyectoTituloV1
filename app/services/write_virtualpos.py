@@ -114,7 +114,7 @@ def _materialize_plan(plan: Plan, payload: dict[str, Any]) -> None:
     plan.status = _as_text(payload.get("status"))
 
 
-def _materialize_charge(charge: "Charge", payload: dict[str, Any]) -> None:
+def _materialize_charge(charge: Charge, payload: dict[str, Any]) -> None:
     charge.raw_payload = payload
     charge.subscription_external_id = _as_text(payload.get("suscription_id"))
     charge.client_external_id = _as_text(payload.get("client_id") or payload.get("client_uuid"))
@@ -134,7 +134,7 @@ def _subscription_payload(response: Any) -> dict[str, Any] | None:
     return response
 
 
-def _materialize_subscription(sub: "Subscription", payload: dict[str, Any]) -> None:
+def _materialize_subscription(sub: Subscription, payload: dict[str, Any]) -> None:
     sub.raw_payload = payload
     client_obj = payload.get("client")
     sub.client_external_id = _as_text(
@@ -603,7 +603,7 @@ async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription
 
     # Encode URLs to base64 if provided as plain text
     for url_field in ("return_url", "callback_url"):
-        if url_field in data and data[url_field]:
+        if data.get(url_field):
             raw = str(data[url_field])
             if not _is_base64(raw):
                 data[url_field] = base64.b64encode(raw.encode()).decode()

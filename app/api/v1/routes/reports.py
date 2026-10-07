@@ -221,9 +221,14 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
         bajas.append(len(month_cancellations))
         active_count_by_month.append(active_end)
         churn.append(round(100 * len(month_cancellations) / active_start, 2) if active_start else 0)
-        deu_pag.append(len(paid)); deu_nop.append(len(rejected)); int_ok.append(len(paid)); int_fail.append(len(rejected))
-        cg_can.append(len(cancelled)); cg_pro.append(len(processing))
-        rec_mes.append(round(sum(_amount(charge.amount) for charge in paid), 2)); pagos_mes.append(len(paid))
+        deu_pag.append(len(paid))
+        deu_nop.append(len(rejected))
+        int_ok.append(len(paid))
+        int_fail.append(len(rejected))
+        cg_can.append(len(cancelled))
+        cg_pro.append(len(processing))
+        rec_mes.append(round(sum(_amount(charge.amount) for charge in paid), 2))
+        pagos_mes.append(len(paid))
     account_labels = {"virtualpos1": "Cuenta 1", "virtualpos2": "Cuenta 2"}
     account_revenue = {label: 0.0 for label in account_labels.values()}
     account_subscriptions = {label: 0 for label in account_labels.values()}
@@ -850,7 +855,7 @@ def automatic_report(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, Any]:
     _require_report_access(current_user, "general")
-    today = date.today()
+    today = datetime.now(tz=UTC).date()
     week_start = today - timedelta(days=today.weekday())
     periods = {
         "annual": (today.replace(month=1, day=1), today),

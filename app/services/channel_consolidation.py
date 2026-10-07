@@ -32,6 +32,7 @@ from app.models.toku_channel import (
     TokuTransaction,
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
+from app.services.core_materialization import materialize_core_clients
 
 logger = logging.getLogger(__name__)
 
@@ -540,4 +541,5 @@ def consolidate_to_centralized(db: Session, sources: list[str] | None = None) ->
                 total += count
             except Exception:
                 logger.exception("Error consolidando %s.%s", source, fn.__name__)
+    total += materialize_core_clients(db, targets)
     return total

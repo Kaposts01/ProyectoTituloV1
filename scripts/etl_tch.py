@@ -507,7 +507,7 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
     c_tipo = _find_col(df, "transacci")
     c_total_cuotas = _find_col(df, "pagos", "mandato")
     c_periodo = _find_col(df, "periodo")
-    c_cuota = _find_col(df, "cuota") and _find_col(df, "n") or _find_col(df, "cuota")
+    c_cuota = (_find_col(df, "cuota") and _find_col(df, "n")) or _find_col(df, "cuota")
     # Buscar 'N° Cuota' específicamente
     c_cuota = _find_col(df, "detalle", "cuota") or _find_col(df, "n", "cuota") or _find_col(df, "cuota")
     c_monto = (
@@ -791,7 +791,7 @@ def _load_suscripciones(db, rows: list[dict]) -> tuple[int, int, int]:
         seen_sus[r["numero_ficha"]] = r
     unique_sus = list(seen_sus.values())
 
-    # Chunk para no superar los 65535 parámetros de PostgreSQL (24 cols × 2700 filas ≈ 64800)
+    # Chunk para no superar los 65535 parámetros de PostgreSQL (24 cols x 2700 filas ~= 64800)
     CHUNK_SUS = 2500
     for i in range(0, len(unique_sus), CHUNK_SUS):
         chunk = unique_sus[i : i + CHUNK_SUS]

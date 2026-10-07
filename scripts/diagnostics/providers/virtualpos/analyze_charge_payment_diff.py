@@ -31,7 +31,7 @@ try:
     """))
     print("Estado de suscripciones por fuente:")
     for row in r:
-        print(f"  {row[0]:15s} {str(row[1] or 'NULL'):30s} {row[2]:>8,}")
+        print(f"  {row[0]:15s} {row[1] or 'NULL'!s:30s} {row[2]:>8,}")
 
     # ── 2. ¿Cuántas suscripciones tienen canceled_at? ──────────────────────
     r = db.execute(text(f"""
@@ -61,7 +61,7 @@ try:
     print("\nCargos por estado de suscripción:")
     print(f"  {'sub_status':30s} {'total_cargos':>14} {'cargos_pagados':>16}")
     for row in r:
-        print(f"  {str(row[0] or 'NULL'):30s} {row[1]:>14,} {row[2]:>16,}")
+        print(f"  {row[0] or 'NULL'!s:30s} {row[1]:>14,} {row[2]:>16,}")
 
     # ── 4. ¿Los 5618 pagos autónomos corresponden a suscripciones canceladas?
     #       Buscamos si el RUT del pago existe en suscripciones pero con estado cancelado

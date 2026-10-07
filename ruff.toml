@@ -1,0 +1,23 @@
+[lint]
+# E4/E7/E9 + F = ruff defaults; W/I/B/BLE/DTZ/RUF/UP extend to match CI expectations.
+# E501 (line-too-long) is excluded: historical migrations use long lines that should not be touched.
+select = ["E4", "E7", "E9", "F", "W", "I", "B", "BLE", "DTZ", "RUF", "UP"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# FastAPI's Depends() in argument defaults is the canonical pattern — B008 is a false positive here.
+"app/api/v1/routes/scheduler.py" = ["B008"]
+
+# Broad except in provider write-path fallbacks is intentional: a failed refresh
+# must not abort the parent write operation. Tightening these requires provider-specific
+# exception hierarchies that don't exist yet.
+"app/services/write_virtualpos.py" = ["BLE001"]
+"app/services/write_payku.py"      = ["BLE001"]
+"app/services/write_toku.py"       = ["BLE001"]
+"app/integrations/virtualpos/client.py" = ["BLE001"]
+
+# ETL y scripts de diagnóstico: excepciones broad son intencionales para resiliencia
+# ante datos de Excel malformados o respuestas de API inesperadas.
+"scripts/etl_tch.py"                                           = ["BLE001", "DTZ007"]
+"scripts/diagnostics/providers/payku/probe_payku_objects.py"   = ["BLE001"]
+"scripts/diagnostics/providers/payku/probe_payku_transactions2.py" = ["BLE001"]

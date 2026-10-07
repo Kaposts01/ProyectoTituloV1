@@ -1,6 +1,6 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-02.
+Fecha de actualizacion: 2026-10-07.
 
 ## Estado actual
 
@@ -29,17 +29,19 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - Los listados VirtualPOS permiten filtros simultáneos con AND por columna, coincidencia parcial para texto, rangos explícitos de monto y fecha, y orden tipado. Las tablas relacionadas en fichas permiten la misma exploración sobre los registros cargados.
 - Las fichas de suscripción TCH usan `numero_ficha` de DUES en la ruta. Es un identificador único de la proyección TCH y no expone atributos personales.
 - Las tablas y fichas VirtualPOS enriquecen planes, clientes, suscripciones, cargos y transacciones desde relaciones trazables por cuenta e identificador externo. Las transacciones se vinculan al cliente por RUT y cuenta; los datos locales actuales no permiten asignarlas individualmente a cargos o suscripciones.
+- Los cuatro ETL Core (TCH, Toku, Payku, VirtualPOS) materializan tablas de proveedor hacia entidades Layer 3 (`core_clients`, `core_subscriptions`, `core_charges`, `core_payments`, `core_client_attributes`). Son idempotentes y usables como endpoints REST (`POST /etl/core/{provider}` y `POST /etl/core/all`) o directamente como servicios Python. TCH materializa 1.47M pagos; Toku usa stubs `status='deleted_at_source'` para 112 suscripciones eliminadas en origen; Payku vincula directamente transacciones a suscripciones; VirtualPOS usa índice de RUT para vincular pagos con ambigüedad controlada.
 
 ## En progreso
 
 - Tareas operativas registradas en [tasks.md](../tasks.md), incluidas Payku, Toku, administracion de usuarios y un flujo de VirtualPOS.
+- Rama `feature/core-centralizado` en revisión final antes de merge a `master`. Core ETL completo (4 proveedores), migraciones 0027 y 0028 aplicadas, CI limpio (ruff), tests de helpers ETL pasando.
 - Los dashboards operativos de VirtualPOS, Toku, Payku y TCH tienen paridad de KPIs, distribuciones, altas/bajas, series de suscripciones activas, churn y alertas usando solamente los campos verificables de cada fuente. Toku usa transacciones reales para su comparación con suscripciones; Payku mantiene su límite de cobertura histórica; TCH se basa en su proyección ETL.
 - Payku reconoce el identificador histórico `transaction` cuando su payload no trae `id`. La reconstrucción local `scripts/maintenance/backfill_payku_transactions.py` materializa transacciones ya preservadas en `source_records` hacia `p_transactions`; luego el ETL normal las proyecta a `payments`, restaurando los años y la actividad mensual verificables del dashboard.
 
 ## Pendiente
 
 - Definir contrato de liquidaciones, taxonomia comun y gobierno de datos personales.
-- Planificar el Core tecnico desde el modelo conceptual aprobado antes de iniciar su implementacion.
+- Migrar lecturas del frontend hacia el Core y deprecar gradualmente las proyecciones por canal sin romper contratos vigentes.
 - Evaluar analitica predictiva en una fase posterior.
 
 ## Bloqueos
@@ -65,7 +67,8 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 
 ## Deuda tecnica conocida
 
-- La base actual no supera CI: `pytest` presenta 7 fallos y `ruff check app tests alembic scripts` reporta 62 hallazgos; requieren una tarea dedicada sin mezclar cambios funcionales en curso.
+- CI parcialmente saneado en `feature/core-centralizado`: `ruff check app tests alembic scripts` pasa limpio; `pytest` tiene 3 fallos pre-existentes no relacionados con el Core ETL (2 en Toku sync mock, 1 en Payku consolidación histórica).
+- `ruff.toml` establece el conjunto de reglas activo del proyecto; E501 excluido explícitamente (líneas largas en migraciones históricas por convención).
 - Documentos historicos de arquitectura y ETL son antecedentes y pueden no reflejar la arquitectura vigente.
 - Auditoria 2026-10-01: Payku no certifica cobertura historica de transacciones y TCH requiere ampliar su cobertura ETL mas alla de la suite focalizada inicial. Estos limites deben considerarse al usar sus metricas como evidencia completa.
 - El frontend concentra estado, carga de datos, dashboards y exploradores en `frontend/src/App.tsx`. La resolución de rutas se extrajo a `frontend/src/routes.ts` y las alertas operativas a `frontend/src/features/dashboard/OperationalAlerts.tsx`; la modularización restante debe preservar permisos y contratos API por canal.

@@ -47,6 +47,19 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 
 ## Próximas tareas priorizadas
 
+## Hito 4: Core centralizado, catalogo QA y resiliencia
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| CORE-01 | Crear base tecnica del Core centralizado | En curso | Nuevas entidades proveedor-independientes, procedencia y migracion aditiva sin alterar las proyecciones actuales. |
+| CORE-02 | Modelar cargos y pagos trazables | Pendiente | Cargo representa el compromiso mensual; pagos preservan intentos, rechazos y el ultimo rechazo verificable del cargo. |
+| CORE-03 | Materializar los cuatro canales hacia el Core | En curso | VirtualPOS, Toku, Payku y TCH preservan IDs externos, limites de cobertura y relaciones verificables. |
+| CORE-04 | Implementar identidad centralizada revisable | Pendiente | Identidades externas, revision manual y auditoria respetan ADR-001 sin merges automaticos. |
+| CATALOG-01 | Crear catalogo consultable de mapeos y escenarios QA | Completada | API protegida expone mapeos fuente/STG/Core y escenarios sinteticos sin PII ni datos de pago reales. |
+| ENV-01 | Separar Sandbox, QA y Produccion | Pendiente | Cada entorno usa base, credenciales y proveedores propios; Produccion queda en un cluster PostgreSQL independiente. |
+| BCK-01 | Automatizar respaldo y recuperacion autogestionados | Pendiente | Backup fisico con WAL/PITR y dump logico, verificacion, retencion y simulacro de restauracion documentados. |
+| BCK-02 | Crear punto de restauracion previo al Core | Completada | Rama, tag, dump logico y snapshot fisico local verificados antes de la primera migracion Core. |
+
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
 | VP-08 | Inspeccionar y documentar los payloads reales de Sandbox | Completada | Campos, identificadores y paginación observados en Sandbox y documentados. |
