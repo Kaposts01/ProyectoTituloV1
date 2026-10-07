@@ -153,7 +153,7 @@ async def stream_run(
     try:
         uuid.UUID(run_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="run_id inválido.")
+        raise HTTPException(status_code=400, detail="run_id inválido.") from None
 
     # Padding de 4 KB para forzar flush del buffer de Cloudflare/proxies
     _PAD = ": " + ("p" * 4096) + "\n"

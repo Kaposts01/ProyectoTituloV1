@@ -7,6 +7,16 @@ from app.core.config import settings
 from app.db.session import Base
 from app.models.auth import Permission, Role, User  # noqa: F401
 from app.models.charge_recovery import ChargeRecovery  # noqa: F401
+from app.models.core import (  # noqa: F401
+    CoreCharge,
+    CoreClient,
+    CorePayment,
+    CoreSubscription,
+    DataCatalogMapping,
+    ExternalIdentity,
+    QaScenario,
+    SourceRecordObservation,
+)
 from app.models.crm import (  # noqa: F401
     Charge,
     Client,

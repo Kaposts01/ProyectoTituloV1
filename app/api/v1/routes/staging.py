@@ -1,6 +1,6 @@
 import re
 from collections import Counter, defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -247,7 +247,7 @@ def _general_dashboard(db: Session) -> dict[str, Any]:
             .group_by(TchTransaccion.periodo, TchTransaccion.estado)
         ).all()
     )
-    for source, period, status, count, total_amount in online_months:
+    for _source, period, status, count, total_amount in online_months:
         month = _month(period)
         if month:
             bucket = transaction_months[(*month, _general_transaction_status(status))]
@@ -402,7 +402,7 @@ def _general_dashboard(db: Session) -> dict[str, Any]:
     transaction_total = sum(totals.values())
 
     # ── Alertas operativas (calculadas desde datos ya cargados) ───────────
-    today = date.today()
+    today = datetime.now(tz=timezone.utc).date()
     dashboard_alerts: list[dict[str, Any]] = []
 
     # 1. Alta tasa de rechazo por canal/mes
@@ -447,7 +447,7 @@ def _general_dashboard(db: Session) -> dict[str, Any]:
 
     # 3. Tasa de rechazo global muy alta (últimos 3 meses)
     g_ok = g_fail = 0
-    for (y, m, ch, cs), v in charge_months.items():
+    for (y, m, _ch, cs), v in charge_months.items():
         if date(y, m, 1) >= cutoff_3m:
             if cs == "pagada":
                 g_ok += int(v["count"])
@@ -574,7 +574,7 @@ def _secondary_status(status: str, last_paid: str | None) -> str:
         return "Nunca Cobrado"
     try:
         paid_date = date.fromisoformat(last_paid[:10])
-        six_months_ago = date.today() - timedelta(days=182)
+        six_months_ago = datetime.now(tz=timezone.utc).date() - timedelta(days=182)
         return "incobrable" if paid_date <= six_months_ago else "cobrable"
     except (ValueError, TypeError):
         return "Nunca Cobrado"
@@ -953,7 +953,7 @@ def _vp_centralized_alerts(
     Recibe sets precomputados para evitar queries duplicadas con _vp_centralized_dashboard.
     """
     alerts: list[dict[str, Any]] = []
-    today = date.today()
+    today = datetime.now(tz=timezone.utc).date()
 
     # 1. Suscripciones activas sin cobro exitoso en los últimos 6 meses (sin queries extra)
     cobrable_active = recently_paid_ids & active_sub_ids
@@ -2340,7 +2340,7 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
 
     # Cobrable subscriptions: active + paid within the last 6 months
     # Query 1: last paid charge per sub (all paid charges, no active filter needed)
-    six_months_ago_str = str(date.today() - timedelta(days=182))
+    six_months_ago_str = str(datetime.now(tz=timezone.utc).date() - timedelta(days=182))
     cobrable_last_paid = db.execute(
         select(CCharge.subscription_external_id, func.max(CCharge.charge_date).label("last_date"))
         .where(
@@ -3410,7 +3410,7 @@ def channel_alert_detail(
         raise HTTPException(status_code=404, detail="Detalle de alertas solo disponible para VirtualPOS")
 
     sources = _vp_src(source)
-    today = date.today()
+    today = datetime.now(tz=timezone.utc).date()
 
     if alert_id == "sin-cobro-reciente":
         six_months_ago = str(today - timedelta(days=182))

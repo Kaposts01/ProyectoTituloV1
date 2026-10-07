@@ -7,10 +7,6 @@ from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
-_MAX_PAGES = 2000
-
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -18,6 +14,10 @@ from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services.payload_sanitization import sanitize_payload
 from app.services.sync_progress import ProgressCallback, pagination_totals
+
+logger = logging.getLogger(__name__)
+
+_MAX_PAGES = 2000
 
 SENSITIVE_PAYMENT_FIELDS = {"card_number", "card_pan", "pan", "cvv", "cvc", "security_code"}
 PageReader = Callable[[Any, int], Awaitable[Any]]

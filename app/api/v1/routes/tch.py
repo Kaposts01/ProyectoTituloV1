@@ -2,7 +2,7 @@ import logging
 import tempfile
 import uuid
 import zipfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -88,7 +88,7 @@ def _tch_secondary(estado: str, last_paid: str | None) -> str:
         return "Nunca Cobrado"
     try:
         paid_date = date.fromisoformat(last_paid[:10])
-        return "incobrable" if paid_date <= date.today() - timedelta(days=182) else "cobrable"
+        return "incobrable" if paid_date <= datetime.now(tz=timezone.utc).date() - timedelta(days=182) else "cobrable"
     except (ValueError, TypeError):
         return "Nunca Cobrado"
 

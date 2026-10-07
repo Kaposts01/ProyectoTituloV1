@@ -13,6 +13,10 @@ from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.models.source_record import SourceRecord
 from app.services.channel_consolidation import consolidate_to_centralized
+from app.services.core_payku_etl import run_payku_core_etl
+from app.services.core_tch_etl import run_tch_core_etl
+from app.services.core_toku_etl import run_toku_core_etl
+from app.services.core_vp_etl import run_vp_core_etl
 from app.services.crm_materialization import materialize_records
 from app.services.payku_sync import sync_payku
 from app.services.toku_sync import sync_toku
@@ -201,3 +205,100 @@ def trigger_full_sync(body: FullSyncRequest, background_tasks: BackgroundTasks) 
 
     background_tasks.add_task(_run_full_sync_background, run_id, body.providers)
     return {"run_id": str(run_id), "status": "running", "providers": body.providers}
+
+
+# ── Core ETL endpoints ────────────────────────────────────────────────────────
+
+_CORE_ETL_FN = {
+    "tch": run_tch_core_etl,
+    "toku": run_toku_core_etl,
+    "payku": run_payku_core_etl,
+    "virtualpos": run_vp_core_etl,
+}
+
+
+def _run_core_etl_background(run_id: uuid.UUID, provider: str) -> None:
+    """BackgroundTask: materializa tablas de proveedor → entidades Core (Layer 3)."""
+    fn = _CORE_ETL_FN[provider]
+    _update_run(run_id, phase=f"core_{provider}")
+    db = SessionLocal()
+    try:
+        result = fn(db)
+        db.commit()
+        total = sum(result.values())
+        _update_run(
+            run_id,
+            status="completed",
+            phase=None,
+            channels_processed=[provider],
+            records_upserted=total,
+            finished_at=datetime.now(timezone.utc),
+        )
+        logger.info("Core ETL %s completado: %s", provider, result)
+    except Exception:
+        logger.exception("Error en Core ETL %s (run_id=%s)", provider, run_id)
+        db.rollback()
+        _update_run(
+            run_id,
+            status="failed",
+            phase=None,
+            error_message=f"Error durante Core ETL {provider}.",
+            finished_at=datetime.now(timezone.utc),
+        )
+    finally:
+        db.close()
+
+
+@router.post(
+    "/core/{provider}",
+    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
+    tags=["ETL Core"],
+)
+def trigger_core_etl(provider: str, background_tasks: BackgroundTasks) -> dict:
+    """Materializa tablas de proveedor (tch/toku/payku/virtualpos) → entidades Core (Layer 3).
+
+    Idempotente: seguro re-ejecutar. Retorna inmediatamente; la ejecución ocurre en background.
+    """
+    if provider not in _CORE_ETL_FN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Proveedor desconocido: '{provider}'. Opciones: {sorted(_CORE_ETL_FN)}",
+        )
+    db = _get_db()
+    try:
+        run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+    finally:
+        db.close()
+
+    background_tasks.add_task(_run_core_etl_background, run_id, provider)
+    return {"run_id": str(run_id), "status": "running", "provider": provider}
+
+
+@router.post(
+    "/core/all",
+    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
+    tags=["ETL Core"],
+)
+def trigger_core_etl_all(background_tasks: BackgroundTasks) -> dict:
+    """Ejecuta el Core ETL para todos los proveedores en secuencia.
+
+    Orden: tch → toku → payku → virtualpos. Idempotente.
+    """
+    run_ids = []
+    for provider in _CORE_ETL_FN:
+        db = _get_db()
+        try:
+            run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            run_ids.append(str(run.id))
+        finally:
+            db.close()
+        background_tasks.add_task(_run_core_etl_background, uuid.UUID(run_ids[-1]), provider)
+
+    return {"run_ids": run_ids, "status": "running", "providers": list(_CORE_ETL_FN)}
