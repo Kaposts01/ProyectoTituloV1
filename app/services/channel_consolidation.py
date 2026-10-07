@@ -336,6 +336,18 @@ def _consolidate_payku_plans(db: Session) -> int:
     return _upsert_centralized(db, Plan, "uq_plan_source_external_id", rows)
 
 
+def _payku_last_transition_date(payload: dict, final_status: str) -> str | None:
+    """Return the change_date of the most recent log entry with the given final_status."""
+    logs = payload.get("logs") if isinstance(payload, dict) else None
+    entries = logs.get("status", []) if isinstance(logs, dict) else []
+    dates = [
+        e["change_date"]
+        for e in entries
+        if isinstance(e, dict) and str(e.get("final_status", "")).lower() == final_status and e.get("change_date")
+    ]
+    return max(dates) if dates else None
+
+
 def _consolidate_payku_subscriptions(db: Session) -> int:
     latest_successful_amounts: dict[str, tuple[str, str | None]] = {}
     for transaction in db.scalars(
@@ -355,6 +367,13 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
         client = payload.get("client") if isinstance(payload.get("client"), dict) else {}
         if not p.amount:
             p.amount = latest_successful_amounts.get(p.external_id, ("", None))[1]
+        status = (p.status or "").lower()
+        # canceled_at comes from status transition logs, not from the payload.end field.
+        # active/register have no cancellation date; suspended/delete/cancel use their log date.
+        if status in {"active", "register", "suspended_awaits_change_plan"}:
+            canceled_at = None
+        else:
+            canceled_at = _payku_last_transition_date(payload, status)
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
@@ -366,7 +385,7 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
             "status": p.status,
             "automatic_renewal": None,
             "suscription_date": payload.get("start"),
-            "canceled_at": payload.get("end"),
+            "canceled_at": canceled_at,
             "amount": p.amount,
             "currency": p.currency,
             "raw_payload": p.raw_payload,

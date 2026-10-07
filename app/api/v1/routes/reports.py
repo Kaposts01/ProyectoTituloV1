@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
-from sqlalchemy import Numeric, case, cast, func, select
+from sqlalchemy import Numeric, case, cast, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes import staging, tch
@@ -565,6 +565,302 @@ def _report_html(scope: str, start: date, end: date, snapshot: dict[str, Any], s
         f'<p class="foot">Generado: {generated} · Fuente: base de datos local CRM.</p>'
         f'</main><script>{js}</script></body></html>'
     )
+
+
+def _auto_period_data(db: Session, dfrom: date, dto: date) -> dict[str, Any]:
+    start_iso = dfrom.isoformat()
+    end_iso = dto.isoformat()
+    numeric_charge = case((Charge.amount.op("~")(r"^\d+(\.\d+)?$"), cast(Charge.amount, Numeric)), else_=0)
+    numeric_tch = case((TchTransaccion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaccion.monto, Numeric)), else_=0)
+
+    # Payku statuses that are never real active subscriptions.
+    # "register": payment method setup never completed.
+    # "suspended", "delete", "cancel": no longer active, may lack a canceled_at date for historical data.
+    _not_payku_register = or_(
+        Subscription.source != "payku",
+        func.lower(Subscription.status) != "register",
+    )
+    _not_payku_suspended = or_(
+        Subscription.source != "payku",
+        func.lower(Subscription.status) != "suspended",
+    )
+    # Used only for active_start / active_end: exclude ALL Payku non-active statuses explicitly
+    # so that delete/cancel/suspended with missing canceled_at don't inflate the active count.
+    _payku_only_active = or_(
+        Subscription.source != "payku",
+        func.lower(Subscription.status).in_(["active", "suspended_awaits_change_plan"]),
+    )
+
+    # New subscriptions: count by suscription_date within the period (excludes Payku register).
+    new_subs = dict(db.execute(
+        select(Subscription.source, func.count())
+        .where(
+            _not_payku_register,
+            func.substring(Subscription.suscription_date, 1, 10).between(start_iso, end_iso),
+        )
+        .group_by(Subscription.source)
+    ).all())
+
+    # Cancellations via canceled_at (covers all sources except Payku suspended,
+    # which has canceled_at=None by design and is counted separately via JSON logs).
+    cancelled_subs = dict(db.execute(
+        select(Subscription.source, func.count())
+        .where(
+            _not_payku_register,
+            _not_payku_suspended,
+            Subscription.canceled_at.isnot(None),
+            Subscription.canceled_at != "",
+            func.substring(Subscription.canceled_at, 1, 10).between(start_iso, end_iso),
+        )
+        .group_by(Subscription.source)
+    ).all())
+    # Payku suspended bajas: count via status logs (suspended has no canceled_at by design).
+    payku_suspended_in_period = db.scalar(text(
+        "SELECT COUNT(*) FROM subscriptions "
+        "WHERE source = 'payku' AND lower(status) = 'suspended' "
+        "AND ( "
+        "  SELECT MAX(substring(elem->>'change_date', 1, 10)) "
+        "  FROM jsonb_array_elements(COALESCE(raw_payload->'logs'->'status', '[]'::jsonb)) AS elem "
+        "  WHERE elem->>'final_status' = 'suspended' "
+        ") BETWEEN :start_iso AND :end_iso"
+    ), {"start_iso": start_iso, "end_iso": end_iso}) or 0
+    if payku_suspended_in_period:
+        cancelled_subs["payku"] = cancelled_subs.get("payku", 0) + int(payku_suspended_in_period)
+
+    # Active counts: non-Payku uses standard canceled_at logic; Payku requires special handling
+    # because suspended subs have canceled_at=None by design, and historical delete/cancel subs
+    # may lack dates. We reconstruct "was active at boundary" per subscription:
+    #   - currently active/suspended_awaits_change_plan → was active at start/end (no extra check)
+    #   - currently delete/cancel with dated canceled_at → active before that date
+    #   - currently suspended → active before the last suspension log date
+    active_start_non_payku = dict(db.execute(
+        select(Subscription.source, func.count())
+        .where(
+            Subscription.source != "payku",
+            func.substring(Subscription.suscription_date, 1, 10) < start_iso,
+            or_(
+                Subscription.canceled_at.is_(None),
+                Subscription.canceled_at == "",
+                func.substring(Subscription.canceled_at, 1, 10) >= start_iso,
+            ),
+        )
+        .group_by(Subscription.source)
+    ).all())
+    payku_active_start = db.scalar(text(
+        "SELECT COUNT(*) FROM subscriptions "
+        "WHERE source = 'payku' AND lower(status) != 'register' "
+        "AND substring(suscription_date, 1, 10) < :start_iso "
+        "AND ( "
+        "  lower(status) IN ('active', 'suspended_awaits_change_plan') "
+        "  OR (lower(status) IN ('delete', 'cancel') "
+        "      AND canceled_at IS NOT NULL AND canceled_at != '' "
+        "      AND substring(canceled_at, 1, 10) >= :start_iso) "
+        "  OR (lower(status) = 'suspended' "
+        "      AND (SELECT MAX(substring(elem->>'change_date', 1, 10)) "
+        "           FROM jsonb_array_elements(COALESCE(raw_payload->'logs'->'status', '[]'::jsonb)) AS elem "
+        "           WHERE elem->>'final_status' = 'suspended') >= :start_iso) "
+        ")"
+    ), {"start_iso": start_iso}) or 0
+    active_start = dict(active_start_non_payku)
+    active_start["payku"] = int(payku_active_start)
+
+    active_end_non_payku = dict(db.execute(
+        select(Subscription.source, func.count())
+        .where(
+            Subscription.source != "payku",
+            func.substring(Subscription.suscription_date, 1, 10) <= end_iso,
+            or_(
+                Subscription.canceled_at.is_(None),
+                Subscription.canceled_at == "",
+                func.substring(Subscription.canceled_at, 1, 10) > end_iso,
+            ),
+        )
+        .group_by(Subscription.source)
+    ).all())
+    payku_active_end = db.scalar(text(
+        "SELECT COUNT(*) FROM subscriptions "
+        "WHERE source = 'payku' AND lower(status) != 'register' "
+        "AND substring(suscription_date, 1, 10) <= :end_iso "
+        "AND ( "
+        "  (lower(status) IN ('active', 'suspended_awaits_change_plan') "
+        "   AND (canceled_at IS NULL OR canceled_at = '' OR substring(canceled_at, 1, 10) > :end_iso)) "
+        "  OR (lower(status) IN ('delete', 'cancel') "
+        "      AND canceled_at IS NOT NULL AND canceled_at != '' "
+        "      AND substring(canceled_at, 1, 10) > :end_iso) "
+        "  OR (lower(status) = 'suspended' "
+        "      AND (SELECT MAX(substring(elem->>'change_date', 1, 10)) "
+        "           FROM jsonb_array_elements(COALESCE(raw_payload->'logs'->'status', '[]'::jsonb)) AS elem "
+        "           WHERE elem->>'final_status' = 'suspended') > :end_iso) "
+        ")"
+    ), {"end_iso": end_iso}) or 0
+    active_end = dict(active_end_non_payku)
+    active_end["payku"] = int(payku_active_end)
+
+    revenue_rows = {
+        src: (int(cnt), float(amt))
+        for src, cnt, amt in db.execute(
+            select(Charge.source, func.count(), func.coalesce(func.sum(numeric_charge), 0))
+            .where(
+                func.substring(Charge.charge_date, 1, 10).between(start_iso, end_iso),
+                func.lower(Charge.status).in_(("pagado", "aceptado", "accepted", "paid")),
+            )
+            .group_by(Charge.source)
+        ).all()
+    }
+
+    rejected = dict(db.execute(
+        select(Charge.source, func.count())
+        .where(
+            func.substring(Charge.charge_date, 1, 10).between(start_iso, end_iso),
+            func.lower(Charge.status).in_(("rechazado", "rejected", "failed", "failure")),
+        )
+        .group_by(Charge.source)
+    ).all())
+
+    total_charges = dict(db.execute(
+        select(Charge.source, func.count())
+        .where(func.substring(Charge.charge_date, 1, 10).between(start_iso, end_iso))
+        .group_by(Charge.source)
+    ).all())
+
+    tch_new = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
+        TchSuscripcion.fecha_activacion.isnot(None),
+        func.substring(TchSuscripcion.fecha_activacion, 1, 10).between(start_iso, end_iso),
+    )) or 0
+    tch_can = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
+        TchSuscripcion.fecha_eliminacion.isnot(None),
+        func.substring(TchSuscripcion.fecha_eliminacion, 1, 10).between(start_iso, end_iso),
+    )) or 0
+    tch_act_start = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
+        TchSuscripcion.fecha_activacion.isnot(None),
+        func.substring(TchSuscripcion.fecha_activacion, 1, 10) < start_iso,
+        or_(TchSuscripcion.fecha_eliminacion.is_(None), func.substring(TchSuscripcion.fecha_eliminacion, 1, 10) >= start_iso),
+    )) or 0
+    tch_act_end = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
+        TchSuscripcion.fecha_activacion.isnot(None),
+        func.substring(TchSuscripcion.fecha_activacion, 1, 10) <= end_iso,
+        or_(TchSuscripcion.fecha_eliminacion.is_(None), func.substring(TchSuscripcion.fecha_eliminacion, 1, 10) > end_iso),
+    )) or 0
+    tch_rev_row = db.execute(
+        select(func.count(), func.coalesce(func.sum(numeric_tch), 0))
+        .select_from(TchTransaccion)
+        .where(
+            TchTransaccion.fecha_cargo.isnot(None),
+            func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
+            func.upper(TchTransaccion.estado) == "ACEPTADA",
+        )
+    ).one()
+    tch_rev_count, tch_rev_amount = int(tch_rev_row[0] or 0), float(tch_rev_row[1] or 0)
+    tch_rejected = db.scalar(select(func.count()).select_from(TchTransaccion).where(
+        TchTransaccion.fecha_cargo.isnot(None),
+        func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
+        func.upper(TchTransaccion.estado) == "RECHAZADA",
+    )) or 0
+    tch_total = db.scalar(select(func.count()).select_from(TchTransaccion).where(
+        TchTransaccion.fecha_cargo.isnot(None),
+        func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
+    )) or 0
+    tch_reasons = db.execute(
+        select(TchTransaccion.razon_rechazo, func.count())
+        .where(
+            TchTransaccion.fecha_cargo.isnot(None),
+            func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
+            func.upper(TchTransaccion.estado) == "RECHAZADA",
+            TchTransaccion.razon_rechazo.isnot(None),
+        )
+        .group_by(TchTransaccion.razon_rechazo)
+        .order_by(func.count().desc())
+        .limit(15)
+    ).all()
+
+    def _stats(sources: tuple[str, ...] | None = None, *, tch_mode: bool = False) -> dict[str, Any]:
+        if tch_mode:
+            ns, ca, as_, ae = tch_new, tch_can, tch_act_start, tch_act_end
+            rc, ra, rj, tc = tch_rev_count, tch_rev_amount, int(tch_rejected), int(tch_total)
+        else:
+            srcs = sources or ()
+            ns = sum(new_subs.get(s, 0) for s in srcs)
+            ca = sum(cancelled_subs.get(s, 0) for s in srcs)
+            as_ = sum(active_start.get(s, 0) for s in srcs)
+            ae = sum(active_end.get(s, 0) for s in srcs)
+            rc = sum(revenue_rows.get(s, (0, 0))[0] for s in srcs)
+            ra = sum(revenue_rows.get(s, (0, 0))[1] for s in srcs)
+            rj = sum(rejected.get(s, 0) for s in srcs)
+            tc = sum(total_charges.get(s, 0) for s in srcs)
+        return {
+            "new_subscriptions": ns,
+            "cancellations": ca,
+            "active_start": as_,
+            "active_end": ae,
+            "revenue": round(ra, 2),
+            "revenue_count": rc,
+            "rejected": rj,
+            "total_charges": tc,
+            "rejection_rate": round(100.0 * rj / tc, 1) if tc > 0 else 0.0,
+            "churn_rate": round(100.0 * ca / as_, 2) if as_ > 0 else 0.0,
+        }
+
+    channels: dict[str, Any] = {
+        "virtualpos": _stats(("virtualpos1", "virtualpos2")),
+        "toku": _stats(("toku",)),
+        "payku": _stats(("payku",)),
+        "tch": _stats(tch_mode=True),
+    }
+    channels["global"] = {
+        k: sum(channels[ch][k] for ch in ("virtualpos", "toku", "payku", "tch"))
+        if k in ("new_subscriptions", "cancellations", "active_start", "active_end", "revenue_count", "rejected", "total_charges")
+        else round(sum(channels[ch]["revenue"] for ch in ("virtualpos", "toku", "payku", "tch")), 2)
+        if k == "revenue"
+        else 0.0
+        for k in channels["virtualpos"]
+    }
+    g = channels["global"]
+    channels["global"]["rejection_rate"] = round(100.0 * g["rejected"] / g["total_charges"], 1) if g["total_charges"] > 0 else 0.0
+    channels["global"]["churn_rate"] = round(100.0 * g["cancellations"] / g["active_start"], 2) if g["active_start"] > 0 else 0.0
+
+    rejection_reasons = [
+        {"reason": str(r or "Sin motivo"), "count": int(c), "channel": "tch"}
+        for r, c in tch_reasons
+    ]
+
+    alerts: list[dict[str, Any]] = []
+    for ch_name, stats in channels.items():
+        if stats["total_charges"] > 0 and stats["rejection_rate"] > 50:
+            alerts.append({"sev": "alta", "tipo": "Alta tasa de rechazo", "detalle": f"{ch_name.capitalize()}: {stats['rejection_rate']}% ({stats['rejected']} de {stats['total_charges']} cargos)"})
+        if stats["cancellations"] > stats["new_subscriptions"] and stats["cancellations"] > 0:
+            alerts.append({"sev": "media", "tipo": "Saldo negativo de suscripciones", "detalle": f"{ch_name.capitalize()}: {stats['cancellations']} bajas vs {stats['new_subscriptions']} altas"})
+        if stats["churn_rate"] > 5:
+            alerts.append({"sev": "alta" if stats["churn_rate"] > 10 else "media", "tipo": "Churn elevado", "detalle": f"{ch_name.capitalize()}: churn {stats['churn_rate']}%"})
+
+    sev_order = {"alta": 0, "media": 1, "baja": 2}
+    alerts.sort(key=lambda a: sev_order.get(a["sev"], 3))
+
+    return {
+        "date_from": dfrom.isoformat(),
+        "date_to": dto.isoformat(),
+        "channels": channels,
+        "rejection_reasons": rejection_reasons,
+        "alerts": alerts,
+    }
+
+
+@router.get("/automatic", tags=["Reports"])
+def automatic_report(
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> dict[str, Any]:
+    _require_report_access(current_user, "general")
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    periods = {
+        "annual": (today.replace(month=1, day=1), today),
+        "monthly": (today.replace(day=1), today),
+        "weekly": (week_start, today),
+    }
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "periods": {key: _auto_period_data(db, dfrom, dto) for key, (dfrom, dto) in periods.items()},
+    }
 
 
 @router.get("/{scope}", response_class=HTMLResponse, tags=["Reports"])

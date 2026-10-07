@@ -7,6 +7,7 @@ import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
 import { parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
+import { AutomaticReport } from "./AutomaticReport";
 
 const ChannelActivityChart = lazy(() => import("./ChannelActivityChart"));
 
@@ -1519,6 +1520,7 @@ function Sidebar({
   generalView,
   onGeneralClients,
   onGeneralSubscriptions,
+  onAutoReport,
   onChannel,
   onSection,
   onToggle,
@@ -1541,9 +1543,10 @@ function Sidebar({
   openProvider: string | null;
   theme: "light" | "dark";
   onDashboard: () => void;
-  generalView: "summary" | "clients" | "subscriptions";
+  generalView: "summary" | "clients" | "subscriptions" | "report";
   onGeneralClients: () => void;
   onGeneralSubscriptions: () => void;
+  onAutoReport: () => void;
   onChannel: (source: ProviderSource) => void;
   onSection: (section: ProviderSection) => void;
   onToggle: (provider: string) => void;
@@ -1585,6 +1588,7 @@ function Sidebar({
         {can("dashboard.view") ? <>
           <button className={generalView === "clients" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralClients)}>Clientes</button>
           <button className={generalView === "subscriptions" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralSubscriptions)}>Suscripciones</button>
+          <button className={generalView === "report" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onAutoReport)}>Reporte automático</button>
         </> : null}
         {visibleGroups.map((group) => (
           <section className="sidebar-group" key={group.name}>
@@ -3043,7 +3047,7 @@ function App() {
   const [adminTab, setAdminTab] = useState<"usuarios" | "sincronizacion">("usuarios");
   const [summary, setSummary] = useState<Summary>({ sources: [] });
   const [generalData, setGeneralData] = useState<GeneralDashboard | null>(null);
-  const [generalView, setGeneralView] = useState<"summary" | "clients" | "subscriptions">("summary");
+  const [generalView, setGeneralView] = useState<"summary" | "clients" | "subscriptions" | "report">("summary");
   const [generalClients, setGeneralClients] = useState<GeneralClients | null>(null);
   const [generalClientQuery, setGeneralClientQuery] = useState("");
   const [generalClientFilter, setGeneralClientFilter] = useState<"all" | "rut" | "name" | "last_name" | "platform" | "email" | "phone">("all");
@@ -3151,6 +3155,7 @@ function App() {
   const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryTab, setRecoveryTab] = useState<"cancelled" | "retry" | "card">("cancelled");
+  const [recoveryGroup, setRecoveryGroup] = useState<"inactiva" | "incobrable" | "nunca_cobrado">("inactiva");
   const [recoveryRows, setRecoveryRows] = useState<RecoveryResponse | null>(null);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
@@ -4179,6 +4184,12 @@ function App() {
     if (updateUrl) navigate({ kind: "central", view: "subscriptions" });
   }
 
+  function showAutoReport(updateUrl = true) {
+    showDashboard(false);
+    setGeneralView("report");
+    if (updateUrl) navigate({ kind: "central", view: "report" });
+  }
+
   function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones", updateUrl = true) {
     clearDetails();
     setChannel(null);
@@ -4375,7 +4386,7 @@ function App() {
         if (recoveryDateTo) params.set("date_to", recoveryDateTo);
       }
       const path = recoveryTab === "cancelled"
-        ? "/api/v1/recovery/cancelled"
+        ? `/api/v1/recovery/group?group=${recoveryGroup}`
         : recoveryTab === "retry"
           ? "/api/v1/recovery/rejected?bucket=retry"
           : "/api/v1/recovery/card-expirations";
@@ -4434,10 +4445,11 @@ function App() {
   async function exportCancelled() {
     setRecoveryError(null);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ group: recoveryGroup });
       if (recoveryDateFrom) params.set("date_from", recoveryDateFrom);
       if (recoveryDateTo) params.set("date_to", recoveryDateTo);
-      await downloadFile(`/api/v1/recovery/cancelled/export?${params}`, "socios-cancelados.csv");
+      const filename = `socios-${recoveryGroup}.csv`;
+      await downloadFile(`/api/v1/recovery/group/export?${params}`, filename);
     } catch (err) {
       setRecoveryError(friendlyError(err, "No se pudo descargar la exportación."));
     }
@@ -4625,7 +4637,8 @@ function App() {
       return;
     }
     if (route.kind === "central") {
-      if (route.view === "summary") showDashboard(false);
+      if (route.view === "report") showAutoReport(false);
+      else if (route.view === "summary") showDashboard(false);
       else if (route.view === "clients") {
         showGeneralClients(false);
         const field = location.searchParams.get("campo");
@@ -5321,14 +5334,29 @@ function App() {
       <div className="recovery-tabs" role="tablist" aria-label="Vistas de recuperación">
         {(["cancelled", "retry", "card"] as const).map((tab) => (
           <button key={tab} role="tab" aria-selected={recoveryTab === tab} className={recoveryTab === tab ? "active" : ""} onClick={() => { setRecoveryTab(tab); setRecoveryRows(null); setRecoveryOffset(0); setRecoverySelected(new Set()); setRecoveryError(null); setRecoveryNotice(null); setCardLink(null); }}>
-            {{ cancelled: "Canceladas", retry: "Reintento de Cobros", card: "Tarjetas Vencidas" }[tab]}
+            {{ cancelled: "Listar grupo de socios", retry: "Reintento de Cobros", card: "Tarjetas Vencidas" }[tab]}
           </button>
         ))}
       </div>
+      {recoveryTab === "cancelled" ? (
+        <div className="recovery-tabs" role="tablist" aria-label="Grupo de socios" style={{ marginTop: "8px", gap: "6px" }}>
+          {(["inactiva", "incobrable", "nunca_cobrado"] as const).map((g) => (
+            <button key={g} role="tab" aria-selected={recoveryGroup === g} className={recoveryGroup === g ? "active" : ""} style={{ fontSize: "13px", padding: "5px 12px" }} onClick={() => { setRecoveryGroup(g); setRecoveryRows(null); setRecoveryOffset(0); setRecoveryError(null); }}>
+              {{ inactiva: "Inactivas", incobrable: "Incobrables", nunca_cobrado: "Nunca cobradas" }[g]}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="recovery-controls">
         {recoveryTab !== "card" ? <>
-          <label>Desde<input type="date" value={recoveryDateFrom} onChange={(event) => setRecoveryDateFrom(event.target.value)} /></label>
-          <label>Hasta<input type="date" value={recoveryDateTo} onChange={(event) => setRecoveryDateTo(event.target.value)} /></label>
+          <label>
+            {recoveryTab === "cancelled" && recoveryGroup === "inactiva" ? "Canceladas desde" : recoveryTab === "cancelled" ? "Inicio desde" : "Desde"}
+            <input type="date" value={recoveryDateFrom} onChange={(event) => setRecoveryDateFrom(event.target.value)} />
+          </label>
+          <label>
+            {recoveryTab === "cancelled" && recoveryGroup === "inactiva" ? "Canceladas hasta" : recoveryTab === "cancelled" ? "Inicio hasta" : "Hasta"}
+            <input type="date" value={recoveryDateTo} onChange={(event) => setRecoveryDateTo(event.target.value)} />
+          </label>
         </> : null}
         <button className="primary-button" onClick={() => void loadRecoveryRows(0)} disabled={recoveryLoading}>{recoveryLoading ? "Cargando..." : "Buscar"}</button>
         {recoveryTab === "cancelled" && can("virtualpos.recovery.export") ? <button className="secondary-button" onClick={() => void exportCancelled()}>Exportar</button> : null}
@@ -5340,16 +5368,22 @@ function App() {
       {recoveryRows ? <>
         <section className="panel recovery-table"><div className="table-wrap"><table><thead><tr>
           {recoveryTab === "retry" ? <th><input aria-label="Seleccionar todos" type="checkbox" checked={recoveryAllSelected} onChange={(event) => setRecoverySelected(event.target.checked ? new Set(recoveryRows.items.map(recoveryRowKey)) : new Set())} /></th> : null}
-          <th>Suscripción</th><th>Cliente</th><th>{recoveryTab === "cancelled" ? "Fecha cancelación" : recoveryTab === "retry" ? "Cargo rechazado" : "Vencimiento"}</th><th>Monto</th><th>Fuente</th>
+          <th>Suscripción</th>
+          {recoveryTab === "cancelled" ? <th>RUT</th> : null}
+          <th>Cliente</th>
+          <th>{recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? "Fecha cancelación" : recoveryGroup === "incobrable" ? "Último cobro" : "Fecha inicio") : recoveryTab === "retry" ? "Cargo rechazado" : "Vencimiento"}</th>
+          <th>Monto</th><th>Fuente</th>
           {recoveryTab === "retry" ? <><th>Motivo</th><th>Acción</th></> : null}{recoveryTab === "card" ? <th>Acción</th> : null}
         </tr></thead><tbody>
-          {recoveryRows.items.map((item) => { const key = recoveryRowKey(item); const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id"); const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id"); const date = recoveryTab === "cancelled" ? recoveryValue(item, "cancelled_at", "canceled_at", "date") : recoveryTab === "retry" ? recoveryValue(item, "charge_date", "rejected_at", "date") : recoveryValue(item, "expires_at", "expiration_date", "card_expiration"); return <tr key={key}>
+          {recoveryRows.items.map((item) => { const key = recoveryRowKey(item); const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id"); const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id"); const rut = recoveryValue(item, "rut"); const dateVal = recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? recoveryValue(item, "cancelled_at", "canceled_at") : recoveryGroup === "incobrable" ? recoveryValue(item, "last_paid_date") : recoveryValue(item, "started_at")) : recoveryTab === "retry" ? recoveryValue(item, "charge_date", "rejected_at", "date") : recoveryValue(item, "expires_at", "expiration_date", "card_expiration"); return <tr key={key}>
             {recoveryTab === "retry" ? <td><input aria-label={`Seleccionar ${key}`} type="checkbox" checked={recoverySelected.has(key)} onChange={(event) => setRecoverySelected((current) => { const next = new Set(current); event.target.checked ? next.add(key) : next.delete(key); return next; })} /></td> : null}
-            <td className="recovery-id">{recoveryDisplay(subscription)}</td><td>{recoveryDisplay(client)}</td><td>{text(date, "—")}</td><td>{recoveryAmount(item)}</td><td>{text(recoveryValue(item, "source"), "—")}</td>
+            <td className="recovery-id">{recoveryDisplay(subscription)}</td>
+            {recoveryTab === "cancelled" ? <td>{text(rut, "—")}</td> : null}
+            <td>{recoveryDisplay(client)}</td><td>{text(dateVal, "—")}</td><td>{recoveryAmount(item)}</td><td>{text(recoveryValue(item, "source"), "—")}</td>
             {recoveryTab === "retry" ? <><td>{text(recoveryValue(item, "rejection_reason", "reason", "rejection_code"), "—")}</td><td>{can("virtualpos.charges.retry") ? <button className="secondary-button" disabled={recoverySubmitting} onClick={() => void runRecoveryRetry(item)}>Reintentar</button> : "—"}</td></> : null}
             {recoveryTab === "card" ? <td>{can("virtualpos.cards.change") ? <button className="secondary-button" disabled={recoverySubmitting || !subscription} onClick={() => void createCardChangeLink(item)}>Generar enlace</button> : "—"}</td> : null}
           </tr>; })}
-          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" ? 8 : recoveryTab === "card" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
+          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" ? 8 : recoveryTab === "card" ? 6 : recoveryTab === "cancelled" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
         </tbody></table></div></section>
         <div className="recovery-pagination"><button className="secondary-button" disabled={recoveryOffset === 0 || recoveryLoading} onClick={() => void loadRecoveryRows(Math.max(0, recoveryOffset - 50))}>Anterior</button><span>{recoveryRows.total ? `${recoveryOffset + 1}-${Math.min(recoveryOffset + recoveryRows.limit, recoveryRows.total)} de ${recoveryRows.total}` : "0 registros"}</span><button className="secondary-button" disabled={recoveryOffset + recoveryRows.limit >= recoveryRows.total || recoveryLoading} onClick={() => void loadRecoveryRows(recoveryOffset + recoveryRows.limit)}>Siguiente</button></div>
       </> : !recoveryLoading ? <p className="muted-copy">Selecciona una pestaña y consulta los registros disponibles.</p> : null}
@@ -6384,7 +6418,7 @@ function App() {
         />
       )
     ) : (
-      globalDashboard
+      generalView === "report" ? <AutomaticReport /> : globalDashboard
     )))
   );
 
@@ -6413,6 +6447,7 @@ function App() {
         generalView={generalView}
         onGeneralClients={showGeneralClients}
         onGeneralSubscriptions={showGeneralSubscriptions}
+        onAutoReport={showAutoReport}
         onChannel={showChannel}
         onSection={showSection}
         onToggle={(provider) =>
