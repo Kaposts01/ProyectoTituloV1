@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -39,7 +39,7 @@ def _secondary_status(status: str, last_paid: str | None) -> str:
         return "nunca_cobrado"
     try:
         paid_date = date.fromisoformat(str(last_paid)[:10])
-        if paid_date <= date.today() - timedelta(days=182):
+        if paid_date <= datetime.now(tz=timezone.utc).date() - timedelta(days=182):
             return "incobrable"
         return "cobrable"
     except (ValueError, TypeError):
@@ -250,7 +250,7 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None) -
             client = clients_by_rut.get((sub.source, sub.client_social_id))
         antiquity_days = None
         try:
-            ref_end = date.fromisoformat(str(sub.canceled_at)[:10]) if group == "inactiva" else date.today()
+            ref_end = date.fromisoformat(str(sub.canceled_at)[:10]) if group == "inactiva" else datetime.now(tz=timezone.utc).date()
             antiquity_days = (ref_end - date.fromisoformat(str(sub.suscription_date)[:10])).days
         except (TypeError, ValueError):
             pass
