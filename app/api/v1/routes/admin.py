@@ -122,3 +122,31 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
         user.roles = _roles(db, body.role_ids)
     db.commit()
     return {"id": str(user.id), "username": user.username, "is_active": user.is_active}
+
+
+class PasswordReset(BaseModel):
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+@router.patch("/users/{user_id}/password", dependencies=[Depends(require_permissions("users.manage")), Depends(require_csrf)], tags=["Administration"])
+def reset_user_password(user_id: uuid.UUID, body: PasswordReset, db: Session = Depends(get_db)) -> dict:  # noqa: B008
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"id": str(user.id), "username": user.username}
+
+
+@router.delete("/roles/{role_id}", dependencies=[Depends(require_permissions("roles.manage")), Depends(require_csrf)], tags=["Administration"])
+def delete_role(role_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:  # noqa: B008
+    role = db.scalar(select(Role).options(selectinload(Role.users)).where(Role.id == role_id))
+    if role is None:
+        raise HTTPException(status_code=404, detail="Role not found")
+    if role.name == "admin":
+        raise HTTPException(status_code=422, detail="The admin role cannot be deleted")
+    if role.users:
+        raise HTTPException(status_code=409, detail="Cannot delete a role that has users assigned")
+    db.delete(role)
+    db.commit()
+    return {"id": str(role_id), "deleted": True}
