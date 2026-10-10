@@ -160,6 +160,8 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | PK-04 | Corregir métricas y gráficos de ciclo de vida Payku | Completada | Transacciones, activaciones y bajas se agrupan por estado; activación usa `start` y caída usa `cancel`/`delete`/`suspended` con `end`. |
 | PK-05 | Corregir rango histórico de transacciones Payku | En curso | Payku sincroniza transacciones embebidas sin filtros históricos confiables. El backfill local desde `source_records` reconstruye idempotentemente `p_transactions`; falta certificar cobertura, orden y paginación con el proveedor. |
 | REC-01 | Crear Recuperador de Socios VirtualPOS | Completada | Módulo con Canceladas, Reintento de Cobros y Tarjetas Vencidas; acciones y trazabilidad protegidas por permisos. |
+| REC-02 | Corregir y completar seguimiento de reintentos VirtualPOS | Pendiente | La identidad del cliente en cobros rechazados se obtiene desde relaciones verificables y no muestra un nombre ajeno; un toggle permite alternar entre cargos rechazados e historial de reintentos, con fecha de envío y resultado conciliado (`cobrado`, `no_cobrado` o pendiente). |
+| WH-01 | Evaluar e incorporar webhooks de proveedores | Pendiente | Se verifica y documenta el contrato oficial de webhooks de Toku, VirtualPOS y Payku. Si Toku lo soporta, su receptor valida autenticidad, persiste eventos saneados e idempotentes y mantiene la sincronización como reconciliación; VirtualPOS y Payku quedan implementados o documentados como no soportados/TBD según evidencia. |
 
 ## Auditoria tecnica 2026-10-01
 
@@ -293,7 +295,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
 | AUTH-01 | Implementar autenticación, roles y permisos por módulo | Completada | Login con cookie HttpOnly y CSRF; usuarios con varios roles; backend protege rutas y React oculta canales/tablas no autorizados. |
-| AUTH-02 | Administración de usuarios y roles | En curso | `admin` crea usuarios, asigna múltiples roles y administra roles sobre el catálogo fijo de permisos. |
+| AUTH-02 | Administración de usuarios y roles | Completada | Roles y usuarios se administran desde el panel: creación, asignación múltiple de roles, edición, desactivación, restablecimiento de contraseña y administración del catálogo fijo de permisos. Las rutas exigen permiso y CSRF; la suite focalizada valida el flujo. |
 | TCH-01 | Restaurar canal TCH y cargar reportes Excel | Completada | El menú respeta los permisos asignados, las tablas TCH están migradas y los reportes locales se cargan de forma idempotente. |
 | TCH-02 | Añadir gráficos operativos al dashboard TCH | Completada | El resumen muestra series mensuales de cargos y altas, filtrables por año, cantidad y monto. |
 | TCH-03 | Corregir histórico, fichas y navegación TCH | Completada | Fechas se reconstruyen desde reportes, cargos históricos son idempotentes, TCH abre su dashboard y sus objetos tienen ficha local. |
