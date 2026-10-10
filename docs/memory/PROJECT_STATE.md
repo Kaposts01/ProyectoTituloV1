@@ -1,6 +1,6 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-07.
+Fecha de actualizacion: 2026-10-10.
 
 ## Estado actual
 
@@ -11,6 +11,7 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - Staging saneado e idempotente para canales API.
 - Tablas y vistas operativas por canal, dashboards y reportes existentes.
 - Autenticacion, permisos y registro de sincronizaciones y escrituras autorizadas.
+- Administracion de usuarios y roles: usuarios con multiples roles se pueden crear, editar, desactivar y restablecer su contrasena; los roles y sus permisos se administran con permisos y CSRF.
 - Vault documental de Obsidian y documentacion conceptual inicial.
 - La estructura versionada separa scripts operativos, mantenimiento y diagnostico; la documentacion historica y las colecciones Postman tienen ubicaciones explicitas; los insumos locales se excluyen bajo `data/local/` y `.local/`.
 - Skill local `project-memory` disponible para gestionar memoria persistente y ADRs compactos; su descubrimiento fue confirmado en una sesion reiniciada de OpenCode.
@@ -33,7 +34,7 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 
 ## En progreso
 
-- Tareas operativas registradas en [tasks.md](../tasks.md), incluidas Payku, Toku, administracion de usuarios y un flujo de VirtualPOS.
+- Tareas operativas registradas en [tasks.md](../tasks.md), incluidas Payku, Toku y un flujo de VirtualPOS.
 - Rama `feature/core-centralizado` en revisión final antes de merge a `master`. Core ETL completo (4 proveedores), migraciones 0027 y 0028 aplicadas, CI limpio (ruff), tests de helpers ETL pasando.
 - Los dashboards operativos de VirtualPOS, Toku, Payku y TCH tienen paridad de KPIs, distribuciones, altas/bajas, series de suscripciones activas, churn y alertas usando solamente los campos verificables de cada fuente. Toku usa transacciones reales para su comparación con suscripciones; Payku mantiene su límite de cobertura histórica; TCH se basa en su proyección ETL.
 - Payku reconoce el identificador histórico `transaction` cuando su payload no trae `id`. La reconstrucción local `scripts/maintenance/backfill_payku_transactions.py` materializa transacciones ya preservadas en `source_records` hacia `p_transactions`; luego el ETL normal las proyecta a `payments`, restaurando los años y la actividad mensual verificables del dashboard.
