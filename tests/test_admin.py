@@ -3,12 +3,22 @@ import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.api.v1.routes.admin import _is_active_admin
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.auth import Permission, Role, User
 from app.services.rbac import seed_permissions
+
+
+def test_active_admin_requires_active_user_with_admin_role() -> None:
+    admin_role = Role(name="admin")
+    user = User(username="admin-user", password_hash="unused", is_active=True, roles=[admin_role])
+
+    assert _is_active_admin(user)
+    assert not _is_active_admin(user, is_active=False)
+    assert not _is_active_admin(user, roles=[Role(name="viewer")])
 
 
 def test_admin_can_manage_users_roles_and_passwords(monkeypatch) -> None:

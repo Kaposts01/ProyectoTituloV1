@@ -13,5 +13,5 @@ def build_sign(request_path: str, values: dict[str, Any], secret_key: str) -> st
             if value is not None and not isinstance(value, (dict, list))
         )
     )
-    payload = f"{quote(request_path, safe='')}&{query}"
+    payload = f"{quote(request_path, safe='')}&{query}" if query else quote(request_path, safe="")
     return hmac.new(secret_key.encode(), payload.encode(), hashlib.sha256).hexdigest()

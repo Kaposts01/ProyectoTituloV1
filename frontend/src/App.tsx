@@ -3406,7 +3406,7 @@ function App() {
   const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [recoveryOpen, setRecoveryOpen] = useState(false);
-  const [recoveryTab, setRecoveryTab] = useState<"cancelled" | "retry" | "card">("cancelled");
+  const [recoveryTab, setRecoveryTab] = useState<"cancelled" | "retry" | "history" | "card">("cancelled");
   const [recoveryGroup, setRecoveryGroup] = useState<"inactiva" | "incobrable" | "nunca_cobrado">("inactiva");
   const [recoveryRows, setRecoveryRows] = useState<RecoveryResponse | null>(null);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
@@ -4641,6 +4641,8 @@ function App() {
         ? `/api/v1/recovery/group?group=${recoveryGroup}`
         : recoveryTab === "retry"
           ? "/api/v1/recovery/rejected?bucket=retry"
+          : recoveryTab === "history"
+            ? "/api/v1/recovery/retry-history"
           : "/api/v1/recovery/card-expirations";
       const separator = path.includes("?") ? "&" : "?";
       const data = await getJson<RecoveryResponse>(`${path}${separator}${params}`);
@@ -4666,8 +4668,9 @@ function App() {
     setRecoveryError(null);
     try {
       await refreshCsrfToken();
-      await postJson<unknown>("/api/v1/recovery/retries", { items });
-      setRecoveryNotice(`Se solicitaron ${items.length} reintentos de cobro.`);
+      const result = await postJson<{ succeeded: number }>("/api/v1/recovery/retries", { items });
+      const failed = items.length - result.succeeded;
+      setRecoveryNotice(`Reintentos solicitados: ${result.succeeded} exitosos y ${failed} fallidos.`);
       await loadRecoveryRows();
     } catch (err) {
       setRecoveryError(friendlyError(err, "No se pudieron solicitar los reintentos."));
@@ -4684,8 +4687,8 @@ function App() {
     setRecoveryError(null);
     try {
       await refreshCsrfToken();
-      await postJson<unknown>("/api/v1/recovery/retries", { items: [{ source: String(source), external_id: String(externalId) }] });
-      setRecoveryNotice(`Se solicitó el reintento del cargo ${String(externalId)}.`);
+      const result = await postJson<{ succeeded: number }>("/api/v1/recovery/retries", { items: [{ source: String(source), external_id: String(externalId) }] });
+      setRecoveryNotice(`Reintento del cargo ${String(externalId)}: ${result.succeeded} exitoso y ${1 - result.succeeded} fallido.`);
       await loadRecoveryRows();
     } catch (err) {
       setRecoveryError(friendlyError(err, "No se pudo solicitar el reintento."));
@@ -5584,9 +5587,9 @@ function App() {
         </div>
       </div>
       <div className="recovery-tabs" role="tablist" aria-label="Vistas de recuperación">
-        {(["cancelled", "retry", "card"] as const).map((tab) => (
+        {(["cancelled", "retry", "history", "card"] as const).map((tab) => (
           <button key={tab} role="tab" aria-selected={recoveryTab === tab} className={recoveryTab === tab ? "active" : ""} onClick={() => { setRecoveryTab(tab); setRecoveryRows(null); setRecoveryOffset(0); setRecoverySelected(new Set()); setRecoveryError(null); setRecoveryNotice(null); setCardLink(null); }}>
-            {{ cancelled: "Listar grupo de socios", retry: "Reintento de Cobros", card: "Tarjetas Vencidas" }[tab]}
+            {{ cancelled: "Listar grupo de socios", retry: "Cobros rechazados", history: "Historial de reintentos", card: "Tarjetas Vencidas" }[tab]}
           </button>
         ))}
       </div>
@@ -5623,19 +5626,20 @@ function App() {
           <th>Suscripción</th>
           {recoveryTab === "cancelled" ? <th>RUT</th> : null}
           <th>Cliente</th>
-          <th>{recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? "Fecha cancelación" : recoveryGroup === "incobrable" ? "Último cobro" : "Fecha inicio") : recoveryTab === "retry" ? "Cargo rechazado" : "Vencimiento"}</th>
+          <th>{recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? "Fecha cancelación" : recoveryGroup === "incobrable" ? "Último cobro" : "Fecha inicio") : recoveryTab === "retry" ? "Cargo rechazado" : recoveryTab === "history" ? "Fecha reintento" : "Vencimiento"}</th>
           <th>Monto</th><th>Fuente</th>
-          {recoveryTab === "retry" ? <><th>Motivo</th><th>Acción</th></> : null}{recoveryTab === "card" ? <th>Acción</th> : null}
+          {recoveryTab === "retry" ? <><th>Motivo</th><th>Acción</th></> : null}{recoveryTab === "history" ? <><th>Resultado</th><th>Fecha conciliación</th></> : null}{recoveryTab === "card" ? <th>Acción</th> : null}
         </tr></thead><tbody>
-          {recoveryRows.items.map((item) => { const key = recoveryRowKey(item); const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id"); const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id"); const rut = recoveryValue(item, "rut"); const dateVal = recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? recoveryValue(item, "cancelled_at", "canceled_at") : recoveryGroup === "incobrable" ? recoveryValue(item, "last_paid_date") : recoveryValue(item, "started_at")) : recoveryTab === "retry" ? recoveryValue(item, "charge_date", "rejected_at", "date") : recoveryValue(item, "expires_at", "expiration_date", "card_expiration"); return <tr key={key}>
+          {recoveryRows.items.map((item) => { const key = recoveryRowKey(item); const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id"); const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id"); const rut = recoveryValue(item, "rut"); const dateVal = recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? recoveryValue(item, "cancelled_at", "canceled_at") : recoveryGroup === "incobrable" ? recoveryValue(item, "last_paid_date") : recoveryValue(item, "started_at")) : recoveryTab === "retry" ? recoveryValue(item, "charge_date", "rejected_at", "date") : recoveryTab === "history" ? recoveryValue(item, "requested_at") : recoveryValue(item, "expires_at", "expiration_date", "card_expiration"); return <tr key={key}>
             {recoveryTab === "retry" ? <td><input aria-label={`Seleccionar ${key}`} type="checkbox" checked={recoverySelected.has(key)} onChange={(event) => setRecoverySelected((current) => { const next = new Set(current); event.target.checked ? next.add(key) : next.delete(key); return next; })} /></td> : null}
             <td className="recovery-id">{recoveryDisplay(subscription)}</td>
             {recoveryTab === "cancelled" ? <td>{text(rut, "—")}</td> : null}
             <td>{recoveryDisplay(client)}</td><td>{text(dateVal, "—")}</td><td>{recoveryAmount(item)}</td><td>{text(recoveryValue(item, "source"), "—")}</td>
             {recoveryTab === "retry" ? <><td>{text(recoveryValue(item, "rejection_reason", "reason", "rejection_code"), "—")}</td><td>{can("virtualpos.charges.retry") ? <button className="secondary-button" disabled={recoverySubmitting} onClick={() => void runRecoveryRetry(item)}>Reintentar</button> : "—"}</td></> : null}
+            {recoveryTab === "history" ? <><td>{text(recoveryValue(item, "result"), "—")}</td><td>{text(recoveryValue(item, "observed_at"), "—")}</td></> : null}
             {recoveryTab === "card" ? <td>{can("virtualpos.cards.change") ? <button className="secondary-button" disabled={recoverySubmitting || !subscription} onClick={() => void createCardChangeLink(item)}>Generar enlace</button> : "—"}</td> : null}
           </tr>; })}
-          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" ? 8 : recoveryTab === "card" ? 6 : recoveryTab === "cancelled" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
+          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" || recoveryTab === "history" ? 8 : recoveryTab === "card" ? 6 : recoveryTab === "cancelled" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
         </tbody></table></div></section>
         <div className="recovery-pagination"><button className="secondary-button" disabled={recoveryOffset === 0 || recoveryLoading} onClick={() => void loadRecoveryRows(Math.max(0, recoveryOffset - 50))}>Anterior</button><span>{recoveryRows.total ? `${recoveryOffset + 1}-${Math.min(recoveryOffset + recoveryRows.limit, recoveryRows.total)} de ${recoveryRows.total}` : "0 registros"}</span><button className="secondary-button" disabled={recoveryOffset + recoveryRows.limit >= recoveryRows.total || recoveryLoading} onClick={() => void loadRecoveryRows(recoveryOffset + recoveryRows.limit)}>Siguiente</button></div>
       </> : !recoveryLoading ? <p className="muted-copy">Selecciona una pestaña y consulta los registros disponibles.</p> : null}

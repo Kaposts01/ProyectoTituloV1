@@ -3,7 +3,11 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from app.api.v1.routes.recovery import _cancelled_rows
+from app.api.v1.routes.recovery import (
+    _cancelled_rows,
+    _rejected_rows,
+    _retry_history_rows,
+)
 from app.db.session import engine
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Subscription
@@ -74,3 +78,75 @@ def test_cancelled_rows_include_lifetime_paid_amount_and_contact(db_session: Ses
         "client_name": "Ana Rios", "started_at": "2099-01-01", "cancelled_at": "2099-02-01", "antiquity_days": 31,
         "amount": 12500.0, "currency": "CLP", "email": "ana@example.com", "phone": "123",
     }]
+
+
+def test_rejected_rows_resolve_client_through_subscription(db_session: Session) -> None:
+    db_session.add_all([
+        Client(source="virtualpos1", external_id="wrong-client", first_name="Felipe", last_name="Rubilar"),
+        Client(source="virtualpos1", external_id="correct-client", first_name="Ana", last_name="Rios"),
+        Subscription(source="virtualpos1", external_id="sub-1", client_external_id="correct-client"),
+        Charge(
+            source="virtualpos1",
+            external_id="charge-1",
+            client_external_id="wrong-client",
+            subscription_external_id="sub-1",
+            status="rechazado",
+            charge_date="2099-01-01",
+        ),
+    ])
+    db_session.flush()
+
+    rows = _rejected_rows(db_session, None, None, "retry")
+
+    assert rows[0]["client_name"] == "Ana Rios"
+
+
+def test_rejected_rows_use_subscription_payload_when_client_is_not_materialized(db_session: Session) -> None:
+    db_session.add_all([
+        Subscription(
+            source="virtualpos2",
+            external_id="sub-with-embedded-client",
+            raw_payload={"client": {"first_name": "Ana", "last_name": "Rios"}},
+        ),
+        Charge(
+            source="virtualpos2",
+            external_id="charge-without-reason",
+            subscription_external_id="sub-with-embedded-client",
+            status="rechazado",
+            charge_date="2099-01-01",
+        ),
+    ])
+    db_session.flush()
+
+    rows = _rejected_rows(db_session, None, None, "retry")
+
+    row = next(row for row in rows if row["external_id"] == "charge-without-reason")
+    assert row["client_name"] == "Ana Rios"
+    assert row["rejection_reason"] == "No informado por VirtualPOS"
+
+
+def test_retry_history_includes_accepted_and_immediately_rejected_attempts(db_session: Session) -> None:
+    accepted_run = WriteRun(
+        source="virtualpos1", resource_type="charge", external_id="accepted-charge", operation="retry_charge",
+        status="completed", request_payload={"charge_id": "accepted-charge"},
+    )
+    rejected_run = WriteRun(
+        source="virtualpos1", resource_type="charge", external_id="rejected-charge", operation="retry_charge",
+        status="failed", request_payload={"charge_id": "rejected-charge"},
+    )
+    db_session.add_all([accepted_run, rejected_run])
+    db_session.flush()
+    db_session.add(ChargeRecovery(
+        source="virtualpos1",
+        charge_external_id="accepted-charge",
+        write_run_id=accepted_run.id,
+        status="cobrado",
+        closes_at=datetime.now(UTC),
+    ))
+    db_session.flush()
+
+    rows = _retry_history_rows(db_session, None, None)
+    outcomes = {row["external_id"]: row["result"] for row in rows}
+
+    assert outcomes["accepted-charge"] == "cobrado"
+    assert outcomes["rejected-charge"] == "rechazado_inmediato"

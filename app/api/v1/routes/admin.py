@@ -51,6 +51,17 @@ def _permissions(db: Session, codes: set[str]) -> list[Permission]:
     return permissions
 
 
+def _is_active_admin(user: User, roles: list[Role] | None = None, is_active: bool | None = None) -> bool:
+    assigned_roles = roles if roles is not None else user.roles
+    active = user.is_active if is_active is None else is_active
+    return active and any(role.name == "admin" for role in assigned_roles)
+
+
+def _active_admin_count(db: Session) -> int:
+    users = db.scalars(select(User).options(selectinload(User.roles)).where(User.is_active.is_(True))).all()
+    return sum(_is_active_admin(user) for user in users)
+
+
 @router.get("/permissions", dependencies=[Depends(require_permissions("roles.manage"))], tags=["Administration"])
 def list_permissions() -> list[dict[str, str]]:
     return [{"code": code, "description": description} for code, description in sorted(PERMISSIONS.items())]
@@ -116,10 +127,14 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    next_roles = _roles(db, body.role_ids) if body.role_ids is not None else user.roles
+    next_active = body.is_active if body.is_active is not None else user.is_active
+    if _is_active_admin(user) and not _is_active_admin(user, next_roles, next_active) and _active_admin_count(db) == 1:
+        raise HTTPException(status_code=422, detail="Cannot deactivate or remove the last active admin")
     if body.is_active is not None:
         user.is_active = body.is_active
     if body.role_ids is not None:
-        user.roles = _roles(db, body.role_ids)
+        user.roles = next_roles
     db.commit()
     return {"id": str(user.id), "username": user.username, "is_active": user.is_active}
 
