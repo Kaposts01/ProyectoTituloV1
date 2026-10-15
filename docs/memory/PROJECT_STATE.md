@@ -12,6 +12,8 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - Tablas y vistas operativas por canal, dashboards y reportes existentes.
 - Autenticacion, permisos y registro de sincronizaciones y escrituras autorizadas.
 - Administracion de usuarios y roles: usuarios con multiples roles se pueden crear, editar, desactivar y restablecer su contrasena; los roles y sus permisos se administran con permisos y CSRF.
+- El ultimo usuario activo con rol `admin` no puede ser desactivado ni perder ese rol desde la administracion.
+- El Recuperador VirtualPOS resuelve clientes de cargos rechazados mediante la relacion trazable cargo-suscripcion-cliente y usa el nombre saneado del payload de suscripcion solo cuando no existe cliente materializado. Muestra cargos rechazados y el historial completo de solicitudes de reintento, incluidos rechazos inmediatos, con sus resultados conciliados. Los motivos ausentes se exponen como no informados por VirtualPOS y cada envio confirma exitos y fallos.
 - Vault documental de Obsidian y documentacion conceptual inicial.
 - La estructura versionada separa scripts operativos, mantenimiento y diagnostico; la documentacion historica y las colecciones Postman tienen ubicaciones explicitas; los insumos locales se excluyen bajo `data/local/` y `.local/`.
 - Skill local `project-memory` disponible para gestionar memoria persistente y ADRs compactos; su descubrimiento fue confirmado en una sesion reiniciada de OpenCode.
@@ -38,6 +40,7 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - Rama `feature/core-centralizado` en revisión final antes de merge a `master`. Core ETL completo (4 proveedores), migraciones 0027 y 0028 aplicadas, CI limpio (ruff), tests de helpers ETL pasando.
 - Los dashboards operativos de VirtualPOS, Toku, Payku y TCH tienen paridad de KPIs, distribuciones, altas/bajas, series de suscripciones activas, churn y alertas usando solamente los campos verificables de cada fuente. Toku usa transacciones reales para su comparación con suscripciones; Payku mantiene su límite de cobertura histórica; TCH se basa en su proyección ETL.
 - Payku reconoce el identificador histórico `transaction` cuando su payload no trae `id`. La reconstrucción local `scripts/maintenance/backfill_payku_transactions.py` materializa transacciones ya preservadas en `source_records` hacia `p_transactions`; luego el ETL normal las proyecta a `payments`, restaurando los años y la actividad mensual verificables del dashboard.
+- La auditoria de webhooks confirma que Toku documenta firma HMAC e identificador de entrega; falta implementar su receptor idempotente con una URL HTTPS temporal. VirtualPOS y Payku exponen callbacks, pero su autenticidad permanece `TBD`, por lo que no se implementan receptores hasta verificarla.
 
 ## Pendiente
 
