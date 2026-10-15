@@ -6,6 +6,18 @@ Las operaciones mutables implementadas requieren `TOKU_WRITES_ENABLED=true`, per
 
 El dashboard usa las deudas para su actividad y las transacciones para resultados de pago. La comparación con suscripciones activas usa exclusivamente transacciones fechadas del canal, no facturas.
 
+## Estructura operacional
+
+La documentacion operacional detallada esta organizada en [docs/integrations/toku/README.md](toku/README.md).
+
+Incluye 12 flujos paso a paso y 12 documentos de recursos (contratos de API, autenticacion, paginacion, errores, data model, webhooks).
+
+### Bloqueante critico
+
+| Clave | Descripcion | Impacto |
+|---|---|---|
+| **BLQ-TK-01 / T-A1** | Toku debe configurar el `flow_name` para el Checkout de inscripcion (ENROLLMENT). Sin esto, cualquier `POST /cl/checkout-sessions` con `mode: ENROLLMENT` devuelve `4xx`. | Bloquea completamente los flujos de alta y de cambio de tarjeta (alta-socio, link-inscripcion, enroll-payment-method) |
+
 ## Suscripciones eliminadas en el origen
 
 El sync de Toku solo recupera suscripciones activas desde la API. Las suscripciones que fueron canceladas o eliminadas antes o entre ciclos de sincronización no aparecen en `tk_subscriptions`, pero sus invoices y pagos sí existen en el sistema del proveedor y se sincronizan a `tk_invoices` y `tk_payments`.

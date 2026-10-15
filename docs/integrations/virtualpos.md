@@ -16,6 +16,23 @@ Riesgo conocido: existen suscripciones historicas sin cargos locales cuya recupe
 
 **Known limitation:** no todo Charge debe tener un Payment: cargos pendientes, cancelados o en proceso pueden no haber generado una transacción. Solo se enlazarán pares respaldados por el UUID de orden del proveedor.
 
+## Estructura operacional
+
+La documentacion operacional detallada esta organizada en [docs/integrations/virtualpos/README.md](virtualpos/README.md).
+
+Incluye 15 flujos paso a paso y 14 documentos de recursos (contratos de API, autenticacion, paginacion, errores, sandbox).
+
+### Bloqueantes y pendientes activos
+
+| Clave | Descripcion |
+|---|---|
+| **V-1** | No confirmado que `GET /v3/suscriptions` devuelva `charge_program` completo en el listado masivo. Pendiente validacion en sandbox. |
+| **V-2** | No confirmado que una cuota `pagado` o `rechazado` traiga `payment.order.uuid` en `GET /v3/charge/{id}`. |
+| **V-3** | No confirmado que `GET /v3/payments` incluya transacciones de cuotas recurrentes (no solo pagos spot). |
+| **V-4** | Un reintento de cuota rechazada: no confirmado si reutiliza el mismo Payment o crea otro. |
+| **charge_program** | Los cargos locales no conservan el Payment embebido ni la relacion verificable con la transaccion. Requiere enriquecimiento por detalle de proveedor para motivos de rechazo historicos. |
+| **return_url en changecard** | `PUT /v3/suscription/{id}/changecard` no acepta `return_url`. El socio no vuelve a nuestra pagina; confirmacion depende del job. Pendiente consulta a soporte@virtualpos.cl. |
+
 ## Webhooks
 
 **Confirmed:** VirtualPOS puede notificar pagos y eventos PAT a una URL HTTPS. Los pagos y suscripciones creados por API aceptan `callback_url`; los eventos PAT se configuran desde el Portal Comercio. Los eventos observables incluyen activación o fallo de suscripción, cargo pagado o rechazado y cambio de tarjeta. El callback aporta identificadores para recuperar el recurso por API, por lo que no reemplaza la sincronización ni se considera fuente completa.
