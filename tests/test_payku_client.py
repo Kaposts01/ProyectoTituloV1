@@ -47,6 +47,32 @@ def test_payku_client_retries_read_timeout(monkeypatch) -> None:
     assert http_client.calls == 2
 
 
+def test_payku_delete_sends_sign_header(monkeypatch) -> None:
+    # T3: Regression BUG-PK-02 — _delete must include Sign header (was missing before fix)
+    # Found by /qa on 2026-10-20
+    captured: dict = {}
+
+    class CapturingDeleteClient:
+        async def delete(self, path: str, **kwargs: object) -> httpx.Response:
+            captured["path"] = path
+            captured["headers"] = dict(kwargs.get("headers", {}))
+            return httpx.Response(200, json={}, request=httpx.Request("DELETE", path))
+
+    monkeypatch.setattr(settings, "payku_secret_key", "fe551abcef62fcf002dc598922e68f0a")
+    client = PaykuClient()
+    original = client._client
+    client._client = CapturingDeleteClient()  # type: ignore[assignment]
+
+    async def run() -> None:
+        await original.aclose()
+        await client._delete("/api/suclient/test-id")
+
+    asyncio.run(run())
+    assert "Sign" in captured["headers"], "_delete must send Sign header (BUG-PK-02)"
+    expected_sign = build_sign("/api/suclient/test-id", {}, "fe551abcef62fcf002dc598922e68f0a")
+    assert captured["headers"]["Sign"] == expected_sign
+
+
 def test_payku_signature_matches_documented_example() -> None:
     signature = build_sign(
         "/api/suclient",

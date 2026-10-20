@@ -1,6 +1,9 @@
+import uuid
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.recovery import (
@@ -8,11 +11,16 @@ from app.api.v1.routes.recovery import (
     _rejected_rows,
     _retry_history_rows,
 )
-from app.db.session import engine
+from app.core.config import settings
+from app.core.security import hash_password
+from app.db.session import SessionLocal, engine
+from app.main import app
+from app.models.auth import Permission, Role, User
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.write_run import WriteRun
 from app.services.charge_recovery import needs_card_change, reconcile_charge_recoveries
+from app.services.rbac import seed_permissions
 
 
 @pytest.fixture
@@ -166,6 +174,23 @@ def test_retry_history_date_filter_excludes_outside_range(db_session: Session) -
     assert "wr-out-range" not in ids
 
 
+def test_retry_history_shows_pending_reconciliation_for_in_progress_runs(db_session: Session) -> None:
+    # T6: completed write_run with no ChargeRecovery entry → "pendiente_de_conciliacion"
+    # Found by /review on 2026-10-20
+    write_run = WriteRun(
+        source="virtualpos1", resource_type="charge", external_id="pending-recon-charge",
+        operation="retry_charge", status="completed", request_payload={"charge_id": "pending-recon-charge"},
+    )
+    db_session.add(write_run)
+    db_session.flush()
+
+    rows = _retry_history_rows(db_session, None, None)
+
+    row = next((r for r in rows if r["external_id"] == "pending-recon-charge"), None)
+    assert row is not None
+    assert row["result"] == "pendiente_de_conciliacion"
+
+
 def test_retry_history_includes_accepted_and_immediately_rejected_attempts(db_session: Session) -> None:
     accepted_run = WriteRun(
         source="virtualpos1", resource_type="charge", external_id="accepted-charge", operation="retry_charge",
@@ -191,3 +216,79 @@ def test_retry_history_includes_accepted_and_immediately_rejected_attempts(db_se
 
     assert outcomes["accepted-charge"] == "cobrado"
     assert outcomes["rejected-charge"] == "rechazado_inmediato"
+
+
+def _setup_recovery_viewer(monkeypatch, suffix: str) -> tuple[TestClient, dict]:
+    """Create a user with virtualpos.recovery.view and return a logged-in client + headers."""
+    monkeypatch.setattr(settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
+    db = SessionLocal()
+    try:
+        seed_permissions(db)
+        view_perm = db.scalar(select(Permission).where(Permission.code == "virtualpos.recovery.view"))
+        viewer_role = Role(name=f"viewer-{suffix}", permissions=[view_perm])
+        viewer_user = User(username=f"viewer-{suffix}", password_hash=hash_password("View-pw-12345"), is_active=True, roles=[viewer_role])
+        db.add_all([viewer_role, viewer_user])
+        db.commit()
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    login = client.post("/api/v1/auth/login", json={"username": f"viewer-{suffix}", "password": "View-pw-12345"})
+    assert login.status_code == 200
+    return client, {"X-CSRF-Token": login.json()["csrf_token"]}
+
+
+def test_retry_history_endpoint_returns_items_and_total(monkeypatch) -> None:
+    # T1: GET /recovery/retry-history retorna estructura {items, total, offset, limit} con datos
+    # Found by /review on 2026-10-20
+    suffix = uuid.uuid4().hex[:12]
+    client, _ = _setup_recovery_viewer(monkeypatch, suffix)
+
+    db = SessionLocal()
+    try:
+        db.add(WriteRun(
+            source="virtualpos1", resource_type="charge", external_id=f"ep-charge-{suffix}",
+            operation="retry_charge", status="completed", request_payload={"charge_id": f"ep-charge-{suffix}"},
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get("/api/v1/recovery/retry-history")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "items" in data and "total" in data
+    assert data["total"] >= 1
+    ids = {r["external_id"] for r in data["items"]}
+    assert f"ep-charge-{suffix}" in ids
+
+
+def test_retry_history_endpoint_date_filter_excludes_outside_range(monkeypatch) -> None:
+    # T2: GET /recovery/retry-history?date_from=&date_to= filtra por fecha en SQL
+    # Found by /review on 2026-10-20
+    suffix = uuid.uuid4().hex[:12]
+    client, _ = _setup_recovery_viewer(monkeypatch, suffix)
+
+    db = SessionLocal()
+    try:
+        db.add_all([
+            WriteRun(
+                source="virtualpos1", resource_type="charge", external_id=f"in-range-ep-{suffix}",
+                operation="retry_charge", status="completed", request_payload={"charge_id": f"in-range-ep-{suffix}"},
+                started_at=datetime(2099, 6, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+            WriteRun(
+                source="virtualpos1", resource_type="charge", external_id=f"out-range-ep-{suffix}",
+                operation="retry_charge", status="completed", request_payload={"charge_id": f"out-range-ep-{suffix}"},
+                started_at=datetime(2099, 1, 1, 12, 0, 0, tzinfo=UTC),
+            ),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get("/api/v1/recovery/retry-history?date_from=2099-06-01&date_to=2099-06-30")
+    assert resp.status_code == 200
+    ids = {r["external_id"] for r in resp.json()["items"]}
+    assert f"in-range-ep-{suffix}" in ids
+    assert f"out-range-ep-{suffix}" not in ids
