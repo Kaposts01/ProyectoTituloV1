@@ -22,7 +22,7 @@ docs/engineering/
 | Fase | Ítems | Estado |
 |------|-------|--------|
 | 1 — Arquitectura base | 1, 2, 3, 5, 9 | ✅ Completa |
-| 2 — Datos y comunicaciones | 6, 7, 8 | Pendiente |
+| 2 — Datos y comunicaciones | 6, 7, 8 | ✅ Completa |
 | 3 — Calidad | 4, 12, 13 | Pendiente |
 | 4 — Operaciones | 10, 11, 14, 15, 16 | Pendiente |
 
