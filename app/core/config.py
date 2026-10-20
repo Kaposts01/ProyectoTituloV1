@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     toku_timeout_seconds: float = 30
     toku_read_retries: int = 2
     toku_writes_enabled: bool = False
+    toku_webhook_secret: str = ""
     # Payku
     payku_base_url: str = ""
     payku_api_key: str = ""
