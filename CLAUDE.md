@@ -198,6 +198,13 @@ See [Technical Debt](knowledge/08%20-%20Roadmap/Technical%20Debt.md) for detail.
 - [AI Architecture](knowledge/06%20-%20AI/AI%20Architecture.md)
 - [Technical Debt](knowledge/08%20-%20Roadmap/Technical%20Debt.md)
 
+## Health Stack
+
+- typecheck: cd frontend && npx tsc --noEmit
+- lint: ruff check .
+- lint_frontend: cd frontend && npm run lint
+- test: PYTHONPATH=. .venv/Scripts/pytest.exe
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. Route only to skills in the session's available-skills list; answer directly for quick questions or small scoped edits.
