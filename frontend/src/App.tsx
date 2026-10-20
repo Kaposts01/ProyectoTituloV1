@@ -1942,6 +1942,7 @@ function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles: AdminR
     if (!pwTarget) return;
     const form = new FormData(event.currentTarget);
     try {
+      await refreshCsrfToken();
       await patchJson(`/api/v1/admin/users/${pwTarget.id}/password`, { new_password: form.get("new_password") });
       setPwTarget(null);
       setMessage("Contraseña actualizada.");
@@ -2043,6 +2044,7 @@ function RolesSubPanel({ canManage, allPermissions }: { canManage: boolean; allP
   async function handleDelete(role: AdminRole) {
     if (!window.confirm(`¿Eliminar el rol "${role.name}"? No se puede deshacer.`)) return;
     try {
+      await refreshCsrfToken();
       await deleteJson(`/api/v1/admin/roles/${role.id}`);
       setMessage(`Rol "${role.name}" eliminado.`);
       reload();
@@ -2099,9 +2101,9 @@ function AdminUsers({ permissions }: { permissions: string[] }) {
   const [allPermissions, setAllPermissions] = useState<Array<{ code: string; description: string }>>([]);
 
   useEffect(() => {
-    getJson<AdminRole[]>("/api/v1/admin/roles").then(setRoles).catch(() => {});
+    getJson<AdminRole[]>("/api/v1/admin/roles").then(setRoles).catch((e: unknown) => console.error("Error loading roles:", e));
     if (canManageRoles) {
-      getJson<Array<{ code: string; description: string }>>("/api/v1/admin/permissions").then(setAllPermissions).catch(() => {});
+      getJson<Array<{ code: string; description: string }>>("/api/v1/admin/permissions").then(setAllPermissions).catch((e: unknown) => console.error("Error loading permissions:", e));
     }
   }, [canManageRoles]);
 
@@ -5639,7 +5641,7 @@ function App() {
             {recoveryTab === "history" ? <><td>{text(recoveryValue(item, "result"), "—")}</td><td>{text(recoveryValue(item, "observed_at"), "—")}</td></> : null}
             {recoveryTab === "card" ? <td>{can("virtualpos.cards.change") ? <button className="secondary-button" disabled={recoverySubmitting || !subscription} onClick={() => void createCardChangeLink(item)}>Generar enlace</button> : "—"}</td> : null}
           </tr>; })}
-          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" || recoveryTab === "history" ? 8 : recoveryTab === "card" ? 6 : recoveryTab === "cancelled" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
+          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" ? 8 : recoveryTab === "history" ? 7 : recoveryTab === "card" ? 6 : recoveryTab === "cancelled" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
         </tbody></table></div></section>
         <div className="recovery-pagination"><button className="secondary-button" disabled={recoveryOffset === 0 || recoveryLoading} onClick={() => void loadRecoveryRows(Math.max(0, recoveryOffset - 50))}>Anterior</button><span>{recoveryRows.total ? `${recoveryOffset + 1}-${Math.min(recoveryOffset + recoveryRows.limit, recoveryRows.total)} de ${recoveryRows.total}` : "0 registros"}</span><button className="secondary-button" disabled={recoveryOffset + recoveryRows.limit >= recoveryRows.total || recoveryLoading} onClick={() => void loadRecoveryRows(recoveryOffset + recoveryRows.limit)}>Siguiente</button></div>
       </> : !recoveryLoading ? <p className="muted-copy">Selecciona una pestaña y consulta los registros disponibles.</p> : null}
