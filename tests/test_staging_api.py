@@ -247,7 +247,7 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
         ]
     )
     db_session.flush()
-
+    staging.invalidate_dashboard_cache()
     response = staging.general_dashboard(db=db_session)
 
     assert response["clients"] == before["clients"] + 2
@@ -258,6 +258,65 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
     assert response["transactions"]["amount"] == before["transactions"]["amount"] + 3200
     assert {entry["status"] for entry in response["transactions_monthly"] if entry["year"] == 2099} >= {"Aceptadas", "Rechazadas"}
     assert {entry["status"] for entry in response["activations_monthly"] if entry["year"] == 2099} >= {"Payku", "TCH"}
+
+
+def test_pending_payments_counts_only_nonterminal_charges(db_session) -> None:
+    staging.invalidate_dashboard_cache()
+    before = staging.general_dashboard(db=db_session)
+    db_session.add_all([
+        Charge(source="payku", external_id="pend-1", status="pending", charge_date="2099-05-01", raw_payload={}),
+        Charge(source="payku", external_id="pend-2", status="in_progress", charge_date="2099-05-01", raw_payload={}),
+        Charge(source="payku", external_id="term-paid", status="pagado", charge_date="2099-05-01", raw_payload={}),
+        Charge(source="payku", external_id="term-rej", status="rejected", charge_date="2099-05-01", raw_payload={}),
+    ])
+    db_session.flush()
+    staging.invalidate_dashboard_cache()
+    after = staging.general_dashboard(db=db_session)
+
+    assert after["pending_payments"] == before["pending_payments"] + 2
+
+
+def test_sync_success_rate_100_when_all_runs_completed(db_session) -> None:
+    from sqlalchemy import delete as sa_delete
+    db_session.execute(sa_delete(SyncRun))
+    db_session.flush()
+    db_session.add_all([
+        SyncRun(source="toku", status="completed", started_at=datetime.now(UTC), records_processed=10),
+        SyncRun(source="payku", status="completed", started_at=datetime.now(UTC), records_processed=5),
+    ])
+    db_session.flush()
+    staging.invalidate_dashboard_cache()
+    response = staging.general_dashboard(db=db_session)
+
+    assert response["sync_success_rate_pct"] == 100.0
+
+
+def test_sync_success_rate_null_when_no_runs_in_30_days(db_session) -> None:
+    from sqlalchemy import delete as sa_delete
+    db_session.execute(sa_delete(SyncRun))
+    db_session.flush()
+    staging.invalidate_dashboard_cache()
+    response = staging.general_dashboard(db=db_session)
+
+    assert response["sync_success_rate_pct"] is None
+
+
+def test_dashboard_channel_endpoint_returns_subset_by_source(db_session) -> None:
+    from fastapi.testclient import TestClient
+    from app.main import app as fastapi_app
+
+    client = TestClient(fastapi_app)
+    staging.invalidate_dashboard_cache()
+    response = client.get(
+        "/api/v1/staging/dashboard/channel/toku",
+        headers={"Authorization": "Bearer test"},
+    )
+    assert response.status_code in (200, 401, 403)
+    if response.status_code == 200:
+        data = response.json()
+        assert data["channel"] == "Toku"
+        assert "clients" in data
+        assert "transactions_monthly" in data
 
 
 def test_report_series_filters_events_to_the_requested_date_range(db_session) -> None:

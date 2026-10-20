@@ -1,4 +1,5 @@
 import re
+import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
@@ -96,7 +97,25 @@ def _general_transaction_status(status: Any) -> str:
     return "Pendientes"
 
 
+_dashboard_cache: dict[str, Any] = {}
+_DASHBOARD_CACHE_TTL = 60  # seconds
+
+
+def invalidate_dashboard_cache() -> None:
+    _dashboard_cache.clear()
+
+
 def _general_dashboard(db: Session) -> dict[str, Any]:
+    now = time.time()
+    cached = _dashboard_cache.get("general")
+    if cached and now - cached["ts"] < _DASHBOARD_CACHE_TTL:
+        return cached["data"]  # type: ignore[return-value]
+    data = _compute_general_dashboard(db)
+    _dashboard_cache["general"] = {"data": data, "ts": now}
+    return data
+
+
+def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     amount = case(
         (CPayment.amount.op("~")(r"^\d+(\.\d+)?$"), cast(CPayment.amount, Numeric)),
         else_=0,
@@ -464,6 +483,37 @@ def _general_dashboard(db: Session) -> dict[str, Any]:
                 "detalle": f"Últimos 3 meses: {g_rate}% de rechazos ({g_fail} de {g_total} cargos en todos los canales)",
             })
 
+    # ── Nuevos KPIs (EPIC-B) ─────────────────────────────────────────────────
+    _terminal_lower = {
+        "pagado", "pago", "aceptado", "accepted", "paid", "success", "aprobada", "aceptada",
+        "rechazado", "rejected", "failed", "failure", "declined", "error", "rechazada",
+    }
+    pending_payments: int = db.scalar(
+        select(func.count()).select_from(CCharge).where(
+            CCharge.source.in_((*_VP_SRCS, "toku", "payku")),
+            CCharge.status.isnot(None),
+            ~func.lower(CCharge.status).in_(_terminal_lower),
+        )
+    ) or 0
+
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    sync_total: int = db.scalar(
+        select(func.count()).select_from(SyncRun).where(SyncRun.started_at >= thirty_days_ago)
+    ) or 0
+    sync_completed: int = db.scalar(
+        select(func.count()).select_from(SyncRun).where(
+            SyncRun.started_at >= thirty_days_ago, SyncRun.status == "completed"
+        )
+    ) or 0
+    sync_success_rate_pct: float | None = round(100 * sync_completed / sync_total, 1) if sync_total > 0 else None
+
+    current_month_cancellations = sum(
+        int(v["count"]) for (y, m, _ch), v in cancellation_months.items()
+        if y == today.year and m == today.month
+    )
+    total_active = sum(active_subscriptions.values())
+    churn_rate_pct: float = round(100 * current_month_cancellations / total_active, 1) if total_active > 0 else 0.0
+
     return {
         "clients": sum(clients.values()),
         "subscriptions": {"active": sum(active_subscriptions.values()), "amount": round(sum(sub_amounts.values()), 0)},
@@ -485,6 +535,9 @@ def _general_dashboard(db: Session) -> dict[str, Any]:
         "debts_monthly": debts_monthly,
         "transactions_effective_monthly": transactions_effective_monthly,
         "alerts": dashboard_alerts,
+        "pending_payments": pending_payments,
+        "sync_success_rate_pct": sync_success_rate_pct,
+        "churn_rate_pct": churn_rate_pct,
     }
 
 
@@ -3279,6 +3332,45 @@ def _payku_centralized_related(record: Any, resource_type: str, db: Session) -> 
 def general_dashboard(db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     """Aggregate operational metrics from every centralized channel."""
     return _general_dashboard(db)
+
+
+_CHANNEL_LABEL: dict[str, str] = {
+    "virtualpos": "VirtualPOS",
+    "toku": "Toku",
+    "payku": "Payku",
+    "tch": "TCH",
+}
+
+
+@router.get("/dashboard/channel/{source}", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
+def centralized_channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+    """Aggregate centralized operational metrics filtered to a single channel."""
+    if source not in _CHANNEL_LABEL:
+        raise HTTPException(status_code=404, detail=f"Unknown channel: {source}. Valid: {', '.join(_CHANNEL_LABEL)}")
+    label = _CHANNEL_LABEL[source]
+    data = _general_dashboard(db)
+    channel_row = next((c for c in data["channels"] if c["source"] == label), None)
+    return {
+        "channel": label,
+        "clients": channel_row["clients"] if channel_row else 0,
+        "subscriptions": {
+            "active": channel_row["active_subscriptions"] if channel_row else 0,
+            "amount": 0,
+        },
+        "transactions": {
+            "accepted": channel_row["accepted"] if channel_row else 0,
+            "amount": channel_row["amount"] if channel_row else 0,
+        },
+        "transactions_monthly": [e for e in data["transactions_monthly"] if e["status"] == label],
+        "activations_monthly": [e for e in data["activations_monthly"] if e["status"] == label],
+        "cancellations_monthly": [e for e in data["cancellations_monthly"] if e["status"] == label],
+        "debts_monthly": [e for e in data["debts_monthly"] if e["status"] == label],
+        "transactions_effective_monthly": [e for e in data["transactions_effective_monthly"] if e["status"] == label],
+        "pending_payments": data.get("pending_payments"),
+        "sync_success_rate_pct": data.get("sync_success_rate_pct"),
+        "churn_rate_pct": data.get("churn_rate_pct"),
+        "alerts": [a for a in (data.get("alerts") or []) if a.get("canal") in (label, "Consolidado")],
+    }
 
 
 @router.get("/dashboard/general/clients", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])

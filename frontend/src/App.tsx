@@ -242,6 +242,10 @@ type GeneralDashboard = {
   debts_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
   transactions_effective_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
   alerts?: DashboardAlert[];
+  // EPIC-B new KPI fields (optional for backward compat with older API)
+  pending_payments?: number;
+  sync_success_rate_pct?: number | null;
+  churn_rate_pct?: number;
 };
 type GeneralClient = { rut: string; name: string; origins: string[]; active_origins: string[] };
 type GeneralClients = { items: GeneralClient[]; total: number; offset: number; limit: number };
