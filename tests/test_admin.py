@@ -149,3 +149,24 @@ def test_non_admin_cannot_modify_admin_account(monkeypatch) -> None:
 
     resp = client.put(f"/api/v1/admin/users/{admin_id}", headers=headers, json={"is_active": False})
     assert resp.status_code == 403
+
+
+def test_non_admin_cannot_create_admin_account(monkeypatch) -> None:
+    # Regression: SEC-4 — non-admin with users.manage must receive 403 when creating a user with admin role
+    # Found by /review on 2026-10-20
+    suffix = uuid.uuid4().hex[:12]
+    _admin_id, client, headers = _setup_admin_and_manager(monkeypatch, suffix)
+
+    db = SessionLocal()
+    try:
+        admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+        admin_role_id = str(admin_role.id)
+    finally:
+        db.close()
+
+    resp = client.post(
+        "/api/v1/admin/users",
+        headers=headers,
+        json={"username": f"new-admin-{suffix}", "password": "New-password-123", "role_ids": [admin_role_id]},
+    )
+    assert resp.status_code == 403

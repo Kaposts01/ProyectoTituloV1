@@ -107,11 +107,15 @@ def list_users(db: Session = Depends(get_db)) -> list[dict]:  # noqa: B008
     return [serialize_user(user) for user in users]
 
 
-@router.post("/users", dependencies=[Depends(require_permissions("users.manage")), Depends(require_csrf)], tags=["Administration"])
-def create_user(body: UserInput, db: Session = Depends(get_db)) -> dict:  # noqa: B008
+@router.post("/users", dependencies=[Depends(require_csrf)], tags=["Administration"])
+def create_user(body: UserInput, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
     if db.scalar(select(User).where(User.username == body.username)):
         raise HTTPException(status_code=409, detail="Username already exists")
-    user = User(username=body.username, password_hash=hash_password(body.password), roles=_roles(db, body.role_ids))
+    new_roles = _roles(db, body.role_ids)
+    # SEC-4: only an admin can create an admin account
+    if any(role.name == "admin" for role in new_roles) and not any(role.name == "admin" for role in current_user.roles):
+        raise HTTPException(status_code=403, detail="Only an admin can create an admin account")
+    user = User(username=body.username, password_hash=hash_password(body.password), roles=new_roles)
     db.add(user)
     db.commit()
     db.refresh(user)
