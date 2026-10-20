@@ -115,8 +115,8 @@ class TokuClient:
     async def list_payment_methods_by_customer(self, customer_id: str) -> Any:
         return await self._get(f"/payment-methods/customer/{customer_id}")
 
-    async def associate_to_subscription(self, pm_id: str, data: dict[str, Any]) -> Any:
-        return await self._post(f"/payment-methods/{pm_id}/subscriptions", data)
+    async def associate_payment_method_to_subscription(self, data: dict[str, Any]) -> Any:
+        return await self._post("/subscriptions/associate/payment-method", data)
 
     async def bulk_associate_subscriptions(self, data: dict[str, Any]) -> Any:
         return await self._post("/payment-methods/subscriptions/bulk", data)

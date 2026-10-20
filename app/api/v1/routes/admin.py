@@ -51,6 +51,13 @@ def _permissions(db: Session, codes: set[str]) -> list[Permission]:
     return permissions
 
 
+def _is_active_admin(user: User, roles: list[Role] | None = None, is_active: bool | None = None) -> bool:
+    assigned_roles = roles if roles is not None else user.roles
+    active = user.is_active if is_active is None else is_active
+    return active and any(role.name == "admin" for role in assigned_roles)
+
+
+
 @router.get("/permissions", dependencies=[Depends(require_permissions("roles.manage"))], tags=["Administration"])
 def list_permissions() -> list[dict[str, str]]:
     return [{"code": code, "description": description} for code, description in sorted(PERMISSIONS.items())]
@@ -100,26 +107,45 @@ def list_users(db: Session = Depends(get_db)) -> list[dict]:  # noqa: B008
     return [serialize_user(user) for user in users]
 
 
-@router.post("/users", dependencies=[Depends(require_permissions("users.manage")), Depends(require_csrf)], tags=["Administration"])
-def create_user(body: UserInput, db: Session = Depends(get_db)) -> dict:  # noqa: B008
+@router.post("/users", dependencies=[Depends(require_csrf)], tags=["Administration"])
+def create_user(body: UserInput, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
     if db.scalar(select(User).where(User.username == body.username)):
         raise HTTPException(status_code=409, detail="Username already exists")
-    user = User(username=body.username, password_hash=hash_password(body.password), roles=_roles(db, body.role_ids))
+    new_roles = _roles(db, body.role_ids)
+    # SEC-4: only an admin can create an admin account
+    if any(role.name == "admin" for role in new_roles) and not any(role.name == "admin" for role in current_user.roles):
+        raise HTTPException(status_code=403, detail="Only an admin can create an admin account")
+    user = User(username=body.username, password_hash=hash_password(body.password), roles=new_roles)
     db.add(user)
     db.commit()
     db.refresh(user)
     return {"id": str(user.id), "username": user.username}
 
 
-@router.put("/users/{user_id}", dependencies=[Depends(require_permissions("users.manage")), Depends(require_csrf)], tags=["Administration"])
-def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_db)) -> dict:  # noqa: B008
+@router.put("/users/{user_id}", dependencies=[Depends(require_csrf)], tags=["Administration"])
+def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    # SEC-2: only an admin can modify another admin account
+    if _is_active_admin(user) and not any(role.name == "admin" for role in current_user.roles):
+        raise HTTPException(status_code=403, detail="Only an admin can modify another admin account")
+    next_roles = _roles(db, body.role_ids) if body.role_ids is not None else user.roles
+    next_active = body.is_active if body.is_active is not None else user.is_active
+    if _is_active_admin(user) and not _is_active_admin(user, next_roles, next_active):
+        # SEC-3: lock active admin rows before counting to eliminate TOCTOU race
+        admin_user_sq = select(User.id).join(User.roles).where(Role.name == "admin")
+        locked_ids = db.scalars(
+            select(User.id)
+            .where(User.is_active.is_(True), User.id.in_(admin_user_sq))
+            .with_for_update()
+        ).all()
+        if len(locked_ids) == 1:
+            raise HTTPException(status_code=422, detail="Cannot deactivate or remove the last active admin")
     if body.is_active is not None:
         user.is_active = body.is_active
     if body.role_ids is not None:
-        user.roles = _roles(db, body.role_ids)
+        user.roles = next_roles
     db.commit()
     return {"id": str(user.id), "username": user.username, "is_active": user.is_active}
 
@@ -128,11 +154,14 @@ class PasswordReset(BaseModel):
     new_password: str = Field(min_length=12, max_length=256)
 
 
-@router.patch("/users/{user_id}/password", dependencies=[Depends(require_permissions("users.manage")), Depends(require_csrf)], tags=["Administration"])
-def reset_user_password(user_id: uuid.UUID, body: PasswordReset, db: Session = Depends(get_db)) -> dict:  # noqa: B008
+@router.patch("/users/{user_id}/password", dependencies=[Depends(require_csrf)], tags=["Administration"])
+def reset_user_password(user_id: uuid.UUID, body: PasswordReset, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    # SEC-1: only an admin can reset another admin's password
+    if _is_active_admin(user) and not any(role.name == "admin" for role in current_user.roles):
+        raise HTTPException(status_code=403, detail="Only an admin can reset another admin's password")
     user.password_hash = hash_password(body.new_password)
     db.commit()
     return {"id": str(user.id), "username": user.username}

@@ -9,13 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from httpx import HTTPStatusError
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
 from app.core.config import settings
 from app.core.security import require_csrf, require_permissions
 from app.integrations.virtualpos.client import VirtualPOSClient
+from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.write_run import WriteRun
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
@@ -76,10 +77,57 @@ def _clients(db: Session) -> dict[tuple[str, str], Client]:
     return {(row.source, row.external_id): row for row in db.scalars(select(Client).where(Client.source.in_(_SOURCES)))}
 
 
+def _recovery_client(
+    charge: Charge | None,
+    subscription_external_id: str | None,
+    clients: dict[tuple[str, str], Client],
+    subscriptions: dict[tuple[str, str], Subscription],
+    unique_clients_by_rut: dict[tuple[str, str], Client],
+    source: str,
+) -> Client | None:
+    subscription_id = subscription_external_id or (charge.subscription_external_id if charge else None)
+    subscription = subscriptions.get((source, subscription_id or ""))
+    if subscription is not None:
+        if subscription.client_external_id:
+            return clients.get((source, subscription.client_external_id))
+        if subscription.client_social_id:
+            return unique_clients_by_rut.get((source, subscription.client_social_id))
+    if charge is not None and charge.client_external_id:
+        return clients.get((source, charge.client_external_id))
+    return None
+
+
+def _load_clients(db: Session, ext_ids_by_source: dict[str, list[str]], social_ids_by_source: dict[str, list[str]]) -> tuple[
+    dict[tuple[str, str], Client],
+    dict[tuple[str, str], Client],
+]:
+    """Load clients by external_id and unique-per-source clients by social_id."""
+    clients: dict[tuple[str, str], Client] = {}
+    for source, ext_ids in ext_ids_by_source.items():
+        for c in db.scalars(select(Client).where(Client.source == source, Client.external_id.in_(ext_ids))):
+            clients[(c.source, c.external_id)] = c
+    unique_by_rut: dict[tuple[str, str], Client] = {}
+    for source, social_ids in social_ids_by_source.items():
+        groups: dict[tuple[str, str], list[Client]] = {}
+        for c in db.scalars(select(Client).where(Client.source == source, Client.social_id.in_(social_ids))):
+            groups.setdefault((c.source, c.social_id), []).append(c)
+        unique_by_rut.update({k: v[0] for k, v in groups.items() if len(v) == 1})
+    return clients, unique_by_rut
+
+
 def _name(client: Client | None) -> str | None:
     if client is None:
         return None
     return " ".join(value for value in (client.first_name, client.last_name) if value) or None
+
+
+def _subscription_client_name(subscription: Subscription | None) -> str | None:
+    if subscription is None or not isinstance(subscription.raw_payload, dict):
+        return None
+    client = subscription.raw_payload.get("client")
+    if not isinstance(client, dict):
+        return None
+    return " ".join(str(value) for value in (client.get("first_name"), client.get("last_name")) if value) or None
 
 
 def _card_expiration(client: Client | None) -> str | None:
@@ -138,7 +186,7 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None) -> list[d
         rows.append({
             "source": sub.source, "subscription_id": sub.external_id, "external_id": sub.external_id,
             "rut": client.social_id if client else sub.client_social_id,
-            "client_name": _name(client), "started_at": sub.suscription_date, "cancelled_at": sub.canceled_at,
+            "client_name": _name(client) or _subscription_client_name(sub), "started_at": sub.suscription_date, "cancelled_at": sub.canceled_at,
             "antiquity_days": days, "amount": paid_by_subscription.get((sub.source, sub.external_id), 0),
             "currency": sub.currency, "email": client.email if client else None, "phone": client.phone_number if client else None,
         })
@@ -146,23 +194,150 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None) -> list[d
 
 
 def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: str) -> list[dict]:
-    clients = _clients(db)
+    # Filter by status and date in SQL; bucket (is_card) stays in Python (depends on raw_payload)
+    charge_q = select(Charge).where(Charge.source.in_(_SOURCES), func.lower(Charge.status).in_(_REJECTED))
+    if start is not None:
+        charge_q = charge_q.where(Charge.charge_date >= str(start))
+    if end is not None:
+        charge_q = charge_q.where(Charge.charge_date <= str(end))
+    filtered_charges = db.scalars(charge_q).all()
+    if not filtered_charges:
+        return []
+
+    # Load only subscriptions referenced by these charges
+    sub_ids_by_source: dict[str, list[str]] = {}
+    for c in filtered_charges:
+        if c.subscription_external_id:
+            sub_ids_by_source.setdefault(c.source, []).append(c.subscription_external_id)
+    subscriptions: dict[tuple[str, str], Subscription] = {}
+    for source, ext_ids in sub_ids_by_source.items():
+        for sub in db.scalars(select(Subscription).where(Subscription.source == source, Subscription.external_id.in_(ext_ids))):
+            subscriptions[(sub.source, sub.external_id)] = sub
+
+    # Collect which client IDs we actually need
+    client_ext: dict[str, list[str]] = {}
+    client_rut: dict[str, list[str]] = {}
+    for c in filtered_charges:
+        sub = subscriptions.get((c.source, c.subscription_external_id or ""))
+        if sub and sub.client_external_id:
+            client_ext.setdefault(c.source, []).append(sub.client_external_id)
+        elif sub and sub.client_social_id:
+            client_rut.setdefault(c.source, []).append(sub.client_social_id)
+        elif c.client_external_id:
+            client_ext.setdefault(c.source, []).append(c.client_external_id)
+    clients, unique_clients_by_rut = _load_clients(db, client_ext, client_rut)
+
     rows = []
-    for charge in db.scalars(select(Charge).where(Charge.source.in_(_SOURCES))).all():
-        if str(charge.status or "").lower() not in _REJECTED or not _in_range(charge.charge_date, start, end):
-            continue
+    for charge in filtered_charges:
         code, reason = _reason(charge)
         is_card = needs_card_change(code, reason)
         if (bucket == "card") != is_card:
             continue
-        client = clients.get((charge.source, charge.client_external_id or ""))
+        subscription = subscriptions.get((charge.source, charge.subscription_external_id or ""))
+        client = _recovery_client(charge, charge.subscription_external_id, clients, subscriptions, unique_clients_by_rut, charge.source)
         rows.append({
             "source": charge.source, "external_id": charge.external_id, "subscription_id": charge.subscription_external_id,
-            "client_name": _name(client), "charge_date": charge.charge_date, "amount": charge.amount,
-            "currency": charge.currency, "rejection_code": code, "rejection_reason": reason,
+            "client_name": _name(client) or _subscription_client_name(subscription), "charge_date": charge.charge_date, "amount": charge.amount,
+            "currency": charge.currency, "rejection_code": code, "rejection_reason": reason or "No informado por VirtualPOS",
             "card_expiration": _card_expiration(client),
         })
     return sorted(rows, key=lambda row: str(row["charge_date"]), reverse=True)
+
+
+def _retry_history_rows(db: Session, start: date | None, end: date | None) -> list[dict]:
+    # Apply date filter on WriteRun in SQL using func.date() to extract date from timestamptz
+    wr_q = select(WriteRun).where(
+        WriteRun.source.in_(_SOURCES),
+        WriteRun.resource_type == "charge",
+        WriteRun.operation == "retry_charge",
+    )
+    if start is not None:
+        wr_q = wr_q.where(func.date(WriteRun.started_at) >= start)
+    if end is not None:
+        wr_q = wr_q.where(func.date(WriteRun.started_at) <= end)
+    write_runs = db.scalars(wr_q).all()
+    if not write_runs:
+        return []
+
+    # Load only ChargeRecovery records for these write_run IDs
+    write_run_ids = [wr.id for wr in write_runs]
+    recoveries = {
+        recovery.write_run_id: recovery
+        for recovery in db.scalars(select(ChargeRecovery).where(ChargeRecovery.write_run_id.in_(write_run_ids)))
+    }
+
+    # Load only charges referenced by these write_runs
+    charge_ids_by_source: dict[str, list[str]] = {}
+    for wr in write_runs:
+        if wr.external_id:
+            charge_ids_by_source.setdefault(wr.source, []).append(wr.external_id)
+    charges: dict[tuple[str, str], Charge] = {}
+    for source, ext_ids in charge_ids_by_source.items():
+        for charge in db.scalars(select(Charge).where(Charge.source == source, Charge.external_id.in_(ext_ids))):
+            charges[(charge.source, charge.external_id)] = charge
+
+    # Load only subscriptions referenced
+    sub_ids_by_source: dict[str, set[str]] = {}
+    for wr in write_runs:
+        recovery = recoveries.get(wr.id)
+        charge = charges.get((wr.source, wr.external_id))
+        sub_id = (recovery.subscription_external_id if recovery else None) or (charge.subscription_external_id if charge else None)
+        if sub_id:
+            sub_ids_by_source.setdefault(wr.source, set()).add(sub_id)
+    subscriptions: dict[tuple[str, str], Subscription] = {}
+    for source, ext_ids in sub_ids_by_source.items():
+        for sub in db.scalars(select(Subscription).where(Subscription.source == source, Subscription.external_id.in_(ext_ids))):
+            subscriptions[(sub.source, sub.external_id)] = sub
+
+    # Collect client IDs needed
+    client_ext: dict[str, list[str]] = {}
+    client_rut: dict[str, list[str]] = {}
+    for wr in write_runs:
+        recovery = recoveries.get(wr.id)
+        charge = charges.get((wr.source, wr.external_id))
+        sub_id = (recovery.subscription_external_id if recovery else None) or (charge.subscription_external_id if charge else None)
+        sub = subscriptions.get((wr.source, sub_id or ""))
+        if sub and sub.client_external_id:
+            client_ext.setdefault(wr.source, []).append(sub.client_external_id)
+        elif sub and sub.client_social_id:
+            client_rut.setdefault(wr.source, []).append(sub.client_social_id)
+        elif charge and charge.client_external_id:
+            client_ext.setdefault(wr.source, []).append(charge.client_external_id)
+    clients, unique_clients_by_rut = _load_clients(db, client_ext, client_rut)
+
+    rows = []
+    for write_run in write_runs:
+        recovery = recoveries.get(write_run.id)
+        charge = charges.get((write_run.source, write_run.external_id))
+        subscription_id = (recovery.subscription_external_id if recovery else None) or (charge.subscription_external_id if charge else None)
+        subscription = subscriptions.get((write_run.source, subscription_id or ""))
+        client = _recovery_client(charge, subscription_id, clients, subscriptions, unique_clients_by_rut, write_run.source)
+        if recovery is not None:
+            result = recovery.status
+            observed_status = recovery.observed_charge_status
+            observed_at = recovery.observed_at
+        elif write_run.status == "failed":
+            result = "rechazado_inmediato"
+            observed_status = None
+            observed_at = write_run.finished_at
+        else:
+            result = "pendiente_de_conciliacion"
+            observed_status = None
+            observed_at = None
+        rows.append({
+            "source": write_run.source,
+            "external_id": write_run.external_id,
+            "subscription_id": subscription_id,
+            "client_name": _name(client) or _subscription_client_name(subscription),
+            "charge_date": charge.charge_date if charge else None,
+            "amount": charge.amount if charge else None,
+            "currency": charge.currency if charge else None,
+            "requested_at": write_run.started_at.isoformat() if write_run.started_at else None,
+            "result": result,
+            "observed_charge_status": observed_status,
+            "observed_at": observed_at.isoformat() if observed_at else None,
+        })
+    return sorted(rows, key=lambda row: str(row["requested_at"]), reverse=True)
 
 
 @router.get("/cancelled", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
@@ -261,7 +436,7 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None) -
             "external_id": sub.external_id,
             "secondary_status": group,
             "rut": client.social_id if client else sub.client_social_id,
-            "client_name": _name(client),
+            "client_name": _name(client) or _subscription_client_name(sub),
             "started_at": sub.suscription_date,
             "cancelled_at": sub.canceled_at,
             "last_paid_date": last_paid,
@@ -326,6 +501,11 @@ def rejected_charges(db: Annotated[Session, Depends(get_db)], bucket: Literal["r
     return _page(_rejected_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to"), bucket), offset, limit)
 
 
+@router.get("/retry-history", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
+def retry_history(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return _page(_retry_history_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to")), offset, limit)
+
+
 @router.get("/card-expirations", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
 def expired_card_charges(db: Annotated[Session, Depends(get_db)], offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
     return _page(_rejected_rows(db, None, None, "card"), offset, limit)
@@ -375,7 +555,7 @@ async def create_card_change_link(subscription_id: str, db: Annotated[Session, D
         run.finished_at = datetime.now().astimezone()
         db.commit()
         raise
-    url = response.get("url") or response.get("link") or response.get("card_change_url") if isinstance(response, dict) else None
+    url = response.get("url") or response.get("link") or response.get("change_card_url") if isinstance(response, dict) else None
     expires_at = response.get("expires_at") or response.get("expiration") if isinstance(response, dict) else None
     run.status = "completed"
     run.response_payload = {"expires_at": expires_at, "link_generated": bool(url)}

@@ -2,8 +2,8 @@ import { Component, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, 
 import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
 import "./App.css";
 import "./Staging.css";
-import { ActivacionCaidaChart, ChurnMensualChart, CrecimientoMensualChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
-import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
+import { ActivacionCaidaChart, ChannelKpiChart, ChurnMensualChart, CrecimientoMensualChart, IngresosMensualesChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
+import type { ChannelRow, MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
 import { parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
@@ -242,6 +242,10 @@ type GeneralDashboard = {
   debts_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
   transactions_effective_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
   alerts?: DashboardAlert[];
+  // EPIC-B new KPI fields (optional for backward compat with older API)
+  pending_payments?: number;
+  sync_success_rate_pct?: number | null;
+  churn_rate_pct?: number;
 };
 type GeneralClient = { rut: string; name: string; origins: string[]; active_origins: string[] };
 type GeneralClients = { items: GeneralClient[]; total: number; offset: number; limit: number };
@@ -1942,6 +1946,7 @@ function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles: AdminR
     if (!pwTarget) return;
     const form = new FormData(event.currentTarget);
     try {
+      await refreshCsrfToken();
       await patchJson(`/api/v1/admin/users/${pwTarget.id}/password`, { new_password: form.get("new_password") });
       setPwTarget(null);
       setMessage("Contraseña actualizada.");
@@ -2043,6 +2048,7 @@ function RolesSubPanel({ canManage, allPermissions }: { canManage: boolean; allP
   async function handleDelete(role: AdminRole) {
     if (!window.confirm(`¿Eliminar el rol "${role.name}"? No se puede deshacer.`)) return;
     try {
+      await refreshCsrfToken();
       await deleteJson(`/api/v1/admin/roles/${role.id}`);
       setMessage(`Rol "${role.name}" eliminado.`);
       reload();
@@ -2099,9 +2105,9 @@ function AdminUsers({ permissions }: { permissions: string[] }) {
   const [allPermissions, setAllPermissions] = useState<Array<{ code: string; description: string }>>([]);
 
   useEffect(() => {
-    getJson<AdminRole[]>("/api/v1/admin/roles").then(setRoles).catch(() => {});
+    getJson<AdminRole[]>("/api/v1/admin/roles").then(setRoles).catch((e: unknown) => console.error("Error loading roles:", e));
     if (canManageRoles) {
-      getJson<Array<{ code: string; description: string }>>("/api/v1/admin/permissions").then(setAllPermissions).catch(() => {});
+      getJson<Array<{ code: string; description: string }>>("/api/v1/admin/permissions").then(setAllPermissions).catch((e: unknown) => console.error("Error loading permissions:", e));
     }
   }, [canManageRoles]);
 
@@ -3406,7 +3412,7 @@ function App() {
   const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [recoveryOpen, setRecoveryOpen] = useState(false);
-  const [recoveryTab, setRecoveryTab] = useState<"cancelled" | "retry" | "card">("cancelled");
+  const [recoveryTab, setRecoveryTab] = useState<"cancelled" | "retry" | "history" | "card">("cancelled");
   const [recoveryGroup, setRecoveryGroup] = useState<"inactiva" | "incobrable" | "nunca_cobrado">("inactiva");
   const [recoveryRows, setRecoveryRows] = useState<RecoveryResponse | null>(null);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
@@ -4641,6 +4647,8 @@ function App() {
         ? `/api/v1/recovery/group?group=${recoveryGroup}`
         : recoveryTab === "retry"
           ? "/api/v1/recovery/rejected?bucket=retry"
+          : recoveryTab === "history"
+            ? "/api/v1/recovery/retry-history"
           : "/api/v1/recovery/card-expirations";
       const separator = path.includes("?") ? "&" : "?";
       const data = await getJson<RecoveryResponse>(`${path}${separator}${params}`);
@@ -4666,8 +4674,9 @@ function App() {
     setRecoveryError(null);
     try {
       await refreshCsrfToken();
-      await postJson<unknown>("/api/v1/recovery/retries", { items });
-      setRecoveryNotice(`Se solicitaron ${items.length} reintentos de cobro.`);
+      const result = await postJson<{ succeeded: number }>("/api/v1/recovery/retries", { items });
+      const failed = items.length - result.succeeded;
+      setRecoveryNotice(`Reintentos solicitados: ${result.succeeded} exitosos y ${failed} fallidos.`);
       await loadRecoveryRows();
     } catch (err) {
       setRecoveryError(friendlyError(err, "No se pudieron solicitar los reintentos."));
@@ -4684,8 +4693,8 @@ function App() {
     setRecoveryError(null);
     try {
       await refreshCsrfToken();
-      await postJson<unknown>("/api/v1/recovery/retries", { items: [{ source: String(source), external_id: String(externalId) }] });
-      setRecoveryNotice(`Se solicitó el reintento del cargo ${String(externalId)}.`);
+      const result = await postJson<{ succeeded: number }>("/api/v1/recovery/retries", { items: [{ source: String(source), external_id: String(externalId) }] });
+      setRecoveryNotice(`Reintento del cargo ${String(externalId)}: ${result.succeeded} exitoso y ${1 - result.succeeded} fallido.`);
       await loadRecoveryRows();
     } catch (err) {
       setRecoveryError(friendlyError(err, "No se pudo solicitar el reintento."));
@@ -5584,9 +5593,9 @@ function App() {
         </div>
       </div>
       <div className="recovery-tabs" role="tablist" aria-label="Vistas de recuperación">
-        {(["cancelled", "retry", "card"] as const).map((tab) => (
+        {(["cancelled", "retry", "history", "card"] as const).map((tab) => (
           <button key={tab} role="tab" aria-selected={recoveryTab === tab} className={recoveryTab === tab ? "active" : ""} onClick={() => { setRecoveryTab(tab); setRecoveryRows(null); setRecoveryOffset(0); setRecoverySelected(new Set()); setRecoveryError(null); setRecoveryNotice(null); setCardLink(null); }}>
-            {{ cancelled: "Listar grupo de socios", retry: "Reintento de Cobros", card: "Tarjetas Vencidas" }[tab]}
+            {{ cancelled: "Listar grupo de socios", retry: "Cobros rechazados", history: "Historial de reintentos", card: "Tarjetas Vencidas" }[tab]}
           </button>
         ))}
       </div>
@@ -5623,19 +5632,20 @@ function App() {
           <th>Suscripción</th>
           {recoveryTab === "cancelled" ? <th>RUT</th> : null}
           <th>Cliente</th>
-          <th>{recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? "Fecha cancelación" : recoveryGroup === "incobrable" ? "Último cobro" : "Fecha inicio") : recoveryTab === "retry" ? "Cargo rechazado" : "Vencimiento"}</th>
+          <th>{recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? "Fecha cancelación" : recoveryGroup === "incobrable" ? "Último cobro" : "Fecha inicio") : recoveryTab === "retry" ? "Cargo rechazado" : recoveryTab === "history" ? "Fecha reintento" : "Vencimiento"}</th>
           <th>Monto</th><th>Fuente</th>
-          {recoveryTab === "retry" ? <><th>Motivo</th><th>Acción</th></> : null}{recoveryTab === "card" ? <th>Acción</th> : null}
+          {recoveryTab === "retry" ? <><th>Motivo</th><th>Acción</th></> : null}{recoveryTab === "history" ? <><th>Resultado</th><th>Fecha conciliación</th></> : null}{recoveryTab === "card" ? <th>Acción</th> : null}
         </tr></thead><tbody>
-          {recoveryRows.items.map((item) => { const key = recoveryRowKey(item); const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id"); const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id"); const rut = recoveryValue(item, "rut"); const dateVal = recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? recoveryValue(item, "cancelled_at", "canceled_at") : recoveryGroup === "incobrable" ? recoveryValue(item, "last_paid_date") : recoveryValue(item, "started_at")) : recoveryTab === "retry" ? recoveryValue(item, "charge_date", "rejected_at", "date") : recoveryValue(item, "expires_at", "expiration_date", "card_expiration"); return <tr key={key}>
+          {recoveryRows.items.map((item) => { const key = recoveryRowKey(item); const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id"); const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id"); const rut = recoveryValue(item, "rut"); const dateVal = recoveryTab === "cancelled" ? (recoveryGroup === "inactiva" ? recoveryValue(item, "cancelled_at", "canceled_at") : recoveryGroup === "incobrable" ? recoveryValue(item, "last_paid_date") : recoveryValue(item, "started_at")) : recoveryTab === "retry" ? recoveryValue(item, "charge_date", "rejected_at", "date") : recoveryTab === "history" ? recoveryValue(item, "requested_at") : recoveryValue(item, "expires_at", "expiration_date", "card_expiration"); return <tr key={key}>
             {recoveryTab === "retry" ? <td><input aria-label={`Seleccionar ${key}`} type="checkbox" checked={recoverySelected.has(key)} onChange={(event) => setRecoverySelected((current) => { const next = new Set(current); event.target.checked ? next.add(key) : next.delete(key); return next; })} /></td> : null}
             <td className="recovery-id">{recoveryDisplay(subscription)}</td>
             {recoveryTab === "cancelled" ? <td>{text(rut, "—")}</td> : null}
             <td>{recoveryDisplay(client)}</td><td>{text(dateVal, "—")}</td><td>{recoveryAmount(item)}</td><td>{text(recoveryValue(item, "source"), "—")}</td>
             {recoveryTab === "retry" ? <><td>{text(recoveryValue(item, "rejection_reason", "reason", "rejection_code"), "—")}</td><td>{can("virtualpos.charges.retry") ? <button className="secondary-button" disabled={recoverySubmitting} onClick={() => void runRecoveryRetry(item)}>Reintentar</button> : "—"}</td></> : null}
+            {recoveryTab === "history" ? <><td>{text(recoveryValue(item, "result"), "—")}</td><td>{text(recoveryValue(item, "observed_at"), "—")}</td></> : null}
             {recoveryTab === "card" ? <td>{can("virtualpos.cards.change") ? <button className="secondary-button" disabled={recoverySubmitting || !subscription} onClick={() => void createCardChangeLink(item)}>Generar enlace</button> : "—"}</td> : null}
           </tr>; })}
-          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" ? 8 : recoveryTab === "card" ? 6 : recoveryTab === "cancelled" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
+          {recoveryRows.items.length === 0 ? <tr><td colSpan={recoveryTab === "retry" ? 8 : recoveryTab === "history" ? 7 : recoveryTab === "card" ? 6 : recoveryTab === "cancelled" ? 6 : 5}>Sin registros para los filtros seleccionados.</td></tr> : null}
         </tbody></table></div></section>
         <div className="recovery-pagination"><button className="secondary-button" disabled={recoveryOffset === 0 || recoveryLoading} onClick={() => void loadRecoveryRows(Math.max(0, recoveryOffset - 50))}>Anterior</button><span>{recoveryRows.total ? `${recoveryOffset + 1}-${Math.min(recoveryOffset + recoveryRows.limit, recoveryRows.total)} de ${recoveryRows.total}` : "0 registros"}</span><button className="secondary-button" disabled={recoveryOffset + recoveryRows.limit >= recoveryRows.total || recoveryLoading} onClick={() => void loadRecoveryRows(recoveryOffset + recoveryRows.limit)}>Siguiente</button></div>
       </> : !recoveryLoading ? <p className="muted-copy">Selecciona una pestaña y consulta los registros disponibles.</p> : null}
@@ -5944,6 +5954,30 @@ function App() {
       </section>
     </main>
   ) : null;
+  // ── KPIs filtrados por año seleccionado ─────────────────────────────────────
+  const selectedYear = generalData ? (generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]) : null;
+  const acceptedForYear = (generalData?.transactions_monthly ?? [])
+    .filter(e => e.status === "Aceptadas" && (selectedYear == null || e.year === selectedYear))
+    .reduce((acc, e) => ({ count: acc.count + e.count, amount: acc.amount + e.amount }), { count: 0, amount: 0 });
+  const rejectedForYear = (generalData?.transactions_monthly ?? [])
+    .filter(e => e.status === "Rechazadas" && (selectedYear == null || e.year === selectedYear))
+    .reduce((acc, e) => ({ count: acc.count + e.count, amount: acc.amount + e.amount }), { count: 0, amount: 0 });
+  const activationsForYear = (generalData?.activations_monthly ?? [])
+    .filter(e => selectedYear == null || e.year === selectedYear)
+    .reduce((acc, e) => ({ count: acc.count + e.count, amount: acc.amount + e.amount }), { count: 0, amount: 0 });
+  const totalForYear = acceptedForYear.count + rejectedForYear.count;
+  const rejectionRateForYear = totalForYear > 0 ? Math.round(1000 * rejectedForYear.count / totalForYear) / 10 : 0;
+  const cancellationsAsEntries: MonthlyEntry[] = (() => {
+    const map = new Map<string, MonthlyEntry>();
+    for (const e of (generalData?.cancellations_monthly ?? [])) {
+      const key = `${e.year}-${e.month}`;
+      const ex = map.get(key);
+      if (ex) { ex.count += e.count; ex.amount += e.amount; }
+      else map.set(key, { year: e.year, month: e.month, count: e.count, amount: e.amount });
+    }
+    return [...map.values()];
+  })();
+
   const globalDashboard = (
     <main className="app-shell">
       <header className="topbar">
@@ -5970,6 +6004,7 @@ function App() {
           </h2>
         </div>
         {generalData ? (
+          <>
           <div className="dashboard-controls">
             <div className="mode-switch">
               <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
@@ -5982,6 +6017,7 @@ function App() {
             ) : null}
             <button className="sync-btn sync-btn-secondary" onClick={() => setReportScope("general")}>Generar reporte</button>
           </div>
+          </>
         ) : (
           <p className="sync-copy">KPIs y actividad mensual calculados desde las entidades centralizadas y TCH.</p>
         )}
@@ -6003,16 +6039,44 @@ function App() {
         <>
           <section className="metrics provider-metrics" aria-label="Métricas generales">
             <Metric label="Clientes" value={generalData.clients} tone="blue" />
-            <Metric label="Suscripciones vigentes" value={generalData.subscriptions.active} tone="green" amount={generalData.subscriptions.amount} mode={generalMode} />
-            <Metric label="Transacciones" value={generalData.transactions.total} tone="violet" amount={generalData.transactions.amount} mode={generalMode} />
-            <KpiCard label="Monto recaudado" value={`$${generalData.transactions.amount.toLocaleString("es-CL")}`} caption="Transacciones aceptadas" tone="gold" />
+            <Metric label="Activaciones" value={activationsForYear.count} tone="green" amount={activationsForYear.amount} mode={generalMode} />
+            <Metric label="Transacciones pagadas" value={acceptedForYear.count} tone="violet" amount={acceptedForYear.amount} mode={generalMode} />
           </section>
           <section className="metrics kpi-metrics" aria-label="KPIs generales">
-            <KpiCard label="Aceptadas" value={generalData.transactions.accepted.toLocaleString("es-CL")} caption="Transacciones cobradas" tone="green" />
-            <KpiCard label="Rechazadas" value={generalData.transactions.rejected.toLocaleString("es-CL")} caption="Transacciones fallidas" tone="orange" />
-            <KpiCard label="Tasa de rechazo" value={`${generalData.transactions.rejection_rate_pct}%`} caption="Rechazadas / total" tone={generalData.transactions.rejection_rate_pct > 20 ? "orange" : "blue"} />
+            <KpiCard label="Rechazadas" value={rejectedForYear.count.toLocaleString("es-CL")} caption={`Transacciones rechazadas ${selectedYear ?? ""}`} tone="orange" />
+            <KpiCard label="Tasa de rechazo" value={`${rejectionRateForYear}%`} caption="Rechazadas / total del año" tone={rejectionRateForYear > 20 ? "orange" : "blue"} />
+            <KpiCard
+              label="Pagos pendientes"
+              value={(generalData.pending_payments ?? 0).toLocaleString("es-CL")}
+              caption="Cobros sin estado terminal"
+              tone={generalData.pending_payments && generalData.pending_payments > 50 ? "orange" : "blue"}
+            />
+            <KpiCard
+              label="Tasa de sync"
+              value={generalData.sync_success_rate_pct != null ? `${generalData.sync_success_rate_pct}%` : "Sin datos"}
+              caption="Últimos 30 días"
+              tone={generalData.sync_success_rate_pct == null ? "gray" : generalData.sync_success_rate_pct >= 90 ? "green" : generalData.sync_success_rate_pct >= 70 ? "gold" : "orange"}
+            />
+            <KpiCard
+              label="Churn este mes"
+              value={`${generalData.churn_rate_pct ?? 0}%`}
+              caption="Bajas / activos este mes"
+              tone={(generalData.churn_rate_pct ?? 0) > 5 ? "orange" : "blue"}
+            />
           </section>
           <section className="extended-charts">
+            <article className="panel" style={{ gridColumn: "1 / -1" }}>
+              <div className="panel-heading"><div><p className="eyebrow">INGRESOS</p><h3>Recaudación mensual por canal</h3></div></div>
+              <IngresosMensualesChart data={generalData.transactions_effective_monthly} year={generalYear} />
+            </article>
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas y bajas por mes</h3></div></div>
+              <ActivacionCaidaChart activaciones={generalData.activations_monthly} caidas={cancellationsAsEntries} year={generalYear} mode={generalMode} />
+            </article>
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">CANALES</p><h3>Comparativa por canal</h3></div></div>
+              <ChannelKpiChart channels={generalData.channels as ChannelRow[]} mode={generalMode} />
+            </article>
             <article className="panel">
               <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual consolidado</h3></div></div>
               <MonthlyStatusChart data={generalData.transactions_monthly} mode={generalMode} year={generalYear} />
@@ -6021,7 +6085,7 @@ function App() {
               <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activaciones mensuales por canal</h3></div></div>
               <MonthlyStatusChart data={generalData.activations_monthly} mode={generalMode} year={generalYear} />
             </article>
-            <article className="panel" style={{ gridColumn: "1 / -1" }}>
+            <article className="panel">
               <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales por canal</h3></div></div>
               <MonthlyStatusChart data={generalData.cancellations_monthly} mode={generalMode} year={generalYear} />
             </article>
@@ -6040,7 +6104,7 @@ function App() {
             </article>
             <article className="panel">
               <div className="panel-heading">
-                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones por canal</h3></div>
+                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones efectivas por canal</h3></div>
                 <div className="mode-switch">
                   {(["todas", "pagada", "rechazada"] as const).map(f => (
                     <button key={f} className={transFilter === f ? "active" : ""} onClick={() => setTransFilter(f)}>

@@ -160,8 +160,9 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | PK-04 | Corregir métricas y gráficos de ciclo de vida Payku | Completada | Transacciones, activaciones y bajas se agrupan por estado; activación usa `start` y caída usa `cancel`/`delete`/`suspended` con `end`. |
 | PK-05 | Corregir rango histórico de transacciones Payku | En curso | Payku sincroniza transacciones embebidas sin filtros históricos confiables. El backfill local desde `source_records` reconstruye idempotentemente `p_transactions`; falta certificar cobertura, orden y paginación con el proveedor. |
 | REC-01 | Crear Recuperador de Socios VirtualPOS | Completada | Módulo con Canceladas, Reintento de Cobros y Tarjetas Vencidas; acciones y trazabilidad protegidas por permisos. |
-| REC-02 | Corregir y completar seguimiento de reintentos VirtualPOS | Pendiente | La identidad del cliente en cobros rechazados se obtiene desde relaciones verificables y no muestra un nombre ajeno; un toggle permite alternar entre cargos rechazados e historial de reintentos, con fecha de envío y resultado conciliado (`cobrado`, `no_cobrado` o pendiente). |
-| WH-01 | Evaluar e incorporar webhooks de proveedores | Pendiente | Se verifica y documenta el contrato oficial de webhooks de Toku, VirtualPOS y Payku. Si Toku lo soporta, su receptor valida autenticidad, persiste eventos saneados e idempotentes y mantiene la sincronización como reconciliación; VirtualPOS y Payku quedan implementados o documentados como no soportados/TBD según evidencia. |
+| REC-02 | Corregir y completar seguimiento de reintentos VirtualPOS | Completada | La identidad del cliente en cobros rechazados se obtiene desde relaciones verificables o desde el payload trazable de la suscripción cuando falta cliente materializado; los motivos ausentes se muestran como no informados por VirtualPOS; la confirmación de reintentos informa éxitos y fallos. El toggle conserva el historial completo de solicitudes y resultados conciliados. |
+| VP-28 | Enriquecer cargos y pagos VirtualPOS con detalle verificable | En curso | Los cargos pagados/rechazados conservan la relación `charge.payment.order.uuid -> payment.order.uuid` y los rechazos conservan `rejected_object`; la ejecución es incremental, idempotente, con checkpoint y sin consulta masiva no autorizada al proveedor. |
+| WH-01 | Evaluar e incorporar webhooks de proveedores | En curso | La auditoría oficial quedó documentada: Toku tiene firma HMAC verificable y queda pendiente de receptor idempotente con URL HTTPS temporal; VirtualPOS y Payku requieren confirmar autenticidad, por lo que no se implementan receptores aún. La sincronización permanece como reconciliación. |
 
 ## Auditoria tecnica 2026-10-01
 
@@ -296,6 +297,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | --- | --- | --- | --- |
 | AUTH-01 | Implementar autenticación, roles y permisos por módulo | Completada | Login con cookie HttpOnly y CSRF; usuarios con varios roles; backend protege rutas y React oculta canales/tablas no autorizados. |
 | AUTH-02 | Administración de usuarios y roles | Completada | Roles y usuarios se administran desde el panel: creación, asignación múltiple de roles, edición, desactivación, restablecimiento de contraseña y administración del catálogo fijo de permisos. Las rutas exigen permiso y CSRF; la suite focalizada valida el flujo. |
+| AUTH-03 | Evitar pérdida del último administrador activo | Completada | No se puede desactivar ni quitar el rol `admin` al último usuario activo que lo posee; la regla queda cubierta por pruebas. |
 | TCH-01 | Restaurar canal TCH y cargar reportes Excel | Completada | El menú respeta los permisos asignados, las tablas TCH están migradas y los reportes locales se cargan de forma idempotente. |
 | TCH-02 | Añadir gráficos operativos al dashboard TCH | Completada | El resumen muestra series mensuales de cargos y altas, filtrables por año, cantidad y monto. |
 | TCH-03 | Corregir histórico, fichas y navegación TCH | Completada | Fechas se reconstruyen desde reportes, cargos históricos son idempotentes, TCH abre su dashboard y sus objetos tienen ficha local. |
@@ -429,3 +431,40 @@ Cada tarea sigue el mismo patrón de tres capas:
 - Prueba de recuperación read-only: cinco muestras representativas de suscripciones canceladas sin cargos locales (dos VP1 y tres VP2, entre registros tempranos, recientes y con mayor cantidad de pagos) devolvieron `E-047` en `GET /v3/suscription/{id}/charges`: el plan asociado ya no existe para el proveedor. No es posible recuperar esos cargos por la ruta disponible; se requiere exportación histórica o soporte de VirtualPOS para reconstruirlos.
 - Cobertura por RUT y estado del lote sin cargos: al cruzar exclusivamente las 2.760 suscripciones sin `Charge` local por `plataforma + social_id` contra al menos un `Payment` `pagado`, 1.743 de 1.886 `CANCELADA` tienen pagos (92,4%); 319 de 872 `SUSCRIPCION_FALLIDA`; y ninguna de las 2 `SUSCRIBIENDO`. Este cruce prueba actividad de pago del cliente, pero no asigna un pago a una suscripción concreta cuando el RUT tiene varias.
 - Ambigüedad por RUT del lote sin cargos: 819 de 2.760 suscripciones (29,7%) pertenecen a un RUT con más de una suscripción dentro de la misma plataforma. Solo 89 de 1.886 `CANCELADA` están en ese caso (4,7%); la mayor concentración corresponde a `SUSCRIPCION_FALLIDA` (730 de 872).
+
+## Hito 5: Workflows operacionales y validación de canales
+
+Origen: revisión comparativa 2026-10-15 entre `docs/Otros docs de Virtualpos/`, `docs/Otros docs de Toku/` y `docs/Otros docs de Payku/` frente a `docs/integrations/`.
+Fuente de referencia: [informe comparativo](https://claude.ai/artifact/7R7N8sJHPRCoTpBnLhcBzg).
+
+### WFL: Revisión e incorporación de workflows
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| WFL-INF-01 | Incorporar workflows a docs/integrations/ y crear capa transversal | Completada | `docs/integrations/virtualpos/`, `docs/integrations/toku/` y `docs/integrations/payku/` estructurados por flujo operacional (29+24+36 archivos); `docs/integrations/transversal/` creada con link seguro de inscripción, seguimiento común y cambio de monto; los tres `docs/integrations/*.md` actualizados. Commit `7b1c0d7`. |
+| WFL-VP-01 | Revisar workflows VirtualPOS individualmente | Completada | 15 workflows revisados contra código: 3 implementados, 10 parciales, 2 no implementados. Riesgos críticos: retry sin clasificación de motivo, create_subscription sin antiduplicado, url_redirect no persistida. Ver `docs/integrations/virtualpos/REVIEW.md`. Commit `e266ac2`. |
+| WFL-TK-01 | Revisar workflows Toku individualmente | Completada | 12 workflows revisados: 3 bloqueados (BLQ-TK-01), 9 parciales, 0 end-to-end completos. Discrepancia crítica en endpoint de asociación de medio de pago. Sin tabla `toku_payment_intents`. Ver `docs/integrations/toku/REVIEW.md`. Commit `aa0ef15`. |
+| WFL-PK-01 | Revisar workflows Payku individualmente | Completada | 13 workflows revisados: 5 no implementados, 8 parciales. Bug crítico: `_delete()` sin header `Sign` → 401 en producción en toda cancelación. Firma con trailing `&` en params vacíos. Email sin percent-encode. Ver `docs/integrations/payku/REVIEW.md`. Commit `027ffc9`. |
+
+### BLQ: Gestión de bloqueantes
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| BLQ-TK-01 | Gestionar bloqueante Toku: configuración de `flow_name` para ENROLLMENT | En curso | Plan de acción documentado en `docs/integrations/toku/BLOCKER-TK-A1.md` (commit `c9dc349`): 5 workflows bloqueados identificados, alternativa Customer Portal documentada con sus limitaciones. Requiere contactar a Toku para configurar `flow_name` en producción. |
+| BLQ-PK-01 | Confirmar comportamiento de plan variable Payku al activar (Q-27) | Pendiente | Verificado en sandbox si el plan variable cobra al activarse; documentado si hay riesgo de cobro duplicado con el primer aporte Webpay; flujo de alta ajustado en consecuencia antes de implementar alta Payku. |
+
+### VAL: Validación de contratos con proveedores
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-4) | En curso | Plan de validación creado en `docs/integrations/virtualpos/VALIDATION-PLAN.md` (commit `c9dc349`) con prerequisitos de sandbox, requests Postman exactos por pregunta y tabla de archivos a actualizar según resultado. Falta ejecutar en sandbox. |
+| VAL-PK-01 | Resolver preguntas abiertas críticas Payku (Q-06, Q-08, Q-11, Q-27, Q-29) | En curso | Plan de validación creado en `docs/integrations/payku/VALIDATION-PLAN.md` (commit `c9dc349`) con 5 preguntas ordenadas por impacto, requests Postman SP-3/SP-4 y riesgo por cada supuesto sin confirmar. Falta ejecutar contra API Payku. |
+
+### BUG: Defectos descubiertos durante la revisión de workflows
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| BUG-PK-01 | Corregir Sign header ausente en `_delete()` de Payku | Completada | `app/integrations/payku/client.py` `_delete()` añade el header `Sign` igual que `_get()` y `_post()`; 17/17 tests pasan. |
+| BUG-PK-02 | Corregir trailing `&` en `build_sign` de Payku para params vacíos | Completada | `app/integrations/payku/auth.py` `build_sign` no genera `&` final cuando el diccionario de params está vacío; 17/17 tests pasan. |
+| BUG-TK-01 | Confirmar y corregir endpoint de asociación de medio de pago Toku | Completada | Corregido a `POST /subscriptions/associate/payment-method` con body `{id_subscription, id_payment_method, payment_scope}`; método renombrado a `associate_payment_method_to_subscription`. Confirmado en 3 workflow docs (alta-socio, link-inscripcion, enroll-payment-method). Sin callers en código. |
+| BUG-VP-01 | Corregir clave `card_change_url` en `recovery.py` de VirtualPOS | Completada | `app/api/v1/routes/recovery.py` corregido a `"change_card_url"` (clave correcta según contrato VirtualPOS); 17/17 tests pasan. |

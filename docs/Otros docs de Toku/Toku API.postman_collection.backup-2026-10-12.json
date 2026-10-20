@@ -1,0 +1,1771 @@
+{
+  "info": {
+    "_postman_id": "343dcabd-70d5-40bb-aaf8-b0473ebb1e35",
+    "name": "Toku API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "50626299"
+  },
+  "item": [
+    {
+      "name": "Checkout Session",
+      "item": [
+        {
+          "name": "Crear Checkout Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"mode\": \"ENROLLMENT\", // PAYMENT - ENROLLMENT - SAVE_PAYMENT_INSTRUMENT\r\n  \"billing_data\": {\r\n    \"id_account\": \"acc_rAu4ost3MmPLDV_s6SPbeqJFL6V_Gutf\",\r\n    \"currency\": \"CLP\",\r\n    \"id_customer\": \"cus_yrdHh8mEEPvVBx1BBCGyOQQ4ozkNDNUZ\",\r\n    \"ids_subscription\": [\"sub_jcfWio9rt2MwSQButo-idTQlB2z9mt7a\"]\r\n  },\r\n  \"customer_data\": {\r\n    \"external_id\": \"197292059\",\r\n    \"mail\": \"esteban.b@techo.org\",\r\n    \"name\": \"Cliente TEST\"\r\n  },\r\n  \"redirection_data\": {\r\n    \"success_url\": \"https://tu-sitio.cl/ok\",\r\n    \"failure_url\": \"https://tu-sitio.cl/error\",\r\n    \"activation_url\": \"https://tu-sitio.cl/inscrito\"\r\n  },\r\n  \"skip_message_trigger\": true\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/cl/checkout-sessions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "cl",
+                "checkout-sessions"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Customer",
+      "item": [
+        {
+          "name": "Listar Customers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/customers?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear Customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"external_id\": \"TEST-Client-001\",\r\n  \"name\": \"Cliente TEST\",\r\n  \"mail\": \"esteban.b@techo.org\",\r\n  \"government_id\": \"19729205-9\",\r\n  \"phone_number\": \"+56972039356\",\r\n  \"default_receipt_type\": \"no_receipt\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/customers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "customers"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Buscar Customer por identificadores externos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/customers/lookup?mail=pruebas@futureflow.cl",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "customers",
+                "lookup"
+              ],
+              "query": [
+                {
+                  "key": "mail",
+                  "value": "pruebas@futureflow.cl"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Invoices de un Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/customers/:customer_id/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "customers",
+                ":customer_id",
+                "invoices"
+              ],
+              "variable": [
+                {
+                  "key": "customer_id",
+                  "value": "cus_FFZkiD3VpFCz6pTB4ZHBow6CivUChQxT"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/customers/:customer_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "customers",
+                ":customer_id"
+              ],
+              "variable": [
+                {
+                  "key": "customer_id",
+                  "value": "cus_yrdHh8mEEPvVBx1BBCGyOQQ4ozkNDNUZ"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar Customer",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"name\": \"Cliente de Prueba EDITADO\",\r\n  \"mail\": \"prueba@example.com\",\r\n  \"rfc\": \"EKU9003173C9\",\r\n  \"phone_number\": \"+56922222222\",\r\n  \"secondary_emails\": [\"contacto2@example.com\", \"contacto3@example.com\"],\r\n  \"default_receipt_type\": \"bill\",\r\n  \"default_agent\": \"agente@example.com\",\r\n  \"agent_phone_number\": \"+56990000000\",\r\n  \"pac_mandate_id\": \"11111111-1\",\r\n  \"fiscal_regime\": \"601\",\r\n  \"tax_zip_code\": \"78187\",\r\n  \"send_mail\": false,\r\n  \"silenced_until\": \"2026-12-31T03:00:00Z\",\r\n  \"metadata\": {\r\n    \"sucursal\": \"Providencia\",\r\n    \"segmento\": \"premium\"\r\n  },\r\n  \"street_name\": \"Av. Providencia\",\r\n  \"street_number\": \"1234\",\r\n  \"neighborhood\": \"Providencia\",\r\n  \"city\": \"Santiago\",\r\n  \"admin_area\": \"Región Metropolitana\",\r\n  \"admin_code\": \"RM\",\r\n  \"postal_code\": \"7500000\",\r\n  \"detail\": \"Depto 42, torre B\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/customers/:customer_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "customers",
+                ":customer_id"
+              ],
+              "variable": [
+                {
+                  "key": "customer_id",
+                  "value": "cus_C9kAgbMPBrhJV_dINCkx4pSezozF0T4A"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar Customer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/customers/:customer_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "customers",
+                ":customer_id"
+              ],
+              "variable": [
+                {
+                  "key": "customer_id",
+                  "value": "cus_C9kAgbMPBrhJV_dINCkx4pSezozF0T4A"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "Listar Invoices",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"customer\": \"cus_yrdHh8mEEPvVBx1BBCGyOQQ4ozkNDNUZ\",\r\n  \"product_id\": \"TEST-SAND-002\",\r\n  \"invoice_external_id\": \"TEST--DEUDA-002\",\r\n  \"due_date\": \"2026-09-13\",\r\n  \"amount\": 20000,\r\n  \"currency_code\": \"CLP\",\r\n  \"receipt_type\": \"bill\",\r\n  \"disable_automatic_payment\": true\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Invoices cobrables",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices/chargeable?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                "chargeable"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Invoices de un Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices/customer/:customer_encrypted_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                "customer",
+                ":customer_encrypted_id"
+              ],
+              "variable": [
+                {
+                  "key": "customer_encrypted_id",
+                  "value": "cus_yrdHh8mEEPvVBx1BBCGyOQQ4ozkNDNUZ"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Buscar Invoice por identificadores externos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices/lookup?invoice_external_id=TEST--DEUDA-001",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                "lookup"
+              ],
+              "query": [
+                {
+                  "key": "invoice_external_id",
+                  "value": "TEST--DEUDA-001"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener Invoice",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices/:encrypted_invoice_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                ":encrypted_invoice_id"
+              ],
+              "variable": [
+                {
+                  "key": "encrypted_invoice_id",
+                  "value": "in_mn5sOt8hpUdOwaOTTQuIMEOHAwSN9g2S"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar Invoice",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"amount\": 28000,\r\n  \"currency_code\": \"CLP\",\r\n  \"due_date\": \"2026-08-30\",\r\n  // \"product_id\": \"TEST-001\",\r\n  \"invoice_external_id\": \"TEST-DEUDA-ACT-001\",\r\n  \"receipt_type\": \"bill\",\r\n  // \"customer\": \"\",\r\n  // \"subscription\": \"\",\r\n  //\"disable_automatic_payment\": true,\r\n  // \"expiration_date\": \"2026-08-31 00:00:00\",\r\n  // \"expiration_action\": \"VOID\",\r\n  // \"max_collection_attempts\": 3,\r\n  // \"link_payment\": \"https://portal.pagos.com/tu-empresa\",\r\n  // \"source\": \"\",\r\n  // \"id_receipt\": 12345,\r\n  \"metadata\": {\r\n    \"sucursal\": \"Providencia\"\r\n  }\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/invoices/:encrypted_invoice_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                ":encrypted_invoice_id"
+              ],
+              "variable": [
+                {
+                  "key": "encrypted_invoice_id",
+                  "value": "in_mn5sOt8hpUdOwaOTTQuIMEOHAwSN9g2S"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar Invoice",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices/:invoice_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                ":invoice_id"
+              ],
+              "variable": [
+                {
+                  "key": "invoice_id",
+                  "value": "in_mn5sOt8hpUdOwaOTTQuIMEOHAwSN9g2S"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Anular Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"delete_invoice\": false\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/invoices/:invoice_id/void\n",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                ":invoice_id",
+                "void\n"
+              ],
+              "variable": [
+                {
+                  "key": "invoice_id",
+                  "value": "in_mn5sOt8hpUdOwaOTTQuIMEOHAwSN9g2S"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payment Method",
+      "item": [
+        {
+          "name": "Listar Payment Methods con datos del Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payment-methods?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payment-methods"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Payment Methods",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payment-methods?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payment-methods"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar Payment Method",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payment-methods?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payment-methods"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear Payment Method",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"inscription_date\": \"2026-08-30T00:00:00Z\",\r\n  \"id_organization\": \"\",\r\n  \"id_account\": \"acc_rAu4ost3MmPLDV_s6SPbeqJFL6V_Gutf\",\r\n  \"gateway\": \"transbank_oneclick\",\r\n  \"toku_product\": \"cards_cl_recurring_pst\",\r\n  \"payment_instrument_type\": \"CARD\",\r\n  \"payment_method_data\": {},\r\n  \"id_customer\": 0,\r\n  \"payment_scope\": \"CUSTOMER\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/payment-methods",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payment-methods"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar Payment Method",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Inscribir cuentas CLABE por lote",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payment-methods?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payment-methods"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar los Payment Methods de un Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payment-methods?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payment-methods"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener Payment Method",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear un Payment Method (ruta interna)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener un Payment Method (ruta interna)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar un Payment Method",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar un Payment Method (ruta interna)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Asociar Payment Method a Subscription",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Asociar Payment Methods a Subscriptions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/invoices?page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Subscription",
+      "item": [
+        {
+          "name": "Listar Subscriptions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/subscriptions?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear Subscription",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"customer\": \"cus_yrdHh8mEEPvVBx1BBCGyOQQ4ozkNDNUZ\",\r\n  \"product_id\": \"TEST-paused-SUB-001\",\r\n  \"amount\": 1000,\r\n  \"currency_code\": \"CLP\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/subscriptions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Subscriptions de un Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/subscriptions/customer/:customer_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions",
+                "customer",
+                ":customer_id"
+              ],
+              "variable": [
+                {
+                  "key": "customer_id",
+                  "value": "cus_yrdHh8mEEPvVBx1BBCGyOQQ4ozkNDNUZ"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Buscar Subscription por identificadores externos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/subscriptions/lookup?product_id=TEST-Create-SUB-001",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions",
+                "lookup"
+              ],
+              "query": [
+                {
+                  "key": "product_id",
+                  "value": "TEST-Create-SUB-001"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener Subscription",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/subscriptions/:encrypted_subscription_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions",
+                ":encrypted_subscription_id"
+              ],
+              "variable": [
+                {
+                  "key": "encrypted_subscription_id",
+                  "value": "sub_1V2WpfmcEs9WMH3INyMNCbeibntou1As"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar Subscription",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"amount\": \"6000\",\r\n  \"creation_lead_days\": \"10\",\r\n  \"currency_code\": \"CLP\", //CLP - CLF - MXN - BRL - USD\r\n  \"customer\": \"cus_yrdHh8mEEPvVBx1BBCGyOQQ4ozkNDNUZ\",\r\n  \"due_day\": 1,\r\n//  \"end_date\":\"\",\r\n//  \"frequency\": \"\",\r\n//  \"interval\": 1,\r\n\"is_recurring\": \"True\"\r\n//  \"max_active_invoices\": 1,\r\n//  \"metadata\": {},\r\n//  \"pac_mandate_id\": \"\",\r\n//  \"product_id\": \"\",\r\n//  \"receipt_product_code\": \"\"\r\n}\r\n\r\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/subscriptions/:encrypted_subscription_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions",
+                ":encrypted_subscription_id"
+              ],
+              "variable": [
+                {
+                  "key": "encrypted_subscription_id",
+                  "value": "sub_jcfWio9rt2MwSQButo-idTQlB2z9mt7a"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar Subscription",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/subscriptions/:encrypted_subscription_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions",
+                ":encrypted_subscription_id"
+              ],
+              "variable": [
+                {
+                  "key": "encrypted_subscription_id",
+                  "value": "sub_inmRtjIXFhKAs7ZfdUGXCE5KPRx9Af0c"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cambiar estado de Subscription",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"status\": \"PAUSED\" // ACTIVE - PAUSED\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/subscriptions/:encrypted_subscription_id/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "subscriptions",
+                ":encrypted_subscription_id",
+                "status"
+              ],
+              "variable": [
+                {
+                  "key": "encrypted_subscription_id",
+                  "value": "sub_jcfWio9rt2MwSQButo-idTQlB2z9mt7a"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "Listar Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/transactions?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payment",
+      "item": [
+        {
+          "name": "Listar Customers Copy",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organization/payments?page=1&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "organization",
+                "payments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

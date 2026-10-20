@@ -293,6 +293,9 @@ class PaykuClient:
         return response.json()
 
     async def _delete(self, path: str) -> Any:
-        response = await self._client.delete(path)
+        response = await self._client.delete(
+            path,
+            headers={"Sign": build_sign(path, {}, settings.payku_secret_key)},
+        )
         response.raise_for_status()
         return response.json()

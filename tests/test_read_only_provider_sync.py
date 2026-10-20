@@ -39,6 +39,11 @@ class TokuReadOnlyClient:
     async def list_transactions(self, page: int, page_size: int):
         return {"data": [{"id": "toku-transaction-1"}], "meta": {"pages": 1}}
 
+    async def list_payments(self, page: int, page_size: int):
+        # Regression: QA-FIND-001 — BUG-TK-01 added list_payments to toku_sync.py but mock was not updated
+        # Found by /qa on 2026-10-20
+        return {"data": [], "meta": {"pages": 1}}
+
 
 class PaykuReadOnlyClient:
     def __init__(self) -> None:
@@ -133,9 +138,11 @@ def test_toku_sync_stages_all_available_pages_and_sanitizes_records(monkeypatch,
     assert first_run.records_processed == 6
     assert second_run.records_processed == 0
     assert client.subscription_pages == [1, 2, 1, 2]
+    # Use first() instead of one() to tolerate pre-existing rows from dev-time syncs
     payment_method = db_session.scalars(
         select(SourceRecord).where(SourceRecord.source == "toku", SourceRecord.resource_type == "payment_method")
-    ).one()
+    ).first()
+    assert payment_method is not None
     assert "card_number" not in payment_method.payload
 
 

@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { chartStatusColor } from './chartColors'
 
 export type MonthlyStatusEntry = { year: number; month: number; status?: string | null; count: number; amount: number }
@@ -293,6 +293,73 @@ export function TransaccionesSuscripcionesChart({
         <Line yAxisId="subs" type="monotone" dataKey="activas" name="Subs activas" stroke="#16A34A" strokeWidth={2} dot={{ fill: '#16A34A', r: 3 }} />
         <Line yAxisId="subs" type="monotone" dataKey="cobrables" name="Subs cobrables" stroke="#D97706" strokeWidth={2} dot={{ fill: '#D97706', r: 3 }} strokeDasharray="5 5" />
       </ComposedChart>
+    </ResponsiveContainer>
+  )
+}
+
+export type ChannelRow = { source: string; clients: number; active_subscriptions: number; accepted: number; amount: number }
+
+export function ChannelKpiChart({ channels, mode }: { channels: ChannelRow[]; mode: 'count' | 'amount' }) {
+  const rows = channels.map(c => ({
+    name: c.source,
+    suscripciones: c.active_subscriptions,
+    aceptadas: mode === 'amount' ? c.amount : c.accepted,
+    clientes: c.clients,
+  }))
+  if (!rows.length) return <p className="empty-chart">Sin datos por canal.</p>
+  const COLOR = ['#2563EB', '#16A34A', '#D97706', '#7C3AED']
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 24, left: 0, bottom: 4 }}>
+        <CartesianGrid stroke="#e1e7e5" horizontal={false} />
+        <XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 10 }}
+          tickFormatter={(v: number) => mode === 'amount' ? `$${(v / 1000).toFixed(0)}k` : v.toLocaleString('es-CL')} />
+        <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} width={72} />
+        <Tooltip formatter={(v: unknown) => mode === 'amount' ? `$${Number(v).toLocaleString('es-CL')}` : Number(v).toLocaleString('es-CL')} />
+        <Bar dataKey="aceptadas" name={mode === 'amount' ? 'Recaudación' : 'Transacciones aceptadas'} radius={[0, 4, 4, 0]}>
+          {rows.map((_, i) => <Cell key={i} fill={COLOR[i % COLOR.length]} />)}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+export function IngresosMensualesChart({ data, year }: { data: MonthlyStatusEntry[]; year: number | null }) {
+  const filtered = year != null ? data.filter(d => d.year === year) : data
+  const channels = [...new Set(filtered.map(e => String(e.status ?? '')))]
+  const byKey = new Map<string, Record<string, unknown>>()
+  for (const e of filtered) {
+    const key = `${e.year}-${String(e.month).padStart(2, '0')}`
+    if (!byKey.has(key)) byKey.set(key, { label: monthLabel(e.month, e.year) })
+    const ch = String(e.status ?? '')
+    const row = byKey.get(key)!
+    row[ch] = (Number(row[ch] ?? 0)) + e.amount
+  }
+  const rows = [...byKey.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v)
+  if (!rows.length) return <p className="empty-chart">Sin datos para este período.</p>
+  const COLORS: Record<string, string> = { VirtualPOS: '#2563EB', Toku: '#16A34A', Payku: '#D97706', TCH: '#7C3AED' }
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <AreaChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+        <defs>
+          {channels.map(ch => (
+            <linearGradient key={ch} id={`grad-${ch}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={COLORS[ch] ?? '#94a3b8'} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={COLORS[ch] ?? '#94a3b8'} stopOpacity={0.05} />
+            </linearGradient>
+          ))}
+        </defs>
+        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
+        <YAxis tickLine={false} axisLine={false} width={60} tick={{ fontSize: 10 }}
+          tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+        <Tooltip formatter={(v: unknown) => `$${Number(v).toLocaleString('es-CL')}`} />
+        <Legend wrapperStyle={{ fontSize: 10 }} />
+        {channels.map(ch => (
+          <Area key={ch} type="monotone" dataKey={ch} name={ch}
+            stroke={COLORS[ch] ?? '#94a3b8'} fill={`url(#grad-${ch})`} strokeWidth={2} stackId="1" />
+        ))}
+      </AreaChart>
     </ResponsiveContainer>
   )
 }

@@ -140,6 +140,30 @@ class DataCatalogMapping(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ClientMatchCandidate(Base):
+    """Candidato de match cross-canal para revisión manual.
+
+    Registra pares de CoreClient que comparten señales de identidad (RUT, email)
+    provenientes de fuentes distintas. No implica merge automático (ADR-001).
+    client_id_a < client_id_b siempre (invariante de la clave única).
+    """
+
+    __tablename__ = "client_match_candidates"
+    __table_args__ = (UniqueConstraint("client_id_a", "client_id_b", name="uq_client_match_pair"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id_a: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("core_clients.id"), nullable=False, index=True)
+    client_id_b: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("core_clients.id"), nullable=False, index=True)
+    match_level: Mapped[str] = mapped_column(String(1), nullable=False)  # A/B/C/D (ADR-001)
+    match_signals: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {rut: bool, email: bool, ...}
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class QaScenario(Base):
     __tablename__ = "qa_scenarios"
     __table_args__ = (UniqueConstraint("code", name="uq_qa_scenario_code"), Index("ix_qa_scenarios_source", "source"))

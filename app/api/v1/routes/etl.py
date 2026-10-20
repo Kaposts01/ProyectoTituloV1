@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.core.security import require_csrf, require_permissions
 from app.db.session import SessionLocal
+from app.models.core import ClientMatchCandidate
 from app.models.etl_run import EtlRun
 from app.models.source_record import SourceRecord
 from app.services.channel_consolidation import consolidate_to_centralized
+from app.services.client_match_detector import detect_matches
 from app.services.core_payku_etl import run_payku_core_etl
 from app.services.core_tch_etl import run_tch_core_etl
 from app.services.core_toku_etl import run_toku_core_etl
@@ -302,3 +304,54 @@ def trigger_core_etl_all(background_tasks: BackgroundTasks) -> dict:
         background_tasks.add_task(_run_core_etl_background, uuid.UUID(run_ids[-1]), provider)
 
     return {"run_ids": run_ids, "status": "running", "providers": list(_CORE_ETL_FN)}
+
+
+@router.post(
+    "/core/detect-matches",
+    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
+    tags=["ETL Core"],
+)
+def trigger_detect_matches() -> dict:
+    """Detecta pares de CoreClient de fuentes distintas que comparten RUT o email.
+
+    Genera candidatos en client_match_candidates para revisión manual.
+    No realiza merges automáticos (ADR-001). Idempotente: re-ejecutar es seguro.
+    """
+    db = _get_db()
+    try:
+        counts = detect_matches(db)
+    finally:
+        db.close()
+    return {"status": "ok", "counts": counts}
+
+
+@router.get(
+    "/core/match-candidates",
+    dependencies=[Depends(require_permissions("etl.run"))],
+    tags=["ETL Core"],
+)
+def list_match_candidates(status: str = "pending", limit: int = 100) -> list[dict]:
+    """Lista candidatos de match pendientes de revisión manual."""
+    db = _get_db()
+    try:
+        rows = (
+            db.query(ClientMatchCandidate)
+            .filter(ClientMatchCandidate.status == status)
+            .order_by(ClientMatchCandidate.match_level, ClientMatchCandidate.created_at.desc())
+            .limit(min(limit, 500))
+            .all()
+        )
+        return [
+            {
+                "id": str(r.id),
+                "client_id_a": str(r.client_id_a),
+                "client_id_b": str(r.client_id_b),
+                "match_level": r.match_level,
+                "match_signals": r.match_signals,
+                "status": r.status,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
