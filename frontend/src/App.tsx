@@ -2,8 +2,8 @@ import { Component, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, 
 import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
 import "./App.css";
 import "./Staging.css";
-import { ActivacionCaidaChart, ChurnMensualChart, CrecimientoMensualChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
-import type { MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
+import { ActivacionCaidaChart, ChannelKpiChart, ChurnMensualChart, CrecimientoMensualChart, IngresosMensualesChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
+import type { ChannelRow, MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
 import { parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
@@ -3411,6 +3411,7 @@ function App() {
   const [reportScope, setReportScope] = useState<string | null>(null);
   const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
+  const [activeChannel, setActiveChannel] = useState<"general" | "virtualpos" | "toku" | "payku" | "tch">("general");
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryTab, setRecoveryTab] = useState<"cancelled" | "retry" | "history" | "card">("cancelled");
   const [recoveryGroup, setRecoveryGroup] = useState<"inactiva" | "incobrable" | "nunca_cobrado">("inactiva");
@@ -5954,6 +5955,25 @@ function App() {
       </section>
     </main>
   ) : null;
+  // ── EPIC-A: canal activo ────────────────────────────────────────────────────
+  const CHANNEL_LABEL_MAP: Record<string, string> = { virtualpos: "VirtualPOS", toku: "Toku", payku: "Payku", tch: "TCH" };
+  const activeLabel = activeChannel === "general" ? null : CHANNEL_LABEL_MAP[activeChannel];
+  const activeChannelRow = generalData && activeLabel ? (generalData.channels as ChannelRow[]).find(c => c.source === activeLabel) ?? null : null;
+  const filtActivations = activeLabel ? (generalData?.activations_monthly ?? []).filter(e => e.status === activeLabel) : (generalData?.activations_monthly ?? []);
+  const filtCancellations = activeLabel ? (generalData?.cancellations_monthly ?? []).filter(e => e.status === activeLabel) : (generalData?.cancellations_monthly ?? []);
+  const filtDebts = activeLabel ? (generalData?.debts_monthly ?? []).filter(e => e.status === activeLabel) : (generalData?.debts_monthly ?? []);
+  const filtEffective = activeLabel ? (generalData?.transactions_effective_monthly ?? []).filter(e => e.status === activeLabel) : (generalData?.transactions_effective_monthly ?? []);
+  const cancellationsAsEntries: MonthlyEntry[] = (() => {
+    const map = new Map<string, MonthlyEntry>();
+    for (const e of filtCancellations) {
+      const key = `${e.year}-${e.month}`;
+      const ex = map.get(key);
+      if (ex) { ex.count += e.count; ex.amount += e.amount; }
+      else map.set(key, { year: e.year, month: e.month, count: e.count, amount: e.amount });
+    }
+    return [...map.values()];
+  })();
+
   const globalDashboard = (
     <main className="app-shell">
       <header className="topbar">
@@ -5980,6 +6000,14 @@ function App() {
           </h2>
         </div>
         {generalData ? (
+          <>
+          <div className="mode-switch channel-switch">
+            {(["general", "virtualpos", "toku", "payku", "tch"] as const).map(ch => (
+              <button key={ch} className={activeChannel === ch ? "active" : ""} onClick={() => setActiveChannel(ch)}>
+                {ch === "general" ? "General" : CHANNEL_LABEL_MAP[ch]}
+              </button>
+            ))}
+          </div>
           <div className="dashboard-controls">
             <div className="mode-switch">
               <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
@@ -5992,6 +6020,7 @@ function App() {
             ) : null}
             <button className="sync-btn sync-btn-secondary" onClick={() => setReportScope("general")}>Generar reporte</button>
           </div>
+          </>
         ) : (
           <p className="sync-copy">KPIs y actividad mensual calculados desde las entidades centralizadas y TCH.</p>
         )}
@@ -6012,32 +6041,70 @@ function App() {
       ) : generalData ? (
         <>
           <section className="metrics provider-metrics" aria-label="Métricas generales">
-            <Metric label="Clientes" value={generalData.clients} tone="blue" />
-            <Metric label="Suscripciones vigentes" value={generalData.subscriptions.active} tone="green" amount={generalData.subscriptions.amount} mode={generalMode} />
-            <Metric label="Transacciones" value={generalData.transactions.total} tone="violet" amount={generalData.transactions.amount} mode={generalMode} />
-            <KpiCard label="Monto recaudado" value={`$${generalData.transactions.amount.toLocaleString("es-CL")}`} caption="Transacciones aceptadas" tone="gold" />
+            <Metric label="Clientes" value={activeChannelRow ? activeChannelRow.clients : generalData.clients} tone="blue" />
+            <Metric label="Suscripciones vigentes" value={activeChannelRow ? activeChannelRow.active_subscriptions : generalData.subscriptions.active} tone="green" amount={activeChannelRow ? activeChannelRow.amount : generalData.subscriptions.amount} mode={generalMode} />
+            <Metric label="Transacciones" value={activeChannelRow ? activeChannelRow.accepted : generalData.transactions.total} tone="violet" amount={activeChannelRow ? activeChannelRow.amount : generalData.transactions.amount} mode={generalMode} />
+            <KpiCard label="Monto recaudado" value={`$${(activeChannelRow ? activeChannelRow.amount : generalData.transactions.amount).toLocaleString("es-CL")}`} caption={activeChannelRow ? activeChannelRow.source : "Todos los canales"} tone="gold" />
           </section>
           <section className="metrics kpi-metrics" aria-label="KPIs generales">
-            <KpiCard label="Aceptadas" value={generalData.transactions.accepted.toLocaleString("es-CL")} caption="Transacciones cobradas" tone="green" />
-            <KpiCard label="Rechazadas" value={generalData.transactions.rejected.toLocaleString("es-CL")} caption="Transacciones fallidas" tone="orange" />
-            <KpiCard label="Tasa de rechazo" value={`${generalData.transactions.rejection_rate_pct}%`} caption="Rechazadas / total" tone={generalData.transactions.rejection_rate_pct > 20 ? "orange" : "blue"} />
+            {!activeChannelRow && (
+              <>
+                <KpiCard label="Aceptadas" value={generalData.transactions.accepted.toLocaleString("es-CL")} caption="Transacciones cobradas" tone="green" />
+                <KpiCard label="Rechazadas" value={generalData.transactions.rejected.toLocaleString("es-CL")} caption="Transacciones fallidas" tone="orange" />
+                <KpiCard label="Tasa de rechazo" value={`${generalData.transactions.rejection_rate_pct}%`} caption="Rechazadas / total" tone={generalData.transactions.rejection_rate_pct > 20 ? "orange" : "blue"} />
+              </>
+            )}
+            <KpiCard
+              label="Pagos pendientes"
+              value={(generalData.pending_payments ?? 0).toLocaleString("es-CL")}
+              caption="Cobros sin estado terminal"
+              tone={generalData.pending_payments && generalData.pending_payments > 50 ? "orange" : "blue"}
+            />
+            <KpiCard
+              label="Tasa de sync"
+              value={generalData.sync_success_rate_pct != null ? `${generalData.sync_success_rate_pct}%` : "Sin datos"}
+              caption="Últimos 30 días"
+              tone={generalData.sync_success_rate_pct == null ? "gray" : generalData.sync_success_rate_pct >= 90 ? "green" : generalData.sync_success_rate_pct >= 70 ? "gold" : "orange"}
+            />
+            <KpiCard
+              label="Churn este mes"
+              value={`${generalData.churn_rate_pct ?? 0}%`}
+              caption="Bajas / activos este mes"
+              tone={(generalData.churn_rate_pct ?? 0) > 5 ? "orange" : "blue"}
+            />
           </section>
           <section className="extended-charts">
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual consolidado</h3></div></div>
-              <MonthlyStatusChart data={generalData.transactions_monthly} mode={generalMode} year={generalYear} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activaciones mensuales por canal</h3></div></div>
-              <MonthlyStatusChart data={generalData.activations_monthly} mode={generalMode} year={generalYear} />
-            </article>
             <article className="panel" style={{ gridColumn: "1 / -1" }}>
-              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales por canal</h3></div></div>
-              <MonthlyStatusChart data={generalData.cancellations_monthly} mode={generalMode} year={generalYear} />
+              <div className="panel-heading"><div><p className="eyebrow">INGRESOS</p><h3>Recaudación mensual por canal</h3></div></div>
+              <IngresosMensualesChart data={filtEffective} year={generalYear} />
             </article>
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas y bajas por mes</h3></div></div>
+              <ActivacionCaidaChart activaciones={filtActivations} caidas={cancellationsAsEntries} year={generalYear} mode={generalMode} />
+            </article>
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activaciones mensuales{activeLabel ? ` · ${activeLabel}` : " por canal"}</h3></div></div>
+              <MonthlyStatusChart data={filtActivations} mode={generalMode} year={generalYear} />
+            </article>
+            <article className="panel">
+              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales{activeLabel ? ` · ${activeLabel}` : " por canal"}</h3></div></div>
+              <MonthlyStatusChart data={filtCancellations} mode={generalMode} year={generalYear} />
+            </article>
+            {!activeLabel && (
+              <article className="panel">
+                <div className="panel-heading"><div><p className="eyebrow">CANALES</p><h3>Comparativa por canal</h3></div></div>
+                <ChannelKpiChart channels={generalData.channels as ChannelRow[]} mode={generalMode} />
+              </article>
+            )}
+            {!activeLabel && (
+              <article className="panel">
+                <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual consolidado</h3></div></div>
+                <MonthlyStatusChart data={generalData.transactions_monthly} mode={generalMode} year={generalYear} />
+              </article>
+            )}
             <article className="panel">
               <div className="panel-heading">
-                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Deudas mensuales por canal</h3></div>
+                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Deudas mensuales{activeLabel ? ` · ${activeLabel}` : " por canal"}</h3></div>
                 <div className="mode-switch">
                   {(["todas", "pagada", "rechazada"] as const).map(f => (
                     <button key={f} className={debtFilter === f ? "active" : ""} onClick={() => setDebtFilter(f)}>
@@ -6046,11 +6113,11 @@ function App() {
                   ))}
                 </div>
               </div>
-              <MonthlyStatusChart data={applyChargeFilter(generalData.debts_monthly, debtFilter)} mode={generalMode} year={generalYear} />
+              <MonthlyStatusChart data={applyChargeFilter(filtDebts, debtFilter)} mode={generalMode} year={generalYear} />
             </article>
             <article className="panel">
               <div className="panel-heading">
-                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones por canal</h3></div>
+                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones efectivas{activeLabel ? ` · ${activeLabel}` : " por canal"}</h3></div>
                 <div className="mode-switch">
                   {(["todas", "pagada", "rechazada"] as const).map(f => (
                     <button key={f} className={transFilter === f ? "active" : ""} onClick={() => setTransFilter(f)}>
@@ -6059,7 +6126,7 @@ function App() {
                   ))}
                 </div>
               </div>
-              <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transFilter)} mode={generalMode} year={generalYear} />
+              <MonthlyStatusChart data={applyChargeFilter(filtEffective, transFilter)} mode={generalMode} year={generalYear} />
             </article>
           </section>
           {(generalData.alerts ?? []).length > 0 && (
