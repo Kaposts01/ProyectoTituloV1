@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     virtualpos_timeout_seconds: float = 30
     virtualpos_read_retries: int = 2
     virtualpos_writes_enabled: bool = False
+    virtualpos_payout_webhook_secret: str = ""
     # VirtualPOS cuenta 2 (producción)
     virtualpos2_base_url: str = ""
     virtualpos2_api_key: str = ""
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
     payku_timeout_seconds: float = 30
     payku_read_retries: int = 2
     payku_writes_enabled: bool = False
+    payku_webhook_secret: str = ""
 
 
 @lru_cache

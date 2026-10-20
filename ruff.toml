@@ -8,6 +8,8 @@ ignore = ["E501"]
 # FastAPI's Depends() in argument defaults is the canonical pattern — B008 is a false positive here.
 "app/api/v1/routes/scheduler.py" = ["B008"]
 "app/api/v1/routes/webhooks_toku.py" = ["B008"]
+"app/api/v1/routes/webhooks_virtualpos.py" = ["B008"]
+"app/api/v1/routes/webhooks_payku.py" = ["B008"]
 
 # Broad except in provider write-path fallbacks is intentional: a failed refresh
 # must not abort the parent write operation. Tightening these requires provider-specific
