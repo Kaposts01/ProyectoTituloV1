@@ -98,3 +98,54 @@ def test_admin_can_manage_users_roles_and_passwords(monkeypatch) -> None:
         "/api/v1/auth/login",
         json={"username": member_username, "password": "changed-password"},
     ).status_code == 401
+
+
+def _setup_admin_and_manager(monkeypatch, suffix: str) -> tuple[str, TestClient, dict]:
+    """Create an admin user and a non-admin manager with users.manage; return admin_id, logged-in client, headers."""
+    admin_username = f"adm-{suffix}"
+    manager_username = f"mgr-{suffix}"
+    monkeypatch.setattr(settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
+
+    db = SessionLocal()
+    try:
+        seed_permissions(db)
+        admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+        if admin_role is None:
+            admin_role = Role(name="admin")
+            db.add(admin_role)
+            db.flush()
+        manage_perms = db.scalars(select(Permission).where(Permission.code == "users.manage")).all()
+        manager_role = Role(name=f"mgr-role-{suffix}", permissions=manage_perms)
+        admin_user = User(username=admin_username, password_hash=hash_password("Admin-pw-12345"), is_active=True, roles=[admin_role])
+        manager_user = User(username=manager_username, password_hash=hash_password("Mgr-pw-12345"), is_active=True, roles=[manager_role])
+        db.add_all([manager_role, admin_user, manager_user])
+        db.commit()
+        admin_id = str(admin_user.id)
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    login = client.post("/api/v1/auth/login", json={"username": manager_username, "password": "Mgr-pw-12345"})
+    assert login.status_code == 200
+    headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+    return admin_id, client, headers
+
+
+def test_non_admin_cannot_reset_admin_password(monkeypatch) -> None:
+    # Regression: SEC-1 — non-admin with users.manage must receive 403 when resetting admin password
+    # Found by /qa on 2026-10-20
+    suffix = uuid.uuid4().hex[:12]
+    admin_id, client, headers = _setup_admin_and_manager(monkeypatch, suffix)
+
+    resp = client.patch(f"/api/v1/admin/users/{admin_id}/password", headers=headers, json={"new_password": "New-password-123"})
+    assert resp.status_code == 403
+
+
+def test_non_admin_cannot_modify_admin_account(monkeypatch) -> None:
+    # Regression: SEC-2 — non-admin with users.manage must receive 403 when modifying admin account
+    # Found by /qa on 2026-10-20
+    suffix = uuid.uuid4().hex[:12]
+    admin_id, client, headers = _setup_admin_and_manager(monkeypatch, suffix)
+
+    resp = client.put(f"/api/v1/admin/users/{admin_id}", headers=headers, json={"is_active": False})
+    assert resp.status_code == 403

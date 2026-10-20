@@ -125,6 +125,47 @@ def test_rejected_rows_use_subscription_payload_when_client_is_not_materialized(
     assert row["rejection_reason"] == "No informado por VirtualPOS"
 
 
+def test_rejected_rows_date_filter_excludes_outside_range(db_session: Session) -> None:
+    # Regression: PERF-2 — status+date filters pushed to SQL in _rejected_rows
+    # Found by /qa on 2026-10-20
+    db_session.add_all([
+        Charge(source="virtualpos1", external_id="in-range", status="rechazado", charge_date="2099-06-15"),
+        Charge(source="virtualpos1", external_id="out-range", status="rechazado", charge_date="2099-01-01"),
+        Charge(source="virtualpos1", external_id="wrong-status", status="pagado", charge_date="2099-06-15"),
+    ])
+    db_session.flush()
+
+    rows = _rejected_rows(db_session, date(2099, 6, 1), date(2099, 6, 30), "retry")
+
+    ids = {r["external_id"] for r in rows}
+    assert "in-range" in ids
+    assert "out-range" not in ids
+    assert "wrong-status" not in ids
+
+
+def test_retry_history_date_filter_excludes_outside_range(db_session: Session) -> None:
+    # Regression: PERF-2 — date filter pushed to SQL for WriteRun.started_at in _retry_history_rows
+    # Found by /qa on 2026-10-20
+    inside_run = WriteRun(
+        source="virtualpos1", resource_type="charge", external_id="wr-in-range", operation="retry_charge",
+        status="failed", request_payload={"charge_id": "wr-in-range"},
+        started_at=datetime(2099, 6, 15, 12, 0, 0, tzinfo=UTC),
+    )
+    outside_run = WriteRun(
+        source="virtualpos1", resource_type="charge", external_id="wr-out-range", operation="retry_charge",
+        status="failed", request_payload={"charge_id": "wr-out-range"},
+        started_at=datetime(2099, 1, 1, 12, 0, 0, tzinfo=UTC),
+    )
+    db_session.add_all([inside_run, outside_run])
+    db_session.flush()
+
+    rows = _retry_history_rows(db_session, date(2099, 6, 1), date(2099, 6, 30))
+
+    ids = {r["external_id"] for r in rows}
+    assert "wr-in-range" in ids
+    assert "wr-out-range" not in ids
+
+
 def test_retry_history_includes_accepted_and_immediately_rejected_attempts(db_session: Session) -> None:
     accepted_run = WriteRun(
         source="virtualpos1", resource_type="charge", external_id="accepted-charge", operation="retry_charge",
