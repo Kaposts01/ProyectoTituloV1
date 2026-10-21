@@ -1,6 +1,6 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-20.
+Fecha de actualizacion: 2026-10-21.
 
 ## Estado actual
 
@@ -83,6 +83,14 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **test VP (8bb5704)**: whitelist de operaciones aprobadas del cliente VP actualizada con `get_payment_attempts`.
 - Suite completa: 229 tests pasan (2 tests de staging_api lentos incluidos).
 - **CORE-04 (5ffc81e)**: API de revisión `ClientMatchCandidate` (ADR-001): endpoints GET lista/detalle, POST review (confirmed/rejected). Permisos `core.identity.read/review`. Sin merge automático.
+
+## Actualizacion 2026-10-21 (tercera sesion — hallazgos /review)
+
+- **RISK-VP-02 upgrade**: se agregó índice único parcial `uq_vp_sub_active_plan_client` en `vp_subscriptions(platform, plan_external_id, client_social_id) WHERE status IN ('ACTIVA', 'SUSCRIBIENDO')` (migración 0036). `create_subscription` captura `IntegrityError` y retorna `DuplicateSubscriptionError` (HTTP 409). Cubre la condición de carrera entre el SELECT de antiduplicado y la llamada al proveedor.
+- **tests `_classify_rejection`**: 52 tests unitarios en `tests/test_classify_rejection.py` cubren todos los code sets (`_CARD_CODES`, `_MERCHANT_CODES`, `_RETRY_CODES`, `_RETRY_ONCE_CODES`), keywords y escalación por `prior_retries`.
+- **design fix `AutomaticReport`**: `AlertRow` reemplaza `borderLeft: 4px solid` por `background: rgba(...)` tint, eliminando la violación de DESIGN.md L177 (sin sombras de borde lateral en cards).
+- **N+1 fix `core_vp_etl`**: `_enrich_charges_with_rejections` reemplaza el `db.get()` en loop por un SELECT batch con `IN` sobre los IDs de `CoreCharge` necesarios.
+- Suite: 247 tests pasan.
 
 ## Actualizacion 2026-10-21 (segunda sesion iterativa)
 

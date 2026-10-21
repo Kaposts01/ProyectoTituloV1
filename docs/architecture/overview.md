@@ -32,7 +32,7 @@ El modelo Core incluye `core_clients`, `ExternalIdentity`, `CoreClientAttribute`
 
 **Status: En progreso**
 
-La identidad centralizada esta parcialmente implementada (modelo fisico completo, matching conservador activo). Faltan: gobierno de atributos personales, taxonomia transversal de estados/montos, separacion de entornos Sandbox/QA/Produccion (ENV-01), y flujo de resolucion de candidatos (CORE-04).
+La identidad centralizada esta parcialmente implementada (modelo fisico completo, matching conservador activo, API de revision CORE-04 operativa). Faltan: gobierno de atributos personales, taxonomia transversal de estados/montos, separacion de entornos Sandbox/QA/Produccion (ENV-01), y merge reversible de identidades.
 
 ## Documentos relacionados
 
