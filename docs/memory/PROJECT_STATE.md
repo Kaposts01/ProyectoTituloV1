@@ -70,6 +70,14 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **Status: TBD** Gobierno de atributos personales, retencion y rectificacion.
 - **Status: TBD** Taxonomia comun de estados, montos, monedas y periodicidad.
 
+## Actualizacion 2026-10-21 (sesion iterativa)
+
+- **RISK-VP-02 (267fd47)**: `create_subscription` comprueba `VpSubscription` con status ACTIVA/SUSCRIBIENDO antes de llamar al proveedor. HTTP 409 si hay duplicado.
+- **RISK-VP-01 (df76bc5)**: `retry_charge` obtiene `payment.order.uuid`, consulta `/v3/payment/{uuid}/attempts` y clasifica el motivo. CAMBIO_TARJETA y DIFERIR lanzan `RetryBlockedError` (HTTP 409) sin llamar al proveedor. Añade `get_payment_attempts()` al cliente VP.
+- **RISK-TK-01 (f2f7ab2)**: `delete_subscription` anula invoices impagas (`unpaid`, `partially_paid`) antes del DELETE. Las `in_progress` se omiten con warning. Añade `list_subscription_invoices()` al TokuClient.
+- **ETL-03 (1ecbf3a)**: `CoreCharge.subscription_id` es ahora nullable. Migración 0034 aplicada. El ETL VP ya no descarta cargos sin suscripción padre; los inserta con `subscription_id=NULL`.
+- **WH-02**: receptor webhook Toku ya implementado y registrado en `main.py` (11 tests pasan). La URL HTTPS de producción queda pendiente de activar.
+
 ## Deuda tecnica conocida (actualizada 2026-10-20)
 
 - Auditoria 2026-10-20 (equipo): `CoreCharge.subscription_id` NOT NULL bloquea cargos sin suscripcion padre identificada — riesgo de perdida silenciosa durante ETL (CORE-02 a revisar). `ClientMatchCandidate` acumula candidatos sin flujo de resolucion/merge operativo (CORE-04 pendiente). 22 workflows de proveedor parcialmente implementados con riesgos en produccion documentados en `docs/integrations/*/REVIEW.md`. Toku `started_at` usa `anchor` (proximo cobro) por ausencia de fecha real de inicio en la API.
