@@ -117,6 +117,18 @@ def _materialize_subscriptions(db: Session) -> int:
     ):
         identity_index[row.external_id] = row.client_id
 
+    # last_payment_status: status of most recent invoice per subscription (by due_date)
+    _inv_latest: dict[str, tuple[str, str | None]] = {}
+    for row in db.execute(
+        select(TokuInvoice.subscription_id, TokuInvoice.due_date, TokuInvoice.status)
+        .where(TokuInvoice.subscription_id.is_not(None))
+    ):
+        prev = _inv_latest.get(row.subscription_id)
+        inv_due = row.due_date or ""
+        if prev is None or inv_due > prev[0]:
+            _inv_latest[row.subscription_id] = (inv_due, row.status)
+    last_invoice_status: dict[str, str | None] = {k: v[1] for k, v in _inv_latest.items()}
+
     suscripciones = db.scalars(select(TokuSubscription)).all()
 
     rows = []
@@ -128,9 +140,10 @@ def _materialize_subscriptions(db: Session) -> int:
             "source": _SOURCE,
             "external_id": s.external_id,
             "status": s.status,
+            "last_payment_status": last_invoice_status.get(s.external_id),
             "amount": _parse_amount(s.amount),
             "currency": s.currency_code or _DEFAULT_CURRENCY,
-            "started_at": _parse_date(s.anchor),
+            "started_at": None,  # anchor = próximo cobro, no fecha de inicio; sin fecha de inicio en la API Toku
             "ended_at": _parse_date(s.end_date),
         })
 
@@ -141,6 +154,7 @@ def _materialize_subscriptions(db: Session) -> int:
             constraint="uq_core_subscription_source_external_id",
             set_={
                 "status": ins.excluded.status,
+                "last_payment_status": ins.excluded.last_payment_status,
                 "amount": ins.excluded.amount,
                 "currency": ins.excluded.currency,
                 "started_at": ins.excluded.started_at,
@@ -237,15 +251,17 @@ def _materialize_charges(db: Session) -> int:
         if sub_id is None:
             skipped += 1
             continue
+        due = _parse_date(inv.due_date)
         rows.append({
             "id": uuid.uuid4(),
             "subscription_id": sub_id,
             "source": _SOURCE,
             "external_id": inv.external_id,
-            "period_reference": None,
-            "due_at": _parse_date(inv.due_date),
+            "period_reference": due.strftime("%Y-%m") if due else None,
+            "due_at": due,
             "amount": _parse_amount(inv.amount),
             "currency": _DEFAULT_CURRENCY,
+            "source_status": inv.status,
         })
 
     if skipped:
@@ -257,9 +273,11 @@ def _materialize_charges(db: Session) -> int:
         db.execute(ins.on_conflict_do_update(
             constraint="uq_core_charge_source_external_id",
             set_={
+                "period_reference": ins.excluded.period_reference,
                 "due_at": ins.excluded.due_at,
                 "amount": ins.excluded.amount,
                 "currency": ins.excluded.currency,
+                "source_status": ins.excluded.source_status,
                 "updated_at": datetime.now(tz=timezone.utc),
             },
         ))

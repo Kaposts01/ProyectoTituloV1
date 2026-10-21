@@ -122,6 +122,7 @@ def _materialize_subscriptions(db: Session) -> int:
             "source": _SOURCE,
             "external_id": s.external_id,
             "status": s.status,
+            "last_payment_status": s.last_status_current_payment,
             "amount": _parse_amount(s.amount),
             "currency": s.currency or _DEFAULT_CURRENCY,
             "started_at": _parse_date(s.start_date),
@@ -135,6 +136,7 @@ def _materialize_subscriptions(db: Session) -> int:
             constraint="uq_core_subscription_source_external_id",
             set_={
                 "status": ins.excluded.status,
+                "last_payment_status": ins.excluded.last_payment_status,
                 "amount": ins.excluded.amount,
                 "currency": ins.excluded.currency,
                 "started_at": ins.excluded.started_at,

@@ -60,6 +60,9 @@ from app.models.vp import (  # noqa: F401
     VpSubscription,
 )
 from app.models.write_run import WriteRun  # noqa: F401
+from app.models.stg_toku_webhook_event import StgTokuWebhookEvent  # noqa: F401
+from app.models.stg_vpos_webhook_event import StgVposWebhookEvent  # noqa: F401
+from app.models.stg_payku_webhook_event import StgPaykuWebhookEvent  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

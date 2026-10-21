@@ -48,6 +48,7 @@ class CoreSubscription(Base):
     source: Mapped[str] = mapped_column(String(50), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str | None] = mapped_column(String(50), index=True)
+    last_payment_status: Mapped[str | None] = mapped_column(String(100), index=True)
     amount: Mapped[float | None] = mapped_column(Numeric(18, 2))
     currency: Mapped[str | None] = mapped_column(String(3))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
@@ -68,6 +69,7 @@ class CoreCharge(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     amount: Mapped[float | None] = mapped_column(Numeric(18, 2))
     currency: Mapped[str | None] = mapped_column(String(3))
+    source_status: Mapped[str | None] = mapped_column(String(100), index=True)
     latest_rejection_payment_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("core_payments.id", use_alter=True, name="fk_core_charges_latest_rejection_payment")
     )

@@ -200,15 +200,17 @@ def _materialize_charges(db: Session) -> int:
         if sub_id is None:
             skipped += 1
             continue
+        due = _parse_date(c.charge_date)
         rows.append({
             "id": uuid.uuid4(),
             "subscription_id": sub_id,
             "source": c.platform,
             "external_id": c.external_id,
-            "period_reference": None,
-            "due_at": _parse_date(c.charge_date),
+            "period_reference": due.strftime("%Y-%m") if due else None,
+            "due_at": due,
             "amount": _parse_amount(c.amount),
             "currency": c.currency or _DEFAULT_CURRENCY,
+            "source_status": c.status,
         })
 
     if skipped:
@@ -222,9 +224,11 @@ def _materialize_charges(db: Session) -> int:
         db.execute(ins.on_conflict_do_update(
             constraint="uq_core_charge_source_external_id",
             set_={
+                "period_reference": ins.excluded.period_reference,
                 "due_at": ins.excluded.due_at,
                 "amount": ins.excluded.amount,
                 "currency": ins.excluded.currency,
+                "source_status": ins.excluded.source_status,
                 "updated_at": datetime.now(tz=timezone.utc),
             },
         ))
@@ -261,7 +265,7 @@ def _build_rut_to_sub_index(db: Session) -> dict[tuple[str, str], list[uuid.UUID
 
 def _materialize_payments(db: Session, rut_to_sub: dict) -> tuple[int, int]:
     """Returns (inserted, ambiguous_count)."""
-    payments = db.scalars(select(VpPayment).where(VpPayment.status.ilike("pagado"))).all()
+    payments = db.scalars(select(VpPayment)).all()
 
     rows = []
     ambiguous = 0
