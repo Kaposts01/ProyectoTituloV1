@@ -8,7 +8,10 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.v1.routes.webhooks_virtualpos import _normalize_payout_payload, _verify_payout_signature
+from app.api.v1.routes.webhooks_virtualpos import (
+    _normalize_payout_payload,
+    _verify_payout_signature,
+)
 from app.main import app
 
 _SECRET = "vpos_webhook_secret_test_xyz"

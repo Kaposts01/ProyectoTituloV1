@@ -303,6 +303,7 @@ def test_sync_success_rate_null_when_no_runs_in_30_days(db_session) -> None:
 
 def test_dashboard_channel_endpoint_returns_subset_by_source(db_session) -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app as fastapi_app
 
     client = TestClient(fastapi_app)

@@ -1,8 +1,10 @@
 import { Component, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
 import { setCsrfToken, getJson, postJson, postForm, downloadFile, putJson, patchJson, deleteJson, friendlyError } from "./api";
+import { useDebouncedValue } from "./hooks";
 import { Sidebar } from "./components/Sidebar";
 import { providerGroups, resourcePermission } from "./navigation";
+import type { ProviderSection } from "./routes";
 import "./App.css";
 import "./Staging.css";
 import { ActivacionCaidaChart, ChannelKpiChart, ChurnMensualChart, CrecimientoMensualChart, IngresosMensualesChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
@@ -62,7 +64,6 @@ type StagingRecord = {
   collectible_subscriptions?: number | null;
 };
 type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
-type ProviderSection = { source: ProviderSource; resource: string; label: string };
 type TableColumn = { label: string; value: (record: StagingRecord) => string };
 type VirtualPosDetailColumn = {
   label: string;

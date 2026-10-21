@@ -20,7 +20,6 @@ from app.services.core_toku_etl import _parse_date as toku_parse_date
 from app.services.core_vp_etl import _parse_amount as vp_parse_amount
 from app.services.core_vp_etl import _parse_date as vp_parse_date
 
-
 # ── _parse_date (shared across all four ETLs) ────────────────────────────────
 
 @pytest.mark.parametrize("parse_date", [tch_parse_date, toku_parse_date, payku_parse_date, vp_parse_date])

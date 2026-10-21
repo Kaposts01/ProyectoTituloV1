@@ -1,5 +1,7 @@
 export type ProviderSource = "virtualpos" | "toku" | "payku";
 
+export type ProviderSection = { source: ProviderSource; resource: string; label: string };
+
 export type AppRoute =
   | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "report" }
   | { kind: "channel"; source: ProviderSource }

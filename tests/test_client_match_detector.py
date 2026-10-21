@@ -69,13 +69,13 @@ def pg_session():
         from app.db.session import SessionLocal
         db = SessionLocal()
         yield db
-    except Exception:
-        pytest.skip("PostgreSQL no disponible.")
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"PostgreSQL no disponible: {exc}")
     finally:
         try:
             db.rollback()
             db.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
 

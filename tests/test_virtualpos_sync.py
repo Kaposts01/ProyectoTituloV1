@@ -149,11 +149,15 @@ def test_sync_records_sanitized_failure_without_persisting_test_data(monkeypatch
     assert "[redacted]" in failed_run.error_message
 
 
-def test_sync_fails_when_a_collection_response_has_an_invalid_envelope(monkeypatch, db_session) -> None:
+def test_empty_dict_response_completes_sync_as_empty_page(monkeypatch, db_session) -> None:
+    """Un dict vacío ({}) se trata como página vacía y la sync termina normalmente.
+
+    VP devuelve {} cuando no puede parsear la respuesta (timeout, HTML de error).
+    Antes de OPS-08 esto lanzaba ValueError; ahora retorna [] y la sync continúa.
+    """
     monkeypatch.setattr(virtualpos_sync, "VirtualPOSClient", InvalidEnvelopeClient)
 
-    with pytest.raises(ValueError, match="unexpected collection response envelope"):
-        asyncio.run(virtualpos_sync.sync_virtualpos(db_session))
+    run = asyncio.run(virtualpos_sync.sync_virtualpos(db_session))
 
-    failed_run = db_session.scalars(select(SyncRun).where(SyncRun.status == "failed")).first()
-    assert failed_run is not None
+    assert run.status == "completed"
+    assert run.records_processed == 0
