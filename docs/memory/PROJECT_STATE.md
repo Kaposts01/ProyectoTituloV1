@@ -1,6 +1,6 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-10.
+Fecha de actualizacion: 2026-10-20.
 
 ## Estado actual
 
@@ -37,7 +37,8 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 ## En progreso
 
 - Tareas operativas registradas en [tasks.md](../tasks.md), incluidas Payku, Toku y un flujo de VirtualPOS.
-- Rama `feature/core-centralizado` en revisión final antes de merge a `master`. Core ETL completo (4 proveedores), migraciones 0027 y 0028 aplicadas, CI limpio (ruff), tests de helpers ETL pasando.
+- Core ETL completo y en `master` (migraciones 0027–0033 aplicadas). Migraciones 0032 (`source_status` en `core_charges`) y 0033 (`last_payment_status` en `core_subscriptions`) versionadas y activas.
+- ETL fixes aplicados (2026-10-20): `core_vp_etl` mapea `source_status` desde `VpCharge.status`; `core_toku_etl` deriva `last_payment_status` desde la última `TokuInvoice` por `due_date`; `alembic/env.py` registra los 3 modelos webhook stg (check limpio).
 - Los dashboards operativos de VirtualPOS, Toku, Payku y TCH tienen paridad de KPIs, distribuciones, altas/bajas, series de suscripciones activas, churn y alertas usando solamente los campos verificables de cada fuente. Toku usa transacciones reales para su comparación con suscripciones; Payku mantiene su límite de cobertura histórica; TCH se basa en su proyección ETL.
 - Payku reconoce el identificador histórico `transaction` cuando su payload no trae `id`. La reconstrucción local `scripts/maintenance/backfill_payku_transactions.py` materializa transacciones ya preservadas en `source_records` hacia `p_transactions`; luego el ETL normal las proyecta a `payments`, restaurando los años y la actividad mensual verificables del dashboard.
 - La auditoria de webhooks confirma que Toku documenta firma HMAC e identificador de entrega; falta implementar su receptor idempotente con una URL HTTPS temporal. VirtualPOS y Payku exponen callbacks, pero su autenticidad permanece `TBD`, por lo que no se implementan receptores hasta verificarla.
@@ -68,6 +69,12 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **Status: TBD** Contrato de liquidaciones y reglas financieras transversales.
 - **Status: TBD** Gobierno de atributos personales, retencion y rectificacion.
 - **Status: TBD** Taxonomia comun de estados, montos, monedas y periodicidad.
+
+## Deuda tecnica conocida (actualizada 2026-10-20)
+
+- Auditoria 2026-10-20 (equipo): `CoreCharge.subscription_id` NOT NULL bloquea cargos sin suscripcion padre identificada — riesgo de perdida silenciosa durante ETL (CORE-02 a revisar). `ClientMatchCandidate` acumula candidatos sin flujo de resolucion/merge operativo (CORE-04 pendiente). 22 workflows de proveedor parcialmente implementados con riesgos en produccion documentados en `docs/integrations/*/REVIEW.md`. Toku `started_at` usa `anchor` (proximo cobro) por ausencia de fecha real de inicio en la API.
+- Receptor webhook Toku (WH-01): firma HMAC documentada pero sin endpoint ni tabla `stg_toku_webhook_events` activa — altas de socios Toku no tienen confirmacion automatica de inscripcion de medio de pago.
+- BLQ-TK-01: Toku ENROLLMENT bloqueado hasta que soporte configure `flow_name`; alternativa Customer Portal no apta para produccion.
 
 ## Deuda tecnica conocida
 

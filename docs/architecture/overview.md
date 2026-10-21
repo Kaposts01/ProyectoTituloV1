@@ -22,11 +22,17 @@ El modelo separa adquisicion, datos de origen, transformacion y consumo. Los Con
 
 El repositorio usa FastAPI, PostgreSQL y React/Vite. VirtualPOS, Toku y Payku se sincronizan a staging; TCH carga reportes Excel. La API intermedia toda comunicacion con proveedores y el navegador no recibe credenciales.
 
+## Identidad centralizada
+
+**Status: Parcialmente implementado** (ver [ADR-001](../decisions/ADR-001-identidad-centralizada-socios.md))
+
+El modelo Core incluye `core_clients`, `ExternalIdentity`, `CoreClientAttribute` y `ClientMatchCandidate`. La deteccion de candidatos de match cross-canal esta operativa. Pendiente: flujo de revision/confirmacion manual y merge reversible de identidades (CORE-04).
+
 ## Limite actual
 
-**Status: TBD**
+**Status: En progreso**
 
-No hay identidad unica de socio o donante entre plataformas. El Core conceptual debe admitirla, pero sus reglas no estan aprobadas.
+La identidad centralizada esta parcialmente implementada (modelo fisico completo, matching conservador activo). Faltan: gobierno de atributos personales, taxonomia transversal de estados/montos, separacion de entornos Sandbox/QA/Produccion (ENV-01), y flujo de resolucion de candidatos (CORE-04).
 
 ## Documentos relacionados
 

@@ -51,9 +51,9 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| CORE-01 | Crear base tecnica del Core centralizado | En curso | Nuevas entidades proveedor-independientes, procedencia y migracion aditiva sin alterar las proyecciones actuales. |
-| CORE-02 | Modelar cargos y pagos trazables | Pendiente | Cargo representa el compromiso mensual; pagos preservan intentos, rechazos y el ultimo rechazo verificable del cargo. |
-| CORE-03 | Materializar los cuatro canales hacia el Core | En curso | VirtualPOS, Toku, Payku y TCH preservan IDs externos, limites de cobertura y relaciones verificables. |
+| CORE-01 | Crear base tecnica del Core centralizado | Completada | Migraciones 0027–0033 aplicadas y versionadas; modelos Core en `app/models/core.py`; campos `source_status` y `last_payment_status` activos. |
+| CORE-02 | Modelar cargos y pagos trazables | Pendiente | Cargo representa el compromiso mensual; pagos preservan intentos, rechazos y el ultimo rechazo verificable del cargo. Evaluar nullable en `CoreCharge.subscription_id` (riesgo perdida silenciosa). |
+| CORE-03 | Materializar los cuatro canales hacia el Core | En curso | VP, Toku, Payku mapean `source_status`/`last_payment_status` correctamente (commit f587f1a); TCH pendiente de auditoria de cobertura. |
 | CORE-04 | Implementar identidad centralizada revisable | Pendiente | Identidades externas, revision manual y auditoria respetan ADR-001 sin merges automaticos. |
 | CATALOG-01 | Crear catalogo consultable de mapeos y escenarios QA | Completada | API protegida expone mapeos fuente/STG/Core y escenarios sinteticos sin PII ni datos de pago reales. |
 | ENV-01 | Separar Sandbox, QA y Produccion | Pendiente | Cada entorno usa base, credenciales y proveedores propios; Produccion queda en un cluster PostgreSQL independiente. |
@@ -468,3 +468,20 @@ Fuente de referencia: [informe comparativo](https://claude.ai/artifact/7R7N8sJHP
 | BUG-PK-02 | Corregir trailing `&` en `build_sign` de Payku para params vacíos | Completada | `app/integrations/payku/auth.py` `build_sign` no genera `&` final cuando el diccionario de params está vacío; 17/17 tests pasan. |
 | BUG-TK-01 | Confirmar y corregir endpoint de asociación de medio de pago Toku | Completada | Corregido a `POST /subscriptions/associate/payment-method` con body `{id_subscription, id_payment_method, payment_scope}`; método renombrado a `associate_payment_method_to_subscription`. Confirmado en 3 workflow docs (alta-socio, link-inscripcion, enroll-payment-method). Sin callers en código. |
 | BUG-VP-01 | Corregir clave `card_change_url` en `recovery.py` de VirtualPOS | Completada | `app/api/v1/routes/recovery.py` corregido a `"change_card_url"` (clave correcta según contrato VirtualPOS); 17/17 tests pasan. |
+| BUG-ETL-01 | Mapear `source_status` en `core_vp_etl._materialize_charges` | Completada | `VpCharge.status` mapeado al campo `source_status` de `CoreCharge` en row dict y upsert; commit f587f1a. |
+| BUG-ETL-02 | Mapear `last_payment_status` en `core_toku_etl._materialize_subscriptions` | Completada | Derivado desde última `TokuInvoice` por `due_date` por suscripción; mapeado en row dict y upsert; commit f587f1a. |
+| BUG-ALB-01 | Registrar modelos webhook en `alembic/env.py` | Completada | `StgTokuWebhookEvent`, `StgVposWebhookEvent` y `StgPaykuWebhookEvent` importados; `alembic check` sin operaciones pendientes; commit f587f1a. |
+
+## Auditoria tecnica 2026-10-20
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| AUD-02 | Auditoria equipo multi-agente: arquitectura, ETL e integraciones | Completada | Arquitecto, Data Engineer e Integration Engineer revisaron estado; 3 bugs corregidos (BUG-ETL-01, BUG-ETL-02, BUG-ALB-01); 14 riesgos catalogados en integrations REVIEW.md; deuda tecnica actualizada en PROJECT_STATE.md. |
+| ETL-03 | Evaluar nullable en `CoreCharge.subscription_id` (riesgo perdida silenciosa) | Pendiente | Decidir si se permite `subscription_id = NULL` para cargos VP sin suscripcion padre identificada; actualizar CORE-02 en consecuencia. |
+| ETL-04 | Auditoria cobertura TCH en Core ETL | Pendiente | Verificar que `core_tch_etl` (si existe) o el path TCH->Core mapea correctamente todos los campos relevantes; documentar brechas. |
+| DOC-11 | Actualizar `docs/architecture/overview.md` con estado real de identidad | Completada | Seccion "Limite actual" reemplazada por estado parcialmente implementado con referencia a ADR-001 y CORE-04; commit pendiente. |
+| WH-02 | Implementar receptor webhook Toku con verificacion HMAC-SHA256 | Pendiente | Endpoint `/webhooks/toku` con verificacion de firma `Toku-Signature`, idempotencia por `toku_event_id`, tabla `stg_toku_webhook_events` activa y URL HTTPS temporal registrada. |
+| WH-03 | Implementar receptor webhook Payku | Pendiente | Endpoint `/webhooks/payku` con tabla `stg_payku_webhook_events` activa; `urlnotify` de alta y cobros procesados idempotentemente. |
+| RISK-VP-01 | Agregar clasificacion de motivo antes de `retry_charge` VirtualPOS | Pendiente | `retry_charge` consulta `GET /v3/payment/{uuid}/attempts` antes de reintentar; rechazos por tarjeta bloqueada/expirada no se reintentan automaticamente. |
+| RISK-VP-02 | Agregar antiduplicado en `create_subscription` VirtualPOS | Pendiente | Verificar suscripcion `SUSCRIBIENDO`/`ACTIVA` existente antes de llamar al proveedor; evitar doble cobro mensual. |
+| RISK-TK-01 | Corregir `cancel-subscription` Toku para hacer void de invoices impagas | Pendiente | `DELETE /toku/subscriptions/{id}` vacia previamente invoices impagas antes de cancelar; comportamiento Toku con invoices post-DELETE confirmado. |
