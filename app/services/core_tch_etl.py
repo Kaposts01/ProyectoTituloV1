@@ -119,6 +119,18 @@ def _materialize_subscriptions(db: Session) -> int:
     ):
         identity_index[row.external_id] = row.client_id
 
+    # Índice de último estado de transacción por ficha (para last_payment_status)
+    _tx_latest: dict[int, tuple[str, str]] = {}
+    for row in db.execute(
+        select(TchTransaccion.numero_ficha, TchTransaccion.fecha_cargo, TchTransaccion.estado)
+        .where(TchTransaccion.numero_ficha.isnot(None))
+    ):
+        prev = _tx_latest.get(row.numero_ficha)
+        fecha = row.fecha_cargo or ""
+        if prev is None or fecha > prev[0]:
+            _tx_latest[row.numero_ficha] = (fecha, row.estado)
+    last_tx_status: dict[int, str] = {k: v[1] for k, v in _tx_latest.items()}
+
     suscripciones = db.scalars(select(TchSuscripcion)).all()
 
     rows = []
@@ -134,6 +146,7 @@ def _materialize_subscriptions(db: Session) -> int:
             "currency": _resolve_currency(s),
             "started_at": _parse_date(s.fecha_activacion),
             "ended_at": _parse_date(s.fecha_eliminacion),
+            "last_payment_status": last_tx_status.get(s.numero_ficha),
         })
 
     before = db.scalar(select(func.count()).select_from(CoreSubscription).where(CoreSubscription.source == _SOURCE)) or 0
@@ -148,6 +161,7 @@ def _materialize_subscriptions(db: Session) -> int:
                 "currency": ins.excluded.currency,
                 "started_at": ins.excluded.started_at,
                 "ended_at": ins.excluded.ended_at,
+                "last_payment_status": ins.excluded.last_payment_status,
                 "updated_at": datetime.now(tz=timezone.utc),
             },
         ))
