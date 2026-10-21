@@ -76,7 +76,12 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **RISK-VP-01 (df76bc5)**: `retry_charge` obtiene `payment.order.uuid`, consulta `/v3/payment/{uuid}/attempts` y clasifica el motivo. CAMBIO_TARJETA y DIFERIR lanzan `RetryBlockedError` (HTTP 409) sin llamar al proveedor. Añade `get_payment_attempts()` al cliente VP.
 - **RISK-TK-01 (f2f7ab2)**: `delete_subscription` anula invoices impagas (`unpaid`, `partially_paid`) antes del DELETE. Las `in_progress` se omiten con warning. Añade `list_subscription_invoices()` al TokuClient.
 - **ETL-03 (1ecbf3a)**: `CoreCharge.subscription_id` es ahora nullable. Migración 0034 aplicada. El ETL VP ya no descarta cargos sin suscripción padre; los inserta con `subscription_id=NULL`.
-- **WH-02**: receptor webhook Toku ya implementado y registrado en `main.py` (11 tests pasan). La URL HTTPS de producción queda pendiente de activar.
+- **WH-02/WH-03**: receptores webhook Toku (HMAC-SHA256, 11 tests) y Payku (token query, 10 tests) implementados y registrados en `main.py`.
+- **ETL-04 (41bbdbe)**: `core_tch_etl` ahora deriva `last_payment_status` desde la última `TchTransaccion` por `numero_ficha`, análogo a Toku.
+- **VP-28 (f14d51e)**: `_enrich_charges_with_rejections()` en `core_vp_etl` usa `VpPayment.charge_external_id` para poblar `CoreCharge.latest_rejection_*` desde el payload rechazado más reciente.
+- **fix Payku (a3791c3)**: `channel_consolidation` usa `payload.get("end")` como fallback para `canceled_at` cuando no hay status-log; corrige test pre-existente fallido.
+- **test VP (8bb5704)**: whitelist de operaciones aprobadas del cliente VP actualizada con `get_payment_attempts`.
+- Suite completa: 229 tests pasan (2 tests de staging_api lentos incluidos).
 
 ## Deuda tecnica conocida (actualizada 2026-10-20)
 
