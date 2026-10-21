@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -741,6 +742,26 @@ async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription
         write_run.status = "completed"
         write_run.finished_at = datetime.now(UTC)
         db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # The partial unique index uq_vp_sub_active_plan_client caught a concurrent duplicate.
+        if "uq_vp_sub_active_plan_client" in str(exc.orig):
+            write_run = db.get(WriteRun, write_run.id)
+            if write_run is not None:
+                write_run.status = "failed"
+                write_run.error_message = "Duplicate active subscription detected by DB constraint (concurrent request)"
+                write_run.finished_at = datetime.now(UTC)
+                db.commit()
+            raise DuplicateSubscriptionError(
+                f"Duplicate subscription for social_id={social_id} plan={plan_id} ({platform}) — concurrent create"
+            ) from exc
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
     except Exception as exc:
         db.rollback()
         write_run = db.get(WriteRun, write_run.id)

@@ -79,13 +79,12 @@ function RejectBadge({ rate }: { rate: number }) {
 }
 
 function AlertRow({ a }: { a: { sev: string; tipo: string; detalle: string } }) {
-  const color = a.sev === "alta" ? "var(--red, #e84040)" : a.sev === "media" ? "var(--amber, #f59e0b)" : "var(--muted, #8b949e)";
   const badgeCls = a.sev === "alta" ? "red" : a.sev === "media" ? "orange" : "gray";
+  const bgTint = a.sev === "alta" ? "rgba(232,64,64,.06)" : a.sev === "media" ? "rgba(245,158,11,.06)" : "transparent";
   return (
     <div style={{
-      background: "var(--card, #fff)",
+      background: bgTint,
       border: "1px solid var(--border, #e2e8f0)",
-      borderLeft: `4px solid ${color}`,
       borderRadius: "8px",
       padding: "10px 14px",
       display: "flex",

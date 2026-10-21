@@ -298,6 +298,14 @@ def _enrich_charges_with_rejections(db: Session) -> int:
         )
     }
 
+    needed_ids = [cid for cid in core_charge_ids.values() if cid is not None]
+    charges_by_id: dict[uuid.UUID, CoreCharge] = {}
+    if needed_ids:
+        charges_by_id = {
+            c.id: c
+            for c in db.scalars(select(CoreCharge).where(CoreCharge.id.in_(needed_ids)))
+        }
+
     updated = 0
     for (platform, charge_ext_id), rej in rejection_index.items():
         charge_id = core_charge_ids.get((platform, charge_ext_id))
@@ -305,7 +313,7 @@ def _enrich_charges_with_rejections(db: Session) -> int:
             continue
         payment_id = core_payment_ids.get((platform, rej["payment_external_id"]))
 
-        charge = db.get(CoreCharge, charge_id)
+        charge = charges_by_id.get(charge_id)
         if charge is None:
             continue
         if charge.latest_rejection_at is not None and rej["occurred_at"] is not None:

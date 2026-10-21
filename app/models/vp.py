@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, UniqueConstraint, func
+from sqlalchemy import DateTime, Index, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,7 +53,17 @@ class VpPlan(Base):
 
 class VpSubscription(Base):
     __tablename__ = "vp_subscriptions"
-    __table_args__ = (UniqueConstraint("platform", "external_id", name="uq_vp_subscription_platform_external_id"),)
+    __table_args__ = (
+        UniqueConstraint("platform", "external_id", name="uq_vp_subscription_platform_external_id"),
+        # Partial unique index: prevent duplicate active/subscribing subscriptions for the same client+plan.
+        # Guards against the race condition between the application-level antiduplicado SELECT and the VP API call.
+        Index(
+            "uq_vp_sub_active_plan_client",
+            "platform", "plan_external_id", "client_social_id",
+            unique=True,
+            postgresql_where=text("status IN ('ACTIVA', 'SUSCRIBIENDO')"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
