@@ -47,6 +47,9 @@ PERMISSIONS: dict[str, str] = {
     "etl.run": "Ejecutar ETL y sincronización completa",
     "sync.run": "Ejecutar sincronizaciones por canal",
     "sync_runs.view": "Ver historial de sincronizaciones",
+    "core.identity.read": "Ver candidatos de identidad centralizada",
+    "core.identity.review": "Aprobar o rechazar candidatos de identidad",
+    "core.identity.merge": "Ejecutar merge técnico de identidades",
 }
 
 _RESOURCE_PERMISSIONS = {

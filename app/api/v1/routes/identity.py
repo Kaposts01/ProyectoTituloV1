@@ -62,7 +62,30 @@ def _identities_for(db: Session, client_id: uuid.UUID) -> list[dict[str, Any]]:
     return [{"source": r.source, "resource_type": r.resource_type, "external_id": r.external_id} for r in rows]
 
 
-def _to_summary(db: Session, c: ClientMatchCandidate) -> MatchCandidateSummary:
+def _identities_map(db: Session, client_ids: set[uuid.UUID]) -> dict[uuid.UUID, list[dict[str, Any]]]:
+    """Carga identidades externas de todos los client_ids en una sola query."""
+    if not client_ids:
+        return {}
+    rows = db.execute(
+        select(
+            ExternalIdentity.client_id,
+            ExternalIdentity.source,
+            ExternalIdentity.resource_type,
+            ExternalIdentity.external_id,
+        ).where(ExternalIdentity.client_id.in_(client_ids))
+    ).all()
+    result: dict[uuid.UUID, list[dict[str, Any]]] = {cid: [] for cid in client_ids}
+    for r in rows:
+        if r.client_id in result:
+            result[r.client_id].append({"source": r.source, "resource_type": r.resource_type, "external_id": r.external_id})
+    return result
+
+
+def _to_summary(
+    db: Session,
+    c: ClientMatchCandidate,
+    ident_map: dict[uuid.UUID, list[dict[str, Any]]] | None = None,
+) -> MatchCandidateSummary:
     return MatchCandidateSummary(
         id=c.id,
         client_id_a=c.client_id_a,
@@ -73,8 +96,8 @@ def _to_summary(db: Session, c: ClientMatchCandidate) -> MatchCandidateSummary:
         reviewed_at=c.reviewed_at,
         reviewed_by=c.reviewed_by,
         notes=c.notes,
-        identities_a=_identities_for(db, c.client_id_a),
-        identities_b=_identities_for(db, c.client_id_b),
+        identities_a=ident_map[c.client_id_a] if ident_map is not None else _identities_for(db, c.client_id_a),
+        identities_b=ident_map[c.client_id_b] if ident_map is not None else _identities_for(db, c.client_id_b),
     )
 
 
@@ -100,11 +123,14 @@ def list_match_candidates(
     total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
     items = db.scalars(q.order_by(ClientMatchCandidate.created_at.desc()).offset((page - 1) * page_size).limit(page_size)).all()
 
+    all_ids = {c.client_id_a for c in items} | {c.client_id_b for c in items}
+    ident = _identities_map(db, all_ids)
+
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": [_to_summary(db, c).model_dump() for c in items],
+        "items": [_to_summary(db, c, ident).model_dump() for c in items],
     }
 
 
@@ -153,7 +179,7 @@ def review_match_candidate(
 
     c.status = body.decision
     c.reviewed_at = datetime.now(UTC)
-    c.reviewed_by = current_user.email or str(current_user.id)
+    c.reviewed_by = current_user.username
     c.notes = body.notes
     db.commit()
     return _to_summary(db, c)
