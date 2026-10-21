@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,6 +13,8 @@ from app.models.crm import Client, Subscription
 from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
+
+log = logging.getLogger(__name__)
 
 
 class WriteDisabledError(Exception):
@@ -285,6 +288,37 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
 
     try:
         async with TokuClient() as provider:
+            # Anular invoices impagas antes del DELETE para evitar cobros huérfanos (RISK-TK-01).
+            # Solo se anulan las que no están in_progress; las in_progress se omiten con advertencia.
+            try:
+                invoices_resp = await provider.list_subscription_invoices(
+                    subscription_id, general_statuses=["unpaid", "partially_paid"]
+                )
+                invoices = (invoices_resp or {}).get("invoices") or []
+                for inv in invoices:
+                    inv_id = inv.get("id") or inv.get("external_id")
+                    if not inv_id:
+                        continue
+                    if inv.get("in_progress"):
+                        log.warning(
+                            "Toku delete_subscription %s: invoice %s in_progress — omitida",
+                            subscription_id, inv_id,
+                        )
+                        continue
+                    try:
+                        await provider.void_invoice(inv_id, {"delete_invoice": False})
+                        log.info("Toku delete_subscription %s: invoice %s anulada", subscription_id, inv_id)
+                    except Exception as exc_void:
+                        log.warning(
+                            "Toku delete_subscription %s: no se pudo anular invoice %s: %s",
+                            subscription_id, inv_id, exc_void,
+                        )
+            except Exception as exc_list:
+                log.warning(
+                    "Toku delete_subscription %s: no se pudo obtener invoices impagas: %s",
+                    subscription_id, exc_list,
+                )
+
             await provider.delete_subscription(subscription_id)
     except Exception as exc:
         write_run.status = "failed"

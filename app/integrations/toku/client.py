@@ -66,6 +66,18 @@ class TokuClient:
     async def list_invoices(self, page: int = 1, page_size: int = 100) -> Any:
         return await self._get_cursor("/invoices", page_size, reset=page == 1)
 
+    async def list_subscription_invoices(
+        self,
+        subscription_id: str,
+        general_statuses: list[str] | None = None,
+        page_size: int = 100,
+    ) -> Any:
+        """GET /invoices?subscription_id=...&general_status=... (no cursor — filtros directos)."""
+        params: dict[str, Any] = {"subscription_id": subscription_id, "page_size": page_size}
+        if general_statuses:
+            params["general_status"] = general_statuses
+        return await self._get("/invoices", params=params)
+
     async def create_invoice(self, data: dict[str, Any]) -> Any:
         return await self._post("/invoices", data)
 
