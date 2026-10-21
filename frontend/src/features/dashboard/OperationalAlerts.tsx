@@ -30,7 +30,16 @@ export function OperationalAlerts({
   const [alertDetail, setAlertDetail] = useState<AlertDetailItem[] | null>(null);
   const [alertDetailLoading, setAlertDetailLoading] = useState(false);
 
-  if (!alerts.length) return null;
+  if (!alerts.length) return (
+    <section className="panel dashboard-alerts-panel">
+      <div className="panel-heading">
+        <p className="eyebrow">ALERTAS OPERATIVAS</p>
+      </div>
+      <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.875rem" }}>
+        ✓ Sin alertas operativas — todo en orden.
+      </p>
+    </section>
+  );
 
   function toggleAlert(alertId: string) {
     if (expandedAlertId === alertId) {
@@ -78,7 +87,7 @@ export function OperationalAlerts({
                   <div className="alert-detail-table-wrap">
                     <table className="alert-detail-table">
                       <thead><tr><th>RUT</th><th>ID suscripción</th><th>Estado</th><th>Monto</th><th>Fecha suscripción</th>{alertDetail[0]?.ultimo_cobro !== undefined && <th>Último cobro</th>}{alertDetail[0]?.ultimo_estado !== undefined && <th>Estado último cobro</th>}{alertDetail[0]?.intentos !== undefined && <th>Intentos</th>}</tr></thead>
-                      <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td>{item.rut ?? "—"}</td><td className="alert-detail-id">{item.external_id ?? "—"}</td><td>{item.status ?? "—"}</td><td>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td>{item.suscription_date?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.ultimo_cobro !== undefined && <td>{item.ultimo_cobro?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.ultimo_estado !== undefined && <td>{item.ultimo_estado ?? "—"}</td>}{alertDetail[0]?.intentos !== undefined && <td>{item.intentos}</td>}</tr>)}</tbody>
+                      <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td className="mono">{item.rut ?? "—"}</td><td className="alert-detail-id mono">{item.external_id ?? "—"}</td><td>{item.status ?? "—"}</td><td className="mono" style={{ textAlign: "right" }}>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td className="mono">{item.suscription_date?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.ultimo_cobro !== undefined && <td className="mono">{item.ultimo_cobro?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.ultimo_estado !== undefined && <td>{item.ultimo_estado ?? "—"}</td>}{alertDetail[0]?.intentos !== undefined && <td className="mono">{item.intentos}</td>}</tr>)}</tbody>
                     </table>
                     <p className="alert-detail-count">{alertDetail.length} registro{alertDetail.length !== 1 ? "s" : ""}</p>
                   </div>

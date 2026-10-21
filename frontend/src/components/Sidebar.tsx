@@ -46,8 +46,8 @@ export function Sidebar({
     <aside className={`sidebar${open ? " open" : ""}`}>
       <div className="sidebar-toprow">
         <button className="sidebar-brand" onClick={go(onDashboard)}>
-          <span>CRM</span>
-          <strong>Suscripciones</strong>
+          <span>Sx</span>
+          <strong>SynkmetriX</strong>
         </button>
         <button className="sidebar-close" onClick={onClose} aria-label="Cerrar menú">✕</button>
       </div>

@@ -1382,7 +1382,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
       setError(loginError instanceof Error ? loginError.message : "No se pudo iniciar sesión");
     } finally { setSubmitting(false); }
   }
-  return <main className="login-shell"><section className="panel login-panel"><p className="eyebrow">CRM SUSCRIPCIONES</p><h1>Iniciar sesión</h1><form className="login-form" onSubmit={submit}><label>Usuario<input name="username" required autoComplete="username" /></label><label>Contraseña<input name="password" type="password" required autoComplete="current-password" /></label><button className="save-button" disabled={submitting}>{submitting ? "Ingresando..." : "Ingresar"}</button></form>{error ? <p className="error-message">{error}</p> : null}</section></main>;
+  return <main className="login-shell"><section className="panel login-panel"><p className="eyebrow">SYNKMETRIX</p><h1>Iniciar sesión</h1><form className="login-form" onSubmit={submit}><label>Usuario<input name="username" required autoComplete="username" /></label><label>Contraseña<input name="password" type="password" required autoComplete="current-password" /></label><button className="save-button" disabled={submitting}>{submitting ? "Ingresando..." : "Ingresar"}</button></form>{error ? <p className="error-message">{error}</p> : null}</section></main>;
 }
 
 function ProfilePanel({ user, editing, onUpdated, onClose, onEdit, onCancelEdit }: { user: AuthUser; editing: boolean; onUpdated: (user: AuthUser) => void; onClose: () => void; onEdit: () => void; onCancelEdit: () => void }) {
@@ -5593,10 +5593,10 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">CRM</span>
+          <span className="brand-mark">Sx</span>
           <div>
             <p className="eyebrow">OPERACIONES RECURRENTES</p>
-            <h1>CRM Suscripciones</h1>
+            <h1>SynkmetriX</h1>
           </div>
         </div>
         <div className="sync-state ready">

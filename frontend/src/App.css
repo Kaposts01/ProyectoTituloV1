@@ -137,7 +137,7 @@ h3 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
 .metric-card, .panel { background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: 16px; }
 .metric-card { min-height: 132px; padding: 18px; position: relative; }
 .metric-card p { margin: 24px 0 4px; color: var(--text-label); font-size: 13px; }
-.metric-card strong { font-size: 34px; letter-spacing: -.06em; color: var(--text-1); }
+.metric-card strong { font-size: 34px; letter-spacing: -.02em; color: var(--text-1); font-family: var(--font-mono, 'JetBrains Mono', 'Courier New', monospace); font-variant-numeric: tabular-nums; }
 .metric-value-money { font-size: clamp(18px, 2.2vw, 26px) !important; letter-spacing: -.04em !important; }
 .metric-dot { position: absolute; top: 18px; right: 18px; }
 .metric-dot.blue   { background: #549ab6; }
@@ -519,4 +519,64 @@ td:first-child { font-weight: 700; }
   margin-left: 0.6rem;
   vertical-align: middle;
   animation: pulse-badge 1.8s ease-in-out infinite;
+}
+
+/* ── Sidebar on brand teal — always dark bg, always light text ─────── */
+.sidebar {
+  width: 220px;
+  background: var(--bg-sidebar);
+  border-right: none;
+}
+.sidebar-brand,
+.sidebar-brand strong { color: rgba(255, 255, 255, 0.92); }
+.sidebar-brand span {
+  background: #2a7a64;
+  color: #f0f8f6;
+}
+.sidebar-item { color: rgba(255, 255, 255, 0.65); font-weight: 500; }
+.sidebar-item:hover { color: rgba(255, 255, 255, 0.92); background: rgba(255, 255, 255, 0.08); }
+.sidebar-item.active { color: #fff; background: #2a7a64; }
+.sidebar-close { color: rgba(255, 255, 255, 0.55); }
+.sidebar-close:hover { color: rgba(255, 255, 255, 0.90); background: rgba(255, 255, 255, 0.10); }
+.sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.12); }
+.theme-btn { color: rgba(255, 255, 255, 0.50); }
+.theme-btn:hover { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.08); }
+.theme-btn-icon { background: rgba(255, 255, 255, 0.10); }
+
+/* ── Provider group headings in sidebar ─────────────────────────────── */
+.channel-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+}
+.channel-dashboard {
+  flex: 1; padding: 6px 10px; border: 0; border-radius: 8px;
+  color: rgba(255, 255, 255, 0.50);
+  background: transparent; cursor: pointer; font: inherit;
+  font-size: 9.5px; font-weight: 800; letter-spacing: 0.12em;
+  text-transform: uppercase; text-align: left;
+}
+.channel-dashboard:hover { color: rgba(255, 255, 255, 0.88); background: rgba(255, 255, 255, 0.08); }
+.channel-dashboard.active { color: rgba(255, 255, 255, 0.92); }
+.sidebar-expand {
+  padding: 3px 7px; border: 0; border-radius: 6px;
+  color: rgba(255, 255, 255, 0.40); background: transparent; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 800; line-height: 1;
+}
+.sidebar-expand:hover { color: rgba(255, 255, 255, 0.80); background: rgba(255, 255, 255, 0.08); }
+
+/* ── Burger button (mobile) with teal bg ────────────────────────────── */
+@media (max-width: 800px) {
+  .burger-btn span { background: rgba(255, 255, 255, 0.90); }
+}
+
+/* ── Display font for headings ──────────────────────────────────────── */
+h1, h2, h3, .eyebrow {
+  font-family: var(--font-display, 'Cabinet Grotesk', 'Barlow', system-ui, sans-serif);
+}
+
+/* ── Mono class for all numeric data ────────────────────────────────── */
+.mono {
+  font-family: var(--font-mono, 'JetBrains Mono', 'Courier New', monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88em;
+  letter-spacing: 0;
 }

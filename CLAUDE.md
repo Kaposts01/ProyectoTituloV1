@@ -198,6 +198,17 @@ See [Technical Debt](knowledge/08%20-%20Roadmap/Technical%20Debt.md) for detail.
 - [AI Architecture](knowledge/06%20-%20AI/AI%20Architecture.md)
 - [Technical Debt](knowledge/08%20-%20Roadmap/Technical%20Debt.md)
 
+## Design System
+
+Read [DESIGN.md](DESIGN.md) before any visual or UI work: defines fonts, colors, spacing, and aesthetic direction. Ask the user before departing from it. When reviewing or QA-ing UI, flag code that doesn't match DESIGN.md.
+
+Key rules from DESIGN.md:
+- Cabinet Grotesk (Fontshare) for display/headings, General Sans (Fontshare) for body/UI
+- JetBrains Mono for ALL numeric data values: RUTs, IDs, amounts, timestamps
+- Sidebar always in brand teal (#1a3d47 light / #091418 dark)
+- Dark mode derives from teal, not from any external palette
+- No nested cards; no colored left-border on cards; no Inter in any role
+
 ## Health Stack
 
 - typecheck: cd frontend && npx tsc --noEmit

@@ -153,7 +153,7 @@ export function AutomaticReport() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">CRM</span>
+          <span className="brand-mark">Sx</span>
           <div>
             <p className="eyebrow">ANALÍTICA</p>
             <h1>Reporte automático</h1>
