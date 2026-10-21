@@ -67,7 +67,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | VP-10 | Normalizar modelo centralizado | Completada | Clientes, planes, suscripciones, cargos y pagos se materializan desde staging. |
 | VP-11 | Crear API de consulta del CRM | Completada | Endpoints paginados para clientes, suscripciones, pagos y detalle. |
 | VP-12 | Añadir pruebas de integración del sincronizador | Completada | Respuestas simuladas cubren éxito, paginación, duplicados y errores. |
-| VP-13 | Programar sincronizaciones y alertas | Pendiente | Ejecución periódica con reintentos y registro de fallos. |
+| VP-13 | Programar sincronizaciones y alertas | Completada | Job cron 02:00 + job reintento 04:00; channels_failed en EtlRun; migración 0035 (commit bcf1d47). |
 | VP-14 | Iniciar frontend CRM | Completada | Dashboard y vistas de clientes/suscripciones consumen la API. |
 | TK-01 | Sincronizar colecciones read-only de Toku a staging | Completada | Ejecuciones registradas por fuente y payloads disponibles en `source_records`. |
 | PK-01 | Sincronizar colecciones read-only de Payku a staging | Bloqueada | Payku devuelve transacciones recientes sin filtros, pero `date_init`/`date_end` devuelven cero incluso para un rango que contiene datos. El histórico requiere soporte o una exportación del proveedor. |
@@ -106,7 +106,9 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | STR-01 | Reorganizar estructura del repositorio | Completada | Artefactos locales quedan fuera de la raiz y excluidos de Git; scripts, documentacion vigente/historica y referencias quedan organizados sin romper comandos ni enlaces. |
 | MT-01 | Actualizar rama local desde GitHub | Completada | `master` queda alineada con `origin/master` sin sobrescribir cambios locales. |
 | OPS-07 | Levantar servicios y verificar base consolidada | En curso | PostgreSQL, migraciones, API y frontend operativos; tablas por canal verificadas en la base `crm`. |
-| OPS-08 | Ejecutar sincronización manual multicanal | Bloqueada | Toku finalizó y consolidó 36.426 registros. VirtualPOS falló al recibir una respuesta no JSON al consultar cargos; Payku encontró IDs de transacción duplicados dentro de un lote `ON CONFLICT`. Requiere robustecer ambas rutas antes de reintentar. |
+| OPS-08 | Ejecutar sincronización manual multicanal | Completada | VP: `_records_from_response` retorna `[]` en lugar de ValueError para dict vacío o sin clave conocida (commit f3e3f92). Payku: duplicados ON CONFLICT ya cubiertos por deduplicación `seen` en `upsert_channel`. |
+| FE-01 | Refactor App.tsx — separar módulos | Completada parcial | `api.ts` (HTTP utils + csrfToken), `navigation.ts` (providerGroups), `components/Sidebar.tsx`, `hooks.ts` (useDebouncedValue) extraídos. App.tsx: 7120 → 6730 líneas. Build OK (commit 8d490e8). |
+| DEV-04 | CI en verde | Completada | ruff I001+BLE001 corregidos; test VP envelope actualizado (OPS-08); frontend build+lint limpios (commit 8cab09c). |
 | DOC-03 | Estructurar documentación como vault de Obsidian | Completada | Índice navegable, arquitectura, producto, datos, integraciones, decisiones, memoria y sesiones creados sin modificar código ni configuraciones. |
 | DOC-04 | Inicializar memoria persistente y modelo conceptual | Completada | Estado, decisiones, riesgos y modelo conceptual documentados sin modificar componentes técnicos. |
 | DOC-05 | Normalizar terminología del modelo centralizado | Completada | La documentación activa usa "modelo centralizado" sin renombrar identificadores técnicos de compatibilidad. |
