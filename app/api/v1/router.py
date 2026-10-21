@@ -5,6 +5,7 @@ from app.api.v1.routes import (
     catalog,
     crm,
     etl,
+    identity,
     recovery,
     reports,
     scheduler,
@@ -27,3 +28,4 @@ api_router.include_router(catalog.router, prefix="/catalog")
 api_router.include_router(tch.router, prefix="/tch")
 api_router.include_router(reports.router, prefix="/reports")
 api_router.include_router(scheduler.router, prefix="/scheduler", tags=["Scheduler"])
+api_router.include_router(identity.router, prefix="/core")
