@@ -114,7 +114,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   await checkResponse(response);
-  return response.json() as Promise<T>;
+  return jsonResponse<T>(response);
 }
 
 export async function patchJson<T>(path: string, body: unknown): Promise<T> {
@@ -125,7 +125,7 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   await checkResponse(response);
-  return response.json() as Promise<T>;
+  return jsonResponse<T>(response);
 }
 
 export async function deleteJson<T>(path: string): Promise<T> {

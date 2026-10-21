@@ -6,6 +6,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.scheduler import event_bus
@@ -57,6 +59,17 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     channels=None → todos los canales (virtualpos1, virtualpos2, toku, payku, tch).
     """
     requested = frozenset(channels) if channels else _ALL_CHANNELS
+
+    db = SessionLocal()
+    try:
+        active = db.scalar(select(EtlRun).where(EtlRun.status == "running").limit(1))
+        if active:
+            logger.warning(
+                "sync_all_channels: run activo (run_id=%s), abortando para evitar ejecución concurrente.", active.id
+            )
+            return
+    finally:
+        db.close()
 
     if run_id is None:
         run_id = str(uuid.uuid4())
