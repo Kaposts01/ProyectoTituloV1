@@ -194,12 +194,11 @@ def _materialize_charges(db: Session) -> int:
 
     charges = db.scalars(select(VpCharge)).all()
     rows = []
-    skipped = 0
+    unlinked = 0
     for c in charges:
         sub_id = sub_index.get((c.platform, c.subscription_external_id)) if c.subscription_external_id else None
         if sub_id is None:
-            skipped += 1
-            continue
+            unlinked += 1
         due = _parse_date(c.charge_date)
         rows.append({
             "id": uuid.uuid4(),
@@ -213,8 +212,8 @@ def _materialize_charges(db: Session) -> int:
             "source_status": c.status,
         })
 
-    if skipped:
-        log.warning("VP Core ETL: %d cargos sin suscripción Core omitidos", skipped)
+    if unlinked:
+        log.info("VP Core ETL: %d cargos sin suscripción Core identificada (subscription_id=NULL)", unlinked)
 
     before = db.scalar(
         select(func.count()).select_from(CoreCharge).where(CoreCharge.source.in_(_VP_SOURCES))

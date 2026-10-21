@@ -62,7 +62,7 @@ class CoreCharge(Base):
     __table_args__ = (UniqueConstraint("source", "external_id", name="uq_core_charge_source_external_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    subscription_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("core_subscriptions.id"), index=True)
+    subscription_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("core_subscriptions.id"), index=True, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
     period_reference: Mapped[str | None] = mapped_column(String(50))
