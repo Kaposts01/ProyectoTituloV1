@@ -162,7 +162,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | REC-01 | Crear Recuperador de Socios VirtualPOS | Completada | Módulo con Canceladas, Reintento de Cobros y Tarjetas Vencidas; acciones y trazabilidad protegidas por permisos. |
 | REC-02 | Corregir y completar seguimiento de reintentos VirtualPOS | Completada | La identidad del cliente en cobros rechazados se obtiene desde relaciones verificables o desde el payload trazable de la suscripción cuando falta cliente materializado; los motivos ausentes se muestran como no informados por VirtualPOS; la confirmación de reintentos informa éxitos y fallos. El toggle conserva el historial completo de solicitudes y resultados conciliados. |
 | VP-28 | Enriquecer cargos y pagos VirtualPOS con detalle verificable | Completada | `_enrich_charges_with_rejections()` en `core_vp_etl` usa `VpPayment.charge_external_id` para encontrar el pago rechazado más reciente por cargo y pobla `CoreCharge.latest_rejection_*`; incremental e idempotente. |
-| WH-01 | Evaluar e incorporar webhooks de proveedores | En curso | La auditoría oficial quedó documentada: Toku tiene firma HMAC verificable y queda pendiente de receptor idempotente con URL HTTPS temporal; VirtualPOS y Payku requieren confirmar autenticidad, por lo que no se implementan receptores aún. La sincronización permanece como reconciliación. |
+| WH-01 | Evaluar e incorporar webhooks de proveedores | Completada | Toku: receptor HMAC-SHA256 implementado (WH-02); Payku: receptor por token query implementado (WH-03). VirtualPOS: autenticidad no documentada; receptor postergado hasta confirmación. |
 
 ## Auditoria tecnica 2026-10-01
 

@@ -369,12 +369,11 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
         if not p.amount:
             p.amount = latest_successful_amounts.get(p.external_id, ("", None))[1]
         status = (p.status or "").lower()
-        # canceled_at comes from status transition logs, not from the payload.end field.
-        # active/register have no cancellation date; suspended/delete/cancel use their log date.
         if status in {"active", "register", "suspended_awaits_change_plan"}:
             canceled_at = None
         else:
-            canceled_at = _payku_last_transition_date(payload, status)
+            # Prefer the status-log transition date; fall back to payload.end when absent.
+            canceled_at = _payku_last_transition_date(payload, status) or payload.get("end")
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
