@@ -24,6 +24,7 @@ def test_virtualpos_client_exposes_only_approved_operations() -> None:
         "get_charge",
         "get_client",
         "get_payment",
+        "get_payment_attempts",
         "get_plan",
         "get_subscription",
         "list_charges",
