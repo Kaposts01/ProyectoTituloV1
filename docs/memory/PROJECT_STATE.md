@@ -82,6 +82,14 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **fix Payku (a3791c3)**: `channel_consolidation` usa `payload.get("end")` como fallback para `canceled_at` cuando no hay status-log; corrige test pre-existente fallido.
 - **test VP (8bb5704)**: whitelist de operaciones aprobadas del cliente VP actualizada con `get_payment_attempts`.
 - Suite completa: 229 tests pasan (2 tests de staging_api lentos incluidos).
+- **CORE-04 (5ffc81e)**: API de revisión `ClientMatchCandidate` (ADR-001): endpoints GET lista/detalle, POST review (confirmed/rejected). Permisos `core.identity.read/review`. Sin merge automático.
+
+## Actualizacion 2026-10-21 (segunda sesion iterativa)
+
+- **OPS-08 (f3e3f92)**: `_records_from_response({})` retorna `[]` en lugar de ValueError; VP trata dict vacío como página vacía y termina paginación limpiamente. 2 tests nuevos.
+- **VP-13 (bcf1d47)**: scheduler completo — job cron 02:00 ya registrado; nuevo job `retry_failed_channels` (04:00) reintenta canales fallidos del último EtlRun. `channels_failed ARRAY(String)` añadido a EtlRun (migración 0035). `sync_all_channels` puebla el campo.
+- **FE-01 (8d490e8)**: refactor parcial App.tsx (7120→6730 líneas): `api.ts` (funciones HTTP + csrfToken/setCsrfToken), `navigation.ts` (providerGroups, resourcePermission), `components/Sidebar.tsx`, `hooks.ts` (useDebouncedValue) extraídos. TypeScript y build OK.
+- **DEV-04 (8cab09c)**: CI en verde — ruff I001+BLE001 en 4 tests corregidos; test de envelope VP actualizado (OPS-08); `ProviderSection` exportada desde routes.ts; frontend build+lint pasan. Suite: 235 tests pasan.
 
 ## Deuda tecnica conocida (actualizada 2026-10-20)
 
