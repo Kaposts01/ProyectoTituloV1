@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -15,6 +17,8 @@ from app.models.source_record import SourceRecord
 from app.models.vp import VpSubscription
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
+
+log = logging.getLogger(__name__)
 
 
 class WriteDisabledError(Exception):
@@ -47,6 +51,48 @@ class ReconciliationRequiredError(Exception):
 
 class DuplicateSubscriptionError(Exception):
     pass
+
+
+class RetryBlockedError(Exception):
+    pass
+
+
+# Códigos de rechazo VirtualPOS → decisión (ver docs/integrations/virtualpos/workflows/reintento-cobro-rechazado.md)
+_CARD_CODES = {"-1", "-4", "-5", "-7", "-8", "-9", "-11", "-1013", "-1016"}
+_RETRY_CODES = {"-2", "-10"}
+_RETRY_ONCE_CODES = {"-6", "-3"}
+_MERCHANT_CODES = {"-1003", "-1009", "-1010", "-1014", "-1015"}
+_KW_CARD = "vencid|expirad|bloquead|inválid|invalid|robad|perdid|cancelad|no soportad|seguridad|restringid"
+_KW_RETRY = "fondo|saldo|cupo|conexi|timeout|temporal|intente|no disponible"
+
+
+def _classify_rejection(attempts_payload: dict, prior_retries: int = 0) -> str:
+    """Clasifica el motivo de rechazo: CAMBIO_TARJETA, REINTENTAR, DIFERIR, MANUAL, DESCONOCIDO."""
+    ro = attempts_payload.get("rejected_object") or {}
+    code = str(ro.get("code") or ro.get("error_code") or "")
+    order = (attempts_payload.get("payment") or {}).get("order") or {}
+    cards = order.get("authorization_attempts_cards") or []
+    if len(cards) >= 3:
+        return "CAMBIO_TARJETA"
+    last = max(cards, key=lambda c: c.get("created_at", ""), default={}) if cards else {}
+    text = " ".join(filter(None, [
+        ro.get("message"),
+        last.get("response_description"),
+        last.get("response_message"),
+    ]))
+    if code in _CARD_CODES:
+        return "CAMBIO_TARJETA"
+    if code in _MERCHANT_CODES:
+        return "DIFERIR"
+    if code in _RETRY_CODES:
+        return "MANUAL" if prior_retries > 0 else "REINTENTAR"
+    if code in _RETRY_ONCE_CODES:
+        return "CAMBIO_TARJETA" if prior_retries > 0 else "REINTENTAR"
+    if re.search(_KW_CARD, text, re.IGNORECASE):
+        return "CAMBIO_TARJETA"
+    if re.search(_KW_RETRY, text, re.IGNORECASE):
+        return "CAMBIO_TARJETA" if prior_retries > 0 else "REINTENTAR"
+    return "DESCONOCIDO"
 
 
 class InvalidClientDataError(Exception):
@@ -916,11 +962,52 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None) -
 
     try:
         async with VirtualPOSClient(platform=charge.source) as provider:
+            # Clasificar el motivo de rechazo antes de reintentar (RISK-VP-01).
+            # Requiere payment.order.uuid del cargo para consultar /attempts.
+            decision = "DESCONOCIDO"
+            raw_charge = charge.raw_payload or {}
+            payment_uuid = (raw_charge.get("charge") or raw_charge).get("payment", {}).get("order", {}).get("uuid")
+            if payment_uuid:
+                try:
+                    attempts = await provider.get_payment_attempts(payment_uuid)
+                    prior_retries = db.scalar(
+                        select(func.count()).select_from(WriteRun).where(
+                            WriteRun.source == charge.source,
+                            WriteRun.external_id == charge_id,
+                            WriteRun.operation == "retry_charge",
+                            WriteRun.status == "completed",
+                        )
+                    ) or 0
+                    decision = _classify_rejection(attempts, prior_retries)
+                except Exception as exc_class:
+                    log.warning("VP retry_charge: no se pudo clasificar motivo para %s: %s", charge_id, exc_class)
+
+            log.info("VP retry_charge %s: decisión=%s payment_uuid=%s", charge_id, decision, payment_uuid)
+
+            if decision == "CAMBIO_TARJETA":
+                write_run.status = "blocked"
+                write_run.error_message = f"retry bloqueado: decision={decision}"
+                write_run.finished_at = datetime.now(UTC)
+                db.commit()
+                raise RetryBlockedError(
+                    f"Cargo {charge_id}: el motivo de rechazo requiere cambio de tarjeta, no reintento."
+                )
+            if decision == "DIFERIR":
+                write_run.status = "blocked"
+                write_run.error_message = f"retry bloqueado: decision={decision} (límite de comercio)"
+                write_run.finished_at = datetime.now(UTC)
+                db.commit()
+                raise RetryBlockedError(
+                    f"Cargo {charge_id}: límite del comercio — diferir reintento y alertar a finanzas."
+                )
+
             await provider.retry_charge(charge_id)
             try:
                 refreshed_payload = _charge_payload(await provider.get_charge(charge_id))
             except Exception:
                 refreshed_payload = None
+    except RetryBlockedError:
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, all_secrets)

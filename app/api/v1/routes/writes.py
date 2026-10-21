@@ -69,6 +69,7 @@ from app.services.write_virtualpos import (
     InvalidClientDataError,
     PaymentNotFoundError,
     ReconciliationRequiredError,
+    RetryBlockedError,
     SubscriptionNotFoundError,
     WriteDisabledError,
     cancel_charge,
@@ -362,6 +363,8 @@ async def retry_virtualpos_charge(
         charge = await retry_charge(db, charge_id)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except RetryBlockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     except ChargeNotFoundError:
         raise HTTPException(status_code=404, detail="Cargo no encontrado") from None
     except HTTPStatusError as exc:
@@ -527,6 +530,8 @@ async def batch_retry_virtualpos_charges(
             results.append({"charge_id": charge_id, "success": True, "status": charge.status, "error": None})
         except WriteDisabledError:
             results.append({"charge_id": charge_id, "success": False, "status": None, "error": "Escrituras deshabilitadas"})
+        except RetryBlockedError as exc:
+            results.append({"charge_id": charge_id, "success": False, "status": None, "error": str(exc)})
         except ChargeNotFoundError:
             results.append({"charge_id": charge_id, "success": False, "status": None, "error": "Cargo no encontrado"})
         except HTTPStatusError as exc:

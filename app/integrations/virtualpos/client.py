@@ -96,6 +96,9 @@ class VirtualPOSClient:
     async def get_payment(self, payment_uuid: str) -> Any:
         return await self._get(f"/v3/payment/{payment_uuid}")
 
+    async def get_payment_attempts(self, payment_uuid: str) -> Any:
+        return await self._get(f"/v3/payment/{payment_uuid}/attempts")
+
     async def delete_payment(self, payment_uuid: str) -> Any:
         response = await self._client.delete(f"/v3/payment/{payment_uuid}")
         response.raise_for_status()
