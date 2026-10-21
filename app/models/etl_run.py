@@ -20,6 +20,7 @@ class EtlRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     channels_processed: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    channels_failed: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     records_upserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     phase: Mapped[str | None] = mapped_column(String(30), nullable=True)

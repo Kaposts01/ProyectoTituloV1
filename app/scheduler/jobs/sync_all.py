@@ -183,6 +183,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             status="completed",
             phase=None,
             channels_processed=channels_done,
+            channels_failed=channels_failed or None,
             records_upserted=total_records,
             finished_at=datetime.now(timezone.utc),
             error_message=failed_msg,
