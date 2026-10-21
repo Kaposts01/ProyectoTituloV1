@@ -41,3 +41,15 @@ def test_removes_card_data_before_staging_provider_payloads() -> None:
     record = _sanitize_record({"order": {"uuid": "payment_123", "card_number": "4111111111111111"}})
 
     assert record == {"order": {"uuid": "payment_123"}}
+
+
+def test_empty_or_unrecognized_dict_response_returns_empty_list() -> None:
+    """VP client returns {} when it cannot parse a non-JSON error response."""
+    assert _records_from_response({}) == []
+    assert _records_from_response({"status": "error", "message": "timeout"}) == []
+
+
+def test_raises_for_non_dict_non_list_response() -> None:
+    import pytest
+    with pytest.raises(ValueError, match="unexpected response type"):
+        _records_from_response("HTML error page")

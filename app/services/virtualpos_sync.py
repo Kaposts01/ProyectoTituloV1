@@ -41,14 +41,20 @@ def _safe_error_message(exc: Exception) -> str:
 
 
 def _records_from_response(response: Any) -> list[dict[str, Any]]:
-    """Accept common list envelopes without discarding original records."""
+    """Accept common list envelopes without discarding original records.
+
+    Returns [] for an empty or unrecognized dict (VP returns {} on transient
+    errors or when the client could not parse the response as JSON).
+    Only raises when the response is not a dict or list at all.
+    """
     if isinstance(response, list):
         return [record for record in response if isinstance(record, dict)]
     if isinstance(response, dict):
         for key in ("data", "results", "items", "clients", "plans", "suscriptions", "payments", "charges"):
             if isinstance(response.get(key), list):
                 return [record for record in response[key] if isinstance(record, dict)]
-    raise ValueError("VirtualPOS returned an unexpected collection response envelope")
+        return []
+    raise ValueError(f"VirtualPOS returned an unexpected response type: {type(response).__name__}")
 
 
 def _external_id(record: dict[str, Any]) -> str:
