@@ -1,5 +1,8 @@
 import { Component, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
+import { setCsrfToken, getJson, postJson, postForm, downloadFile, putJson, patchJson, deleteJson, friendlyError } from "./api";
+import { Sidebar } from "./components/Sidebar";
+import { providerGroups, resourcePermission } from "./navigation";
 import "./App.css";
 import "./Staging.css";
 import { ActivacionCaidaChart, ChannelKpiChart, ChurnMensualChart, CrecimientoMensualChart, IngresosMensualesChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
@@ -283,43 +286,6 @@ type TchCliente = { id: string; rut: string; nombre: string | null; apellido: st
 type TchClientesResp = { total: number; page: number; limit: number; pages: number; items: TchCliente[] };
 type TchClienteDetail = TchCliente & { suscripciones: TchSuscripcion[] };
 
-let csrfToken = "";
-
-const providerGroups: { name: string; sections: ProviderSection[] }[] = [
-  {
-    name: "VirtualPOS",
-    sections: [
-      { source: "virtualpos", resource: "client", label: "Clientes" },
-      { source: "virtualpos", resource: "plan", label: "Planes" },
-      {
-        source: "virtualpos",
-        resource: "subscription",
-        label: "Subscripciones",
-      },
-      { source: "virtualpos", resource: "charge", label: "Cargos" },
-      { source: "virtualpos", resource: "payment", label: "Transacciones" },
-    ],
-  },
-  {
-    name: "Toku",
-    sections: [
-      { source: "toku", resource: "customer", label: "Clientes" },
-      { source: "toku", resource: "subscription", label: "Subscripciones" },
-      { source: "toku", resource: "payment_method", label: "Metodos de pago" },
-      { source: "toku", resource: "invoice", label: "Deudas" },
-      { source: "toku", resource: "transaction", label: "Transacciones" },
-    ],
-  },
-  {
-    name: "Payku",
-    sections: [
-      { source: "payku", resource: "client", label: "Clientes" },
-      { source: "payku", resource: "subscription", label: "Suscripciones" },
-      { source: "payku", resource: "transaction", label: "Transacciones" },
-      { source: "payku", resource: "plan", label: "Planes" },
-    ],
-  },
-];
 const virtualPosMetrics = [
   { resource: "client", label: "Clientes", tone: "blue" },
   { resource: "plan", label: "Planes", tone: "violet" },
@@ -773,148 +739,10 @@ function filterFieldForColumn(source: string, resource: string, label: string): 
   )?.value ?? null;
 }
 
-function extractErrorDetail(data: unknown): string | null {
-  if (!data || typeof data !== "object") return null;
-  const detail = (data as Record<string, unknown>).detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail) && detail.length > 0) {
-    return detail
-      .map((item) => {
-        if (typeof item !== "object" || item === null) return String(item);
-        const err = item as Record<string, unknown>;
-        const loc = Array.isArray(err.loc)
-          ? (err.loc as string[]).filter((l) => l !== "body").join(" → ")
-          : "";
-        const msg = typeof err.msg === "string" ? err.msg : "";
-        return loc ? `${loc}: ${msg}` : msg;
-      })
-      .filter(Boolean)
-      .join("; ");
-  }
-  return null;
-}
-
-function httpErrorMessage(status: number, detail: string | null): string {
-  if (detail) return detail;
-  if (status === 400) return "Solicitud inválida. Verifica los datos ingresados.";
-  if (status === 401) return "Sesión expirada. Vuelve a iniciar sesión.";
-  if (status === 403) return "No tienes permiso para realizar esta acción.";
-  if (status === 404) return "El recurso solicitado no fue encontrado.";
-  if (status === 422) return "Los datos enviados no son válidos. Revisa los campos e inténtalo de nuevo.";
-  if (status === 500) return "Error interno del servidor. Inténtalo de nuevo en unos momentos.";
-  if (status === 503) return "El servicio no está disponible temporalmente. Inténtalo más tarde.";
-  return `Error inesperado del servidor (${status}).`;
-}
-
-function friendlyError(error: unknown, fallback = "Ocurrió un error inesperado."): string {
-  if (error instanceof TypeError && error.message.toLowerCase().includes("fetch")) {
-    return "No se pudo conectar con el servidor. Verifica tu conexión.";
-  }
-  if (error instanceof Error) return error.message || fallback;
-  return fallback;
-}
-
-async function checkResponse(response: Response): Promise<void> {
-  if (response.ok) return;
-  const data = await response.json().catch(() => null);
-  const detail = extractErrorDetail(data);
-  throw new Error(httpErrorMessage(response.status, detail));
-}
-
-async function jsonResponse<T>(response: Response): Promise<T> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    throw new Error("La API activa no incluye esta ruta de recuperación. Reinicia el servidor backend y vuelve a intentarlo.");
-  }
-  return response.json() as Promise<T>;
-}
-
-async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { credentials: "include", signal });
-  await checkResponse(response);
-  return jsonResponse<T>(response);
-}
-
-function useDebouncedValue<T>(value: T, delayMs = 300): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebouncedValue(value), delayMs);
-    return () => window.clearTimeout(timeout);
-  }, [value, delayMs]);
-  return debouncedValue;
-}
-
-async function postJson<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  await checkResponse(response);
-  return jsonResponse<T>(response);
-}
-
-async function postForm<T>(path: string, body: FormData): Promise<T> {
-  const response = await fetch(path, {
-    method: "POST",
-    credentials: "include",
-    headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
-    body,
-  });
-  await checkResponse(response);
-  return jsonResponse<T>(response);
-}
-
-async function downloadFile(path: string, filename: string): Promise<void> {
-  const response = await fetch(path, { credentials: "include" });
-  await checkResponse(response);
-  const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-async function putJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: "PUT",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
-    body: JSON.stringify(body),
-  });
-  await checkResponse(response);
-  return response.json() as Promise<T>;
-}
-
-async function patchJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
-    body: JSON.stringify(body),
-  });
-  await checkResponse(response);
-  return response.json() as Promise<T>;
-}
-
-async function deleteJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, {
-    method: "DELETE",
-    credentials: "include",
-    headers: { ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
-  });
-  await checkResponse(response);
-  return response.json() as Promise<T>;
-}
 
 async function refreshCsrfToken(): Promise<void> {
   const session = await getJson<AuthSession>("/api/v1/auth/me");
-  csrfToken = session.csrf_token;
+  setCsrfToken(session.csrf_token);
 }
 
 function text(value: unknown, fallback = "Sin dato"): string {
@@ -1534,224 +1362,6 @@ function paykuColumns(resource: string): TableColumn[] {
 }
 
 
-function Sidebar({
-  activeSection,
-  channel,
-  tchView,
-  openProvider,
-  theme,
-  onDashboard,
-  generalView,
-  onGeneralClients,
-  onGeneralSubscriptions,
-  onAutoReport,
-  onChannel,
-  onSection,
-  onToggle,
-  onTheme,
-  onTch,
-  permissions,
-  onAdmin,
-  adminOpen,
-  adminTab,
-  onLogout,
-  onProfile,
-  open,
-  onClose,
-  recoveryOpen,
-  onRecovery,
-}: {
-  activeSection: ProviderSection | null;
-  channel: string | null;
-  tchView: string | null;
-  openProvider: string | null;
-  theme: "light" | "dark";
-  onDashboard: () => void;
-  generalView: "summary" | "clients" | "subscriptions" | "report";
-  onGeneralClients: () => void;
-  onGeneralSubscriptions: () => void;
-  onAutoReport: () => void;
-  onChannel: (source: ProviderSource) => void;
-  onSection: (section: ProviderSection) => void;
-  onToggle: (provider: string) => void;
-  onTheme: () => void;
-  onTch: (view: "summary" | "clientes" | "suscripciones" | "transacciones") => void;
-  permissions: string[];
-  onAdmin: (view: "usuarios" | "sincronizacion") => void;
-  adminOpen: boolean;
-  adminTab: string | null;
-  onLogout: () => void;
-  onProfile: () => void;
-  open: boolean;
-  onClose: () => void;
-  recoveryOpen: boolean;
-  onRecovery: () => void;
-}) {
-  const can = (permission: string) => permissions.includes(permission);
-  const go = (fn: () => void) => () => { fn(); onClose(); };
-  const visibleGroups = providerGroups.map((group) => ({
-    ...group,
-    sections: group.sections.filter((section) => can(resourcePermission(section.source, section.resource))),
-  })).filter((group) => group.sections.length > 0);
-  return (
-    <aside className={`sidebar${open ? " open" : ""}`}>
-      <div className="sidebar-toprow">
-        <button className="sidebar-brand" onClick={go(onDashboard)}>
-          <span>CRM</span>
-          <strong>Suscripciones</strong>
-        </button>
-        <button className="sidebar-close" onClick={onClose} aria-label="Cerrar menú">✕</button>
-      </div>
-      <nav className="sidebar-nav" aria-label="Navegacion principal">
-        {can("dashboard.view") ? <button
-          className={!activeSection && !channel && !tchView && generalView === "summary" ? "sidebar-item active" : "sidebar-item"}
-          onClick={go(onDashboard)}
-        >
-          Dashboard
-        </button> : null}
-        {can("dashboard.view") ? <>
-          <button className={generalView === "clients" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralClients)}>Clientes</button>
-          <button className={generalView === "subscriptions" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralSubscriptions)}>Suscripciones</button>
-          <button className={generalView === "report" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onAutoReport)}>Reporte automático</button>
-        </> : null}
-        {visibleGroups.map((group) => (
-          <section className="sidebar-group" key={group.name}>
-            <div className="channel-heading">
-              <button
-                className={
-                  channel === group.sections[0].source
-                    ? "channel-dashboard active"
-                    : "channel-dashboard"
-                }
-                onClick={go(() => onChannel(group.sections[0].source))}
-              >
-                {group.name}
-              </button>
-              <button
-                className="sidebar-expand"
-                aria-label={`Expandir ${group.name}`}
-                aria-expanded={openProvider === group.name}
-                onClick={() => onToggle(group.name)}
-              >
-                {openProvider === group.name ? "-" : "+"}
-              </button>
-            </div>
-            {openProvider === group.name
-              ? <>
-                  {group.sections.map((section) => (
-                    <button
-                      className={
-                        activeSection?.source === section.source &&
-                        activeSection.resource === section.resource
-                          ? "sidebar-item nested active"
-                          : "sidebar-item nested"
-                      }
-                      key={section.resource}
-                      onClick={go(() => onSection(section))}
-                    >
-                      {section.label}
-                    </button>
-                  ))}
-                  {group.name === "VirtualPOS" && can("virtualpos.recovery.view") ? (
-                    <button
-                      className={recoveryOpen ? "sidebar-item nested active" : "sidebar-item nested"}
-                      onClick={go(onRecovery)}
-                    >
-                      Recuperador de Socios
-                    </button>
-                  ) : null}
-                </>
-              : null}
-          </section>
-        ))}
-        {can("tch.dashboard.view") ? (
-          <section className="sidebar-group">
-            <div className="channel-heading">
-              <button
-                className={tchView ? "channel-dashboard active" : "channel-dashboard"}
-                onClick={go(() => onTch("summary"))}
-              >
-                TCH
-              </button>
-              <button
-                className="sidebar-expand"
-                aria-label="Expandir TCH"
-                aria-expanded={openProvider === "TCH"}
-                onClick={() => onToggle("TCH")}
-              >
-                {openProvider === "TCH" ? "-" : "+"}
-              </button>
-            </div>
-            {openProvider === "TCH" ? (
-              <>
-                {can("tch.clientes.view") ? <button className={tchView === "clientes" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("clientes"))}>Clientes</button> : null}
-                <button className={tchView === "suscripciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("suscripciones"))}>Suscripciones</button>
-                <button className={tchView === "transacciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("transacciones"))}>Transacciones</button>
-              </>
-            ) : null}
-          </section>
-        ) : null}
-        {can("users.manage") || can("roles.manage") || can("sync_runs.view") || can("sync.run") ? (
-          <section className="sidebar-group">
-            <div className="channel-heading">
-              <button
-                className={adminOpen ? "channel-dashboard active" : "channel-dashboard"}
-                onClick={go(() => onAdmin(can("users.manage") || can("roles.manage") ? "usuarios" : "sincronizacion"))}
-              >
-                Administración
-              </button>
-              <button
-                className="sidebar-expand"
-                aria-label="Expandir Administración"
-                aria-expanded={openProvider === "Administración"}
-                onClick={() => onToggle("Administración")}
-              >
-                {openProvider === "Administración" ? "-" : "+"}
-              </button>
-            </div>
-            {openProvider === "Administración" ? (
-              <>
-                {can("users.manage") || can("roles.manage") ? (
-                  <button
-                    className={adminOpen && adminTab === "usuarios" ? "sidebar-item nested active" : "sidebar-item nested"}
-                    onClick={go(() => onAdmin("usuarios"))}
-                  >
-                    Usuarios
-                  </button>
-                ) : null}
-                {can("sync_runs.view") || can("sync.run") ? (
-                  <button
-                    className={adminOpen && adminTab === "sincronizacion" ? "sidebar-item nested active" : "sidebar-item nested"}
-                    onClick={go(() => onAdmin("sincronizacion"))}
-                  >
-                    Sincronización
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-          </section>
-        ) : null}
-      </nav>
-      <div className="sidebar-footer">
-        <button className="theme-btn" onClick={onTheme} aria-label="Cambiar tema">
-          <span className="theme-btn-icon">{theme === "dark" ? "☀" : "◐"}</span>
-          {theme === "dark" ? "Modo claro" : "Modo oscuro"}
-        </button>
-        <button className="theme-btn" onClick={go(onProfile)}>Mi perfil</button>
-        <button className="theme-btn" onClick={go(onLogout)}>Cerrar sesión</button>
-      </div>
-    </aside>
-  );
-}
-
-function resourcePermission(source: string, resource: string): string {
-  const names: Record<string, Record<string, string>> = {
-    virtualpos: { client: "clients", plan: "plans", subscription: "subscriptions", charge: "charges", payment: "payments" },
-    toku: { customer: "customers", subscription: "subscriptions", payment_method: "payment_methods", invoice: "invoices", transaction: "transactions" },
-    payku: { client: "clients", plan: "plans", subscription: "subscriptions", transaction: "transactions" },
-  };
-  return `${source}.${names[source]?.[resource] ?? resource}.view`;
-}
 
 function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
   const [error, setError] = useState<string | null>(null);
@@ -1765,7 +1375,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
       const response = await fetch("/api/v1/auth/login", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: form.get("username"), password: form.get("password") }) });
       const payload = await response.json() as AuthSession | { detail?: string };
       if (!response.ok || !("user" in payload)) throw new Error("detail" in payload ? payload.detail : "No se pudo iniciar sesión");
-      csrfToken = payload.csrf_token;
+      setCsrfToken(payload.csrf_token);
       onLogin(payload);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "No se pudo iniciar sesión");
@@ -3460,7 +3070,7 @@ function App() {
 
   useEffect(() => {
     getJson<AuthSession>("/api/v1/auth/me")
-      .then((current) => { csrfToken = current.csrf_token; setSession(current); })
+      .then((current) => { setCsrfToken(current.csrf_token); setSession(current); })
       .catch(() => setSession(null));
   }, []);
 
@@ -5016,7 +4626,7 @@ function App() {
 
   async function logout() {
     try { await postJson("/api/v1/auth/logout"); } finally {
-      csrfToken = "";
+      setCsrfToken("");
       setSession(null);
       setAdminOpen(false);
       setProfileView(null);
