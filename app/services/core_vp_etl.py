@@ -237,7 +237,90 @@ def _materialize_charges(db: Session) -> int:
     return after - before
 
 
-# ── Paso 4: pagos ─────────────────────────────────────────────────────────────
+# ── Paso 4: enriquecer cargos con último rechazo verificable ─────────────────
+
+def _enrich_charges_with_rejections(db: Session) -> int:
+    """Pobla CoreCharge.latest_rejection_* desde VpPayment rechazados.
+
+    VpPayment.charge_external_id enlaza cada pago al cargo que lo originó.
+    Para cargos con pagos rechazados usamos el más reciente como fuente de
+    latest_rejection_payment_id / code / reason / at.
+    Solo actualiza filas cuyo latest_rejection_at es NULL o tiene un pago más nuevo.
+    Retorna el número de cargos actualizados.
+    """
+    # Construir índice: (platform, charge_external_id) → CorePayment más reciente con rechazo
+    rejection_index: dict[tuple[str, str], dict] = {}
+    for p in db.scalars(
+        select(VpPayment).where(
+            VpPayment.charge_external_id.isnot(None),
+            VpPayment.platform.in_(_VP_SOURCES),
+        )
+    ):
+        payload = p.raw_payload or {}
+        order = (payload.get("payment") or payload).get("order") or {}
+        rejected = order.get("rejected_object") or {}
+        if not rejected:
+            continue
+        code = str(rejected.get("code") or rejected.get("error_code") or "")
+        reason = str(rejected.get("message") or "")
+        if not code:
+            continue
+        occurred = _parse_date(p.payment_date)
+        key = (p.platform, p.charge_external_id)
+        prev = rejection_index.get(key)
+        if prev is None or (occurred and (prev["occurred_at"] is None or occurred > prev["occurred_at"])):
+            rejection_index[key] = {
+                "payment_external_id": p.external_id,
+                "code": code or None,
+                "reason": reason or None,
+                "occurred_at": occurred,
+                "platform": p.platform,
+            }
+
+    if not rejection_index:
+        return 0
+
+    # Recuperar CorePayment.id y CoreCharge.id para hacer el update
+    core_payment_ids: dict[tuple[str, str], uuid.UUID] = {
+        (row.source, row.external_id): row.id
+        for row in db.execute(
+            select(CorePayment.source, CorePayment.external_id, CorePayment.id).where(
+                CorePayment.source.in_(_VP_SOURCES)
+            )
+        )
+    }
+    core_charge_ids: dict[tuple[str, str], uuid.UUID] = {
+        (row.source, row.external_id): row.id
+        for row in db.execute(
+            select(CoreCharge.source, CoreCharge.external_id, CoreCharge.id).where(
+                CoreCharge.source.in_(_VP_SOURCES)
+            )
+        )
+    }
+
+    updated = 0
+    for (platform, charge_ext_id), rej in rejection_index.items():
+        charge_id = core_charge_ids.get((platform, charge_ext_id))
+        if charge_id is None:
+            continue
+        payment_id = core_payment_ids.get((platform, rej["payment_external_id"]))
+
+        charge = db.get(CoreCharge, charge_id)
+        if charge is None:
+            continue
+        if charge.latest_rejection_at is not None and rej["occurred_at"] is not None:
+            if rej["occurred_at"] <= charge.latest_rejection_at:
+                continue
+        charge.latest_rejection_payment_id = payment_id
+        charge.latest_rejection_code = rej["code"]
+        charge.latest_rejection_reason = rej["reason"]
+        charge.latest_rejection_at = rej["occurred_at"]
+        updated += 1
+
+    return updated
+
+
+# ── Paso 5: pagos ─────────────────────────────────────────────────────────────
 
 def _build_rut_to_sub_index(db: Session) -> dict[tuple[str, str], list[uuid.UUID]]:
     """(platform, rut) → list of CoreSubscription.id for that platform+rut."""
@@ -329,6 +412,10 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
     charges = _materialize_charges(db)
     log.info("VP Core ETL — cargos upserted: %d", charges)
 
+    log.info("VP Core ETL — enriqueciendo cargos con datos de último rechazo")
+    rejections = _enrich_charges_with_rejections(db)
+    log.info("VP Core ETL — cargos con rechazo enriquecido: %d", rejections)
+
     log.info("VP Core ETL — construyendo índice RUT→suscripción para pagos")
     rut_to_sub = _build_rut_to_sub_index(db)
 
@@ -342,6 +429,7 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
         "charges_upserted": charges,
+        "charges_rejection_enriched": rejections,
         "payments_inserted": payments,
         "payments_unlinked_ambiguous_rut": ambiguous,
     }
