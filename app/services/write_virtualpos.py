@@ -12,6 +12,7 @@ from app.integrations.virtualpos.client import VirtualPOSClient
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
+from app.models.vp import VpSubscription
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
 
@@ -41,6 +42,10 @@ class SubscriptionNotFoundError(Exception):
 
 
 class ReconciliationRequiredError(Exception):
+    pass
+
+
+class DuplicateSubscriptionError(Exception):
     pass
 
 
@@ -607,6 +612,24 @@ async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription
             raw = str(data[url_field])
             if not _is_base64(raw):
                 data[url_field] = base64.b64encode(raw.encode()).decode()
+
+    # Antiduplicado: evitar crear una segunda suscripción activa para el mismo socio y plan.
+    plan_id = data.get("plan_id")
+    social_id = data.get("social_id")
+    if plan_id and social_id:
+        existing = db.scalar(
+            select(VpSubscription).where(
+                VpSubscription.platform == platform,
+                VpSubscription.plan_external_id == str(plan_id),
+                VpSubscription.client_social_id == str(social_id),
+                VpSubscription.status.in_(("ACTIVA", "SUSCRIBIENDO")),
+            )
+        )
+        if existing is not None:
+            raise DuplicateSubscriptionError(
+                f"Ya existe una suscripción {existing.status} ({existing.external_id}) "
+                f"para el socio {social_id} en el plan {plan_id} ({platform})."
+            )
 
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError

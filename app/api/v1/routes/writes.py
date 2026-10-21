@@ -65,6 +65,7 @@ from app.services.write_virtualpos import (
     ChargeNotFoundError,
     ClientNotFoundError,
     DuplicateClientError,
+    DuplicateSubscriptionError,
     InvalidClientDataError,
     PaymentNotFoundError,
     ReconciliationRequiredError,
@@ -249,6 +250,8 @@ async def create_virtualpos_subscription(
         sub = await create_subscription(db, body.model_dump(exclude_none=True, mode="json"))
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except DuplicateSubscriptionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     except HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la suscripción") from None
     except ReconciliationRequiredError:
