@@ -25,22 +25,22 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 
 | ID | Tarea | Estado | Responsable |
 | --- | --- | --- | --- |
-| DATA-01 | Documentar modelo de datos VirtualPOS (staging + tablas canónicas) | Pendiente | — |
-| DATA-02 | Documentar modelo de datos Toku | Pendiente | — |
-| DATA-03 | Documentar modelo de datos Payku | Pendiente | — |
-| DATA-04 | Documentar modelo de datos TCH (ETL + tablas tch_*) | Pendiente | — |
-| TK-10 | Investigar campo flow_name en Toku (BLQ-TK-01) | Pendiente | — |
-| SYNC-01 | Auditar idempotencia y trazabilidad en consolidación | Pendiente | — |
+| DATA-01 | Documentar modelo de datos VirtualPOS (staging + tablas canónicas) | Completada | — |
+| DATA-02 | Documentar modelo de datos Toku | Completada | — |
+| DATA-03 | Documentar modelo de datos Payku | Completada | — |
+| DATA-04 | Documentar modelo de datos TCH (ETL + tablas tch_*) | Completada | — |
+| TK-10 | Investigar campo flow_name en Toku (BLQ-TK-01) | Completada | — |
+| SYNC-01 | Auditar idempotencia y trazabilidad en consolidación | Completada | — |
 
 ### Definición de Done (Sprint 1)
 
-- [ ] `DATA-01–04`: Cada canal tiene doc en `docs/data/` con tablas, campos clave, relaciones y brechas conocidas
-- [ ] `TK-10`: Estado de BLQ-TK-01 documentado (resuelto o bloqueado esperando Toku)
-- [ ] `SYNC-01`: Informe de idempotencia — rutas auditadas, gaps registrados en Technical Debt
+- [x] `DATA-01–04`: Cada canal tiene doc en `docs/data/` con tablas, campos clave, relaciones y brechas conocidas
+- [x] `TK-10`: Estado de BLQ-TK-01 documentado — sin respuesta de Toku al 2026-10-24, sigue bloqueado
+- [x] `SYNC-01`: Informe de idempotencia — 5 gaps documentados en `docs/data/sync-idempotency.md`
 
 ### Notas de sesión
 
-*(Registrar aquí avances, decisiones o bloqueos durante el sprint)*
+- Sesión 2026-10-24: DATA-01–04 completos. Brechas principales: source_record_id=NULL en todos los canales (SYNC-GAP-03), VP con platform variable (SYNC-GAP-01), TCH con RUT como external_id en tensión con ADR-001 (GAP-TCH-01). TK-10: BLQ-TK-01 sigue sin respuesta de Toku. SYNC-01: mecanismo ON CONFLICT DO UPDATE idempotente en todas las rutas; riesgo principal es coexistencia de crm_materialization.py (legacy) + channel_consolidation.py.
 
 ---
 
