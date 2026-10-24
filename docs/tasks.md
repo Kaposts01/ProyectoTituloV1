@@ -474,6 +474,78 @@ Fuente de referencia: [informe comparativo](https://claude.ai/artifact/7R7N8sJHP
 | BUG-ETL-02 | Mapear `last_payment_status` en `core_toku_etl._materialize_subscriptions` | Completada | Derivado desde última `TokuInvoice` por `due_date` por suscripción; mapeado en row dict y upsert; commit f587f1a. |
 | BUG-ALB-01 | Registrar modelos webhook en `alembic/env.py` | Completada | `StgTokuWebhookEvent`, `StgVposWebhookEvent` y `StgPaykuWebhookEvent` importados; `alembic check` sin operaciones pendientes; commit f587f1a. |
 
+## Hito 6: Sprint Plan — Nuevo Desarrollador (2026-10-21)
+
+Origen: plan-ceo-review SCOPE EXPANSION — 6 grupos + 3 expansiones aprobadas (E1 componentes, E3 salud sidebar, E4 FE-01 completo).
+Plan visual: https://claude.ai/artifact/RjnJYnghhrxA8AJb33kZjr
+
+### Sprint 0: Onboarding & Fundación
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| FE-02 | Completar modularización App.tsx en feature folders | Pendiente | App.tsx < 500 líneas; features/virtualpos/, features/toku/, features/payku/, features/tch/, features/general/, features/admin/ extraídas; build y lint OK; contratos API y permisos preservados. Desbloquea grupos 2, 3 y 5. |
+
+### Sprint 1: Auditoría de Datos por Canal
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| DATA-01 | Revisar datos objeto VirtualPOS | Pendiente | Documento de auditoría en docs/integrations/virtualpos/ con endpoints disponibles vs expuestos, campos sin mapear y gaps identificados. |
+| DATA-02 | Revisar datos objeto Toku | Pendiente | Documento en docs/integrations/toku/ con campos de customers/subscriptions/invoices/methods sin uso en UI identificados. |
+| DATA-03 | Revisar datos objeto Payku | Pendiente | Documento en docs/integrations/payku/ con cobertura histórica verificada y campos sin mapear. |
+| DATA-04 | Revisar datos objeto TCH | Pendiente | Documento en docs/integrations/tch/ con campos de reportes Excel no expuestos en UI identificados. |
+
+### Sprint 2: Componentes Compartidos y KPIs
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | Pendiente | Componentes en frontend/src/components/ con data contracts explícitos; JetBrains Mono en valores numéricos; tests básicos de render; usados por al menos un canal como validación. |
+| KPI-01 | Estandarizar KPIs VirtualPOS/resumen | Pendiente | MRR, ARPU, Suscripciones activas, Churn mensual y Cargos rechazados usando KpiCard.tsx; datos verificados contra VP staging. |
+| KPI-02 | Estandarizar KPIs Toku/resumen | Pendiente | Mismos KPI canónicos para Toku; MRR desde suscripciones ACTIVE con método chargeable; nota sobre campos específicos de Toku. |
+| KPI-03 | Estandarizar KPIs Payku/resumen | Pendiente | KPIs con nota visible de cobertura histórica no certificada; MRR desde última transacción success asociada. |
+| KPI-04 | Estandarizar KPIs TCH/resumen | Pendiente | KPIs desde tch_recaudacion_mensual (controles oficiales); nota "fuente: reportes Excel oficiales" visible al operador. |
+
+### Sprint 3: Gráficos y Barra Lateral
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| CHART-01 | Estandarizar gráficos VirtualPOS/resumen | Pendiente | ChannelChart.tsx con suscripciones activas acumuladas, cargos mensuales apilados y altas/bajas; datos verificados contra VP. |
+| CHART-02 | Estandarizar gráficos Toku/resumen | Pendiente | Transacciones reales (no facturas) para tendencia de cobros; activaciones vs bajas; métodos por estado chargeable. |
+| CHART-03 | Estandarizar gráficos Payku/resumen | Pendiente | Series desde p_subscriptions y p_transactions; vacíos de cobertura anotados visualmente. |
+| CHART-04 | Estandarizar gráficos TCH/resumen | Pendiente | Series desde tch_recaudacion_mensual; gráficos mensuales que requieran extracción de vistas diferidos hasta tener extracción definida. |
+| UI-20 | Auditoría y corrección de barra lateral | Pendiente | Navegación, permisos, comportamiento móvil, collapse y active states revisados y corregidos; no se rompen rutas existentes. |
+| UI-21 | Indicadores de salud de canal en sidebar | Pendiente | Punto verde/amarillo/rojo por canal según último SyncRun (verde <24h, amarillo <72h, rojo ≥72h o error); caché TTL 5min; sin bloquear render si falla. |
+
+### Sprint 4: Mejoras al Recuperador VP
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| REC-03 | Mejoras al recuperador de socios VirtualPOS | Pendiente | Motivos de rechazo desde latest_rejection_* bien presentados; filtros adicionales operativos; exportación CSV con columnas de trazabilidad; preparado para mover al módulo general. |
+
+### Sprint 5: Recuperador General Multi-canal
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| REC-04 | Recuperador Toku en módulo general | Pendiente | Endpoints de recuperación Toku (canceladas, rechazadas) desde core_subscriptions/core_charges (source=toku); entrada sidebar movida a /general/recuperador con tab Toku; permisos RBAC aplicados. |
+| REC-05 | Recuperador Payku en módulo general | Pendiente | Tab Payku en /general/recuperador; advertencia de cobertura histórica limitada visible; endpoints desde core_* (source=payku). |
+| REC-06 | Recuperador TCH en módulo general | Pendiente | Tab TCH en /general/recuperador; sin acciones de escritura remota (TCH es solo Excel); mandatos eliminados y cargos rechazados accesibles. |
+
+### Sprint 6: Infraestructura y Operaciones
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| ENV-01 | Separar Sandbox, QA y Producción | Pendiente | Cada entorno con base, credenciales y providers propios; Producción en cluster PostgreSQL independiente; proceso de deploy y migración por entorno documentado. |
+| BCK-01 | Automatizar respaldo y recuperación | Pendiente | Backup físico WAL/PITR + dump lógico; verificación, retención y simulacro de restauración documentados; política de retención definida. |
+| OPS-09 | Evaluar entrega de progreso en tiempo real | Pendiente | Decisión documentada: SSE actual se mantiene o evoluciona a WebSocket; autenticación, reconexión y persistencia de eventos evaluadas. |
+| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-4) | En curso | Plan de validación ejecutado; REVIEW.md actualizado con resultados; prerequisitos de sandbox confirmados. |
+| VAL-PK-01 | Resolver preguntas abiertas Payku (Q-06, Q-08, Q-11, Q-27, Q-29) | En curso | 5 preguntas ejecutadas contra API Payku; VALIDATION-PLAN.md actualizado con resultados. |
+
+## TODOS.md — Diferidos
+
+| ID | Item | Razón del diferimiento |
+| --- | --- | --- |
+| E2-BATCH | Batch recovery: selección múltiple + reintento en lote | Diferido hasta que REC-04–06 (recuperador multi-canal) esté estable. Sprint posterior. |
+| BLQ-PK-01 | Confirmar comportamiento plan variable Payku al activar (Q-27) | Requiere verificación en sandbox Payku antes de implementar alta Payku. |
+
 ## Auditoria tecnica 2026-10-20
 
 | ID | Tarea | Estado | Criterio de aceptación |

@@ -1,49 +1,65 @@
 # Sprint Actual
 
-## Objetivo actual
+## Marco de trabajo
 
-**Status: Completed**
+Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Code delimitadas por sprint.
 
-Establecer una arquitectura documental y un modelo conceptual suficientemente solidos antes de comenzar la implementacion tecnica.
+**Flujo por sesión:**
+1. Al iniciar, indicar el sprint activo: *"Trabajamos en Sprint N"*
+2. Tomar las tareas del backlog de ese sprint en `docs/tasks.md`
+3. Al cerrar, actualizar estado de tareas y registrar notas de avance
+4. Al completar todas las tareas, cerrar el sprint y activar el siguiente
 
-## Alcance documental
+**Fuente de verdad del backlog:** `docs/tasks.md` → Hito 6, sección del sprint correspondiente.
+**Artefacto visual:** https://claude.ai/artifact/RjnJYnghhrxA8AJb33kZjr
 
-- Vision, requisitos, arquitectura conceptual y modelo Core consolidados.
-- La estrategia conceptual de identidad centralizada quedo definida en ADR-001; su implementacion tecnica permanece fuera de alcance.
-- Liquidaciones y taxonomias transversales conservadas como `TBD`.
-- Riesgos, bloqueos, decisiones aceptadas y deuda tecnica registrados.
-- Documentos historicos contrastados con el estado observado sin cambiar componentes tecnicos.
+---
 
-## Fuera de alcance
+## Sprint Activo: Sprint 0 — Onboarding & Fundación
 
-- Implementar modelos, migraciones, endpoints, conectores o agentes; la creacion y validacion documental de las skills locales `data-modeling` y `provider-integration` esta autorizada para este sprint.
-- Modificar backend, frontend, base de datos, Docker o integraciones.
+**Estado:** Activo  
+**Objetivo:** Dejar el entorno operativo y App.tsx modularizado para que el nuevo desarrollador pueda trabajar en módulos aislados sin conflictos de merge.  
+**Duración:** 2 semanas (2026-10-24 → 2026-11-07)  
 
-## Siguiente fase: Core ETL
+### Backlog del Sprint
 
-**Status: Completed** (rama `feature/core-centralizado`, pendiente de merge a `master`)
+| ID | Tarea | Estado | Responsable |
+| --- | --- | --- | --- |
+| OPS-07 | Levantar servicios y verificar BD consolidada | En curso | — |
+| FE-02 | Completar modularización App.tsx en feature folders | Pendiente | — |
 
-Se implementó el Core ETL completo para los cuatro canales:
+### Definición de Done (Sprint 0)
 
-- **Migraciones 0027 y 0028**: columna `status` en `core_subscriptions` y tabla `core_client_attributes` con constraint UNIQUE `(source, attribute_type, attribute_value)`.
-- **ETL services** (`app/services/core_*_etl.py`): TCH, Toku, Payku y VirtualPOS — idempotentes, batch 500, conteo real via SELECT COUNT.
-- **Endpoints REST**: `POST /etl/core/{provider}` y `POST /etl/core/all` (background tasks, traceable via `EtlRun`).
-- **Tests**: 66 tests unitarios en `tests/test_core_etl_helpers.py` para helpers puros y estructura de modelos.
-- **CI**: `ruff check` limpio; 3 fallos pre-existentes en pytest no relacionados con Core ETL.
-- **Documentación**: `docs/integrations/toku.md` documenta el patrón de suscripciones eliminadas en origen (stub strategy, Option A vs B).
+- [ ] `OPS-07`: PostgreSQL saludable en `localhost:5433`; migraciones en `head`; API `/health` OK; frontend build correcto
+- [ ] `FE-02`: App.tsx < 500 líneas; feature folders extraídos (`virtualpos/`, `toku/`, `payku/`, `tch/`, `general/`, `admin/`); `npm run build` OK; `PYTHONPATH=. .venv/Scripts/pytest.exe` sin regresiones
 
-Decisión técnica destacada: Toku tiene 112 suscripciones eliminadas en el origen que dejan 564 facturas huérfanas. Se usa el patrón "stub" (`status='deleted_at_source'`) en lugar de flotar pagos con `charge_id=NULL`.
+### Notas de sesión
 
-Las tareas operativas y del Core quedan registradas en [tasks.md](../tasks.md).
+*(Registrar aquí avances, decisiones o bloqueos durante el sprint)*
 
-## Trabajo planificado de calidad operativa
+---
 
-**Status: Planned**
+## Hoja de Ruta de Sprints
 
-La auditoria `AUD-01` incorporo las tareas `SYNC-01`, `DB-02`, `DASH-01`, `FE-01` y `OPS-09` en [tasks.md](../tasks.md). `DB-02` confirmo la instancia efectiva y `DB-03` reconcilio la metadata Alembic y las estadisticas antes de migraciones. `DASH-01` está completada: la paridad se limita a datos fechados y estados verificables; Payku conserva su cobertura histórica no certificada. `FE-01` está en curso: las alertas, rutas de proveedor, ficha TCH por `numero_ficha` y estado de listado seguro en URL son reutilizables; `App.tsx` todavía concentra carga y exploradores. La evaluacion de WebSocket debe partir del SSE existente para progreso de sincronizaciones y no modifica el flujo de ingestion de proveedores sin una decision posterior.
+| # | Sprint | Objetivo central | Tareas | Duración |
+|---|--------|-----------------|--------|----------|
+| 0 | **Onboarding & Fundación** ← *activo* | Entorno operativo + App.tsx modularizado | OPS-07, FE-02 | 2 sem |
+| 1 | Auditoría de Datos | Documentar datos objeto por canal | DATA-01–04, TK-10, SYNC-01 | 2 sem |
+| 2 | Componentes + KPIs | Componentes compartidos + KPIs estándar | FE-03, KPI-01–04 | 2 sem |
+| 3 | Gráficos + Sidebar | Gráficos estandarizados + sidebar con salud | CHART-01–04, UI-20–21 | 2 sem |
+| 4 | Recuperador VP | Mejoras al recuperador VirtualPOS | REC-03, WR-VP-05, PK-05 | 2 sem |
+| 5 | Recuperador General | Recuperador multi-canal (Toku/Payku/TCH) | REC-04–06 | 3 sem |
+| 6 | Infraestructura | Ambientes, respaldo y operaciones | ENV-01, BCK-01, OPS-09, VAL-VP-01, VAL-PK-01 | 2 sem |
 
-## Mantenimiento estructural
+**Desbloqueado externo:** BLQ-TK-01 (Toku flow_name) — no tiene sprint asignado; avanza cuando soporte Toku responda.
 
-**Status: Completed**
+---
 
-`STR-01` separo los artefactos locales de la raiz, los scripts operativos de mantenimiento/diagnostico y la documentacion vigente de los antecedentes historicos, sin alterar la arquitectura de aplicacion ni los comandos operativos documentados.
+## Cómo cerrar un sprint
+
+Al completar todas las tareas del sprint activo:
+
+1. Marcar todas las tareas como `Completada` en `docs/tasks.md`
+2. Actualizar `docs/memory/PROJECT_STATE.md` con los cambios del sprint
+3. Copiar este archivo y activar el siguiente sprint (editar **Sprint Activo**)
+4. Registrar la fecha de cierre y lecciones aprendidas en **Notas de sesión**
