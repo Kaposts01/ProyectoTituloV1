@@ -15,27 +15,56 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 
 ---
 
-## Sprint Activo: Sprint 0 — Onboarding & Fundación
+## Sprint Activo: Sprint 1 — Auditoría de Datos
 
 **Estado:** Activo  
-**Objetivo:** Dejar el entorno operativo y App.tsx modularizado para que el nuevo desarrollador pueda trabajar en módulos aislados sin conflictos de merge.  
+**Objetivo:** Documentar el modelo de datos real por canal (VirtualPOS, Toku, Payku, TCH) para que el equipo entienda qué se almacena, cómo se consolida y dónde hay brechas.  
 **Duración:** 2 semanas (2026-10-24 → 2026-11-07)  
 
 ### Backlog del Sprint
 
 | ID | Tarea | Estado | Responsable |
 | --- | --- | --- | --- |
-| OPS-07 | Levantar servicios y verificar BD consolidada | En curso | — |
-| FE-02 | Completar modularización App.tsx en feature folders | Pendiente | — |
+| DATA-01 | Documentar modelo de datos VirtualPOS (staging + tablas canónicas) | Pendiente | — |
+| DATA-02 | Documentar modelo de datos Toku | Pendiente | — |
+| DATA-03 | Documentar modelo de datos Payku | Pendiente | — |
+| DATA-04 | Documentar modelo de datos TCH (ETL + tablas tch_*) | Pendiente | — |
+| TK-10 | Investigar campo flow_name en Toku (BLQ-TK-01) | Pendiente | — |
+| SYNC-01 | Auditar idempotencia y trazabilidad en consolidación | Pendiente | — |
 
-### Definición de Done (Sprint 0)
+### Definición de Done (Sprint 1)
 
-- [ ] `OPS-07`: PostgreSQL saludable en `localhost:5433`; migraciones en `head`; API `/health` OK; frontend build correcto
-- [ ] `FE-02`: App.tsx < 500 líneas; feature folders extraídos (`virtualpos/`, `toku/`, `payku/`, `tch/`, `general/`, `admin/`); `npm run build` OK; `PYTHONPATH=. .venv/Scripts/pytest.exe` sin regresiones
+- [ ] `DATA-01–04`: Cada canal tiene doc en `docs/data/` con tablas, campos clave, relaciones y brechas conocidas
+- [ ] `TK-10`: Estado de BLQ-TK-01 documentado (resuelto o bloqueado esperando Toku)
+- [ ] `SYNC-01`: Informe de idempotencia — rutas auditadas, gaps registrados en Technical Debt
 
 ### Notas de sesión
 
 *(Registrar aquí avances, decisiones o bloqueos durante el sprint)*
+
+---
+
+## Sprint Cerrado: Sprint 0 — Onboarding & Fundación
+
+**Estado:** Completado  
+**Cerrado:** 2026-10-24  
+**Objetivo:** Dejar el entorno operativo y App.tsx modularizado para que el nuevo desarrollador pueda trabajar en módulos aislados sin conflictos de merge.  
+
+### Backlog del Sprint
+
+| ID | Tarea | Estado |
+| --- | --- | --- |
+| OPS-07 | Levantar servicios y verificar BD consolidada | Completada |
+| FE-02 | Completar modularización App.tsx en feature folders | Completada |
+
+### Definición de Done (Sprint 0)
+
+- [x] `OPS-07`: PostgreSQL saludable en `localhost:5433`; migraciones en `head` (0036); API `/health` OK; frontend build correcto
+- [x] `FE-02`: App.tsx = 1 línea (re-export); 22 módulos extraídos a `features/{admin,auth,dashboard,shared,toku,virtualpos}/`; `npm run build` OK; 299/299 tests OK
+
+### Notas de sesión
+
+- Sesión 2026-10-24: OPS-07 completado incluyendo fix de migración 0035 (`op.Column` → `sa.Column`). FE-02 completado en dos fases: extracción de 22 módulos + AppCore.tsx para llevar App.tsx a 1 línea. `/review` limpio (no issues). Rama `sprint-0/onboarding` lista para merge.
 
 ---
 
