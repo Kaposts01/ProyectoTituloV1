@@ -1,6 +1,7 @@
 # Bloqueante BLQ-TK-01 — Checkout ENROLLMENT sin flow_name
 
-> Creado: 2026-10-15. Tarea: BLQ-TK-01.
+> Creado: 2026-10-15. Tarea: BLQ-TK-01. Última revisión: 2026-10-24 (TK-10).  
+> **Estado actual:** Sin respuesta de Toku. Bloqueado. Escalado pendiente.
 > Fuentes: alta-socio.md, link-inscripcion.md, enroll-payment-method.md, cambiar-monto.md, payment-methods.md, subscriptions.md.
 
 ---
