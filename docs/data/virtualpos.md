@@ -17,7 +17,7 @@
 | Campo | Tipo | Notas |
 |---|---|---|
 | `external_id` | String(255) | ID del cliente en VirtualPOS |
-| `platform` | String(50) | Nombre de la plataforma (ej. "virtualpos") |
+| `platform` | String(50) | Cuenta VP de origen: `virtualpos1` o `virtualpos2` (ver GAP-VP-02) |
 | `social_id` | String(50) | **RUT** — señal de identidad principal cross-canal |
 | `email` | String(320) | Indexado |
 | `status` | String(50) | Estado del cliente en el proveedor |
@@ -82,7 +82,7 @@ También existe `core_vp_etl.py` (Pipeline B) y `crm_materialization.py` (legacy
 | ID | Tipo | Descripción |
 |---|---|---|
 | GAP-VP-01 | Tipo de dato | `amount` almacenado como `String` en todas las tablas VP, no como `Numeric`. Conversión numérica ocurre aguas arriba si se necesita. |
-| GAP-VP-02 | Identidad | `platform` toma el valor de `VpClient.platform` (variable por registro), no una constante "virtualpos". Puede haber valores distintos si la API retorna nombres de plataforma variables. |
-| GAP-VP-03 | Trazabilidad | `source_record_id` se escribe como `NULL` en la consolidación (no hay vinculación a `source_records` en este flujo). |
+| GAP-VP-02 | Identidad (resuelto) | `platform` solo puede tomar `virtualpos1` o `virtualpos2`, las dos cuentas VP. `_VP_PLATFORMS` en `app/services/channel_store.py` lo define y `channel_consolidation.py` lo valida; un valor desconocido se omite con warning. |
+| GAP-VP-03 | Trazabilidad (parcial) | `source_record_id` se rellena en la consolidación mediante `_source_record_ids` / `_link_source_records`. El backfill de filas históricas (`scripts/maintenance/backfill_source_record_ids.py`) está escrito, pero no ejecutado. |
 | GAP-VP-04 | Datos históricos | Datos VirtualPOS históricos tienen limitaciones conocidas en cobertura. Ver Technical Debt. |
 | GAP-VP-05 | Payku sin `plan_type` | No aplica a VP, pero el campo `plan_type` en `vp_plans` puede ser `NULL` si el proveedor no lo informa. |

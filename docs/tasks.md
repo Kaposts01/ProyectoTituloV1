@@ -483,26 +483,28 @@ Plan visual: https://claude.ai/artifact/RjnJYnghhrxA8AJb33kZjr
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| FE-02 | Completar modularización App.tsx en feature folders | Pendiente | App.tsx < 500 líneas; features/virtualpos/, features/toku/, features/payku/, features/tch/, features/general/, features/admin/ extraídas; build y lint OK; contratos API y permisos preservados. Desbloquea grupos 2, 3 y 5. |
+| FE-02 | Completar modularización App.tsx en feature folders | Completada | App.tsx < 500 líneas; features/virtualpos/, features/toku/, features/payku/, features/tch/, features/general/, features/admin/ extraídas; build y lint OK; contratos API y permisos preservados. Desbloquea grupos 2, 3 y 5. |
 
 ### Sprint 1: Auditoría de Datos por Canal
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| DATA-01 | Revisar datos objeto VirtualPOS | Pendiente | Documento de auditoría en docs/integrations/virtualpos/ con endpoints disponibles vs expuestos, campos sin mapear y gaps identificados. |
-| DATA-02 | Revisar datos objeto Toku | Pendiente | Documento en docs/integrations/toku/ con campos de customers/subscriptions/invoices/methods sin uso en UI identificados. |
-| DATA-03 | Revisar datos objeto Payku | Pendiente | Documento en docs/integrations/payku/ con cobertura histórica verificada y campos sin mapear. |
-| DATA-04 | Revisar datos objeto TCH | Pendiente | Documento en docs/integrations/tch/ con campos de reportes Excel no expuestos en UI identificados. |
+| DATA-01 | Documentar modelo de datos VirtualPOS | Completada | Documento en docs/data/virtualpos.md con tablas de canal, campos clave, consolidación y brechas conocidas. |
+| DATA-02 | Documentar modelo de datos Toku | Completada | Documento en docs/data/toku.md con tablas de canal, campos clave, consolidación y brechas conocidas. |
+| DATA-03 | Documentar modelo de datos Payku | Completada | Documento en docs/data/payku.md con tablas de canal, campos clave, consolidación y brechas conocidas. |
+| DATA-04 | Documentar modelo de datos TCH | Completada | Documento en docs/data/tch.md con ETL, tablas tch_* y brechas conocidas. |
+| TK-10 | Filtrar y ordenar estado secundario Toku | En curso | Filtro y orden global por estado secundario antes de paginar. No depende de flow_name; BLQ-TK-01 es externo y no bloquea esta tarea. |
+| SYNC-01 | Auditar idempotencia y trazabilidad en consolidación | Completada | 5 gaps documentados en docs/data/sync-idempotency.md. |
 
 ### Sprint 2: Componentes Compartidos y KPIs
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | Pendiente | Componentes en frontend/src/components/ con data contracts explícitos; JetBrains Mono en valores numéricos; tests básicos de render; usados por al menos un canal como validación. |
-| KPI-01 | Estandarizar KPIs VirtualPOS/resumen | Pendiente | MRR, ARPU, Suscripciones activas, Churn mensual y Cargos rechazados usando KpiCard.tsx; datos verificados contra VP staging. |
-| KPI-02 | Estandarizar KPIs Toku/resumen | Pendiente | Mismos KPI canónicos para Toku; MRR desde suscripciones ACTIVE con método chargeable; nota sobre campos específicos de Toku. |
-| KPI-03 | Estandarizar KPIs Payku/resumen | Pendiente | KPIs con nota visible de cobertura histórica no certificada; MRR desde última transacción success asociada. |
-| KPI-04 | Estandarizar KPIs TCH/resumen | Pendiente | KPIs desde tch_recaudacion_mensual (controles oficiales); nota "fuente: reportes Excel oficiales" visible al operador. |
+| FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | En progreso | Componentes en frontend/src/components/ con data contracts explícitos; JetBrains Mono en valores numéricos; tests básicos de render; usados por al menos un canal como validación. |
+| KPI-01 | Estandarizar KPIs VirtualPOS/resumen | En progreso | MRR, ARPU, Suscripciones activas, Churn mensual y Cargos rechazados usando KpiCard.tsx; datos verificados contra VP staging. |
+| KPI-02 | Estandarizar KPIs Toku/resumen | En progreso | Mismos KPI canónicos para Toku; MRR desde suscripciones ACTIVE con método chargeable; nota sobre campos específicos de Toku. |
+| KPI-03 | Estandarizar KPIs Payku/resumen | En progreso | KPIs con nota visible de cobertura histórica no certificada; MRR desde última transacción success asociada. |
+| KPI-04 | Estandarizar KPIs TCH/resumen | En progreso | KPIs desde tch_recaudacion_mensual (controles oficiales); nota "fuente: reportes Excel oficiales" visible al operador. |
 
 ### Sprint 3: Gráficos y Barra Lateral
 

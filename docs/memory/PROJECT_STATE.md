@@ -1,6 +1,6 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-21.
+Fecha de actualizacion: 2026-10-25.
 
 ## Estado actual
 
@@ -69,6 +69,15 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **Status: TBD** Contrato de liquidaciones y reglas financieras transversales.
 - **Status: TBD** Gobierno de atributos personales, retencion y rectificacion.
 - **Status: TBD** Taxonomia comun de estados, montos, monedas y periodicidad.
+
+## Actualizacion 2026-10-25 (cierre Sprint 1 / Sprint 2 en progreso)
+
+- **Legacy desactivado**: `crm_materialization.py` queda desactivado, no borrado. `virtualpos_sync.py` consolida mediante `consolidate_to_centralized`; `POST /etl/run` devuelve HTTP 410. Pendiente decidir el borrado definitivo tras verificar que no afecta. En `virtualpos_sync.py` la consolidación sigue condicionada a `if materialize_ids`.
+- **SYNC-GAP-01 resuelto**: `platform` de VirtualPOS solo puede ser `virtualpos1` o `virtualpos2`. `_VP_PLATFORMS` en `app/services/channel_store.py` lo define y `channel_consolidation.py` lo valida; un valor desconocido se omite con warning.
+- **source_record_id (SYNC-GAP-03, parcial)**: VirtualPOS, Toku y Payku lo rellenan mediante `_source_record_ids` / `_link_source_records`; la segunda pasada usa COALESCE y no borra vínculos. TCH sigue en NULL. El backfill `scripts/maintenance/backfill_source_record_ids.py` tiene dry-run por defecto y `--apply` escribe; aún no se ha ejecutado.
+- **SYNC-GAP-05 documentado**: las tablas centralizadas son una copia derivada de los canales y se sobrescriben en cada corrida. No hay ruta de edición manual.
+- **KPIs (Sprint 2, en progreso)**: componentes KpiCard, ChannelChart y ChannelKpiStrip en `frontend/src/components`; tipos y notas en `features/shared/kpis.ts`; vitest configurado. Backend agrega `kpis.rejected_charges` en los 4 canales. Payku calcula MRR desde la última transacción `success` (cifra sin cambio: 5.339.000). TCH agrega `kpis.recaudo_mensual`. Toku filtra chargeable en el churn.
+- **Bloqueo externo**: BLQ-TK-01 (Toku `flow_name`) sigue sin sprint asignado. Bloquea alta de socios y cambio de tarjeta, no los KPIs.
 
 ## Actualizacion 2026-10-21 (sesion iterativa)
 

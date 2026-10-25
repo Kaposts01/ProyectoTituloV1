@@ -1,6 +1,6 @@
 # SYNC-01 — Auditoría de Idempotencia y Trazabilidad
 
-> Sprint 1 — Auditoría de Datos. Fuente: `app/services/channel_consolidation.py`, modelos `vp.py`, `toku_channel.py`, `payku_channel.py`, `tch.py`, `core.py`, `crm.py`.
+> Sprint 1 — Auditoría de Datos (cerrado 2026-10-25). Estado de brechas actualizado al 2026-10-25. Fuente: `app/services/channel_consolidation.py`, modelos `vp.py`, `toku_channel.py`, `payku_channel.py`, `tch.py`, `core.py`, `crm.py`.
 
 ## Mecanismo central de idempotencia
 
@@ -24,7 +24,7 @@ stmt = stmt.on_conflict_do_update(constraint=constraint, set_=updatable)
 | Tablas canónicas (`clients`, etc.) | `UNIQUE(source, external_id)` | ✅ Idempotente |
 | Suscripciones activas | Índice parcial `uq_vp_sub_active_plan_client` (ACTIVA/SUSCRIBIENDO) | ✅ Antiduplicado activo |
 
-**Riesgo:** `source` en la consolidación VP usa `vp.platform` (campo variable del registro), no la constante `"virtualpos"`. Si el proveedor retorna valores distintos para `platform`, el mismo cliente puede tener múltiples entradas con `source` diferente.
+**Riesgo resuelto (SYNC-GAP-01):** `source` en la consolidación VP usa `vp.platform`, que solo puede tomar `virtualpos1` o `virtualpos2` (las dos cuentas VP). `_VP_PLATFORMS` en `app/services/channel_store.py` define esos valores y `channel_consolidation.py` los valida; un valor desconocido se omite con warning. El diagnóstico previo ("platform variable" sin acotar) era impreciso.
 
 ### Toku
 
@@ -59,29 +59,32 @@ stmt = stmt.on_conflict_do_update(constraint=constraint, set_=updatable)
 
 | Canal | `source_record_id` en tablas canónicas | Estado |
 |---|---|---|
-| VirtualPOS | `NULL` en toda la consolidación | ⚠️ Sin trazabilidad a `source_records` |
-| Toku | `NULL` en toda la consolidación | ⚠️ Sin trazabilidad a `source_records` |
-| Payku | `NULL` en toda la consolidación | ⚠️ Sin trazabilidad a `source_records` |
-| TCH | `NULL` en toda la consolidación | ⚠️ Sin trazabilidad a `source_records` |
+| VirtualPOS | Vinculado mediante `_source_record_ids` / `_link_source_records` | ✅ Parcial: se rellena en consolidación |
+| Toku | Vinculado mediante `_source_record_ids` / `_link_source_records` | ✅ Parcial: se rellena en consolidación |
+| Payku | Vinculado mediante `_source_record_ids` / `_link_source_records` | ✅ Parcial: se rellena en consolidación |
+| TCH | `NULL` | ⚠️ Sin trazabilidad a `source_records` |
 
-**Impacto:** No es posible rastrear un registro canónico a su `SourceRecord` (payload crudo auditado). El `raw_payload` en las tablas de canal suplanta esta función parcialmente, pero no está vinculado formalmente a `source_records`.
+La segunda pasada de vinculación usa `COALESCE` y no borra vínculos existentes. TCH sigue en `NULL` porque su carga no escribe en `source_records` (~150 mil filas; requiere una carga previa). El backfill para filas históricas es `scripts/maintenance/backfill_source_record_ids.py`: por defecto hace dry-run y `--apply` escribe. **Aún no se ha ejecutado.**
+
+**Impacto:** Para TCH no es posible rastrear un registro canónico a su `SourceRecord` (payload crudo auditado). El `raw_payload` en las tablas de canal suplanta esta función parcialmente, pero no está vinculado formalmente a `source_records`.
 
 ## Brechas de idempotencia identificadas
 
-| ID | Severidad | Canal | Descripción |
-|---|---|---|---|
-| SYNC-GAP-01 | **Media** | VirtualPOS | `source=vp.platform` variable. Si el proveedor cambia el valor de `platform`, puede romper la idempotencia. |
-| SYNC-GAP-02 | **Media** | TCH | `dedupe_key` calculado en ETL. Cambios en la lógica de construcción generan duplicados. |
-| SYNC-GAP-03 | **Alta** | Todos | `source_record_id=NULL` en todas las rutas de consolidación. Trazabilidad formal incompleta. |
-| SYNC-GAP-04 | **Baja** | Toku, Payku | Extracción de campos relacionales desde `raw_payload` sin columnas indexadas. Silent NULL en cambios de estructura. |
-| SYNC-GAP-05 | **Media** | TCH | `upsert_centralized` usa `ON CONFLICT DO UPDATE` que reemplaza todos los campos no excluidos. Un rerun completo sobreescribe datos editados manualmente en canónicas. |
+| ID | Severidad | Canal | Descripción | Estado (2026-10-25) |
+|---|---|---|---|---|
+| SYNC-GAP-01 | **Media** | VirtualPOS | `source=vp.platform` variable. Si el proveedor cambia el valor de `platform`, puede romper la idempotencia. | ✅ **Resuelto.** `platform` acotado a `virtualpos1` / `virtualpos2` (`_VP_PLATFORMS` en `channel_store.py`, validado en `channel_consolidation.py`; valores desconocidos se omiten con warning). |
+| SYNC-GAP-02 | **Media** | TCH | `dedupe_key` calculado en ETL. Cambios en la lógica de construcción generan duplicados. | ⏳ **Abierto.** Sin cambios. |
+| SYNC-GAP-03 | **Alta** | Todos | `source_record_id=NULL` en todas las rutas de consolidación. Trazabilidad formal incompleta. | 🟡 **Parcial.** VP, Toku y Payku vinculados; TCH sigue en `NULL`. Backfill escrito (`backfill_source_record_ids.py`), no ejecutado. |
+| SYNC-GAP-04 | **Baja** | Toku, Payku | Extracción de campos relacionales desde `raw_payload` sin columnas indexadas. Silent NULL en cambios de estructura. | ⏳ **Abierto.** Sin cambios. |
+| SYNC-GAP-05 | **Media** | TCH | `upsert_centralized` usa `ON CONFLICT DO UPDATE` que reemplaza todos los campos no excluidos. Un rerun completo sobreescribe datos editados manualmente en canónicas. | 📝 **Documentado, no corregido.** Decisión: las tablas centralizadas son una copia derivada de los canales y se sobrescriben en cada corrida. No existe ruta de edición manual; `write_payku` solo copia lo ya escrito en Payku. Cualquier cambio manual en canónicas se pierde en el siguiente rerun. |
 
 ## Coexistencia de rutas de consolidación
 
-`channel_consolidation.py` y `crm_materialization.py` coexisten actualmente:
-- `crm_materialization.py`: ruta legacy, usada en el flujo `virtualpos_sync` durante la transición.
-- `channel_consolidation.py`: ruta nueva, usada en el scheduler y consolidación principal.
+`channel_consolidation.py` es la ruta vigente. `crm_materialization.py` queda **desactivado, no borrado**:
+- `virtualpos_sync.py` consolida mediante `consolidate_to_centralized`.
+- `POST /etl/run` devuelve HTTP 410.
+- `crm_materialization.py` tenía un `KeyError` con `payment_method`.
 
-Ejecutar ambas sobre los mismos datos produce dos escrituras a las mismas tablas canónicas. Ambas son idempotentes, pero si difieren en la lógica de mapeo pueden producir estados distintos según cuál corra último.
+**Limitación pendiente:** en `virtualpos_sync.py` la consolidación sigue condicionada a `if materialize_ids`.
 
-**Acción pendiente:** completar la transición y eliminar `crm_materialization.py`. Ver `docs/decisions/` y Technical Debt.
+**Acción pendiente:** decidir el borrado definitivo de `crm_materialization.py` tras verificar que su desactivación no afecta a ningún flujo. Ver `docs/decisions/` y Technical Debt.

@@ -129,3 +129,7 @@ Preserva aislamiento y es simple de operar, pero duplica socios, impide una vist
 - Definir umbrales, metricas y gobierno para evolucionar el matching asistido.
 - Definir retencion, rectificacion, acceso y autoridad por atributo para datos personales.
 - Definir la UX, permisos y procedimiento operativo de revision, merge y reversion.
+
+## Nota: TCH y RUT como identificador de proveedor (2026-10-25)
+
+En el canal `tch`, el RUT normalizado funciona como ID de proveedor solo dentro de ese canal. No sirve como clave de identidad entre proveedores. Cambiar esa clave requeriría migrar datos. Esta nota documenta la tensión; no modifica la decisión aceptada ni cambia el código.
