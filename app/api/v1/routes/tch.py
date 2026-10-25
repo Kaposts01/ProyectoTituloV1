@@ -28,6 +28,7 @@ from app.models.tch import (
     TchSuscripcion,
     TchTransaccion,
 )
+from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -171,6 +172,46 @@ def _monthly_statuses(rows: list[tuple[str, str, int, int | float]]) -> list[dic
     return entries
 
 
+def _rejected_current_month(transacciones_mensuales: list[dict]) -> dict:
+    """Transacciones RECHAZADA del mes actual (hora Chile)."""
+    return rejected_current_month(transacciones_mensuales, REJECTED_TX_STATUSES)
+
+
+def _parse_monto(value: object) -> float:
+    """Monto TCH (String(20)) a float; '$', '.', ',' y basura no numerica no deben dar 500."""
+    text = str(value or "").strip().replace("$", "").replace(" ", "")
+    if not text:
+        return 0.0
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    # Formato chileno '1.234.567' o '1.234,5': '.' miles, ',' decimal.
+    try:
+        return float(text.replace(".", "").replace(",", "."))
+    except ValueError:
+        return 0.0
+
+
+def _recaudo_mensual_kpis(controles: list[TchRecaudacionMensual]) -> dict | None:
+    """Recaudo aceptado del ultimo periodo con transacciones aceptadas (reportes Excel)."""
+    con_aceptadas = [c for c in controles if (c.aceptadas_cantidad or 0) > 0]
+    if not con_aceptadas:
+        return None
+    ultimo = max(con_aceptadas, key=lambda c: c.periodo)
+    mrr = _parse_monto(ultimo.aceptadas_monto)
+    active_clients = int(ultimo.aceptadas_cantidad)
+    return {
+        "period": ultimo.periodo,
+        "mrr": round(mrr, 0),
+        "active_clients": active_clients,  # alias heredado de accepted_transactions (no son clientes distintos)
+        "accepted_transactions": active_clients,
+        "arpu": round(mrr / active_clients, 0),
+        "rejected_count": int(ultimo.rechazadas_cantidad or 0),
+        "rejected_amount": round(_parse_monto(ultimo.rechazadas_monto), 0),
+    }
+
+
 @router.get("/summary", dependencies=[Depends(require_permissions("tch.dashboard.view"))], tags=["TCH"])
 def tch_summary() -> dict:
     """KPIs generales del canal TCH."""
@@ -208,8 +249,8 @@ def tch_summary() -> dict:
                 }
                 for control in controles
                 for status, count, amount in (
-                    ("ACEPTADA", control.aceptadas_cantidad, control.aceptadas_monto),
-                    ("RECHAZADA", control.rechazadas_cantidad, control.rechazadas_monto),
+                    ("ACEPTADA", control.aceptadas_cantidad, _parse_monto(control.aceptadas_monto)),
+                    ("RECHAZADA", control.rechazadas_cantidad, _parse_monto(control.rechazadas_monto)),
                 )
             ]
         else:
@@ -302,7 +343,7 @@ def tch_summary() -> dict:
             ) or 0
         )
         if controles:
-            monto_transacciones = int(sum(float(c.aceptadas_monto or 0) + float(c.rechazadas_monto or 0) for c in controles))
+            monto_transacciones = int(sum(_parse_monto(c.aceptadas_monto) + _parse_monto(c.rechazadas_monto) for c in controles))
         else:
             monto_transacciones = int(
                 db.scalar(
@@ -334,6 +375,9 @@ def tch_summary() -> dict:
             "active_subscribers": total_vigentes,
             "churn_rate": churn_rate,
             "ltv": round(ltv, 0),
+            "rejected_charges": _rejected_current_month(transacciones_mensuales),
+            "recaudo_mensual": _recaudo_mensual_kpis(controles),
+            "source_note": "Fuente: reportes Excel oficiales",
         }
         return {
             "suscripciones": {

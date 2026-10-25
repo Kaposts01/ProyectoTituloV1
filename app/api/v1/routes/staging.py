@@ -29,6 +29,7 @@ from app.models.tch import (
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.payku_sync import sync_payku
 from app.services.rbac import permission_codes, source_permission
+from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
 
@@ -1095,6 +1096,16 @@ def _vp_centralized_alerts(
     return sorted(alerts, key=lambda a: {"alta": 0, "media": 1, "baja": 2}.get(a["sev"], 3))
 
 
+_REJECTED_TX_STATUSES = REJECTED_TX_STATUSES
+
+
+def _rejected_current_month(
+    rows: list[dict[str, Any]], statuses: set[str] | None = None
+) -> dict[str, Any]:
+    """Cobros rechazados del mes actual (hora Chile); ver app.services.rejected_month."""
+    return rejected_current_month(rows, statuses)
+
+
 def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     charges_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
@@ -1217,10 +1228,12 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     ch_flat   = _flatten_by_status(charges_monthly)
     act_flat  = _flatten_by_status(activation_by_month)
     churn_flat = _flatten_series(churn_by_month)
+    rejected_flat = _flatten_by_status(rejected_monthly)
+    kpis["rejected_charges"] = _rejected_current_month(rejected_flat)
     return {
         "kpis": kpis,
         "charges_monthly": ch_flat,
-        "rejected_charges_monthly": _flatten_by_status(rejected_monthly),
+        "rejected_charges_monthly": rejected_flat,
         "payments_monthly": _flatten_by_status(payments_monthly),
         "activation_monthly": act_flat,
         "churn_monthly": churn_flat,
@@ -1322,6 +1335,9 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     inv_flat   = _flatten_by_status(invoices_monthly)
     act_flat   = _flatten_by_status(activation_by_month)
     churn_flat = _flatten_series(churn_by_month)
+    kpis["rejected_charges"] = _rejected_current_month(
+        _flatten_by_status(transactions_monthly), _REJECTED_TX_STATUSES
+    )
 
     # Suscripciones activas acumulativas por mes (para gráfico Transacciones vs Suscripciones)
     all_months_toku = sorted(set(list(activation_by_month.keys()) + list(churn_by_month.keys())))
@@ -1360,7 +1376,34 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     }
 
 
-def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
+def _payku_last_success_by_sub(
+    active_sub_ids: set[str], tx_rows: list[dict[str, Any]]
+) -> dict[str, float]:
+    """Monto de la ultima transaccion success de cada suscripcion activa (determinista)."""
+    best: dict[str, tuple[tuple[bool, str, str], float]] = {}
+    for row in tx_rows:
+        sub_id = row.get("subscription_id")
+        if sub_id not in active_sub_ids or str(row.get("status", "")).lower() != "success":
+            continue
+        created = row.get("created_at")
+        # Sin fecha (None) es siempre la mas antigua; desempate estable por external_id.
+        key = (created is not None, str(created or ""), str(row.get("external_id") or ""))
+        if sub_id not in best or key >= best[sub_id][0]:
+            best[sub_id] = (key, _amount(row.get("amount")))
+    return {sub_id: amount for sub_id, (_, amount) in best.items()}
+
+
+def _payku_mrr_from_last_success(
+    active_sub_ids: set[str], tx_rows: list[dict[str, Any]]
+) -> float:
+    """MRR = suma del monto de la ultima transaccion success de cada suscripcion activa."""
+    # Activa sin ninguna transaccion success: no suma (criterio conservador).
+    return sum(_payku_last_success_by_sub(active_sub_ids, tx_rows).values())
+
+
+def _payku_extended_data(
+    records: list[SourceRecord], sub_tx_rows: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     transactions_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     )
@@ -1373,6 +1416,8 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     mrr = 0.0
     active_subs = 0
     active_ruts: set[str] = set()
+    active_sub_ids: set[str] = set()
+    active_sub_rut: dict[str, str] = {}
 
     for record in records:
         rtype = record.resource_type
@@ -1403,12 +1448,25 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
 
             if status in ("active", "activa", "activo"):
                 active_subs += 1
-                mrr += _amount(payload.get("amount"))
+                if sub_tx_rows is None:
+                    mrr += _amount(payload.get("amount"))
+                elif payload.get("id") is not None:
+                    active_sub_ids.add(str(payload["id"]))
                 rut = _payload_value(payload, ("client", "rut")) or payload.get("rut")
                 if rut:
                     active_ruts.add(str(rut))
+                    if payload.get("id") is not None:
+                        active_sub_rut[str(payload["id"])] = str(rut)
 
-    active_clients = len(active_ruts) or active_subs or 1
+    if sub_tx_rows is not None:
+        last_success = _payku_last_success_by_sub(active_sub_ids, sub_tx_rows)
+        mrr = sum(last_success.values())
+        # ARPU: el denominador son solo las suscripciones que aportan al MRR (con success), igual que el numerador.
+        active_ruts = {active_sub_rut[sid] for sid in last_success if sid in active_sub_rut}
+        arpu_subs = len(last_success)
+    else:
+        arpu_subs = active_subs
+    active_clients = len(active_ruts) or arpu_subs or 1
     arpu = round(mrr / active_clients, 0) if active_clients else 0.0
     total_subs = sum(1 for r in records if r.resource_type == "subscription")
     total_churned = sum(int(values["count"]) for statuses in churn_by_month.values() for values in statuses.values())
@@ -1442,6 +1500,7 @@ def _payku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     tx_flat   = _flatten_by_status(transactions_monthly)
     act_flat  = _flatten_by_status(activation_by_month)
     churn_flat = _flatten_by_status(churn_by_month)
+    kpis["rejected_charges"] = _rejected_current_month(tx_flat, _REJECTED_TX_STATUSES)
     all_months_payku = sorted(set(activation_by_month) | set(churn_by_month))
     active_subs_monthly_payku: list[dict[str, Any]] = []
     churn_rate_monthly_payku: list[dict[str, Any]] = []
@@ -2531,6 +2590,7 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
         for (yr, mo), bkts in sorted(rej_by_month.items())
         for st, v in sorted(bkts.items())
     ]
+    extended["kpis"]["rejected_charges"] = _rejected_current_month(extended["rejected_charges_monthly"])
 
     return {
         "source": source,
@@ -2644,6 +2704,13 @@ def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
 
     records: list[Any] = []
     for subscription in db.scalars(select(CSub).where(CSub.source == "toku")):
+        # Mismo criterio 'chargeable' que el MRR: una suscripcion activa sin medio
+        # de pago cobrable no cuenta ni como activa ni en el denominador del churn.
+        if (
+            str(subscription.status or "").lower() == "active"
+            and subscription.external_id not in chargeable_subscription_ids
+        ):
+            continue
         records.append(_Record("subscription", {
             **(subscription.raw_payload or {}), "customer": subscription.client_external_id,
             "amount": subscription.amount, "status": subscription.status,
@@ -2754,7 +2821,7 @@ def _payku_centralized_dashboard(db: Session) -> dict[str, Any]:
         records.append(_Record("subscription", {
             **(subscription.raw_payload or {}), "status": subscription.status,
             "start": subscription.suscription_date, "end": subscription.canceled_at,
-            "amount": subscription.amount,
+            "amount": subscription.amount, "id": subscription.external_id,
             "client": {"rut": subscription.client_social_id},
         }))
     for transaction in db.scalars(select(CPayment).where(CPayment.source == "payku")):
@@ -2765,7 +2832,15 @@ def _payku_centralized_dashboard(db: Session) -> dict[str, Any]:
     latest_run = db.scalars(
         select(SyncRun).where(SyncRun.source == "payku").order_by(SyncRun.started_at.desc()).limit(1)
     ).first()
-    extended = _payku_extended_data(records)
+    sub_tx_rows = [
+        {"subscription_id": sid, "status": st, "amount": amt, "created_at": ca, "external_id": eid}
+        for sid, st, amt, ca, eid in db.execute(
+            select(PkTx.subscription_id, PkTx.status, PkTx.amount, PkTx.created_at_api, PkTx.external_id)
+            .where(PkTx.subscription_id.isnot(None), func.lower(PkTx.status) == "success")
+            .order_by(PkTx.subscription_id, PkTx.created_at_api.asc().nulls_first(), PkTx.external_id)
+        ).all()
+    ]
+    extended = _payku_extended_data(records, sub_tx_rows)
     dated_series = (
         activity
         + extended.get("transactions_monthly", [])
