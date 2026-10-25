@@ -20,7 +20,9 @@ import {
 import { title, defaultYear, aggregateChurn } from "../shared/utils";
 import type { AlertDetailItem, ChannelDashboard } from "../shared/types";
 import { Metric } from "./Metric";
-import { KpiCard } from "./KpiCard";
+import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
+import { ChannelChart } from "../../components/ChannelChart";
+import { normalizeKpis, type Channel } from "../shared/kpis";
 import { StatusBars } from "./StatusBars";
 
 export function ChannelDashboardView({
@@ -134,12 +136,7 @@ export function ChannelDashboardView({
       {data.kpis ? (
         <>
           <div className="dashboard-section-heading dashboard-section-heading-compact"><div><p className="eyebrow">CARTERA</p><h3>Salud de suscripciones</h3></div></div>
-          <section className="metrics kpi-metrics" aria-label="KPIs de suscripciones">
-            <KpiCard label="MRR" value={`$${data.kpis.mrr.toLocaleString("es-CL")}`} caption="Ingreso mensual recurrente activo" tone="green" />
-            <KpiCard label="ARPU" value={`$${data.kpis.arpu.toLocaleString("es-CL")}`} caption={`${data.kpis.active_clients} cliente${data.kpis.active_clients !== 1 ? "s" : ""} con subs activas`} tone="blue" />
-            <KpiCard label="Churn mensual" value={`${data.kpis.churn_rate}%`} caption={`${data.kpis.active_subscribers} subs activas · ${data.kpis.active_subscribers + (data.churn_monthly?.reduce((s, e) => s + e.count, 0) ?? 0)} total`} tone="orange" />
-            <KpiCard label="LTV estimado" value={data.kpis.ltv > 0 ? `$${data.kpis.ltv.toLocaleString("es-CL")}` : "—"} caption="ARPU / churn rate" tone="violet" />
-          </section>
+          <ChannelKpiStrip kpis={normalizeKpis(data.source as Channel, data.kpis)} ariaLabel="KPIs de suscripciones" />
         </>
       ) : null}
       <section className={`channel-workspace${isVirtualPos ? " channel-workspace-status" : ""}`}>
@@ -168,6 +165,12 @@ export function ChannelDashboardView({
         <>
           <div className="dashboard-section-heading dashboard-section-heading-charts"><div><p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p><h3>Lectura mensual</h3></div></div>
           <section className="extended-charts">
+            {isVirtualPos && data.activity.length ? (
+              <article className="panel chart-panel-wide">
+                <div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Serie mensual</h3></div></div>
+                <ChannelChart series={[{ key: mode, label: mode === "amount" ? "Monto" : "Cantidad", color: CHANNEL_COLORS[data.source] }]} data={data.activity} kind="bar" mode={mode} year={year} />
+              </article>
+            ) : null}
             {data.charges_monthly?.length ? (
               <article className={`panel${isVirtualPos ? " chart-order-charges" : ""}`}>
                 <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Estado mensual</h3></div></div>

@@ -42,7 +42,9 @@ import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { AdminPanel } from "./features/admin/AdminPanel";
 import { Metric } from "./features/dashboard/Metric";
-import { KpiCard } from "./features/dashboard/KpiCard";
+import { KpiCard } from "./components/KpiCard";
+import { ChannelKpiStrip } from "./components/ChannelKpiStrip";
+import { normalizeKpis } from "./features/shared/kpis";
 import { ChannelDashboardView } from "./features/dashboard/ChannelDashboardView";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
 import { applyChargeFilter } from "./features/dashboard/applyChargeFilter";
@@ -1291,17 +1293,6 @@ function AppCore() {
           setEtlError(friendlyError(err, "Error al consultar el estado del ETL."));
         });
     }, 3000);
-  }
-  function runEtl() {
-    if (etlRunning) return;
-    setEtlRunning(true);
-    setEtlError(null);
-    postJson<{ run_id: string }>("/api/v1/etl/run")
-      .then(({ run_id }) => _pollEtlRun(run_id))
-      .catch((err: unknown) => {
-        setEtlRunning(false);
-        setEtlError(friendlyError(err, "Error al iniciar el ETL."));
-      });
   }
   function runFullSync() {
     if (etlRunning) return;
@@ -2814,25 +2805,22 @@ function AppCore() {
             <Metric label="Transacciones pagadas" value={acceptedForYear.count} tone="violet" amount={acceptedForYear.amount} mode={generalMode} />
           </section>
           <section className="metrics kpi-metrics" aria-label="KPIs generales">
-            <KpiCard label="Rechazadas" value={rejectedForYear.count.toLocaleString("es-CL")} caption={`Transacciones rechazadas ${selectedYear ?? ""}`} tone="orange" />
-            <KpiCard label="Tasa de rechazo" value={`${rejectionRateForYear}%`} caption="Rechazadas / total del año" tone={rejectionRateForYear > 20 ? "orange" : "blue"} />
+            <KpiCard label="Rechazadas" value={rejectedForYear.count} format="count" caption={`Transacciones rechazadas ${selectedYear ?? ""}`} />
+            <KpiCard label="Tasa de rechazo" value={rejectionRateForYear} format="percent" caption="Rechazadas / total del año" />
             <KpiCard
               label="Pagos pendientes"
-              value={(generalData.pending_payments ?? 0).toLocaleString("es-CL")}
+              value={generalData.pending_payments ?? 0} format="count"
               caption="Cobros sin estado terminal"
-              tone={generalData.pending_payments && generalData.pending_payments > 50 ? "orange" : "blue"}
             />
             <KpiCard
               label="Tasa de sync"
-              value={generalData.sync_success_rate_pct != null ? `${generalData.sync_success_rate_pct}%` : "Sin datos"}
+              value={generalData.sync_success_rate_pct ?? null} format="percent"
               caption="Últimos 30 días"
-              tone={generalData.sync_success_rate_pct == null ? "gray" : generalData.sync_success_rate_pct >= 90 ? "green" : generalData.sync_success_rate_pct >= 70 ? "gold" : "orange"}
             />
             <KpiCard
               label="Churn este mes"
-              value={`${generalData.churn_rate_pct ?? 0}%`}
+              value={generalData.churn_rate_pct ?? 0} format="percent"
               caption="Bajas / activos este mes"
-              tone={(generalData.churn_rate_pct ?? 0) > 5 ? "orange" : "blue"}
             />
           </section>
           <section className="extended-charts">
@@ -2963,14 +2951,6 @@ function AppCore() {
                 ? `Sincronizando ${lastEtlRun.phase.replace("sync_", "")}…`
                 : "Procesando…"
               : "↻ Sync completo"}
-          </button>
-          <button
-            className="sync-btn sync-btn-secondary"
-            disabled={etlRunning}
-            onClick={runEtl}
-            title="Solo ETL: rematerializa staging → centralizada sin re-sync desde APIs"
-          >
-            Solo ETL
           </button>
         </div>
         {etlError ? <p className="error-message">{etlError}</p> : null}
@@ -3265,36 +3245,11 @@ function AppCore() {
           <Metric label="Total suscripciones" value={tchSummary.suscripciones.total} tone="blue" amount={tchSummary.suscripciones.monto_total} mode={tchMode} />
           <Metric label="Total transacciones" value={tchSummary.transacciones.total} tone="violet" amount={tchSummary.transacciones.monto} mode={tchMode} />
         </section>
-        <section className="metrics kpi-metrics" aria-label="KPIs financieros TCH">
-          <KpiCard
-            label="MRR"
-            value={`$${tchSummary.kpis.mrr.toLocaleString("es-CL")}`}
-            caption="Ingreso mensual recurrente activo"
-            tone="green"
-          />
-          <KpiCard
-            label="ARPU"
-            value={`$${tchSummary.kpis.arpu.toLocaleString("es-CL")}`}
-            caption={`${tchSummary.kpis.active_clients} cliente${tchSummary.kpis.active_clients !== 1 ? "s" : ""} con subs activas`}
-            tone="blue"
-          />
-          <KpiCard
-            label="Churn mensual"
-            value={`${tchSummary.kpis.churn_rate}%`}
-            caption={`${tchSummary.kpis.active_subscribers} subs activas · ${tchSummary.suscripciones.total} total`}
-            tone="orange"
-          />
-          <KpiCard
-            label="LTV estimado"
-            value={tchSummary.kpis.ltv > 0 ? `$${tchSummary.kpis.ltv.toLocaleString("es-CL")}` : "—"}
-            caption="ARPU / churn rate"
-            tone="violet"
-          />
-        </section>
+        <ChannelKpiStrip kpis={normalizeKpis("tch", tchSummary.kpis)} ariaLabel="KPIs financieros TCH" />
         <section className="metrics kpi-metrics" aria-label="KPIs transacciones TCH">
-          <KpiCard label="Aceptadas" value={tchSummary.transacciones.aceptadas.toLocaleString("es-CL")} tone="green" caption="Transacciones cobradas" />
-          <KpiCard label="Rechazadas" value={tchSummary.transacciones.rechazadas.toLocaleString("es-CL")} tone="orange" caption="Transacciones fallidas" />
-          <KpiCard label="Tasa de rechazo" value={`${tchSummary.transacciones.tasa_rechazo_pct}%`} tone={tchSummary.transacciones.tasa_rechazo_pct > 20 ? "orange" : "blue"} caption="Rechazadas / total" />
+          <KpiCard label="Aceptadas" value={tchSummary.transacciones.aceptadas} format="count" caption="Transacciones cobradas" />
+          <KpiCard label="Rechazadas" value={tchSummary.transacciones.rechazadas} format="count" caption="Transacciones fallidas" />
+          <KpiCard label="Tasa de rechazo" value={tchSummary.transacciones.tasa_rechazo_pct} format="percent" caption="Rechazadas / total" />
         </section>
         <section className="extended-charts">
           <article className="panel">

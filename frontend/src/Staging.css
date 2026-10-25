@@ -106,24 +106,11 @@
 .metric-card {
   background: linear-gradient(135deg, var(--bg-metric-from) 0%, var(--bg-metric-to) 100%);
   border: none;
-  border-left: 4px solid var(--accent, #4a90c4);
   border-radius: 12px;
   box-shadow: 0 2px 12px var(--shadow-card);
   min-height: 120px;
   padding: 20px 22px;
   overflow: hidden;
-}
-
-.metric-card::after {
-  content: '';
-  position: absolute;
-  top: 0; right: 0;
-  width: 100px; height: 100px;
-  background: radial-gradient(circle, var(--accent, #4a90c4) 0%, transparent 70%);
-  opacity: 0.12;
-  border-radius: 50%;
-  transform: translate(35px, -35px);
-  pointer-events: none;
 }
 
 .metric-card p,
@@ -245,6 +232,15 @@
 
 .kpi-card {
   min-height: 100px;
+}
+
+.kpi-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.kpi-note {
+  margin: -12px 0 22px;
+  font-size: 12px;
 }
 
 .kpi-value {
@@ -1225,6 +1221,7 @@
   /* KPI cards: 2 columnas en móvil (anulan el repeat(4,1fr) de escritorio) */
   .kpi-metrics { grid-template-columns: repeat(2, 1fr); }
   .kpi-metrics .metric-card:last-child { grid-column: auto; }
+  .kpi-strip .metric-card:last-child { grid-column: 1 / -1; }
   .kpi-card { min-height: 86px; padding: 14px; }
   .kpi-value { font-size: 20px !important; }
 
