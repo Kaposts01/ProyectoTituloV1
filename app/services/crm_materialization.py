@@ -1,3 +1,10 @@
+"""DEPRECADO: materializacion legacy de source_records a entidades centralizadas.
+
+Desactivada del flujo operativo; reemplazada por app.services.channel_consolidation
+(consolidate_to_centralized). El modulo se conserva solo por compatibilidad y tests.
+Limitacion conocida: PaymentMethod no tiene constraint de upsert aqui, por lo que
+materialize_records lanza KeyError con "payment_method".
+"""
 from collections.abc import Iterable
 from typing import Any
 

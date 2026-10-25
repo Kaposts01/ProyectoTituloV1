@@ -12,14 +12,12 @@ from app.core.security import require_csrf, require_permissions
 from app.db.session import SessionLocal
 from app.models.core import ClientMatchCandidate
 from app.models.etl_run import EtlRun
-from app.models.source_record import SourceRecord
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.client_match_detector import detect_matches
 from app.services.core_payku_etl import run_payku_core_etl
 from app.services.core_tch_etl import run_tch_core_etl
 from app.services.core_toku_etl import run_toku_core_etl
 from app.services.core_vp_etl import run_vp_core_etl
-from app.services.crm_materialization import materialize_records
 from app.services.payku_sync import sync_payku
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
@@ -93,10 +91,13 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
 
         # Consolidación desde tablas canal → tablas centralizadas
         _update_run(run_id, phase="consolidating")
+        consolidation_failures: list[str] = []
         db = SessionLocal()
         try:
-            consolidated = consolidate_to_centralized(db, providers)
+            consolidated = consolidate_to_centralized(db, providers, failures=consolidation_failures)
             total += consolidated
+            if consolidation_failures:
+                logger.error("Consolidacion con errores: %s", consolidation_failures)
             logger.info("Consolidación completada: %d registros", consolidated)
         finally:
             db.close()
@@ -108,6 +109,9 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
             channels_processed=providers,
             records_upserted=total,
             finished_at=datetime.now(timezone.utc),
+            error_message=(
+                f"Consolidacion con error: {', '.join(consolidation_failures)}" if consolidation_failures else None
+            ),
         )
     except Exception:
         logger.exception("Error en full-sync (run_id=%s)", run_id)
@@ -120,49 +124,14 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
         )
 
 
-async def _run_materialization_background(run_id: uuid.UUID) -> None:
-    """BackgroundTask: materializa source_records existentes en entidades centralizadas."""
-    try:
-        _update_run(run_id, phase="materializing")
-        db = SessionLocal()
-        try:
-            staged = db.scalars(select(SourceRecord)).all()
-            materialize_records(db, staged)
-            _update_run(
-                run_id,
-                status="completed",
-                phase=None,
-                records_upserted=len(staged),
-                finished_at=datetime.now(timezone.utc),
-            )
-        finally:
-            db.close()
-    except Exception:
-        logger.exception("Error en materialización (run_id=%s)", run_id)
-        _update_run(
-            run_id,
-            status="failed",
-            phase=None,
-            error_message="Error durante la materialización.",
-            finished_at=datetime.now(timezone.utc),
-        )
-
-
 @router.post("/run", dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)], tags=["ETL"])
-def trigger_etl(background_tasks: BackgroundTasks) -> dict:
-    """Materializa source_records existentes en entidades centralizadas."""
-    db = _get_db()
-    try:
-        run = EtlRun(status="running", records_upserted=0, phase="materializing")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-        run_id = run.id
-    finally:
-        db.close()
-
-    background_tasks.add_task(_run_materialization_background, run_id)
-    return {"run_id": str(run_id), "status": "running"}
+def trigger_etl() -> dict:
+    """DEPRECADO: la materializacion legacy esta desactivada; usar /full-sync o /core/{provider}."""
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint deprecado: la materializacion legacy (crm_materialization) fue desactivada. "
+        "Use /etl/full-sync, que consolida desde las tablas canal.",
+    )
 
 
 @router.get("/runs", dependencies=[Depends(require_permissions("sync_runs.view"))], tags=["ETL"])

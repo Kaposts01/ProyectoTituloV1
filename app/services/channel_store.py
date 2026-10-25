@@ -6,6 +6,7 @@ a los campos de la tabla de canal correspondiente.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -29,6 +30,11 @@ from app.models.toku_channel import (
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
 from app.services.payload_sanitization import sanitize_payload
+
+logger = logging.getLogger(__name__)
+
+# Las dos cuentas VirtualPOS soportadas; cualquier otro platform se rechaza.
+_VP_PLATFORMS = {"virtualpos1", "virtualpos2"}
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 
@@ -353,6 +359,9 @@ def extract_payku_transaction(p: dict) -> dict:
 
 def store_vp_resources(db: Session, resource_type: str, records: list[dict], *, platform: str, **kwargs: Any) -> int:
     """Escribe registros VirtualPOS en su tabla canal correspondiente."""
+    if platform not in _VP_PLATFORMS:
+        logger.warning("store_vp_resources: platform desconocido rechazado (%s)", resource_type)
+        return 0
     _map = {
         "client": (VpClient, extract_vp_client),
         "plan": (VpPlan, extract_vp_plan),

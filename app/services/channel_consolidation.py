@@ -2,14 +2,15 @@
 y upserta en las tablas centralizadas (clients, subscriptions, charges, payments, plans).
 
 Este módulo reemplaza crm_materialization.py para la consolidación principal.
-crm_materialization.py sigue usándose temporalmente en virtualpos_sync para
-el flujo legacy mientras se completa la transición.
+crm_materialization.py queda desactivado (presente pero sin llamadores en el flujo
+de sync ni en la API) mientras se completa la transición.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy import func, select
@@ -23,6 +24,7 @@ from app.models.payku_channel import (
     PaykuSubscription,
     PaykuTransaction,
 )
+from app.models.source_record import SourceRecord
 from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
 from app.models.toku_channel import (
     TokuCustomer,
@@ -32,6 +34,7 @@ from app.models.toku_channel import (
     TokuTransaction,
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
+from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
 
 logger = logging.getLogger(__name__)
@@ -55,6 +58,74 @@ def _toku_payment_subscription_id(payload: dict) -> str | None:
     return None
 
 
+# ── Trazabilidad: source_record_id ────────────────────────────────────────────
+
+def _source_record_ids(
+    db: Session, source: str, resource_type: str, external_ids: Iterable[str | None]
+) -> dict[str, uuid.UUID]:
+    """Devuelve {external_id: source_records.id} para (source, resource_type).
+
+    Los external_id sin coincidencia simplemente no aparecen en el resultado.
+    """
+    ids = sorted({e for e in external_ids if e})
+    result: dict[str, uuid.UUID] = {}
+    for i in range(0, len(ids), _CHUNK):
+        chunk = ids[i : i + _CHUNK]
+        stmt = select(SourceRecord.external_id, SourceRecord.id).where(
+            SourceRecord.source == source,
+            SourceRecord.resource_type == resource_type,
+            SourceRecord.external_id.in_(chunk),
+        )
+        for external_id, record_id in db.execute(stmt):
+            result[external_id] = record_id
+    return result
+
+
+def _link_source_records(db: Session, rows: list[dict], resource_type: str) -> list[dict]:
+    """Asigna ``source_record_id`` a cada fila (NULL si no hay coincidencia)."""
+    by_source: dict[str, list[dict]] = {}
+    for row in rows:
+        row["source_record_id"] = None
+        by_source.setdefault(row["source"], []).append(row)
+    linked = 0
+    for source, group in by_source.items():
+        mapping = _source_record_ids(db, source, resource_type, (r["external_id"] for r in group))
+        for row in group:
+            record_id = mapping.get(row["external_id"])
+            if record_id is not None:
+                row["source_record_id"] = record_id
+                linked += 1
+    if rows:
+        logger.info("source_record_id %s: %d vinculados de %d", resource_type, linked, len(rows))
+    return rows
+
+
+def _drop_conflicting_source_record_ids(db: Session, model: type, chunk: list[dict]) -> None:
+    """source_record_id es UNIQUE: anula el vínculo que ya pertenece a otra fila."""
+    wanted = {r["source_record_id"] for r in chunk if r.get("source_record_id") is not None}
+    if not wanted:
+        return
+    owners = {
+        record_id: (source, external_id)
+        for record_id, source, external_id in db.execute(
+            select(model.source_record_id, model.source, model.external_id).where(
+                model.source_record_id.in_(wanted)
+            )
+        )
+    }
+    seen: set[uuid.UUID] = set()
+    for row in chunk:
+        record_id = row.get("source_record_id")
+        if record_id is None:
+            continue
+        owner = owners.get(record_id)
+        if record_id in seen or (owner is not None and owner != (row["source"], row["external_id"])):
+            logger.warning("source_record_id duplicado en %s; se deja NULL", model.__tablename__)
+            row["source_record_id"] = None
+        else:
+            seen.add(record_id)
+
+
 # ── Upsert genérico en tabla centralizada ─────────────────────────────────────
 
 def _upsert_centralized(
@@ -72,12 +143,18 @@ def _upsert_centralized(
     processed = 0
     for i in range(0, len(rows), _CHUNK):
         chunk = rows[i : i + _CHUNK]
+        _drop_conflicting_source_record_ids(db, model, chunk)
         stmt = insert(model).values(chunk)
         updatable = {
             k: stmt.excluded[k]
             for k in chunk[0]
             if k not in ("id", "source", "external_id", "created_at")
         }
+        if "source_record_id" in updatable:
+            # Una segunda pasada sin coincidencia no debe borrar un vínculo existente.
+            updatable["source_record_id"] = func.coalesce(
+                stmt.excluded.source_record_id, model.__table__.c.source_record_id
+            )
         stmt = stmt.on_conflict_do_update(constraint=constraint, set_=updatable)
         db.execute(stmt)
         processed += len(chunk)
@@ -91,15 +168,30 @@ def _s(val: Any) -> str | None:
     return str(val) if val is not None else None
 
 
+def _vp_records(db: Session, model: type) -> list:
+    """Filas VirtualPOS con platform conocido; las demás se omiten y se registran."""
+    valid = []
+    skipped = 0
+    for vp in db.scalars(select(model)).all():
+        if vp.platform in _VP_PLATFORMS:
+            valid.append(vp)
+        else:
+            skipped += 1
+    if skipped:
+        logger.warning(
+            "VirtualPOS %s: %d filas omitidas por platform desconocido", model.__tablename__, skipped
+        )
+    return valid
+
+
 # ── VirtualPOS → Canónicas ────────────────────────────────────────────────────
 
 def _consolidate_vp_clients(db: Session) -> int:
     rows = []
-    for vp in db.scalars(select(VpClient)).all():
+    for vp in _vp_records(db, VpClient):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
-            "source_record_id": None,
             "first_name": vp.first_name,
             "last_name": vp.last_name,
             "email": vp.email,
@@ -113,16 +205,15 @@ def _consolidate_vp_clients(db: Session) -> int:
             "cards": vp.cards or [],
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", _link_source_records(db, rows, "client"))
 
 
 def _consolidate_vp_plans(db: Session) -> int:
     rows = []
-    for vp in db.scalars(select(VpPlan)).all():
+    for vp in _vp_records(db, VpPlan):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
-            "source_record_id": None,
             "name": vp.name,
             "description": vp.description,
             "amount": vp.amount,
@@ -132,16 +223,15 @@ def _consolidate_vp_plans(db: Session) -> int:
             "status": vp.status,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_centralized(db, Plan, "uq_plan_source_external_id", rows)
+    return _upsert_centralized(db, Plan, "uq_plan_source_external_id", _link_source_records(db, rows, "plan"))
 
 
 def _consolidate_vp_subscriptions(db: Session) -> int:
     rows = []
-    for vp in db.scalars(select(VpSubscription)).all():
+    for vp in _vp_records(db, VpSubscription):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
-            "source_record_id": None,
             "client_external_id": vp.client_external_id,
             "client_social_id": vp.client_social_id,
             "plan_external_id": vp.plan_external_id,
@@ -154,16 +244,15 @@ def _consolidate_vp_subscriptions(db: Session) -> int:
             "currency": vp.currency,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
 def _consolidate_vp_charges(db: Session) -> int:
     rows = []
-    for vp in db.scalars(select(VpCharge)).all():
+    for vp in _vp_records(db, VpCharge):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
-            "source_record_id": None,
             "subscription_external_id": vp.subscription_external_id,
             "client_external_id": vp.client_external_id,
             "amount": vp.amount,
@@ -172,16 +261,15 @@ def _consolidate_vp_charges(db: Session) -> int:
             "charge_date": vp.charge_date,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_centralized(db, Charge, "uq_charge_source_external_id", rows)
+    return _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "charge"))
 
 
 def _consolidate_vp_payments(db: Session) -> int:
     rows = []
-    for vp in db.scalars(select(VpPayment)).all():
+    for vp in _vp_records(db, VpPayment):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
-            "source_record_id": None,
             "charge_external_id": vp.charge_external_id,
             "client_external_id": vp.client_external_id,
             "amount": vp.amount,
@@ -190,7 +278,7 @@ def _consolidate_vp_payments(db: Session) -> int:
             "payment_date": vp.payment_date,
             "raw_payload": vp.raw_payload,
         })
-    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", rows)
+    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", _link_source_records(db, rows, "payment"))
 
 
 # ── Toku → Canónicas ──────────────────────────────────────────────────────────
@@ -201,7 +289,6 @@ def _consolidate_toku_clients(db: Session) -> int:
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
-            "source_record_id": None,
             "first_name": t.name,
             "last_name": None,
             "email": t.email,
@@ -215,7 +302,7 @@ def _consolidate_toku_clients(db: Session) -> int:
             "cards": [],
             "raw_payload": t.raw_payload,
         })
-    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", _link_source_records(db, rows, "customer"))
 
 
 def _consolidate_toku_subscriptions(db: Session) -> int:
@@ -225,7 +312,6 @@ def _consolidate_toku_subscriptions(db: Session) -> int:
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
-            "source_record_id": None,
             "client_external_id": t.customer_id or _relationship_id(payload.get("customer")),
             "client_social_id": None,
             "plan_external_id": None,
@@ -238,7 +324,7 @@ def _consolidate_toku_subscriptions(db: Session) -> int:
             "currency": t.currency_code,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
 def _consolidate_toku_invoices(db: Session) -> int:
@@ -248,7 +334,6 @@ def _consolidate_toku_invoices(db: Session) -> int:
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
-            "source_record_id": None,
             "subscription_external_id": t.subscription_id or _relationship_id(payload.get("subscription")),
             "client_external_id": _relationship_id(payload.get("customer")),
             "amount": t.amount,
@@ -257,7 +342,7 @@ def _consolidate_toku_invoices(db: Session) -> int:
             "charge_date": t.due_date,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_centralized(db, Charge, "uq_charge_source_external_id", rows)
+    return _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "invoice"))
 
 
 def _consolidate_toku_transactions(db: Session) -> int:
@@ -267,7 +352,6 @@ def _consolidate_toku_transactions(db: Session) -> int:
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
-            "source_record_id": None,
             "charge_external_id": _toku_payment_subscription_id(payload),
             "client_external_id": _relationship_id(payload.get("customer")),
             "amount": t.amount,
@@ -276,7 +360,7 @@ def _consolidate_toku_transactions(db: Session) -> int:
             "payment_date": t.created_at_api,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", rows)
+    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", _link_source_records(db, rows, "transaction"))
 
 
 def _consolidate_toku_payment_methods(db: Session) -> int:
@@ -285,12 +369,11 @@ def _consolidate_toku_payment_methods(db: Session) -> int:
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
-            "source_record_id": None,
             "client_external_id": t.customer_id,
             "status": t.status,
             "raw_payload": t.raw_payload,
         })
-    return _upsert_centralized(db, PaymentMethod, "uq_payment_method_source_external_id", rows)
+    return _upsert_centralized(db, PaymentMethod, "uq_payment_method_source_external_id", _link_source_records(db, rows, "payment_method"))
 
 
 # ── Payku → Canónicas ─────────────────────────────────────────────────────────
@@ -301,7 +384,6 @@ def _consolidate_payku_clients(db: Session) -> int:
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
-            "source_record_id": None,
             "first_name": p.name,
             "last_name": None,
             "email": p.email,
@@ -315,7 +397,7 @@ def _consolidate_payku_clients(db: Session) -> int:
             "cards": [],
             "raw_payload": p.raw_payload,
         })
-    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", _link_source_records(db, rows, "client"))
 
 
 def _consolidate_payku_plans(db: Session) -> int:
@@ -324,7 +406,6 @@ def _consolidate_payku_plans(db: Session) -> int:
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
-            "source_record_id": None,
             "name": p.name,
             "description": None,
             "amount": p.amount,
@@ -334,7 +415,7 @@ def _consolidate_payku_plans(db: Session) -> int:
             "status": p.status,
             "raw_payload": p.raw_payload,
         })
-    return _upsert_centralized(db, Plan, "uq_plan_source_external_id", rows)
+    return _upsert_centralized(db, Plan, "uq_plan_source_external_id", _link_source_records(db, rows, "plan"))
 
 
 def _payku_last_transition_date(payload: dict, final_status: str) -> str | None:
@@ -377,7 +458,6 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
-            "source_record_id": None,
             "client_external_id": p.client_id,
             "client_social_id": client.get("rut"),
             "plan_external_id": p.plan_id,
@@ -390,7 +470,7 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
             "currency": p.currency,
             "raw_payload": p.raw_payload,
         })
-    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
 def _consolidate_payku_transactions(db: Session) -> int:
@@ -399,7 +479,6 @@ def _consolidate_payku_transactions(db: Session) -> int:
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
-            "source_record_id": None,
             "charge_external_id": p.subscription_id,
             "client_external_id": None,
             "amount": p.amount,
@@ -408,7 +487,7 @@ def _consolidate_payku_transactions(db: Session) -> int:
             "payment_date": p.created_at_api,
             "raw_payload": p.raw_payload,
         })
-    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", rows)
+    return _upsert_centralized(db, Payment, "uq_payment_source_external_id", _link_source_records(db, rows, "transaction"))
 
 
 # ── TCH → Canónicas ───────────────────────────────────────────────────────────
@@ -419,7 +498,6 @@ def _consolidate_tch_clients(db: Session) -> int:
         rows.append({
             "source": "tch",
             "external_id": t.rut,
-            "source_record_id": None,
             "first_name": t.nombre,
             "last_name": t.apellido,
             "email": None,
@@ -433,7 +511,7 @@ def _consolidate_tch_clients(db: Session) -> int:
             "cards": [],
             "raw_payload": t.raw_payload,
         })
-    return _upsert_centralized(db, Client, "uq_client_source_external_id", rows)
+    return _upsert_centralized(db, Client, "uq_client_source_external_id", _link_source_records(db, rows, "client"))
 
 
 def _consolidate_tch_subscriptions(db: Session) -> int:
@@ -442,7 +520,6 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
         rows.append({
             "source": "tch",
             "external_id": _s(t.numero_ficha),
-            "source_record_id": None,
             "client_external_id": None,
             "client_social_id": t.cliente_rut,
             "plan_external_id": None,
@@ -455,7 +532,7 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
             "currency": "CLP",
             "raw_payload": t.raw_payload,
         })
-    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", rows)
+    return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
 def _consolidate_tch_transactions(db: Session) -> int:
@@ -473,7 +550,6 @@ def _consolidate_tch_transactions(db: Session) -> int:
             rows.append({
                 "source": "tch",
                 "external_id": t.dedupe_key or _s(t.id),
-                "source_record_id": None,
                 "subscription_external_id": _s(t.numero_ficha),
                 "client_external_id": None,
                 "amount": t.monto,
@@ -482,7 +558,7 @@ def _consolidate_tch_transactions(db: Session) -> int:
                 "charge_date": t.fecha_cargo,
                 "raw_payload": t.raw_payload,
             })
-        total += _upsert_centralized(db, Charge, "uq_charge_source_external_id", rows)
+        total += _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "transaction"))
         offset += _CHUNK
         if len(batch) < _CHUNK:
             break
@@ -520,25 +596,55 @@ _SOURCE_FNS = {
 }
 
 
-def consolidate_to_centralized(db: Session, sources: list[str] | None = None) -> int:
+class ConsolidationError(Exception):
+    """Una o mas funciones de consolidacion fallaron (las demas se ejecutaron)."""
+
+    def __init__(self, failures: list[str]) -> None:
+        self.failures = failures
+        super().__init__("Consolidacion fallida: " + ", ".join(failures))
+
+
+def consolidate_to_centralized(
+    db: Session,
+    sources: list[str] | None = None,
+    raise_on_error: bool = False,
+    failures: list[str] | None = None,
+) -> int:
     """Lee de tablas canal y upserta en tablas centralizadas.
+
+    Cada funcion corre en su propio SAVEPOINT: un error de BD revierte solo esa
+    funcion y la sesion sigue usable para las demas.
 
     Args:
         sources: lista de fuentes a consolidar, ej. ['virtualpos', 'toku'].
                  None = todas las fuentes.
+        raise_on_error: si es True, al final lanza ConsolidationError con los
+                 nombres fallidos (``source.fn``). Por defecto solo se loguea.
+        failures: lista opcional que se llena con los nombres fallidos, para
+                 callers que mantienen el comportamiento no-raise.
     Returns:
         Total de registros procesados.
     """
     targets = sources or list(_SOURCE_FNS.keys())
     total = 0
+    failed: list[str] = failures if failures is not None else []
     for source in targets:
         fns = _SOURCE_FNS.get(source, [])
         for fn in fns:
             try:
-                count = fn(db)
+                with db.begin_nested():
+                    count = fn(db)
                 logger.info("Consolidado %s.%s: %d registros", source, fn.__name__, count)
                 total += count
             except Exception:
                 logger.exception("Error consolidando %s.%s", source, fn.__name__)
-    total += materialize_core_clients(db, targets)
+                failed.append(f"{source}.{fn.__name__.removeprefix('_consolidate_')}")
+    try:
+        with db.begin_nested():
+            total += materialize_core_clients(db, targets)
+    except Exception:
+        logger.exception("Error en materialize_core_clients")
+        failed.append("materialize_core_clients")
+    if raise_on_error and failed:
+        raise ConsolidationError(failed)
     return total

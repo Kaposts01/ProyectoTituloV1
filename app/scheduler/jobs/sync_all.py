@@ -175,9 +175,10 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         _update_run(db_run_id, phase=phase)
         event_bus.emit(run_id, {"type": "phase_start", "phase": phase})
         logger.info("Consolidando canales: %s", consolidate_sources or "todos")
+        consolidation_failures: list[str] = []
         db = SessionLocal()
         try:
-            consolidated = consolidate_to_centralized(db, consolidate_sources)
+            consolidated = consolidate_to_centralized(db, consolidate_sources, failures=consolidation_failures)
             total_records += consolidated
             if "tch" in requested:
                 channels_done.append("tch")
@@ -190,7 +191,12 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             db.close()
 
         duration_s = int((datetime.now(timezone.utc) - started).total_seconds())
-        failed_msg = f"Canales con error: {', '.join(channels_failed)}" if channels_failed else None
+        failed_parts = []
+        if channels_failed:
+            failed_parts.append(f"Canales con error: {', '.join(channels_failed)}")
+        if consolidation_failures:
+            failed_parts.append(f"Consolidacion con error: {', '.join(consolidation_failures)}")
+        failed_msg = "; ".join(failed_parts) or None
         _update_run(
             db_run_id,
             status="completed",
