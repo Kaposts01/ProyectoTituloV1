@@ -15,7 +15,7 @@ from app.integrations.virtualpos.client import VirtualPOSClient
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
-from app.models.vp import VpSubscription
+from app.models.vp import VpPlan, VpSubscription
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
 
@@ -488,6 +488,8 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
+    ensure_charge_allowed_on_plan(db, subscription_id, platform)
+
     request_data = {"suscription_id": subscription_id, **data}
 
     write_run = WriteRun(
@@ -643,6 +645,320 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
         raise ReconciliationRequiredError from exc
 
     return charge
+
+
+class FixedPlanChargeBlockedError(Exception):
+    """POST /v3/charge sobre un plan MONTO_FIJO (o de tipo desconocido) con la bandera apagada."""
+
+
+FIXED_PLAN_BLOCKED_MESSAGE = (
+    "La suscripción pertenece a un plan de monto fijo (o de tipo desconocido); VirtualPOS rechaza cargos "
+    "manuales en esos planes (E-113). Active VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN solo tras validarlo en sandbox."
+)
+
+
+def _provider_error_code(exc: Exception) -> str | None:
+    """Extrae el código E-nnn de una respuesta de error de VirtualPOS (sin exponer el cuerpo completo)."""
+    response = getattr(exc, "response", None)
+    text = getattr(response, "text", "") or ""
+    match = re.search(r"E-\d{3}", text)
+    return match.group(0) if match else None
+
+
+def _plan_type_for_subscription(db: Session, subscription_id: str, platform: str) -> str | None:
+    """Tipo de plan según datos locales (core `plans`, luego `vp_plans`); None si se desconoce."""
+    plan_external_id = db.scalar(
+        select(Subscription.plan_external_id).where(
+            Subscription.external_id == subscription_id, Subscription.source == platform
+        )
+    )
+    if plan_external_id is None:
+        plan_external_id = db.scalar(
+            select(VpSubscription.plan_external_id).where(
+                VpSubscription.external_id == subscription_id, VpSubscription.platform == platform
+            )
+        )
+    if not plan_external_id:
+        return None
+    return db.scalar(
+        select(Plan.plan_type).where(Plan.external_id == plan_external_id, Plan.source == platform)
+    ) or db.scalar(
+        select(VpPlan.plan_type).where(VpPlan.external_id == plan_external_id, VpPlan.platform == platform)
+    )
+
+
+def ensure_charge_allowed_on_plan(db: Session, subscription_id: str, platform: str) -> None:
+    """Conservador: solo MONTO_VARIABLE conocido pasa; fijo o desconocido se bloquea salvo bandera explícita."""
+    if settings.virtualpos_allow_charge_on_fixed_plan:
+        return
+    plan_type = (_plan_type_for_subscription(db, subscription_id, platform) or "").strip().upper()
+    if plan_type != "MONTO_VARIABLE":
+        raise FixedPlanChargeBlockedError(FIXED_PLAN_BLOCKED_MESSAGE)
+
+
+def _items(response: Any, key: str) -> list[dict[str, Any]]:
+    value = response.get(key) if isinstance(response, dict) else None
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+async def _list_pending_charges(provider: Any, subscription_id: str) -> list[dict[str, Any]]:
+    """Cargos en estado exactamente `pendiente` (nunca procesando/pagado/rechazado), todas las páginas."""
+    pending: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        response = await provider.list_charges(subscription_id, page=page, limit=100, status="pendiente")
+        pending.extend(c for c in _items(response, "charges") if c.get("status") == "pendiente" and c.get("id"))
+        pages = (response.get("pagination") or {}).get("pages") if isinstance(response, dict) else None
+        if not isinstance(pages, int) or page >= pages:
+            return pending
+        page += 1
+
+
+def _reconcile_cancelled_charges(db: Session, platform: str, cancelled: list[dict[str, Any]]) -> None:
+    for item in cancelled:
+        charge_id = _as_text(item.get("id"))
+        if not charge_id:
+            continue
+        charge = db.scalar(select(Charge).where(Charge.external_id == charge_id, Charge.source == platform))
+        base = dict(charge.raw_payload or {}) if charge is not None else {}
+        payload = sanitize_record({**base, **item, "status": "cancelado"})
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == platform,
+                SourceRecord.resource_type == "charge",
+                SourceRecord.external_id == charge_id,
+            )
+        )
+        if source_record is None:
+            db.add(SourceRecord(source=platform, resource_type="charge", external_id=charge_id, payload=payload))
+        else:
+            source_record.payload = payload
+        if charge is not None:
+            charge.status = "cancelado"
+            charge.raw_payload = payload
+
+
+def _resolve_platform(db: Session, subscription_id: str, platform: str | None) -> str:
+    if platform:
+        return platform
+    source = db.scalar(
+        select(Subscription.source).where(
+            Subscription.external_id == subscription_id, Subscription.source.like("virtualpos%")
+        )
+    )
+    return source or "virtualpos1"
+
+
+async def cancel_future_charges(
+    db: Session,
+    subscription_id: str,
+    *,
+    platform: str | None = None,
+    charge_ids: list[str] | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Cancela cargos FUTUROS `pendiente` de una suscripción sin cancelar la suscripción.
+
+    Sin `charge_ids` usa DELETE /v3/charges/{suscription_id} (plural, solo toca pendientes); con `charge_ids`
+    usa DELETE /v3/charge/{id} individual, re-consultando el estado de cada uno justo antes de borrar.
+    E-079/E-059 (nada pendiente) son un resultado no-op, no un error.
+    """
+    platform = _resolve_platform(db, subscription_id, platform)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+    result: dict[str, Any] = {
+        "subscription_id": subscription_id, "dry_run": dry_run, "cancelled": [], "would_cancel": [],
+        "skipped": [], "noop": False, "write_run_id": None,
+    }
+
+    if dry_run:  # solo lecturas al proveedor; no hay write_run ni escritura
+        async with VirtualPOSClient(platform=platform) as provider:
+            pending = await _list_pending_charges(provider, subscription_id)
+        wanted = set(charge_ids) if charge_ids is not None else None
+        result["would_cancel"] = [c for c in pending if wanted is None or c["id"] in wanted]
+        result["noop"] = not result["would_cancel"]
+        return result
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source=platform,
+        resource_type="subscription_charges",
+        external_id=subscription_id,
+        operation="cancel_future_charges",
+        status="pending",
+        request_payload={"subscription_id": subscription_id, "charge_ids": charge_ids},
+    )
+    db.add(write_run)
+    db.commit()
+    result["write_run_id"] = str(write_run.id)
+
+    cancelled: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    try:
+        async with VirtualPOSClient(platform=platform) as provider:
+            # Re-consulta justo antes de borrar: el estado local/previo puede estar obsoleto.
+            pending = await _list_pending_charges(provider, subscription_id)
+            if charge_ids is None:
+                if pending:
+                    try:
+                        response = await provider.delete_subscription_charges(subscription_id)
+                        cancelled = _items(response, "cancel_charges")
+                    except Exception as exc:
+                        if _provider_error_code(exc) != "E-079":
+                            raise
+            else:
+                pending_by_id = {c["id"]: c for c in pending}
+                for charge_id in charge_ids:
+                    if charge_id not in pending_by_id:
+                        skipped.append({"id": charge_id, "reason": "no_pendiente"})
+                        continue
+                    try:
+                        await provider.delete_charge(charge_id)
+                    except Exception as exc:
+                        if _provider_error_code(exc) != "E-059":
+                            raise
+                        skipped.append({"id": charge_id, "reason": "E-059"})
+                        continue
+                    cancelled.append({**pending_by_id[charge_id], "status": "cancelado"})
+    except Exception as exc:
+        # Si el lote falla a medias, los ya cancelados quedan trazados en el write_run.
+        _reconcile_cancelled_charges(db, platform, cancelled)
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.response_payload = {"cancelled_charge_ids": [c.get("id") for c in cancelled], "skipped": skipped}
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    result["cancelled"] = cancelled
+    result["skipped"] = skipped
+    result["noop"] = not cancelled
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = {
+        "cancelled_charge_ids": [c.get("id") for c in cancelled], "skipped": skipped, "noop": result["noop"],
+    }
+    db.commit()
+
+    try:
+        _reconcile_cancelled_charges(db, platform, cancelled)
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return result
+
+
+async def reassign_subscription_amount(
+    db: Session,
+    subscription_id: str,
+    new_amount: int,
+    effective_date: str,
+    *,
+    platform: str | None = None,
+    description: str | None = None,
+    internal_code: str | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Reemplaza el cargo pendiente del periodo (mes de `effective_date`) por uno nuevo con `new_amount`.
+
+    Orden seguro: primero CREAR el cargo nuevo y solo si tuvo éxito cancelar los pendientes del periodo,
+    para no dejar nunca al socio sin cobros si el POST falla (p. ej. E-113).
+    """
+    platform = _resolve_platform(db, subscription_id, platform)
+    period = effective_date[:7]
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+    if not dry_run and not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+    ensure_charge_allowed_on_plan(db, subscription_id, platform)  # bloqueado: no se llama al proveedor
+
+    code = internal_code or f"{subscription_id}-{period.replace('-', '')}-{new_amount}"
+    new_charge_request: dict[str, Any] = {"charge_date": effective_date, "amount": new_amount, "internal_code": code}
+    if description:
+        new_charge_request["description"] = description
+
+    async with VirtualPOSClient(platform=platform) as provider:
+        pending = await _list_pending_charges(provider, subscription_id)
+    to_cancel = [c for c in pending if str(c.get("charge_date") or "")[:7] == period]
+
+    result: dict[str, Any] = {
+        "subscription_id": subscription_id, "dry_run": dry_run, "would_create": new_charge_request,
+        "would_cancel": to_cancel, "created_charge_id": None, "cancelled": [], "write_run_id": None,
+    }
+    if dry_run:
+        return result
+
+    write_run = WriteRun(
+        source=platform,
+        resource_type="subscription_charges",
+        external_id=subscription_id,
+        operation="reassign_subscription_amount",
+        status="pending",
+        request_payload={
+            "subscription_id": subscription_id, "new_amount": new_amount, "effective_date": effective_date,
+            "create": sanitize_record(new_charge_request), "cancel_charge_ids": [c["id"] for c in to_cancel],
+        },
+    )
+    db.add(write_run)
+    db.commit()
+    result["write_run_id"] = str(write_run.id)
+
+    # Orden seguro: crear primero y cancelar después, para no dejar al socio sin cobros si el POST falla.
+    try:
+        new_charge = await create_charge(db, subscription_id, new_charge_request, platform=platform)
+    except Exception as exc:
+        code_hint = _provider_error_code(exc)
+        suffix = f" ({code_hint})" if code_hint else ""
+        write_run.status = "failed"
+        write_run.error_message = (
+            f"No se creó el cargo nuevo{suffix}; no se canceló ningún cargo. {safe_error_message(exc, all_secrets)}"
+        )[:2000]
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    result["created_charge_id"] = new_charge.external_id
+    write_run.response_payload = {"created_charge_id": new_charge.external_id}
+    db.commit()
+
+    ids = [c["id"] for c in to_cancel if c["id"] != new_charge.external_id]
+    try:
+        if ids:
+            cancel_result = await cancel_future_charges(db, subscription_id, platform=platform, charge_ids=ids)
+            result["cancelled"] = cancel_result["cancelled"]
+    except Exception as exc:
+        write_run.status = "reconciliation_required"
+        write_run.error_message = (
+            "El cargo nuevo se creó pero falló la cancelación de los anteriores; revisar duplicados. "
+            + safe_error_message(exc, all_secrets)
+        )[:2000]
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    write_run.status = "completed"
+    write_run.response_payload = {
+        "created_charge_id": new_charge.external_id,
+        "cancelled_charge_ids": [c.get("id") for c in result["cancelled"]],
+    }
+    write_run.finished_at = datetime.now(UTC)
+    db.commit()
+    return result
 
 
 async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription:

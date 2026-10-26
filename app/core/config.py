@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     virtualpos_timeout_seconds: float = 30
     virtualpos_read_retries: int = 2
     virtualpos_writes_enabled: bool = False
+    # WR-VP-05: POST /v3/charge sobre planes MONTO_FIJO falla (E-113) segun la doc; no validado en sandbox.
+    virtualpos_allow_charge_on_fixed_plan: bool = False
     virtualpos_payout_webhook_secret: str = ""
     # VirtualPOS cuenta 2 (producción)
     virtualpos2_base_url: str = ""

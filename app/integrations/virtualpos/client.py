@@ -104,8 +104,13 @@ class VirtualPOSClient:
         response.raise_for_status()
         return response.json()
 
-    async def list_charges(self, subscription_id: str, page: int = 1, limit: int = 100) -> Any:
-        return await self._get(f"/v3/suscription/{subscription_id}/charges", params={"page": page, "limit": limit})
+    async def list_charges(
+        self, subscription_id: str, page: int = 1, limit: int = 100, status: str | None = None
+    ) -> Any:
+        params: dict[str, Any] = {"page": page, "limit": limit}
+        if status:
+            params["status"] = status
+        return await self._get(f"/v3/suscription/{subscription_id}/charges", params=params)
 
     async def get_charge(self, charge_id: str) -> Any:
         return await self._get(f"/v3/charge/{charge_id}")
@@ -117,6 +122,20 @@ class VirtualPOSClient:
 
     async def delete_charge(self, charge_id: str) -> Any:
         response = await self._client.delete(f"/v3/charge/{charge_id}")
+        response.raise_for_status()
+        if not response.content:
+            return {}
+        try:
+            return response.json()
+        except Exception:
+            return {}
+
+    async def delete_subscription_charges(self, subscription_id: str) -> Any:
+        """DELETE /v3/charges/{suscription_id}: cancela TODOS los cargos pendientes sin cancelar la suscripción.
+
+        Devuelve `cancel_charges[]`; E-079 (HTTP 400) si no hay cargos pendientes.
+        """
+        response = await self._client.delete(f"/v3/charges/{subscription_id}")
         response.raise_for_status()
         if not response.content:
             return {}

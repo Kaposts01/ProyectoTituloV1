@@ -66,6 +66,7 @@ from app.services.write_virtualpos import (
     ClientNotFoundError,
     DuplicateClientError,
     DuplicateSubscriptionError,
+    FixedPlanChargeBlockedError,
     InvalidClientDataError,
     PaymentNotFoundError,
     ReconciliationRequiredError,
@@ -73,12 +74,14 @@ from app.services.write_virtualpos import (
     SubscriptionNotFoundError,
     WriteDisabledError,
     cancel_charge,
+    cancel_future_charges,
     cancel_payment,
     cancel_subscription,
     create_charge,
     create_client,
     create_plan,
     create_subscription,
+    reassign_subscription_amount,
     retry_charge,
     update_client,
 )
@@ -317,12 +320,80 @@ async def create_virtualpos_charge(
         charge = await create_charge(db, subscription_id, body.model_dump(exclude_none=True, mode="json"), platform=platform)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except FixedPlanChargeBlockedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     except HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the charge") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="VirtualPOS charge requires local reconciliation") from None
 
     return {"id": str(charge.id), "external_id": charge.external_id, "source": charge.source, "payload": charge.raw_payload or {}}
+
+
+@router.delete(
+    "/virtualpos/subscriptions/{subscription_id}/charges",
+    dependencies=[Depends(require_permissions("virtualpos.charges.cancel")), Depends(require_csrf)],
+    tags=["Writes - VirtualPOS"],
+)
+async def cancel_virtualpos_future_charges(
+    subscription_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    dry_run: bool = True,
+) -> dict:
+    """Cancela los cargos futuros `pendiente` de una suscripción (sin cancelar la suscripción).
+
+    Con `dry_run=true` (por defecto) solo informa qué se cancelaría; la escritura real exige `dry_run=false`.
+    """
+    try:
+        return await cancel_future_charges(db, subscription_id, dry_run=dry_run)
+    except WriteDisabledError:
+        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación de cargos") from None
+    except ReconciliationRequiredError:
+        raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
+
+
+class VirtualPOSAmountReassign(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_amount: int = Field(ge=1)
+    effective_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    description: str | None = Field(default=None, max_length=500)
+    internal_code: str | None = Field(default=None, max_length=100)
+
+
+@router.post(
+    "/virtualpos/subscriptions/{subscription_id}/reassign-amount",
+    dependencies=[
+        Depends(require_permissions("virtualpos.charges.create", "virtualpos.charges.cancel")),
+        Depends(require_csrf),
+    ],
+    tags=["Writes - VirtualPOS"],
+)
+async def reassign_virtualpos_subscription_amount(
+    subscription_id: str,
+    body: VirtualPOSAmountReassign,
+    db: Annotated[Session, Depends(get_db)],
+    dry_run: bool = True,
+) -> dict:
+    """Crea un cargo nuevo con otro monto y luego cancela los pendientes del periodo reemplazado.
+
+    Con `dry_run=true` (por defecto) no escribe en el proveedor; la confirmación real exige `dry_run=false`.
+    """
+    try:
+        return await reassign_subscription_amount(
+            db, subscription_id, body.new_amount, body.effective_date,
+            description=body.description, internal_code=body.internal_code, dry_run=dry_run,
+        )
+    except WriteDisabledError:
+        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except FixedPlanChargeBlockedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la reasignación de monto") from None
+    except ReconciliationRequiredError:
+        raise HTTPException(status_code=503, detail="La reasignación requiere reconciliación local") from None
 
 
 @router.delete(
