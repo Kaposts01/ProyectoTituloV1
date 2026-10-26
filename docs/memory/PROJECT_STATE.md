@@ -1,6 +1,6 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-25.
+Fecha de actualizacion: 2026-10-26.
 
 ## Estado actual
 
@@ -82,6 +82,7 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 ## Actualizacion 2026-10-26 (Sprint 2 casi completo)
 
 - **TK-10 completada**: filtro y orden global por estado secundario Toku antes de paginar; 6 tests con offset>0 en `tests/test_staging_api.py` (Toku y VirtualPOS). **SYNC-GAP-02** caracterizado (9 tests en `tests/test_etl_tch.py`; decisión de negocio pendiente). **SYNC-GAP-04** mitigado (49 tests en `tests/test_sync_gap04_payload_shapes.py`; log `_log_null_relations`). **FE-03** completada. **KPI-02..04** completadas; **KPI-01** pendiente de verificación contra VirtualPOS staging.
+- **Sprint 3 (en progreso)**: CHART-01..04 completadas en código con ChannelChart (verificación de cifras y apariencia pendiente; "Crecimiento real mensual" y "Churn %" siguen con componentes antiguos). UI-20 y UI-21 completadas en código: sidebar corregida y `GET /api/v1/sync-runs/health` con puntos de salud; falta verificación visual en navegador y contraste.
 
 ## Actualizacion 2026-10-21 (sesion iterativa)
 

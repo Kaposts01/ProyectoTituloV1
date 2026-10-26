@@ -15,9 +15,42 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 
 ---
 
-## Sprint Activo: Sprint 2 — Componentes + KPIs
+## Sprint Activo: Sprint 3 — Gráficos + Sidebar
 
-**Estado:** En progreso  
+**Estado:** En progreso (tareas completadas en código; falta verificación en navegador y contra staging)  
+**Objetivo:** Gráficos de resumen estandarizados por canal (ChannelChart) y barra lateral corregida con indicadores de salud por canal.  
+**Duración:** 2 semanas
+
+### Backlog del Sprint
+
+| ID | Tarea | Estado | Responsable |
+| --- | --- | --- | --- |
+| CHART-01 | Estandarizar gráficos VirtualPOS/resumen | Completada en código; verificación pendiente | — |
+| CHART-02 | Estandarizar gráficos Toku/resumen | Completada en código; verificación pendiente | — |
+| CHART-03 | Estandarizar gráficos Payku/resumen | Completada en código; verificación pendiente | — |
+| CHART-04 | Estandarizar gráficos TCH/resumen | Completada en código; verificación pendiente | — |
+| UI-20 | Auditoría y corrección de barra lateral | Completada (falta verificación visual en navegador) | — |
+| UI-21 | Indicadores de salud de canal en sidebar | Completada (falta verificación visual en navegador) | — |
+
+### Definición de Done (Sprint 3)
+
+- [ ] `CHART-01–04`: Gráficos de resumen con ChannelChart; "Crecimiento real mensual" y "Churn %" siguen con componentes antiguos (porcentajes no soportados); cifras de CHART-01 pendientes de verificar contra VP staging y apariencia en navegador/temas
+- [ ] `UI-20`: Barra lateral corregida en código; verificación visual en navegador pendiente
+- [ ] `UI-21`: Puntos de salud en código (`GET /api/v1/sync-runs/health`, caché 5 min); verificación visual y contraste sobre #1a3d47/#091418 pendientes
+
+### Notas de sesión
+
+- Sesión 2026-10-26:
+  - UI-20 completada en código: 4 bugs corregidos (estados activos de Dashboard y vistas generales; permisos `tch.suscripciones.view` / `tch.transacciones.view` en TCH; menú móvil con `aria-expanded`, Esc y retorno de foco). Se mantiene el drawer móvil; DESIGN.md pide top-bar (discrepancia anotada, decisión del usuario).
+  - UI-21 completada en código: `GET /api/v1/sync-runs/health` (ok <24h, warn <72h, error ≥72h o último run fallido o run en ejecución >72h, unknown sin runs; VirtualPOS toma el peor de vp1/vp2; TCH desde EtlRun; caché 5 min) y puntos de salud en el sidebar (hook `useChannelHealth`; un fallo no rompe el render).
+  - CHART-01 a CHART-04 completadas en código con `ChannelChart` (`features/dashboard/channelCharts.ts`). Toku: la serie de actividad son transacciones y métodos por estado es foto actual. Payku: `coverage_gaps` anotados; nota de cobertura no certificada. TCH: nota de fuente según `transacciones_fuente`. Descartados el gráfico de actividad de VirtualPOS (solapaba con cargos) y "Transacciones vs Suscripciones".
+  - Pendiente: verificar cifras de CHART-01 contra VP staging (acceso humano); verificar apariencia de gráficos y sidebar en navegador y temas.
+
+---
+
+## Sprint Pendiente de cierre: Sprint 2 — Componentes + KPIs
+
+**Estado:** Casi completo (falta KPI-01 contra VP staging)  
 **Objetivo:** Componentes compartidos (KpiCard, ChannelChart) y KPIs estándar por canal (VirtualPOS, Toku, Payku, TCH).  
 **Duración:** 2 semanas (inicio 2026-10-25)
 
@@ -114,8 +147,8 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 |---|--------|-----------------|--------|----------|
 | 0 | **Onboarding & Fundación** ✅ Completado | Entorno operativo + App.tsx modularizado | OPS-07, FE-02 | 2 sem |
 | 1 | **Auditoría de Datos** ✅ Completado | Documentar datos objeto por canal | DATA-01–04, TK-10, SYNC-01 | 2 sem |
-| 2 | **Componentes + KPIs** ← *activo: casi completo, falta verificación KPI-01 contra VP staging* | Componentes compartidos + KPIs estándar | FE-03, KPI-01–04 | 2 sem |
-| 3 | Gráficos + Sidebar | Gráficos estandarizados + sidebar con salud | CHART-01–04, UI-20–21 | 2 sem |
+| 2 | **Componentes + KPIs** ← *casi completo (falta KPI-01 contra VP staging)* | Componentes compartidos + KPIs estándar | FE-03, KPI-01–04 | 2 sem |
+| 3 | **Gráficos + Sidebar** ← *activo: completadas en código, falta verificación* | Gráficos estandarizados + sidebar con salud | CHART-01–04, UI-20–21 | 2 sem |
 | 4 | Recuperador VP | Mejoras al recuperador VirtualPOS | REC-03, WR-VP-05, PK-05 | 2 sem |
 | 5 | Recuperador General | Recuperador multi-canal (Toku/Payku/TCH) | REC-04–06 | 3 sem |
 | 6 | Infraestructura | Ambientes, respaldo y operaciones | ENV-01, BCK-01, OPS-09, VAL-VP-01, VAL-PK-01 | 2 sem |
