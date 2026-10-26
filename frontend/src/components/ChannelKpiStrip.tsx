@@ -14,7 +14,7 @@ export function ChannelKpiStrip({ kpis, ariaLabel = "KPIs del canal" }: { kpis: 
         <KpiCard label="ARPU" value={k?.arpu ?? null} format="clp" caption={clients != null ? `${clients.toLocaleString("es-CL")} cliente${clients !== 1 ? "s" : ""} con subs activas` : undefined} />
         <KpiCard label="Suscriptores activos" value={k?.activeSubscribers ?? null} format="count" />
         <KpiCard label="Churn mensual" value={k?.churnRate ?? null} format="percent" />
-        <KpiCard label="Cobros rechazados" value={k?.rejectedCharges.count ?? null} format="count" caption={rejectedAmount != null ? `$${Math.round(rejectedAmount).toLocaleString("es-CL")}` : undefined} />
+        <KpiCard label="Cargos rechazados" value={k?.rejectedCharges.count ?? null} format="count" caption={rejectedAmount != null ? `$${Math.round(rejectedAmount).toLocaleString("es-CL")}` : undefined} />
       </section>
       {r ? (
         <>

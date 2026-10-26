@@ -25,6 +25,7 @@ export type ChannelKpis = {
 
 export const CHANNEL_KPI_NOTES: Partial<Record<Channel, string>> = {
   payku: "Cobertura histórica no certificada · MRR desde última transacción success",
+  toku: "MRR desde suscripciones activas con medio de pago chargeable · Campos específicos de Toku",
   tch: "Fuente: reportes Excel oficiales",
 };
 
