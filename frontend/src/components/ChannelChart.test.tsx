@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { cloneElement, type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelChart } from "./ChannelChart";
 import { buildChartRows } from "./chartRows";
@@ -8,7 +8,9 @@ vi.mock("recharts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("recharts")>();
   return {
     ...actual,
-    ResponsiveContainer: ({ children }: { children: ReactNode }) => <div data-testid="rc">{children}</div>,
+    ResponsiveContainer: ({ children }: { children: ReactElement<{ width?: number; height?: number }> }) => (
+      <div data-testid="rc">{cloneElement(children, { width: 600, height: 280 })}</div>
+    ),
   };
 });
 
@@ -57,5 +59,29 @@ describe("ChannelChart", () => {
       expect(screen.getByTestId("rc")).toBeInTheDocument();
       unmount();
     }
+  });
+
+  it("renderiza grouped con leyenda mostrando cada serie", () => {
+    const two = [{ key: "altas", label: "Altas", color: "#2563EB" }, { key: "bajas", label: "Bajas", color: "#DC2626" }];
+    const rowsData = [{ year: 2025, month: 1, altas: 4, bajas: 1 }, { year: 2025, month: 2, altas: 2, bajas: 3 }];
+    render(<ChannelChart series={two} data={rowsData} kind="grouped" mode="count" year={2025} legend />);
+    expect(screen.getByText("Altas")).toBeInTheDocument();
+    expect(screen.getByText("Bajas")).toBeInTheDocument();
+  });
+
+  it("dibuja la banda de anotación con su etiqueta cuando hay datos en el rango", () => {
+    render(
+      <ChannelChart series={series} data={data} kind="bar" mode="count" year={2025}
+        annotations={[{ from: { year: 2025, month: 1 }, to: { year: 2025, month: 3 }, label: "Sin cobertura" }]} />,
+    );
+    expect(screen.getByText("Sin cobertura")).toBeInTheDocument();
+  });
+
+  it("omite la banda si el rango no tiene datos", () => {
+    render(
+      <ChannelChart series={series} data={data} kind="line" mode="count" year={2025}
+        annotations={[{ from: { year: 2023, month: 1 }, to: { year: 2023, month: 3 }, label: "Fuera" }]} />,
+    );
+    expect(screen.queryByText("Fuera")).not.toBeInTheDocument();
   });
 });
