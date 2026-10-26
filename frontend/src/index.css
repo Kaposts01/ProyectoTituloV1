@@ -48,6 +48,11 @@
   --error-bg:        #fff6f1;
   --error-text:      #8b3030;
   --cancel-bg:       #8b3030;
+  /* sync health dots (sit on the always-teal sidebar) */
+  --health-ok:       #4ecf8a;
+  --health-warn:     #f2c14e;
+  --health-error:    #ff8a80;
+  --health-unknown:  #93adb3;
   --shadow-card:     rgba(26, 61, 71, 0.08);
 
   /* aliases for App.css compatibility */
@@ -94,6 +99,10 @@ html[data-theme="dark"] {
   --error-bg:        #1a0d0d;
   --error-text:      #f08080;
   --cancel-bg:       #7a2020;
+  --health-ok:       #4ecf8a;
+  --health-warn:     #f2c14e;
+  --health-error:    #ff8a80;
+  --health-unknown:  #93adb3;
   --shadow-card:     rgba(0, 0, 0, 0.45);
 
   --bg:              var(--bg-base);

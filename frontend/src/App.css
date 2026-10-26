@@ -563,6 +563,16 @@ td:first-child { font-weight: 700; }
 }
 .sidebar-expand:hover { color: rgba(255, 255, 255, 0.80); background: rgba(255, 255, 255, 0.08); }
 
+/* ── Sync health dots ───────────────────────────────────────────────── */
+.health-dot {
+  display: inline-block; flex: none; width: 6px; height: 6px;
+  margin: 0 6px; border-radius: 50%; background: var(--health-unknown);
+}
+.health-dot.ok { background: var(--health-ok); }
+.health-dot.warn { background: var(--health-warn); }
+.health-dot.error { background: var(--health-error); }
+.health-dot.unknown { background: var(--health-unknown); }
+
 /* ── Burger button (mobile) with teal bg ────────────────────────────── */
 @media (max-width: 800px) {
   .burger-btn span { background: rgba(255, 255, 255, 0.90); }

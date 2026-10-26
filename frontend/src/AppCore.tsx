@@ -1,7 +1,8 @@
-import { Component, Suspense, useEffect, useEffectEvent, useState, type FormEvent, type ReactNode } from "react";
+import { Component, Suspense, useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
 import { setCsrfToken, getJson, postJson, downloadFile, putJson, deleteJson, friendlyError } from "./api";
 import { useDebouncedValue } from "./hooks";
+import { useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
 import { providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
@@ -223,6 +224,12 @@ function AppCore() {
   const [tchTransaccionDetail, setTchTransaccionDetail] = useState<TchTransaccionDetail | null>(null);
   const [tchClienteDetail, setTchClienteDetail] = useState<TchClienteDetail | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const burgerRef = useRef<HTMLButtonElement>(null);
+  const channelHealth = useChannelHealth(Boolean(session));
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    burgerRef.current?.focus();
+  };
   const [profileView, setProfileView] = useState<"summary" | "edit" | null>(null);
   const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
   const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
@@ -1180,6 +1187,7 @@ function AppCore() {
 
   function showAdmin(view: "usuarios" | "sincronizacion", updateUrl = true) {
     clearDetails();
+    setGeneralView("summary");
     setChannel(null);
     setActiveSection(null);
     setTchView(null);
@@ -1223,6 +1231,7 @@ function AppCore() {
 
   function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones", updateUrl = true) {
     clearDetails();
+    setGeneralView("summary");
     setChannel(null);
     setActiveSection(null);
     setAdminOpen(false);
@@ -1263,6 +1272,7 @@ function AppCore() {
 
   function showChannel(source: ProviderSource, updateUrl = true) {
     clearDetails();
+    setGeneralView("summary");
     setActiveSection(null);
     setTchView(null);
     setRecoveryOpen(false);
@@ -1328,6 +1338,7 @@ function AppCore() {
   }
   function showSection(section: ProviderSection, updateUrl = true) {
     clearDetails();
+    setGeneralView("summary");
     setChannel(null);
     setRecoveryOpen(false);
     setAdminOpen(false);
@@ -1362,6 +1373,7 @@ function AppCore() {
 
   function showRecovery(updateUrl = true) {
     clearDetails();
+    setGeneralView("summary");
     setChannel(null);
     setActiveSection(null);
     setTchView(null);
@@ -1380,6 +1392,7 @@ function AppCore() {
 
   function showProfile(view: "summary" | "edit", updateUrl = true) {
     clearDetails();
+    setGeneralView("summary");
     setChannel(null);
     setActiveSection(null);
     setTchView(null);
@@ -3470,14 +3483,17 @@ function AppCore() {
   return (
     <div className="app-layout">
       <button
+        ref={burgerRef}
         className="burger-btn"
         aria-label="Abrir menú"
+        aria-expanded={sidebarOpen}
+        aria-controls="app-sidebar"
         onClick={() => setSidebarOpen(true)}
       >
         <span /><span /><span />
       </button>
       {sidebarOpen && (
-        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+        <div className="sidebar-overlay" onClick={closeSidebar} />
       )}
       <Sidebar
         activeSection={activeSection}
@@ -3504,9 +3520,11 @@ function AppCore() {
         onProfile={() => showProfile("summary")}
         onLogout={logout}
         open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+        onClose={closeSidebar}
         recoveryOpen={recoveryOpen}
         onRecovery={showRecovery}
+        profileOpen={profileView !== null}
+        health={channelHealth}
       />
       {adminOpen ? (
         <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
