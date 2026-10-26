@@ -121,7 +121,9 @@ def test_payku_dashboard_mrr_and_arpu_use_only_subscriptions_with_success(db_ses
     assert after["active_subscribers"] == prev["active_subscribers"] + 3
     assert after["mrr"] == prev["mrr"] + 1200 + 800  # ultima success; failed no suma
     # ARPU: solo suscripciones que aportan al MRR (la 'nosuccess' no entra al denominador).
-    assert after["active_clients"] == prev["active_clients"] + 2
+    # Con base vacia el endpoint reporta active_clients=1 (piso anti division por cero), no 0.
+    prev_clients = prev["active_clients"] if prev["mrr"] else 0
+    assert after["active_clients"] == prev_clients + 2
     assert after["arpu"] == round(after["mrr"] / after["active_clients"], 0)
 
 
