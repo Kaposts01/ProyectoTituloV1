@@ -12,6 +12,8 @@ class PaykuClient:
     """Client for the Payku API (/api/* endpoints)."""
 
     def __init__(self) -> None:
+        if not settings.is_production and not settings.channel_enabled("payku"):
+            raise RuntimeError(f"Payku esta deshabilitado en {settings.env_mode} (sin PAYKU_BASE_URL)")
         api_key = settings.payku_api_key.strip()
         if api_key.lower().startswith("bearer "):
             api_key = api_key[7:].strip()

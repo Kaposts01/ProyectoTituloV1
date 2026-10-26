@@ -39,3 +39,6 @@ postman/
 Claude outputs/
 uvicorn.log
 uvicorn_err.log
+
+.env.*
+!.env.example

@@ -20,7 +20,7 @@ class VirtualPOSClient:
             api_key = settings.virtualpos_api_key
             secret_key = settings.virtualpos_secret_key
 
-        if not base_url or not api_key:
+        if not base_url or not api_key:  # en sandbox/qa un canal sin URL propia queda deshabilitado
             raise RuntimeError(f"VirtualPOS {platform} is not configured")
 
         self._client = httpx.AsyncClient(

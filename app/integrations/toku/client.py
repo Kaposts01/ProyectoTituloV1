@@ -10,6 +10,8 @@ class TokuClient:
     """Client for the Toku API (x-api-key authentication)."""
 
     def __init__(self) -> None:
+        if not settings.is_production and not settings.channel_enabled("toku"):
+            raise RuntimeError(f"Toku esta deshabilitado en {settings.env_mode} (sin TOKU_BASE_URL)")
         self._cursors: dict[str, str] = {}
         self._client = httpx.AsyncClient(
             base_url=settings.toku_base_url.rstrip("/"),
