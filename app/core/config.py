@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     database_url: str
     # Solo con APP_ENV=sandbox/qa: reemplazan a las variables de produccion (nunca fallback).
     sandbox_database_url: str = ""
+    # URLs del selector de ambiente (solo navegacion) y scheduler en sandbox/qa.
+    sandbox_app_url: str = ""
+    production_app_url: str = ""
+    sandbox_scheduler_enabled: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""

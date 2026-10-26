@@ -50,7 +50,17 @@ PERMISSIONS: dict[str, str] = {
     "core.identity.read": "Ver candidatos de identidad centralizada",
     "core.identity.review": "Aprobar o rechazar candidatos de identidad",
     "core.identity.merge": "Ejecutar merge técnico de identidades",
+    "system.environment.switch": "Cambiar entre ambientes Producción y Sandbox",
 }
+
+SUPPORT_ROLE_NAME = "soporte"
+SUPPORT_ROLE_DESCRIPTION = "Soporte: consulta de todos los módulos, reintento de cargos y cambio de ambiente"
+SUPPORT_EXTRA_PERMISSIONS = ("virtualpos.charges.retry", "system.environment.switch")
+
+
+def support_permission_codes() -> set[str]:
+    """Permisos del rol soporte: todos los `.view` + reintento de cargos + cambio de ambiente."""
+    return {code for code in PERMISSIONS if code.endswith(".view")} | set(SUPPORT_EXTRA_PERMISSIONS)
 
 _RESOURCE_PERMISSIONS = {
     "virtualpos": {
@@ -88,6 +98,25 @@ def seed_permissions(db: Session) -> None:
     if admin is not None:
         admin.permissions = list(existing.values())
     db.flush()
+
+
+def seed_default_roles(db: Session) -> dict[str, int]:
+    """Crea el rol `soporte` o le agrega los permisos faltantes (nunca quita). Idempotente.
+
+    No modifica admin/coordinador/jefatura. Devuelve {nombre_de_rol: cantidad_de_permisos}.
+    """
+    seed_permissions(db)
+    wanted = support_permission_codes()
+    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted))).all()}
+    role = db.scalar(select(Role).where(Role.name == SUPPORT_ROLE_NAME))
+    if role is None:
+        role = Role(name=SUPPORT_ROLE_NAME, description=SUPPORT_ROLE_DESCRIPTION)
+        db.add(role)
+    present = {p.code for p in role.permissions}
+    for code in sorted(wanted - present):
+        role.permissions.append(by_code[code])
+    db.flush()
+    return {SUPPORT_ROLE_NAME: len(role.permissions)}
 
 
 def get_user(db: Session, user_id: str) -> User | None:

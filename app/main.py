@@ -7,7 +7,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
-from app.api.v1.routes import auth, webhooks_payku, webhooks_toku, webhooks_virtualpos
+from app.api.v1.routes import (
+    auth,
+    system,
+    webhooks_payku,
+    webhooks_toku,
+    webhooks_virtualpos,
+)
 from app.core.config import settings
 from app.scheduler.engine import get_scheduler, register_jobs
 
@@ -80,9 +86,18 @@ def _cleanup_zombie_runs() -> None:
         db.close()
 
 
+def scheduler_should_start() -> bool:
+    """Produccion: siempre. Sandbox/qa: solo con SANDBOX_SCHEDULER_ENABLED=true."""
+    return settings.is_production or settings.sandbox_scheduler_enabled
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _cleanup_zombie_runs()
+    if not scheduler_should_start():
+        logger.info("Scheduler deshabilitado en ambiente %s.", settings.env_mode)
+        yield
+        return
     sched = get_scheduler()
     register_jobs(sched)
     sched.start()
@@ -94,6 +109,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0", openapi_tags=OPENAPI_TAGS, lifespan=lifespan)
 app.include_router(auth.router, prefix="/api/v1/auth")
+app.include_router(system.router, prefix="/api/v1/system", tags=["System"])
 app.include_router(webhooks_toku.router, prefix="/api/v1")
 app.include_router(webhooks_virtualpos.router, prefix="/api/v1")
 app.include_router(webhooks_payku.router, prefix="/api/v1")

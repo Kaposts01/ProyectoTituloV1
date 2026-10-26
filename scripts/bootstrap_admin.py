@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models.auth import Role, User
-from app.services.rbac import seed_permissions
+from app.services.rbac import seed_default_roles, seed_permissions
 
 
 def main() -> None:
@@ -25,7 +25,9 @@ def main() -> None:
             db.add(admin_role)
             db.flush()
             seed_permissions(db)
+        seed_default_roles(db)
         if db.scalar(select(User).where(User.username == settings.initial_admin_username)):
+            db.commit()
             print("Initial admin already exists")
             return
         db.add(

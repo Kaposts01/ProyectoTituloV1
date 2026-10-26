@@ -13,7 +13,15 @@ from app.db.session import SessionLocal
 from app.models.auth import User
 from app.services.rbac import get_user, permission_codes
 
-ACCESS_COOKIE = "crm_access_token"
+_BASE_ACCESS_COOKIE = "crm_access_token"
+
+
+def access_cookie_name(env_mode: str) -> str:
+    """Produccion conserva el nombre historico; sandbox/qa llevan sufijo para no chocar en localhost."""
+    return _BASE_ACCESS_COOKIE if env_mode == "production" else f"{_BASE_ACCESS_COOKIE}_{env_mode}"
+
+
+ACCESS_COOKIE = access_cookie_name(settings.env_mode)
 CSRF_HEADER = "X-CSRF-Token"
 _password_hash = PasswordHash.recommended()
 
