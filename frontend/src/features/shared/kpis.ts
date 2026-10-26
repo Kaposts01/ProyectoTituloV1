@@ -23,10 +23,13 @@ export type ChannelKpis = {
   recaudoMensual?: RecaudoMensual;
 };
 
+export const PAYKU_COVERAGE_NOTE = "Cobertura histórica no certificada";
+export const TCH_SOURCE_NOTE = "Fuente: reportes Excel oficiales";
+
 export const CHANNEL_KPI_NOTES: Partial<Record<Channel, string>> = {
-  payku: "Cobertura histórica no certificada · MRR desde última transacción success",
+  payku: `${PAYKU_COVERAGE_NOTE} · MRR desde última transacción success`,
   toku: "MRR desde suscripciones activas con medio de pago chargeable · Campos específicos de Toku",
-  tch: "Fuente: reportes Excel oficiales",
+  tch: TCH_SOURCE_NOTE,
 };
 
 function num(value: unknown): number | null {

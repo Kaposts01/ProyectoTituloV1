@@ -31,6 +31,7 @@ export function normalizeTchSummary(data: Partial<import("./types").TchSummary>)
     kpis: data.kpis ?? { mrr: 0, arpu: 0, active_clients: 0, active_subscribers: 0, churn_rate: 0, ltv: 0 },
     years: data.years ?? [],
     transacciones_mensuales: data.transacciones_mensuales ?? [],
+    transacciones_fuente: data.transacciones_fuente,
     activaciones_mensuales: data.activaciones_mensuales ?? [],
     bajas_mensuales: data.bajas_mensuales ?? [],
     active_subs_monthly: data.active_subs_monthly ?? [],

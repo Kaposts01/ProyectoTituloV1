@@ -56,6 +56,10 @@ export type ChannelDashboard = {
   statuses: { resource: string; status: string; count: number }[];
   activity_resource: string;
   activity: Activity[];
+  /** Toku: serie mensual de facturas (deuda emitida); `activity` son transacciones. */
+  invoice_activity?: Activity[];
+  /** Payku: meses sin transacciones entre el primer y el último mes con datos. */
+  coverage_gaps?: { year: number; month: number }[];
   years: number[];
   last_sync: SyncRun | null;
   kpis?: VpKpis;
@@ -131,6 +135,7 @@ export type TchSummary = {
   kpis: { mrr: number; arpu: number; active_clients: number; active_subscribers: number; churn_rate: number; ltv: number };
   years: number[];
   transacciones_mensuales: MonthlyStatusEntry[];
+  transacciones_fuente?: "recaudacion_mensual" | "transacciones" | string;
   activaciones_mensuales: MonthlyStatusEntry[];
   bajas_mensuales: MonthlyStatusEntry[];
   active_subs_monthly: { year: number; month: number; count: number }[];

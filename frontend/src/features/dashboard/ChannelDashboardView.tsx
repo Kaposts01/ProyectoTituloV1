@@ -1,28 +1,25 @@
-import { Suspense, useState } from "react";
+import { useState, type ReactNode } from "react";
 import { getJson } from "../../api";
-import ChannelActivityChart from "../../ChannelActivityChart";
 import {
-  MonthlyStatusChart,
-  MonthlySimpleChart,
-  ActivacionCaidaChart,
-  CrecimientoMensualChart,
   ChurnMensualChart,
-  TransaccionesSuscripcionesChart,
-  type MonthlyEntry,
+  CrecimientoMensualChart,
   type MonthlyStatusEntry,
 } from "../../MonthlyStatusChart";
 import { OperationalAlerts } from "./OperationalAlerts";
 import { providerGroups } from "../../navigation";
 import {
   virtualPosMetrics, tokuMetrics, paykuMetrics,
-  months, CHANNEL_COLORS,
 } from "../shared/constants";
 import { title, defaultYear, aggregateChurn } from "../shared/utils";
 import type { AlertDetailItem, ChannelDashboard } from "../shared/types";
 import { Metric } from "./Metric";
 import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
 import { ChannelChart } from "../../components/ChannelChart";
-import { normalizeKpis, type Channel } from "../shared/kpis";
+import { normalizeKpis, PAYKU_COVERAGE_NOTE, type Channel } from "../shared/kpis";
+import {
+  activationVsChurnChart, activeSubsLineChart, coverageGapAnnotations, monthlyTrendChart,
+  paymentMethodSnapshot, statusStackedChart, tokuCollectionsChart, type ChartProps,
+} from "./channelCharts";
 import { StatusBars } from "./StatusBars";
 
 export function ChannelDashboardView({
@@ -51,9 +48,6 @@ export function ChannelDashboardView({
   const metrics = data.source === "virtualpos" ? virtualPosMetrics : data.source === "toku" ? tokuMetrics : paykuMetrics;
   const activeYear = year ?? defaultYear(data.years) ?? null;
   const [churnSource, setChurnSource] = useState<"all" | "vp1" | "vp2">("all");
-  const chartData = data.activity
-    .filter((entry) => year === null || entry.year === year)
-    .map((entry) => ({ ...entry, label: months[entry.month - 1] }));
   const PAID_KW = ["pagad", "aceptad", "accepted", "paid", "success", "cobrad", "aprobad"];
   const isPaid = (s: string) => PAID_KW.some((k) => s.toLowerCase().includes(k));
   const resolvedResources = { ...data.resources };
@@ -74,10 +68,25 @@ export function ChannelDashboardView({
     resolvedResources["transaction"] = successfulTransactions.reduce((s, e) => s + e.count, 0);
     resolvedAmounts["transaction"] = successfulTransactions.reduce((s, e) => s + e.amount, 0);
   }
-  const dataKey = mode;
-  const activityTitle = data.source === "toku" ? "Actividad de deudas" : "Actividad de cobros";
+  const activityTitle = "Tendencia de cobros";
+  const isToku = data.source === "toku";
+  const isPayku = data.source === "payku";
+  const chartYear = (rows: { year: number }[]) => (rows.some((e) => e.year === year) ? year : null);
+  const chart = (props: ChartProps, kind: "bar" | "stacked" | "line" | "grouped", opts: { legend?: boolean; mode?: "count" | "amount"; ariaLabel: string; annotations?: ReturnType<typeof coverageGapAnnotations> }) => (
+    <ChannelChart series={props.series} data={props.rows} kind={kind} mode={opts.mode ?? mode} year={chartYear(props.rows)} legend={opts.legend} ariaLabel={opts.ariaLabel} annotations={opts.annotations} />
+  );
+  const panel = (props: ChartProps, eyebrow: string, heading: string, body: ReactNode, wide = false) =>
+    props.rows.length ? (
+      <article className={`panel${wide ? " chart-panel-wide" : ""}`}>
+        <div className="panel-heading"><div><p className="eyebrow">{eyebrow}</p><h3>{heading}</h3></div></div>
+        {body}
+      </article>
+    ) : null;
+  const activeSubs = activeSubsLineChart(data.active_subs_monthly);
+  const altasBajas = activationVsChurnChart(data.activation_monthly, data.churn_monthly, mode);
+  const gaps = coverageGapAnnotations(data.coverage_gaps);
+  const methodSnapshot = paymentMethodSnapshot(data.statuses);
   const metricSections = providerGroups.find((group) => group.sections[0].source === data.source)?.sections ?? [];
-  const transactionStatusSeries = (data.payments_monthly ?? data.transactions_monthly ?? []) as MonthlyStatusEntry[];
   const isVirtualPos = data.source === "virtualpos";
   const syncLabel = data.last_sync?.status === "completed" ? "Sincronización completada"
     : data.last_sync?.status === "running" ? "Sincronización en curso"
@@ -140,128 +149,75 @@ export function ChannelDashboardView({
         </>
       ) : null}
       <section className={`channel-workspace${isVirtualPos ? " channel-workspace-status" : ""}`}>
-        {data.source !== "virtualpos" && (
+        {isToku ? (
           <article className="panel chart-panel">
-            <div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Serie mensual</h3></div></div>
-            {data.source === "toku" && data.invoices_monthly?.length ? (
-              <MonthlyStatusChart data={data.invoices_monthly} mode={dataKey} year={year} />
-            ) : data.source === "payku" && (data.transactions_monthly as MonthlyStatusEntry[] | undefined)?.length ? (
-              <MonthlyStatusChart data={data.transactions_monthly as MonthlyStatusEntry[]} mode={dataKey} year={year} />
-            ) : chartData.length ? (
-              <Suspense fallback={<p className="empty-chart">Cargando gráfico...</p>}>
-                <ChannelActivityChart data={chartData} mode={dataKey} color={CHANNEL_COLORS[data.source]} />
-              </Suspense>
-            ) : (
-              <p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>
-            )}
+            <div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Cobros mensuales (transacciones)</h3></div></div>
+            {data.activity.length ? chart(tokuCollectionsChart(data.activity, mode), "bar", { ariaLabel: "Gráfico de cobros mensuales de Toku (transacciones)" }) : <p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>}
           </article>
-        )}
+        ) : null}
+        {isPayku ? (() => {
+          const tx = statusStackedChart(data.transactions_monthly, mode);
+          const fallback = monthlyTrendChart(data.activity, mode, mode === "amount" ? "Monto" : "Cobros");
+          const body = tx.rows.length
+            ? chart(tx, "stacked", { legend: true, annotations: gaps, ariaLabel: "Gráfico de transacciones mensuales de Payku por estado" })
+            : fallback.rows.length
+              ? chart(fallback, "bar", { annotations: gaps, ariaLabel: "Gráfico de cobros mensuales de Payku" })
+              : <p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>;
+          return (
+            <article className="panel chart-panel">
+              <div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Transacciones mensuales</h3></div></div>
+              {body}
+              <p className="muted-copy">{PAYKU_COVERAGE_NOTE}.{gaps.length ? " Las bandas grises marcan meses sin cobros." : ""}</p>
+            </article>
+          );
+        })() : null}
         <article className="panel status-panel">
           <p className="eyebrow">ESTADOS</p><h3>Estados de la operación</h3>
           <StatusBars source={data.source} statuses={data.statuses} resources={data.resources} />
         </article>
       </section>
-      {(data.charges_monthly?.length || data.payments_monthly?.length || data.invoices_monthly?.length || (data.transactions_monthly as MonthlyEntry[] | undefined)?.length || data.activation_monthly?.length || data.churn_monthly?.length || data.churn_rate_monthly?.length || data.active_subs_monthly?.length || data.cobrable_subs_monthly?.length) ? (
-        <>
-          <div className="dashboard-section-heading dashboard-section-heading-charts"><div><p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p><h3>Lectura mensual</h3></div></div>
-          <section className="extended-charts">
-            {isVirtualPos && data.activity.length ? (
-              <article className="panel chart-panel-wide">
-                <div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Serie mensual</h3></div></div>
-                <ChannelChart series={[{ key: mode, label: mode === "amount" ? "Monto" : "Cantidad", color: CHANNEL_COLORS[data.source] }]} data={data.activity} kind="bar" mode={mode} year={year} />
-              </article>
-            ) : null}
-            {data.charges_monthly?.length ? (
-              <article className={`panel${isVirtualPos ? " chart-order-charges" : ""}`}>
-                <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Estado mensual</h3></div></div>
-                <MonthlyStatusChart data={data.charges_monthly} mode={mode} year={year} />
-              </article>
-            ) : null}
-            {data.rejected_charges_monthly?.length ? (
-              <article className={`panel${isVirtualPos ? " chart-order-rejected" : ""}`}>
-                <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Rechazados por motivo</h3></div></div>
-                <MonthlyStatusChart data={data.rejected_charges_monthly} mode={mode} year={data.rejected_charges_monthly.some((e) => e.year === year) ? year : null} />
-              </article>
-            ) : null}
-            {data.source === "virtualpos" && data.payments_monthly?.length ? (
-              <article className="panel chart-order-transactions">
-                <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual</h3></div></div>
-                <MonthlyStatusChart data={data.payments_monthly} mode={mode} year={year} />
-              </article>
-            ) : null}
-            {data.invoices_monthly?.length ? (
-              <article className="panel">
-                <div className="panel-heading"><div><p className="eyebrow">FACTURAS</p><h3>Estado mensual</h3></div></div>
-                <MonthlyStatusChart data={data.invoices_monthly} mode={mode} year={year} />
-              </article>
-            ) : null}
-            {data.transactions_monthly && !("status" in (data.transactions_monthly[0] ?? {})) && (data.transactions_monthly as MonthlyEntry[]).length ? (
-              <article className="panel">
-                <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Serie mensual</h3></div></div>
-                <MonthlySimpleChart data={data.transactions_monthly as MonthlyEntry[]} color={CHANNEL_COLORS[data.source]} mode={mode} year={year} />
-              </article>
-            ) : data.transactions_monthly && "status" in ((data.transactions_monthly as MonthlyStatusEntry[])[0] ?? {}) && (data.transactions_monthly as MonthlyStatusEntry[]).length ? (
-              <article className="panel">
-                <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual</h3></div></div>
-                <MonthlyStatusChart data={data.transactions_monthly as MonthlyStatusEntry[]} mode={mode} year={year} />
-              </article>
-            ) : null}
-            {data.activation_monthly?.length && !isVirtualPos ? (
-              <article className="panel">
-                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activación mensual</h3></div></div>
-                <MonthlyStatusChart data={data.activation_monthly} mode={mode} year={year} />
-              </article>
-            ) : null}
-            {data.churn_monthly?.length && !isVirtualPos ? (
-              <article className="panel chart-panel-wide">
-                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Caída mensual</h3></div></div>
-                {"status" in ((data.churn_monthly as MonthlyStatusEntry[])[0] ?? {}) ? (
-                  <MonthlyStatusChart data={data.churn_monthly as MonthlyStatusEntry[]} mode={mode} year={year} />
-                ) : (
-                  <MonthlySimpleChart data={data.churn_monthly as MonthlyEntry[]} color={CHANNEL_COLORS[data.source]} mode={mode} year={year} />
-                )}
-              </article>
-            ) : null}
-            {data.activation_monthly?.length ? (
-              <>
-                <article className={`panel${isVirtualPos ? " chart-order-activation" : ""}`}>
-                  <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activación vs Caída</h3></div></div>
-                  <ActivacionCaidaChart activaciones={data.activation_monthly} caidas={aggregateChurn(data.churn_monthly ?? [])} year={year} mode={mode} />
-                </article>
-                <article className={`panel${isVirtualPos ? " chart-order-growth" : ""}`}>
-                  <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
-                  <CrecimientoMensualChart activaciones={data.activation_monthly} caidas={aggregateChurn(data.churn_monthly ?? [])} year={year} mode={mode} />
-                </article>
-              </>
-            ) : null}
-            {data.source === "virtualpos" && data.churn_rate_monthly?.length ? (
-              <article className="panel chart-order-churn">
-                <div className="panel-heading">
-                  <div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div>
-                  <div className="mode-switch" style={{ fontSize: "0.8rem" }}>
-                    <button className={churnSource === "all" ? "active" : ""} onClick={() => setChurnSource("all")}>Todas</button>
-                    <button className={churnSource === "vp1" ? "active" : ""} onClick={() => setChurnSource("vp1")}>VirtualPOS 1</button>
-                    <button className={churnSource === "vp2" ? "active" : ""} onClick={() => setChurnSource("vp2")}>VirtualPOS 2</button>
-                  </div>
-                </div>
-                <ChurnMensualChart data={churnSource === "vp1" ? (data.churn_rate_monthly_vp1 ?? []) : churnSource === "vp2" ? (data.churn_rate_monthly_vp2 ?? []) : data.churn_rate_monthly} year={year} />
-              </article>
-            ) : null}
-            {data.source !== "virtualpos" && data.churn_rate_monthly?.length ? (
-              <article className="panel">
-                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
-                <ChurnMensualChart data={data.churn_rate_monthly} year={year} />
-              </article>
-            ) : null}
-            {transactionStatusSeries.length && (data.active_subs_monthly?.length || data.cobrable_subs_monthly?.length) ? (
-              <article className={`panel chart-panel-wide${isVirtualPos ? " chart-order-comparison" : ""}`}>
-                <div className="panel-heading"><div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones vs Suscripciones</h3></div></div>
-                <TransaccionesSuscripcionesChart payments={transactionStatusSeries} activeSubs={data.active_subs_monthly ?? []} cobrableSubs={data.cobrable_subs_monthly ?? []} year={year} mode={mode} />
-              </article>
-            ) : null}
-          </section>
-        </>
-      ) : null}
+      <div className="dashboard-section-heading dashboard-section-heading-charts"><div><p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p><h3>Lectura mensual</h3></div></div>
+      <section className="extended-charts">
+        {panel(activeSubs, "SUSCRIPCIONES", "Suscripciones activas acumuladas", chart(activeSubs, "line", { mode: "count", ariaLabel: "Gráfico de suscripciones activas acumuladas" }), isVirtualPos)}
+        {(() => { const p = statusStackedChart(data.charges_monthly, mode); return panel(p, "CARGOS", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de cargos mensuales por estado" }), isVirtualPos); })()}
+        {(() => { const p = statusStackedChart(data.rejected_charges_monthly, mode); return panel(p, "CARGOS", "Rechazados por motivo", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de cargos rechazados por motivo" })); })()}
+        {isVirtualPos ? (() => { const p = statusStackedChart(data.payments_monthly, mode); return panel(p, "TRANSACCIONES", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de transacciones mensuales por estado" })); })() : null}
+        {(() => { const p = statusStackedChart(data.invoices_monthly, mode); return panel(p, "FACTURAS", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de facturas mensuales por estado" })); })()}
+        {isToku ? (() => { const p = statusStackedChart(data.transactions_monthly, mode); return panel(p, "TRANSACCIONES", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de transacciones mensuales por estado" })); })() : null}
+        {panel(altasBajas, "SUSCRIPCIONES", "Altas vs bajas", chart(altasBajas, "grouped", { legend: true, ariaLabel: "Gráfico de altas y bajas mensuales de suscripciones" }))}
+        {isToku && methodSnapshot.length ? (
+          <article className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">MÉTODOS DE PAGO</p><h3>Por estado (foto actual)</h3></div></div>
+            <StatusBars source="toku" statuses={methodSnapshot} resources={{}} />
+            <p className="muted-copy">Estado a la fecha de la última sincronización; no es una serie mensual.</p>
+          </article>
+        ) : null}
+        {data.activation_monthly?.length ? (
+          <article className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
+            <CrecimientoMensualChart activaciones={data.activation_monthly} caidas={aggregateChurn(data.churn_monthly ?? [])} year={year} mode={mode} />
+          </article>
+        ) : null}
+        {isVirtualPos && data.churn_rate_monthly?.length ? (
+          <article className="panel">
+            <div className="panel-heading">
+              <div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div>
+              <div className="mode-switch" style={{ fontSize: "0.8rem" }}>
+                <button className={churnSource === "all" ? "active" : ""} onClick={() => setChurnSource("all")}>Todas</button>
+                <button className={churnSource === "vp1" ? "active" : ""} onClick={() => setChurnSource("vp1")}>VirtualPOS 1</button>
+                <button className={churnSource === "vp2" ? "active" : ""} onClick={() => setChurnSource("vp2")}>VirtualPOS 2</button>
+              </div>
+            </div>
+            <ChurnMensualChart data={churnSource === "vp1" ? (data.churn_rate_monthly_vp1 ?? []) : churnSource === "vp2" ? (data.churn_rate_monthly_vp2 ?? []) : data.churn_rate_monthly} year={year} />
+          </article>
+        ) : null}
+        {!isVirtualPos && data.churn_rate_monthly?.length ? (
+          <article className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
+            <ChurnMensualChart data={data.churn_rate_monthly} year={year} />
+          </article>
+        ) : null}
+      </section>
       <OperationalAlerts
         alerts={data.alerts ?? []}
         loadDetail={(alertId) => getJson<{ items: AlertDetailItem[] }>(`/api/v1/staging/dashboard/${data.source}/alerts/${alertId}`).then((response) => response.items)}

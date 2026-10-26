@@ -45,6 +45,8 @@ import { AdminPanel } from "./features/admin/AdminPanel";
 import { Metric } from "./features/dashboard/Metric";
 import { KpiCard } from "./components/KpiCard";
 import { ChannelKpiStrip } from "./components/ChannelKpiStrip";
+import { ChannelChart } from "./components/ChannelChart";
+import { activationVsChurnChart, statusStackedChart, tchSourceNote } from "./features/dashboard/channelCharts";
 import { normalizeKpis } from "./features/shared/kpis";
 import { ChannelDashboardView } from "./features/dashboard/ChannelDashboardView";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
@@ -3265,29 +3267,28 @@ function AppCore() {
           <KpiCard label="Tasa de rechazo" value={tchSummary.transacciones.tasa_rechazo_pct} format="percent" caption="Rechazadas / total" />
         </section>
         <section className="extended-charts">
-          <article className="panel">
-            <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Resultado mensual</h3></div></div>
-            <MonthlyStatusChart data={tchSummary.transacciones_mensuales} mode={tchMode} year={tchYear} />
-          </article>
-          <article className="panel">
-            <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas mensuales</h3></div></div>
-            <MonthlyStatusChart data={tchSummary.activaciones_mensuales} mode={tchMode} year={tchYear} />
-          </article>
-          <article className="panel">
-            <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales</h3></div></div>
-            <MonthlyStatusChart data={tchSummary.bajas_mensuales} mode={tchMode} year={tchYear} />
-          </article>
+          {(() => {
+            const tx = statusStackedChart(tchSummary.transacciones_mensuales, tchMode);
+            const note = tchSourceNote(tchSummary.transacciones_fuente);
+            return tx.rows.length ? (
+              <article className="panel">
+                <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Transacciones mensuales</h3></div></div>
+                <ChannelChart series={tx.series} data={tx.rows} kind="stacked" mode={tchMode} year={tchYear} legend ariaLabel="Gráfico de transacciones mensuales de TCH por estado" />
+                {note ? <p className="muted-copy">{note}</p> : null}
+              </article>
+            ) : null;
+          })()}
+          {(() => {
+            const ab = activationVsChurnChart(tchSummary.activaciones_mensuales, tchSummary.bajas_mensuales, tchMode);
+            return ab.rows.length ? (
+              <article className="panel">
+                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas vs bajas</h3></div></div>
+                <ChannelChart series={ab.series} data={ab.rows} kind="grouped" mode={tchMode} year={tchYear} legend ariaLabel="Gráfico de altas y bajas mensuales de suscripciones TCH" />
+              </article>
+            ) : null;
+          })()}
           {tchSummary.activaciones_mensuales?.length && tchSummary.bajas_mensuales?.length ? (
             <>
-              <article className="panel">
-                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activación vs Caída</h3></div></div>
-                <ActivacionCaidaChart
-                  activaciones={tchSummary.activaciones_mensuales}
-                  caidas={aggregateChurn(tchSummary.bajas_mensuales)}
-                  year={tchYear}
-                  mode={tchMode}
-                />
-              </article>
               <article className="panel">
                 <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
                 <CrecimientoMensualChart
