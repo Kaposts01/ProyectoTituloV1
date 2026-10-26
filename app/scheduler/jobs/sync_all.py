@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.scheduler import event_bus
@@ -20,6 +21,21 @@ logger = logging.getLogger(__name__)
 
 _VIRTUALPOS_PLATFORMS = ("virtualpos1", "virtualpos2")
 _ALL_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
+
+
+def channel_is_enabled(channel: str) -> bool:
+    """virtualpos1/virtualpos2 -> canal 'virtualpos' (cuenta 2 solo existe en produccion)."""
+    if channel == "virtualpos2":
+        return settings.is_production
+    return settings.channel_enabled("virtualpos" if channel == "virtualpos1" else channel)
+
+
+def skip_disabled_channel(channel: str) -> bool:
+    """True (con log claro, sin error) si el canal esta deshabilitado en el ambiente actual."""
+    if channel_is_enabled(channel):
+        return False
+    logger.warning("Canal %s omitido: deshabilitado en %s (sin variables *_SANDBOX_*).", channel, settings.env_mode)
+    return True
 
 
 def _update_run(run_id: uuid.UUID, **kwargs) -> None:
@@ -93,7 +109,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     try:
         # — VirtualPOS VP1 y VP2 —
         for platform in _VIRTUALPOS_PLATFORMS:
-            if platform not in requested:
+            if platform not in requested or skip_disabled_channel(platform):
                 continue
             phase = f"sync_{platform}"
             _update_run(db_run_id, phase=phase)
@@ -115,7 +131,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 db.close()
 
         # — Toku —
-        if "toku" in requested:
+        if "toku" in requested and not skip_disabled_channel("toku"):
             phase = "sync_toku"
             _update_run(db_run_id, phase=phase)
             event_bus.emit(run_id, {"type": "phase_start", "phase": phase})
@@ -136,7 +152,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 db.close()
 
         # — Payku —
-        if "payku" in requested:
+        if "payku" in requested and not skip_disabled_channel("payku"):
             phase = "sync_payku"
             _update_run(db_run_id, phase=phase)
             event_bus.emit(run_id, {"type": "phase_start", "phase": phase})

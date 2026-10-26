@@ -11,6 +11,7 @@ class VirtualPOSClient:
     """Client for the VirtualPOS API (v3). Supports both account 1 and account 2."""
 
     def __init__(self, platform: str = "virtualpos1") -> None:
+        # En sandbox/qa Settings deja la cuenta 2 vacia y la cuenta 1 solo con variables VIRTUALPOS_SANDBOX_*.
         if platform == "virtualpos2":
             base_url = settings.virtualpos2_base_url
             api_key = settings.virtualpos2_api_key
@@ -20,7 +21,7 @@ class VirtualPOSClient:
             api_key = settings.virtualpos_api_key
             secret_key = settings.virtualpos_secret_key
 
-        if not base_url or not api_key:  # en sandbox/qa un canal sin URL propia queda deshabilitado
+        if not base_url or not api_key or not secret_key:  # sandbox/qa: canal sin variables propias = deshabilitado
             raise RuntimeError(f"VirtualPOS {platform} is not configured")
 
         self._client = httpx.AsyncClient(

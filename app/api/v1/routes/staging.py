@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Date, Numeric, String, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import get_current_user, require_csrf, require_permissions
 from app.db.session import SessionLocal
 from app.models.auth import User
@@ -3839,6 +3840,8 @@ async def trigger_channel_sync(
     if source not in SOURCES:
         raise HTTPException(status_code=404, detail="Unknown staging source")
 
+    if source in ("virtualpos", "toku", "payku") and not settings.channel_enabled(source):
+        raise HTTPException(status_code=409, detail=f"Canal {source} deshabilitado en {settings.env_mode}")
     _sync_fn = {"virtualpos": sync_virtualpos, "toku": sync_toku, "payku": sync_payku}
     run = await _sync_fn[source](db)
     consolidate_to_centralized(db, [source])

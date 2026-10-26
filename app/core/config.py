@@ -1,4 +1,3 @@
-import os
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -10,28 +9,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 NON_PRODUCTION_ENVS = ("sandbox", "qa")
 LEGACY_PRODUCTION_ALIASES = ("production", "prod", "development", "dev", "local")
 
-# Hosts documentados por proveedor (docs/integrations/...). Toku y Payku no tienen
-# host de sandbox documentado para Toku; Payku usa des.payku.cl en su coleccion Postman.
+# Hosts por proveedor (docs/integrations/...). Toku usa el mismo host en sandbox y produccion
+# (se distingue solo por las llaves); Payku aun no tiene sandbox confirmado.
+VP_PRODUCTION_HOST = "api.virtualpos.cl"
+VP_SANDBOX_HOST = "api.virtualpos-sandbox.com"
+PAYKU_PRODUCTION_HOST = "app.payku.cl"
 PRODUCTION_HOSTS: dict[str, tuple[str, ...]] = {
-    "virtualpos_base_url": ("api.virtualpos.cl",),
-    "virtualpos2_base_url": ("api.virtualpos.cl",),
-    "toku_base_url": ("api.trytoku.com",),
-    "payku_base_url": ("app.payku.cl",),
+    "virtualpos_base_url": (VP_PRODUCTION_HOST,),
+    "virtualpos2_base_url": (VP_PRODUCTION_HOST,),
+    "payku_base_url": (PAYKU_PRODUCTION_HOST,),
 }
+# Hosts de sandbox conocidos que una URL de produccion nunca debe usar.
 SANDBOX_HOSTS: dict[str, tuple[str, ...]] = {
-    "virtualpos_base_url": ("api.virtualpos-sandbox.com",),
-    "virtualpos2_base_url": ("api.virtualpos-sandbox.com",),
+    "virtualpos_base_url": (VP_SANDBOX_HOST,),
+    "virtualpos2_base_url": (VP_SANDBOX_HOST,),
     "toku_base_url": (),
     "payku_base_url": ("des.payku.cl",),
 }
-
-
-def _active_env_files() -> tuple[str, ...]:
-    """`.env` siempre; `.env.<APP_ENV>` encima cuando APP_ENV es sandbox/qa (variable de proceso)."""
-    mode = os.environ.get("APP_ENV", "").strip().lower()
-    if mode in NON_PRODUCTION_ENVS:
-        return (".env", f".env.{mode}")
-    return (".env",)
 
 
 def _host(url: str) -> str:
@@ -40,7 +34,7 @@ def _host(url: str) -> str:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=_active_env_files(),
+        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
         hide_input_in_errors=True,
@@ -54,6 +48,8 @@ class Settings(BaseSettings):
     initial_admin_username: str = ""
     initial_admin_password: str = ""
     database_url: str
+    # Solo con APP_ENV=sandbox/qa: reemplazan a las variables de produccion (nunca fallback).
+    sandbox_database_url: str = ""
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""
@@ -64,7 +60,11 @@ class Settings(BaseSettings):
     # WR-VP-05: POST /v3/charge sobre planes MONTO_FIJO falla (E-113) segun la doc; no validado en sandbox.
     virtualpos_allow_charge_on_fixed_plan: bool = False
     virtualpos_payout_webhook_secret: str = ""
-    # VirtualPOS cuenta 2 (producción)
+    virtualpos_sandbox_base_url: str = ""
+    virtualpos_sandbox_api_key: str = ""
+    virtualpos_sandbox_secret_key: str = ""
+    virtualpos_sandbox_writes_enabled: bool = False
+    # VirtualPOS cuenta 2 (solo produccion; en sandbox siempre vacia)
     virtualpos2_base_url: str = ""
     virtualpos2_api_key: str = ""
     virtualpos2_secret_key: str = ""
@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     toku_read_retries: int = 2
     toku_writes_enabled: bool = False
     toku_webhook_secret: str = ""
+    toku_base_sandbox_url: str = ""
+    toku_sandbox_api_key: str = ""
+    toku_sandbox_account_key: str = ""
+    toku_sandbox_writes_enabled: bool = False
     # Payku
     payku_base_url: str = ""
     payku_api_key: str = ""
@@ -88,6 +92,10 @@ class Settings(BaseSettings):
     payku_read_retries: int = 2
     payku_writes_enabled: bool = False
     payku_webhook_secret: str = ""
+    payku_sandbox_base_url: str = ""
+    payku_sandbox_public_token: str = ""
+    payku_sandbox_private_token: str = ""
+    payku_sandbox_writes_enabled: bool = False
 
     @property
     def env_mode(self) -> str:
@@ -100,39 +108,83 @@ class Settings(BaseSettings):
         return self.env_mode == "production"
 
     def channel_enabled(self, channel: str) -> bool:
-        """En sandbox/qa un canal sin URL propia queda deshabilitado (nunca cae a produccion)."""
-        return bool(getattr(self, f"{channel}_base_url", "").strip())
+        """Produccion: siempre habilitado. Sandbox/qa: solo si el canal tiene sus variables sandbox."""
+        if self.is_production:
+            return True
+        if channel == "virtualpos":
+            return bool(self.virtualpos_base_url and self.virtualpos_api_key and self.virtualpos_secret_key)
+        if channel == "toku":
+            return bool(self.toku_base_url and self.toku_api_key)
+        if channel == "payku":
+            return bool(self.payku_base_url and self.payku_api_key and self.payku_secret_key)
+        return False  # virtualpos2 y cualquier otro: no existen en sandbox
 
     @model_validator(mode="after")
     def _guard_environment(self) -> "Settings":
         mode = self.app_env.strip().lower()
         if mode not in NON_PRODUCTION_ENVS and mode not in LEGACY_PRODUCTION_ALIASES:
             raise ValueError("APP_ENV invalido: use production, sandbox o qa")
-        for field, hosts in PRODUCTION_HOSTS.items():
-            host = _host(getattr(self, field))
-            if not host:
-                continue
-            if self.is_production and host in SANDBOX_HOSTS[field]:
-                raise ValueError(f"{field.upper()} apunta a sandbox pero APP_ENV es production")
-            if not self.is_production and host in hosts:
-                raise ValueError(
-                    f"{field.upper()} apunta a produccion pero APP_ENV es {self.env_mode}"
-                )
         if self.is_production:
+            for field, hosts in SANDBOX_HOSTS.items():
+                if _host(getattr(self, field)) in hosts:
+                    raise ValueError(f"{field.upper()} apunta a sandbox pero APP_ENV es production")
             if not (self.virtualpos_base_url and self.virtualpos_api_key and self.virtualpos_secret_key):
                 raise ValueError("VIRTUALPOS_BASE_URL/API_KEY/SECRET_KEY son obligatorias en production")
-        else:
-            db_name = (urlparse(self.database_url).path or "").lstrip("/").lower()
-            if self.env_mode not in db_name:
-                raise ValueError(
-                    f"DATABASE_URL debe apuntar a una base cuyo nombre contenga '{self.env_mode}'"
-                )
-            # Canal sin URL de sandbox: deshabilitado, sin escrituras.
-            for channel in ("virtualpos", "virtualpos2", "toku", "payku"):
-                flag = f"{channel}_writes_enabled"
-                if not self.channel_enabled(channel) and hasattr(self, flag):
-                    setattr(self, flag, False)
+            return self
+        self._guard_sandbox()
+        self._apply_sandbox()
         return self
+
+    def _guard_sandbox(self) -> None:
+        env = self.env_mode
+        if not self.sandbox_database_url.strip():
+            raise ValueError("SANDBOX_DATABASE_URL es obligatoria cuando APP_ENV es sandbox o qa")
+        db_name = (urlparse(self.sandbox_database_url).path or "").lstrip("/").lower()
+        if "sandbox" not in db_name and "qa" not in db_name:
+            raise ValueError("SANDBOX_DATABASE_URL debe apuntar a una base cuyo nombre contenga 'sandbox' o 'qa'")
+        if self.sandbox_database_url.strip() == self.database_url.strip():
+            raise ValueError("SANDBOX_DATABASE_URL no puede ser igual a DATABASE_URL")
+        if _host(self.virtualpos_sandbox_base_url) == VP_PRODUCTION_HOST:
+            raise ValueError(f"VIRTUALPOS_SANDBOX_BASE_URL apunta a produccion pero APP_ENV es {env}")
+        if _host(self.payku_sandbox_base_url) == PAYKU_PRODUCTION_HOST:
+            raise ValueError(f"PAYKU_SANDBOX_BASE_URL apunta a produccion pero APP_ENV es {env}")
+        # Toku comparte host con produccion: se distingue solo por las llaves.
+        pairs = (
+            ("VIRTUALPOS_SANDBOX_API_KEY", self.virtualpos_sandbox_api_key, self.virtualpos_api_key),
+            ("VIRTUALPOS_SANDBOX_SECRET_KEY", self.virtualpos_sandbox_secret_key, self.virtualpos_secret_key),
+            ("TOKU_SANDBOX_API_KEY", self.toku_sandbox_api_key, self.toku_api_key),
+            ("TOKU_SANDBOX_ACCOUNT_KEY", self.toku_sandbox_account_key, self.toku_account_key),
+            ("PAYKU_SANDBOX_PUBLIC_TOKEN", self.payku_sandbox_public_token, self.payku_public_token),
+            ("PAYKU_SANDBOX_PRIVATE_TOKEN", self.payku_sandbox_private_token, self.payku_private_token),
+        )
+        for name, sandbox_value, prod_value in pairs:
+            if sandbox_value.strip() and sandbox_value.strip() == prod_value.strip():
+                raise ValueError(f"{name} es igual a su equivalente de produccion")
+
+    def _apply_sandbox(self) -> None:
+        """Reemplaza los campos efectivos solo con variables *_SANDBOX_* (sin fallback a produccion)."""
+        self.database_url = self.sandbox_database_url.strip()
+        self.virtualpos_base_url = self.virtualpos_sandbox_base_url
+        self.virtualpos_api_key = self.virtualpos_sandbox_api_key
+        self.virtualpos_secret_key = self.virtualpos_sandbox_secret_key
+        self.virtualpos_writes_enabled = self.virtualpos_sandbox_writes_enabled
+        self.virtualpos_allow_charge_on_fixed_plan = (
+            self.virtualpos_allow_charge_on_fixed_plan and self.virtualpos_sandbox_writes_enabled
+        )
+        self.virtualpos2_base_url = self.virtualpos2_api_key = self.virtualpos2_secret_key = ""
+        self.toku_base_url = self.toku_base_sandbox_url
+        self.toku_api_key = self.toku_sandbox_api_key
+        self.toku_account_key = self.toku_sandbox_account_key
+        self.toku_writes_enabled = self.toku_sandbox_writes_enabled
+        self.payku_base_url = self.payku_sandbox_base_url
+        self.payku_api_key = self.payku_public_token = self.payku_sandbox_public_token
+        self.payku_secret_key = self.payku_private_token = self.payku_sandbox_private_token
+        self.payku_writes_enabled = self.payku_sandbox_writes_enabled
+        for channel in ("virtualpos", "toku", "payku"):
+            if not self.channel_enabled(channel):
+                setattr(self, f"{channel}_writes_enabled", False)
+        if not self.channel_enabled("virtualpos"):
+            self.virtualpos_allow_charge_on_fixed_plan = False
 
 
 @lru_cache

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import require_csrf, require_permissions
 from app.db.session import SessionLocal
 from app.models.core import ClientMatchCandidate
@@ -75,6 +76,9 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
         for provider in providers:
             if provider not in _SYNC_FN:
                 logger.warning("Proveedor desconocido: %s. Omitido.", provider)
+                continue
+            if not settings.channel_enabled(provider):
+                logger.warning("Canal %s omitido: deshabilitado en %s.", provider, settings.env_mode)
                 continue
             _update_run(run_id, phase=f"sync_{provider}")
             logger.info("Iniciando sync Pipeline B: %s", provider)
