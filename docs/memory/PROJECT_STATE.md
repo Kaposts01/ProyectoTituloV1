@@ -84,6 +84,14 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **TK-10 completada**: filtro y orden global por estado secundario Toku antes de paginar; 6 tests con offset>0 en `tests/test_staging_api.py` (Toku y VirtualPOS). **SYNC-GAP-02** caracterizado (9 tests en `tests/test_etl_tch.py`; decisión de negocio pendiente). **SYNC-GAP-04** mitigado (49 tests en `tests/test_sync_gap04_payload_shapes.py`; log `_log_null_relations`). **FE-03** completada. **KPI-02..04** completadas; **KPI-01** pendiente de verificación contra VirtualPOS staging.
 - **Sprint 3 (en progreso)**: CHART-01..04 completadas en código con ChannelChart (verificación de cifras y apariencia pendiente; "Crecimiento real mensual" y "Churn %" siguen con componentes antiguos). UI-20 y UI-21 completadas en código: sidebar corregida y `GET /api/v1/sync-runs/health` con puntos de salud; falta verificación visual en navegador y contraste.
 
+## Actualizacion 2026-10-26/27 (Sprint 4 activo: Recuperador VP)
+
+- **REC-03 en código**: recuperador VirtualPOS con motivos desde `latest_rejection_*`, filtros antes de paginar y CSV trazable (auditado en `write_runs`). Falta verificación visual y descarga real del CSV.
+- **Decisión `monto_vigente`**: monto de una suscripción VirtualPOS = último cobro pagado o procesando con fecha ≤ hoy; si no hay, monto de la suscripción y luego el del plan. Lo usan ETL, KPIs (MRR, ARPU, LTV) y recuperador. Impacto en base local: MRR 63.991.386 → 64.087.821 (+0,15%). No registrada aún como ADR.
+- **Decisión planes fijos (WR-VP-05)**: `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` apagada por defecto. Cambiar monto mediante cancelación de cargos futuros y nuevo cargo no está validado; depende de la prueba V-5 (`POST /v3/charge` sobre MONTO_FIJO, E-113 según doc). Si V-5 falla, el enfoque debe revisarse.
+- **Ambientes (ENV-01, parcial)**: `APP_ENV` carga `.env.sandbox`/`.env.qa`; guarda de arranque contra URLs de otro ambiente; canal sin URL de sandbox deshabilitado; escrituras apagadas por defecto. Toku sin sandbox documentado; Payku sin sandbox oficial confirmado.
+- **PK-05 pendiente**: bloqueada por VAL-PK-01 (Q-06, Q-08, Q-11, Q-27, Q-29).
+
 ## Actualizacion 2026-10-21 (sesion iterativa)
 
 - **RISK-VP-02 (267fd47)**: `create_subscription` comprueba `VpSubscription` con status ACTIVA/SUSCRIBIENDO antes de llamar al proveedor. HTTP 409 si hay duplicado.

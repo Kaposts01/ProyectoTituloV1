@@ -56,7 +56,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | CORE-03 | Materializar los cuatro canales hacia el Core | Completada | VP, Toku, Payku y TCH materializan `source_status` y `last_payment_status` correctamente; TCH auditado en ETL-04 (commit 41bbdbe). |
 | CORE-04 | Implementar identidad centralizada revisable | Completada | API `/core/identity/match-candidates` con GET (lista/filtro paginado), GET por id y POST review (confirmed/rejected); RBAC con `core.identity.read` y `core.identity.review`; sin merge automático (ADR-001); 4 tests pasan. Merge técnico queda como extensión futura con permiso separado. |
 | CATALOG-01 | Crear catalogo consultable de mapeos y escenarios QA | Completada | API protegida expone mapeos fuente/STG/Core y escenarios sinteticos sin PII ni datos de pago reales. |
-| ENV-01 | Separar Sandbox, QA y Produccion | Pendiente | Cada entorno usa base, credenciales y proveedores propios; Produccion queda en un cluster PostgreSQL independiente. |
+| ENV-01 | Separar Sandbox, QA y Produccion | Parcial | Cada entorno usa base, credenciales y proveedores propios; Produccion queda en un cluster PostgreSQL independiente. Hecho: `APP_ENV` carga `.env.sandbox`/`.env.qa` encima de `.env`; guarda de arranque contra URLs de otro ambiente; canal sin URL de sandbox queda deshabilitado; `WRITES_ENABLED` apagados por defecto. VirtualPOS tiene sandbox documentado; Toku y Payku no (Payku sin confirmar). Pendiente: credenciales de prueba del usuario. |
 | BCK-01 | Automatizar respaldo y recuperacion autogestionados | Pendiente | Backup fisico con WAL/PITR y dump logico, verificacion, retencion y simulacro de restauracion documentados. |
 | BCK-02 | Crear punto de restauracion previo al Core | Completada | Rama, tag, dump logico y snapshot fisico local verificados antes de la primera migracion Core. |
 
@@ -160,7 +160,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | ETL-02 | Orquestar sync read-only y ETL en segundo plano | Completada | Las rutas `/api/v1/etl/run` y `/api/v1/etl/full-sync` registran estado y fase sin exponer credenciales. |
 | DB-01 | Consolidar BDlocales en una sola base por tablas de canal | Completada | Los datos existentes se migran idempotentemente a las tablas prefijadas, sin nueva lectura completa de proveedores; CRM conserva filtros, orden y fichas. |
 | PK-04 | Corregir métricas y gráficos de ciclo de vida Payku | Completada | Transacciones, activaciones y bajas se agrupan por estado; activación usa `start` y caída usa `cancel`/`delete`/`suspended` con `end`. |
-| PK-05 | Corregir rango histórico de transacciones Payku | En curso | Payku sincroniza transacciones embebidas sin filtros históricos confiables. El backfill local desde `source_records` reconstruye idempotentemente `p_transactions`; falta certificar cobertura, orden y paginación con el proveedor. |
+| PK-05 | Corregir rango histórico de transacciones Payku | Pendiente (bloqueada por VAL-PK-01) | Payku sincroniza transacciones embebidas sin filtros históricos confiables. El backfill local desde `source_records` reconstruye idempotentemente `p_transactions`; falta certificar cobertura, orden y paginación con el proveedor. Depende de las preguntas Q-06, Q-08, Q-11, Q-27 y Q-29 que el usuario consultará con soporte de Payku. |
 | REC-01 | Crear Recuperador de Socios VirtualPOS | Completada | Módulo con Canceladas, Reintento de Cobros y Tarjetas Vencidas; acciones y trazabilidad protegidas por permisos. |
 | REC-02 | Corregir y completar seguimiento de reintentos VirtualPOS | Completada | La identidad del cliente en cobros rechazados se obtiene desde relaciones verificables o desde el payload trazable de la suscripción cuando falta cliente materializado; los motivos ausentes se muestran como no informados por VirtualPOS; la confirmación de reintentos informa éxitos y fallos. El toggle conserva el historial completo de solicitudes y resultados conciliados. |
 | VP-28 | Enriquecer cargos y pagos VirtualPOS con detalle verificable | Completada | `_enrich_charges_with_rejections()` en `core_vp_etl` usa `VpPayment.charge_external_id` para encontrar el pago rechazado más reciente por cargo y pobla `CoreCharge.latest_rejection_*`; incremental e idempotente. |
@@ -244,7 +244,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | WR-VP-02 | Habilitar cancelación real de suscripciones VirtualPOS | Completada | `DELETE /v3/suscription/:id` ejecutado desde el modal de confirmación; estado en bdlocal cambia a CANCELADA. |
 | WR-VP-03 | Habilitar cancelación real de cargos VirtualPOS | Completada | `DELETE /v3/charge/:id` ejecutado desde ficha y tabla; cargo actualizado en bdlocal. |
 | WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Completada | `DELETE /v3/payment/:uuid` ejecutado desde la ruta interna `DELETE /api/v1/writes/virtualpos/payments/{id}`; pago actualizado en staging y entidad centralizada. |
-| WR-VP-05 | Flujo especial: crear cargo en suscripción activa y reasignar | En curso | `POST /v3/charge` disponible desde ficha de suscripción activa; modal de monto/fecha operativo. El flujo de reasignación completo (cancelar pendientes + recrear) requiere integración frontend pendiente. |
+| WR-VP-05 | Flujo especial: cancelar cargos futuros y reasignar monto en suscripción activa | En curso (sin validar en sandbox) | Implementado detrás de la bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` (apagada por defecto): cancela cargos futuros pendientes (`DELETE /v3/charges/{suscription_id}`; E-079 y E-059 no-op) y reasigna monto creando primero el cargo nuevo y cancelando el del mismo mes solo si el nuevo funciona. Endpoints con CSRF, permisos de cargos, dry_run por defecto y trazabilidad en `write_runs`. Falta confirmar que `POST /v3/charge` funciona en planes MONTO_FIJO (prueba V-5 en VALIDATION-PLAN.md; la doc indica E-113). |
 
 ### WR-TK: Escritura Toku
 
@@ -459,7 +459,7 @@ Fuente de referencia: [informe comparativo](https://claude.ai/artifact/7R7N8sJHP
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-4) | En curso | Plan de validación creado en `docs/integrations/virtualpos/VALIDATION-PLAN.md` (commit `c9dc349`) con prerequisitos de sandbox, requests Postman exactos por pregunta y tabla de archivos a actualizar según resultado. Falta ejecutar en sandbox. |
+| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación creado en `docs/integrations/virtualpos/VALIDATION-PLAN.md` (commit `c9dc349`) con prerequisitos de sandbox, requests Postman exactos por pregunta y tabla de archivos a actualizar según resultado. Falta ejecutar en sandbox. |
 | VAL-PK-01 | Resolver preguntas abiertas críticas Payku (Q-06, Q-08, Q-11, Q-27, Q-29) | En curso | Plan de validación creado en `docs/integrations/payku/VALIDATION-PLAN.md` (commit `c9dc349`) con 5 preguntas ordenadas por impacto, requests Postman SP-3/SP-4 y riesgo por cada supuesto sin confirmar. Falta ejecutar contra API Payku. |
 
 ### BUG: Defectos descubiertos durante la revisión de workflows
@@ -521,7 +521,7 @@ Plan visual: https://claude.ai/artifact/RjnJYnghhrxA8AJb33kZjr
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| REC-03 | Mejoras al recuperador de socios VirtualPOS | Pendiente | Motivos de rechazo desde latest_rejection_* bien presentados; filtros adicionales operativos; exportación CSV con columnas de trazabilidad; preparado para mover al módulo general. |
+| REC-03 | Mejoras al recuperador de socios VirtualPOS | Completada en código; falta verificación visual en navegador y descarga real del CSV | Motivos de rechazo desde latest_rejection_* con catálogo oficial de códigos; filtros por cuenta, código, monto, estado secundario y fecha de rechazo antes de paginar; exportación CSV con columnas de trazabilidad (datos personales solo con permiso de exportar); auditoría en `write_runs` sin contenido ni datos personales; módulo frontend `features/recovery` con el canal como parámetro (hoy solo virtualpos; ruta sin cambios; listo para mover en Sprint 5). Falla preexistente no causada por este trabajo: `tests/test_charge_recovery.py::test_retry_history_endpoint_returns_items_and_total` (la base de pruebas acumula filas). |
 
 ### Sprint 5: Recuperador General Multi-canal
 
@@ -535,10 +535,10 @@ Plan visual: https://claude.ai/artifact/RjnJYnghhrxA8AJb33kZjr
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| ENV-01 | Separar Sandbox, QA y Producción | Pendiente | Cada entorno con base, credenciales y providers propios; Producción en cluster PostgreSQL independiente; proceso de deploy y migración por entorno documentado. |
+| ENV-01 | Separar Sandbox, QA y Producción | Parcial | Cada entorno con base, credenciales y providers propios; Producción en cluster PostgreSQL independiente; proceso de deploy y migración por entorno documentado. Hecho: carga de `.env.sandbox`/`.env.qa` por `APP_ENV`, guarda de arranque contra URLs de otro ambiente, canal sin URL de sandbox deshabilitado y `WRITES_ENABLED` apagados por defecto. Pendiente: credenciales de prueba del usuario. |
 | BCK-01 | Automatizar respaldo y recuperación | Pendiente | Backup físico WAL/PITR + dump lógico; verificación, retención y simulacro de restauración documentados; política de retención definida. |
 | OPS-09 | Evaluar entrega de progreso en tiempo real | Pendiente | Decisión documentada: SSE actual se mantiene o evoluciona a WebSocket; autenticación, reconexión y persistencia de eventos evaluadas. |
-| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-4) | En curso | Plan de validación ejecutado; REVIEW.md actualizado con resultados; prerequisitos de sandbox confirmados. |
+| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación ejecutado; REVIEW.md actualizado con resultados; prerequisitos de sandbox confirmados. |
 | VAL-PK-01 | Resolver preguntas abiertas Payku (Q-06, Q-08, Q-11, Q-27, Q-29) | En curso | 5 preguntas ejecutadas contra API Payku; VALIDATION-PLAN.md actualizado con resultados. |
 
 ## TODOS.md — Diferidos

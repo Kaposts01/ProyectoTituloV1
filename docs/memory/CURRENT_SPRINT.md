@@ -15,9 +15,43 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 
 ---
 
-## Sprint Activo: Sprint 3 — Gráficos + Sidebar
+## Sprint Activo: Sprint 4 — Recuperador VP
 
-**Estado:** En progreso (tareas completadas en código; falta verificación en navegador y contra staging)  
+**Estado:** Activo (REC-03 completada en código; WR-VP-05 implementada sin validar en sandbox; PK-05 bloqueada por VAL-PK-01)  
+**Objetivo:** Mejorar el recuperador de socios VirtualPOS (motivos de rechazo, filtros, CSV trazable) y resolver el cambio de monto en planes fijos (WR-VP-05) según la prueba V-5.  
+**Duración:** 2 semanas
+
+### Backlog del Sprint
+
+| ID | Tarea | Estado | Responsable |
+| --- | --- | --- | --- |
+| REC-03 | Mejoras al recuperador de socios VirtualPOS | Completada en código; falta verificación visual y descarga real del CSV | — |
+| WR-VP-05 | Flujo especial: cancelar cargos futuros y reasignar monto | En curso (sin validar en sandbox; bandera apagada) | — |
+| PK-05 | Corregir rango histórico de transacciones Payku | Pendiente (bloqueada por VAL-PK-01) | — |
+
+### Definición de Done (Sprint 4)
+
+- [ ] `REC-03`: motivos desde `latest_rejection_*` con catálogo oficial; filtros antes de paginar; CSV con columnas de trazabilidad (rut, nombre, email y teléfono solo con permiso de exportar); auditoría en `write_runs` sin datos personales; módulo `features/recovery` con el canal como parámetro. Pendiente: verificación visual en navegador y descarga real del CSV.
+- [ ] `WR-VP-05`: implementada tras `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` (apagada por defecto). Pendiente: prueba V-5 (`POST /v3/charge` sobre plan MONTO_FIJO). Si funciona, activar la bandera y cerrar; si no, revisar el enfoque.
+- [ ] `PK-05`: pendiente de VAL-PK-01 (Q-06, Q-08, Q-11, Q-27, Q-29; el usuario consultará con soporte de Payku).
+- [ ] Test preexistente fallido: `tests/test_charge_recovery.py::test_retry_history_endpoint_returns_items_and_total` (la base de pruebas acumula filas). No causado por este trabajo.
+
+### Notas de sesión
+
+- Sesión 2026-10-26/27:
+  - REC-03 completada en código (backend y frontend). Motivos desde `CoreCharge.latest_rejection_*` con catálogo oficial de códigos; filtros por cuenta, código, monto, estado secundario y fecha de rechazo antes de paginar; CSV con columnas de trazabilidad. Cada exportación se audita en `write_runs` sin contenido ni datos personales. Módulo `features/recovery` con el canal como parámetro: hoy solo `virtualpos`, ruta `/virtualpos/recuperador-socios` sin cambios, lista para moverse a `/general/recuperador` en Sprint 5.
+  - WR-VP-05 implementada detrás de `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN`: cancela cargos futuros pendientes (`DELETE /v3/charges/{suscription_id}`; E-079 y E-059 no-op) y reasigna monto creando primero el cargo nuevo y cancelando el del mismo mes solo si el nuevo funciona. Endpoints con CSRF, permisos de cargos, `dry_run` por defecto y trazabilidad en `write_runs`. Sin validar: falta V-5. El enfoque es mantener la suscripción en planes fijos (6000+ activas), cancelar cargos futuros y que el monto sea el último cobrado.
+  - Decisión `monto_vigente`: el monto de una suscripción VirtualPOS es el último cobro pagado o procesando con fecha ≤ hoy; si no hay, el de la suscripción y luego el del plan. Lo usan ETL, KPIs (MRR, ARPU, LTV; churn sin cambio) y recuperador. Impacto medido en base local: MRR 63.991.386 → 64.087.821 (+0,15%); 9 suscripciones cambian de monto y 15 del origen legacy `virtualpos` sin monto propio toman el del plan.
+  - ENV-01 parcial: `APP_ENV` carga `.env.sandbox`/`.env.qa` encima de `.env`; guarda de arranque contra URLs de otro ambiente; canal sin URL de sandbox deshabilitado; `WRITES_ENABLED` apagados por defecto. VirtualPOS tiene sandbox documentado; Toku no; Payku sin sandbox oficial confirmado. Pendiente: credenciales de prueba del usuario.
+  - PK-05 sigue pendiente: depende de VAL-PK-01.
+  - Roles: `soporte`, `jefatura` y `ejecutivo` no existen en el código (solo `admin` y un coordinador legacy). Propuesta de matriz pendiente de confirmación del usuario.
+  - Pendiente de Sprint 4: verificación visual y descarga del CSV (REC-03); prueba V-5 en sandbox (WR-VP-05); preguntas Q-06, Q-08, Q-11, Q-27 y Q-29 con soporte de Payku (PK-05).
+
+---
+
+## Sprint pendiente de verificación: Sprint 3 — Gráficos + Sidebar
+
+**Estado:** Completo en código; falta verificación visual en navegador y contra staging  
 **Objetivo:** Gráficos de resumen estandarizados por canal (ChannelChart) y barra lateral corregida con indicadores de salud por canal.  
 **Duración:** 2 semanas
 
@@ -148,10 +182,10 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 | 0 | **Onboarding & Fundación** ✅ Completado | Entorno operativo + App.tsx modularizado | OPS-07, FE-02 | 2 sem |
 | 1 | **Auditoría de Datos** ✅ Completado | Documentar datos objeto por canal | DATA-01–04, TK-10, SYNC-01 | 2 sem |
 | 2 | **Componentes + KPIs** ← *casi completo (falta KPI-01 contra VP staging)* | Componentes compartidos + KPIs estándar | FE-03, KPI-01–04 | 2 sem |
-| 3 | **Gráficos + Sidebar** ← *activo: completadas en código, falta verificación* | Gráficos estandarizados + sidebar con salud | CHART-01–04, UI-20–21 | 2 sem |
-| 4 | Recuperador VP | Mejoras al recuperador VirtualPOS | REC-03, WR-VP-05, PK-05 | 2 sem |
+| 3 | **Gráficos + Sidebar** ← *completo en código, falta verificación visual y contra staging* | Gráficos estandarizados + sidebar con salud | CHART-01–04, UI-20–21 | 2 sem |
+| 4 | **Recuperador VP** ← *activo: REC-03 en código, WR-VP-05 sin validar, PK-05 bloqueada* | Mejoras al recuperador VirtualPOS | REC-03, WR-VP-05, PK-05 | 2 sem |
 | 5 | Recuperador General | Recuperador multi-canal (Toku/Payku/TCH) | REC-04–06 | 3 sem |
-| 6 | Infraestructura | Ambientes, respaldo y operaciones | ENV-01, BCK-01, OPS-09, VAL-VP-01, VAL-PK-01 | 2 sem |
+| 6 | Infraestructura | Ambientes, respaldo y operaciones | ENV-01 (parcial), BCK-01, OPS-09, VAL-VP-01, VAL-PK-01 | 2 sem |
 
 **Bloqueo externo (sin sprint asignado):** BLQ-TK-01 (Toku `flow_name` para ENROLLMENT). Bloquea el alta de socios y el cambio de tarjeta en Toku. No bloquea los KPIs ni el estado secundario de Toku. Avanza cuando soporte de Toku responda.
 
