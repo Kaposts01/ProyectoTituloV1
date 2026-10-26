@@ -32,6 +32,7 @@ from app.models.core import (
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpSubscription
 from app.services.core_materialization import materialize_core_clients
+from app.services.vp_current_amount import load_monto_vigente
 
 log = logging.getLogger(__name__)
 
@@ -138,6 +139,8 @@ def _materialize_subscriptions(
     ext_to_core: dict[tuple[str, str], uuid.UUID | None],
 ) -> int:
     suscripciones = db.scalars(select(VpSubscription)).all()
+    # Monto vigente = ultimo monto cobrado (plan fijo no editable en VP); fallback al monto de la suscripcion/plan.
+    vigentes = load_monto_vigente(db, family="vp")
     rows = []
     for s in suscripciones:
         ext_id = social_to_ext.get((s.platform, s.client_social_id)) if s.client_social_id else None
@@ -148,7 +151,7 @@ def _materialize_subscriptions(
             "source": s.platform,
             "external_id": s.external_id,
             "status": s.status,
-            "amount": _parse_amount(s.amount),
+            "amount": vigentes.get((s.platform, s.external_id), _parse_amount(s.amount)),
             "currency": s.currency or _DEFAULT_CURRENCY,
             "started_at": _parse_date(s.suscription_date),
             "ended_at": _parse_date(s.canceled_at),

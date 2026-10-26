@@ -36,6 +36,7 @@ from app.models.toku_channel import (
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
 from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
+from app.services.vp_current_amount import load_monto_vigente
 
 logger = logging.getLogger(__name__)
 
@@ -241,8 +242,12 @@ def _consolidate_vp_plans(db: Session) -> int:
 
 
 def _consolidate_vp_subscriptions(db: Session) -> int:
+    # El monto de una suscripcion VP es el ultimo monto cobrado (plan fijo no editable);
+    # sin cargos vigentes cae al monto de la suscripcion/plan. Una consulta agregada.
+    vigentes = load_monto_vigente(db, family="vp")
     rows = []
     for vp in _vp_records(db, VpSubscription):
+        vigente = vigentes.get((vp.platform, vp.external_id))
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
@@ -254,7 +259,7 @@ def _consolidate_vp_subscriptions(db: Session) -> int:
             "automatic_renewal": vp.automatic_renewal,
             "suscription_date": vp.suscription_date,
             "canceled_at": vp.canceled_at,
-            "amount": vp.amount,
+            "amount": format(vigente.normalize(), "f") if vigente is not None else vp.amount,
             "currency": vp.currency,
             "raw_payload": vp.raw_payload,
         })

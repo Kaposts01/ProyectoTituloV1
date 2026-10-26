@@ -32,6 +32,7 @@ from app.services.rbac import permission_codes, source_permission
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
+from app.services.vp_current_amount import load_monto_vigente
 
 router = APIRouter()
 SOURCES = ("virtualpos", "toku", "payku")
@@ -1154,7 +1155,9 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
 
         elif rtype == "subscription":
             status = str(payload.get("status", "")).upper()
-            amount = _amount(payload.get("amount"))
+            # Monto vigente (ultimo cobro) cuando el llamador lo inyecta; si no, el monto de la suscripcion.
+            vigente = payload.get("monto_vigente")
+            amount = _amount(vigente if vigente is not None else payload.get("amount"))
 
             if status != "SUSCRIPCION_FALLIDA":
                 start = payload.get("suscription_date") or payload.get("created")
@@ -2523,8 +2526,12 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
             self.payload = p
 
     vp_records: list[Any] = []
+    vigentes = load_monto_vigente(db, family="crm", sources=sources)
     for s in subs:
-        raw = s.raw_payload or {}
+        raw = dict(s.raw_payload or {})
+        vigente = vigentes.get((s.source, s.external_id))
+        if vigente is not None:
+            raw["monto_vigente"] = float(vigente)
         vp_records.append(_Rec("subscription", raw))
     for cd, amt, st in charges_rows:
         vp_records.append(_Rec("charge", {"charge_date": cd, "amount": amt, "status": st}))

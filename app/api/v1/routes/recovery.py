@@ -4,6 +4,7 @@ import csv
 import io
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,6 +26,7 @@ from app.models.write_run import WriteRun
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
 from app.services.rbac import permission_codes
 from app.services.read_only_provider_sync import safe_error_message
+from app.services.vp_current_amount import load_monto_vigente
 from app.services.vp_rejection_codes import format_rejection_reason
 from app.services.write_virtualpos import (
     ChargeNotFoundError,
@@ -179,10 +181,11 @@ def _rejection_fields(charge: Charge | None, core: CoreCharge | None) -> dict:
     return {"rejection_code": code, "rejection_reason_raw": raw, "rejection_reason": format_rejection_reason(code, raw), "rejection_at": at}
 
 
-def _vigente(stat: dict | None, sub: Subscription | None) -> float | None:
-    """Monto vigente: last paid charge amount, else the subscription (plan) amount."""
-    if stat and stat["paid_amount"] is not None:
-        return stat["paid_amount"]
+def _vigente(vigentes: dict[tuple[str, str], Decimal], source: str, sub_id: str | None, sub: Subscription | None) -> float | None:
+    """Monto vigente (helper vp_current_amount): ultimo cargo pagado/procesando con fecha <= hoy, else monto de suscripcion/plan."""
+    value = vigentes.get((source, sub_id or ""))
+    if value is not None:
+        return float(value)
     return _num(sub.amount) if sub is not None else None
 
 
@@ -276,6 +279,7 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None, filters: 
     charges = db.scalars(select(Charge).where(Charge.source.in_(_SOURCES))).all()
     charge_subscriptions = {(charge.source, charge.external_id): charge.subscription_external_id for charge in charges}
     stats = _charge_stats(list(charges))
+    vigentes = load_monto_vigente(db, family="crm", sources=_SOURCES)
     core = _core_rejections(db)
     paid_by_subscription: dict[tuple[str, str], float] = {}
     for payment in db.scalars(select(Payment).where(Payment.source.in_(_SOURCES))).all():
@@ -306,7 +310,7 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None, filters: 
             "rut": client.social_id if client else sub.client_social_id,
             "client_name": _name(client) or _subscription_client_name(sub), "started_at": sub.suscription_date, "cancelled_at": sub.canceled_at,
             "antiquity_days": days, "amount": paid_by_subscription.get((sub.source, sub.external_id), 0),
-            "monto": _num(sub.amount), "monto_vigente": _vigente(stat, sub),
+            "monto": _num(sub.amount), "monto_vigente": _vigente(vigentes, sub.source, sub.external_id, sub),
             "estado": "inactiva", "secondary_status": "inactiva",
             "attempts": stat["attempts"] if stat else 0, "last_paid_date": stat["last_paid"] if stat else None,
             **_rejection_fields(last_rej, core.get((last_rej.source, last_rej.external_id)) if last_rej else None),
@@ -355,6 +359,7 @@ def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: st
     for source, ext_ids in sub_ids_by_source.items():
         all_sub_charges.extend(db.scalars(select(Charge).where(Charge.source == source, Charge.subscription_external_id.in_(set(ext_ids)))))
     stats = _charge_stats(all_sub_charges)
+    vigentes = load_monto_vigente(db, family="crm", sources=_SOURCES)
     core = _core_rejections(db)
 
     rows = []
@@ -374,7 +379,7 @@ def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: st
             "rut": client.social_id if client else (subscription.client_social_id if subscription else None),
             "email": client.email if client else None, "phone": client.phone_number if client else None,
             "client_name": _name(client) or _subscription_client_name(subscription), "charge_date": charge.charge_date, "amount": charge.amount,
-            "monto": _num(charge.amount), "monto_vigente": _vigente(stat, subscription),
+            "monto": _num(charge.amount), "monto_vigente": _vigente(vigentes, charge.source, charge.subscription_external_id, subscription),
             "currency": charge.currency, **rejection,
             "estado": charge.status,
             "secondary_status": _secondary_status(subscription.status or "", stat["last_paid"] if stat else None) if subscription else None,
@@ -559,6 +564,7 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None, f
         candidates = deduped
 
     stats = _charge_stats(list(charges))
+    vigentes = load_monto_vigente(db, family="crm", sources=_SOURCES)
     core = _core_rejections(db)
     rows = []
     for sub in candidates:
@@ -586,7 +592,7 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None, f
             "secondary_status": group,
             "estado": group,
             "monto": _num(sub.amount),
-            "monto_vigente": _vigente(stat, sub),
+            "monto_vigente": _vigente(vigentes, sub.source, sub.external_id, sub),
             "attempts": stat["attempts"] if stat else 0,
             **_rejection_fields(last_rej, core.get((last_rej.source, last_rej.external_id)) if last_rej else None),
             "rut": client.social_id if client else sub.client_social_id,
