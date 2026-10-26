@@ -81,11 +81,13 @@ def test_cancelled_rows_include_lifetime_paid_amount_and_contact(db_session: Ses
 
     rows = _cancelled_rows(db_session, date(2099, 2, 1), date(2099, 2, 1))
 
-    assert rows == [{
+    expected = {
         "source": "virtualpos1", "subscription_id": "sub-1", "external_id": "sub-1", "rut": "11111111-1",
         "client_name": "Ana Rios", "started_at": "2099-01-01", "cancelled_at": "2099-02-01", "antiquity_days": 31,
         "amount": 12500.0, "currency": "CLP", "email": "ana@example.com", "phone": "123",
-    }]
+    }
+    assert len(rows) == 1
+    assert {k: rows[0][k] for k in expected} == expected  # REC-03 added extra keys (account, monto, ...)
 
 
 def test_rejected_rows_resolve_client_through_subscription(db_session: Session) -> None:

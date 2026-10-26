@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import csv
 import io
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -16,11 +17,15 @@ from app.api.v1.routes.crm import get_db
 from app.core.config import settings
 from app.core.security import require_csrf, require_permissions
 from app.integrations.virtualpos.client import VirtualPOSClient
+from app.models.auth import User
 from app.models.charge_recovery import ChargeRecovery
+from app.models.core import CoreCharge
 from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.write_run import WriteRun
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
+from app.services.rbac import permission_codes
 from app.services.read_only_provider_sync import safe_error_message
+from app.services.vp_rejection_codes import format_rejection_reason
 from app.services.write_virtualpos import (
     ChargeNotFoundError,
     WriteDisabledError,
@@ -64,13 +69,121 @@ def _in_range(value: str | None, start: date | None, end: date | None) -> bool:
     return (start is None or current >= start) and (end is None or current <= end)
 
 
-def _reason(charge: Charge) -> tuple[str | None, str | None]:
+@dataclass(frozen=True)
+class RecoveryFilters:
+    account: str | None = None
+    rejection_code: str | None = None
+    min_amount: float | None = None
+    max_amount: float | None = None
+    secondary_status: str | None = None
+    rejected_from: date | None = None
+    rejected_to: date | None = None
+
+    def as_audit(self) -> dict[str, str | float]:
+        return {k: (v.isoformat() if isinstance(v, date) else v) for k, v in self.__dict__.items() if v is not None}
+
+
+def recovery_filters(
+    account: Literal["virtualpos1", "virtualpos2"] | None = None,
+    rejection_code: str | None = Query(None, max_length=100),
+    min_amount: float | None = Query(None, ge=0),
+    max_amount: float | None = Query(None, ge=0),
+    secondary_status: Literal["inactiva", "incobrable", "nunca_cobrado", "cobrable"] | None = None,
+    rejected_from: str | None = None,
+    rejected_to: str | None = None,
+) -> RecoveryFilters:
+    return RecoveryFilters(
+        account, (rejection_code or "").strip() or None, min_amount, max_amount, secondary_status,
+        _date(rejected_from, "rejected_from"), _date(rejected_to, "rejected_to"),
+    )
+
+
+Filters = Annotated[RecoveryFilters, Depends(recovery_filters)]
+
+
+def _apply_filters(rows: list[dict], filters: RecoveryFilters | None) -> list[dict]:
+    """Global row filter; always runs before sorting and pagination."""
+    if filters is None:
+        return rows
+    out = []
+    for row in rows:
+        if filters.account and row.get("account") != filters.account:
+            continue
+        if filters.rejection_code and row.get("rejection_code") != filters.rejection_code:
+            continue
+        amount = row.get("monto")
+        if filters.min_amount is not None and (amount is None or amount < filters.min_amount):
+            continue
+        if filters.max_amount is not None and (amount is None or amount > filters.max_amount):
+            continue
+        if filters.secondary_status and row.get("secondary_status") != filters.secondary_status:
+            continue
+        if (filters.rejected_from or filters.rejected_to) and not _in_range(row.get("rejection_at"), filters.rejected_from, filters.rejected_to):
+            continue
+        out.append(row)
+    return out
+
+
+def _num(value: Any) -> float | None:
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _reason(charge: Charge, core: CoreCharge | None = None) -> tuple[str | None, str | None]:
+    """Rejection (code, raw reason): CoreCharge.latest_rejection_* first, raw_payload as fallback."""
     payload = charge.raw_payload or {}
     rejected = payload.get("rejected_object") if isinstance(payload.get("rejected_object"), dict) else {}
-    return (
-        str(rejected.get("code")) if rejected.get("code") is not None else None,
-        str(rejected.get("message") or payload.get("razon_rechazo") or payload.get("reason") or payload.get("rejection_reason") or "") or None,
+    raw_code = rejected.get("code") if rejected.get("code") is not None else rejected.get("error_code")
+    raw_reason = rejected.get("message") or payload.get("razon_rechazo") or payload.get("reason") or payload.get("rejection_reason") or ""
+    core_code = core.latest_rejection_code if core is not None else None
+    core_reason = core.latest_rejection_reason if core is not None else None
+    code = core_code or (str(raw_code) if raw_code is not None else None)
+    return code, (core_reason or str(raw_reason) or None)
+
+
+def _core_rejections(db: Session) -> dict[tuple[str, str], CoreCharge]:
+    query = select(CoreCharge).where(
+        CoreCharge.source.in_(_SOURCES),
+        CoreCharge.latest_rejection_code.is_not(None) | CoreCharge.latest_rejection_reason.is_not(None) | CoreCharge.latest_rejection_at.is_not(None),
     )
+    return {(c.source, c.external_id): c for c in db.scalars(query)}
+
+
+def _charge_stats(charges: list[Charge]) -> dict[tuple[str, str], dict]:
+    """Per subscription: attempts, last paid date/amount and last rejected charge."""
+    stats: dict[tuple[str, str], dict] = {}
+    for charge in charges:
+        if not charge.subscription_external_id:
+            continue
+        item = stats.setdefault(
+            (charge.source, charge.subscription_external_id),
+            {"attempts": 0, "last_paid": None, "paid_amount": None, "last_rejected": None},
+        )
+        item["attempts"] += 1
+        cdate = str(charge.charge_date or "")
+        status = str(charge.status or "").strip().lower()
+        if status in PAID_STATUSES and (item["last_paid"] is None or cdate > item["last_paid"]):
+            item["last_paid"], item["paid_amount"] = cdate, _num(charge.amount)
+        if status in _REJECTED and (item["last_rejected"] is None or cdate > str(item["last_rejected"].charge_date or "")):
+            item["last_rejected"] = charge
+    return stats
+
+
+def _rejection_fields(charge: Charge | None, core: CoreCharge | None) -> dict:
+    if charge is None:
+        return {"rejection_code": None, "rejection_reason_raw": None, "rejection_reason": None, "rejection_at": None}
+    code, raw = _reason(charge, core)
+    at = core.latest_rejection_at.date().isoformat() if core is not None and core.latest_rejection_at else charge.charge_date
+    return {"rejection_code": code, "rejection_reason_raw": raw, "rejection_reason": format_rejection_reason(code, raw), "rejection_at": at}
+
+
+def _vigente(stat: dict | None, sub: Subscription | None) -> float | None:
+    """Monto vigente: last paid charge amount, else the subscription (plan) amount."""
+    if stat and stat["paid_amount"] is not None:
+        return stat["paid_amount"]
+    return _num(sub.amount) if sub is not None else None
 
 
 def _clients(db: Session) -> dict[tuple[str, str], Client]:
@@ -154,7 +267,7 @@ def _page(rows: list[dict], offset: int, limit: int) -> dict:
     return {"items": rows[offset:offset + limit], "total": len(rows), "offset": offset, "limit": limit}
 
 
-def _cancelled_rows(db: Session, start: date | None, end: date | None) -> list[dict]:
+def _cancelled_rows(db: Session, start: date | None, end: date | None, filters: RecoveryFilters | None = None) -> list[dict]:
     subscriptions = [
         sub for sub in db.scalars(select(Subscription).where(Subscription.source.in_(_SOURCES)))
         if _in_range(sub.canceled_at, start, end)
@@ -162,6 +275,8 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None) -> list[d
     clients = _clients(db)
     charges = db.scalars(select(Charge).where(Charge.source.in_(_SOURCES))).all()
     charge_subscriptions = {(charge.source, charge.external_id): charge.subscription_external_id for charge in charges}
+    stats = _charge_stats(list(charges))
+    core = _core_rejections(db)
     paid_by_subscription: dict[tuple[str, str], float] = {}
     for payment in db.scalars(select(Payment).where(Payment.source.in_(_SOURCES))).all():
         if str(payment.status or "").lower() not in PAID_STATUSES:
@@ -183,17 +298,25 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None) -> list[d
             days = (date.fromisoformat(str(sub.canceled_at)[:10]) - date.fromisoformat(str(sub.suscription_date)[:10])).days
         except (TypeError, ValueError):
             pass
+        stat = stats.get((sub.source, sub.external_id))
+        last_rej = stat["last_rejected"] if stat else None
         rows.append({
-            "source": sub.source, "subscription_id": sub.external_id, "external_id": sub.external_id,
+            "source": sub.source, "account": sub.source, "subscription_id": sub.external_id, "external_id": sub.external_id,
+            "charge_id": None, "source_record_id": str(sub.source_record_id) if sub.source_record_id else None,
             "rut": client.social_id if client else sub.client_social_id,
             "client_name": _name(client) or _subscription_client_name(sub), "started_at": sub.suscription_date, "cancelled_at": sub.canceled_at,
             "antiquity_days": days, "amount": paid_by_subscription.get((sub.source, sub.external_id), 0),
+            "monto": _num(sub.amount), "monto_vigente": _vigente(stat, sub),
+            "estado": "inactiva", "secondary_status": "inactiva",
+            "attempts": stat["attempts"] if stat else 0, "last_paid_date": stat["last_paid"] if stat else None,
+            **_rejection_fields(last_rej, core.get((last_rej.source, last_rej.external_id)) if last_rej else None),
             "currency": sub.currency, "email": client.email if client else None, "phone": client.phone_number if client else None,
         })
+    rows = _apply_filters(rows, filters)
     return sorted(rows, key=lambda row: str(row["cancelled_at"]), reverse=True)
 
 
-def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: str) -> list[dict]:
+def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: str, filters: RecoveryFilters | None = None) -> list[dict]:
     # Filter by status and date in SQL; bucket (is_card) stays in Python (depends on raw_payload)
     charge_q = select(Charge).where(Charge.source.in_(_SOURCES), func.lower(Charge.status).in_(_REJECTED))
     if start is not None:
@@ -227,20 +350,39 @@ def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: st
             client_ext.setdefault(c.source, []).append(c.client_external_id)
     clients, unique_clients_by_rut = _load_clients(db, client_ext, client_rut)
 
+    # Attempts / last paid / monto vigente per subscription (all charges of the referenced subscriptions)
+    all_sub_charges: list[Charge] = []
+    for source, ext_ids in sub_ids_by_source.items():
+        all_sub_charges.extend(db.scalars(select(Charge).where(Charge.source == source, Charge.subscription_external_id.in_(set(ext_ids)))))
+    stats = _charge_stats(all_sub_charges)
+    core = _core_rejections(db)
+
     rows = []
     for charge in filtered_charges:
-        code, reason = _reason(charge)
+        core_charge = core.get((charge.source, charge.external_id))
+        code, reason = _reason(charge, core_charge)
         is_card = needs_card_change(code, reason)
         if (bucket == "card") != is_card:
             continue
         subscription = subscriptions.get((charge.source, charge.subscription_external_id or ""))
         client = _recovery_client(charge, charge.subscription_external_id, clients, subscriptions, unique_clients_by_rut, charge.source)
+        stat = stats.get((charge.source, charge.subscription_external_id or ""))
+        rejection = _rejection_fields(charge, core_charge)
         rows.append({
-            "source": charge.source, "external_id": charge.external_id, "subscription_id": charge.subscription_external_id,
+            "source": charge.source, "account": charge.source, "external_id": charge.external_id, "charge_id": charge.external_id,
+            "subscription_id": charge.subscription_external_id, "source_record_id": str(charge.source_record_id) if charge.source_record_id else None,
+            "rut": client.social_id if client else (subscription.client_social_id if subscription else None),
+            "email": client.email if client else None, "phone": client.phone_number if client else None,
             "client_name": _name(client) or _subscription_client_name(subscription), "charge_date": charge.charge_date, "amount": charge.amount,
-            "currency": charge.currency, "rejection_code": code, "rejection_reason": reason or "No informado por VirtualPOS",
+            "monto": _num(charge.amount), "monto_vigente": _vigente(stat, subscription),
+            "currency": charge.currency, **rejection,
+            "estado": charge.status,
+            "secondary_status": _secondary_status(subscription.status or "", stat["last_paid"] if stat else None) if subscription else None,
+            "attempts": stat["attempts"] if stat else 1, "last_paid_date": stat["last_paid"] if stat else None,
+            "cancelled_at": subscription.canceled_at if subscription else None,
             "card_expiration": _card_expiration(client),
         })
+    rows = _apply_filters(rows, filters)
     return sorted(rows, key=lambda row: str(row["charge_date"]), reverse=True)
 
 
@@ -341,11 +483,11 @@ def _retry_history_rows(db: Session, start: date | None, end: date | None) -> li
 
 
 @router.get("/cancelled", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
-def cancelled_subscriptions(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return _page(_cancelled_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to")), offset, limit)
+def cancelled_subscriptions(db: Annotated[Session, Depends(get_db)], filters: Filters, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return _page(_cancelled_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to"), filters), offset, limit)
 
 
-def _group_rows(db: Session, group: str, start: date | None, end: date | None) -> list[dict]:
+def _group_rows(db: Session, group: str, start: date | None, end: date | None, filters: RecoveryFilters | None = None) -> list[dict]:
     """Return subscriptions filtered by secondary_status group with last_paid enrichment."""
     subscriptions = db.scalars(select(Subscription).where(Subscription.source.in_(_SOURCES))).all()
 
@@ -416,9 +558,13 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None) -
                 deduped.append(sub)
         candidates = deduped
 
+    stats = _charge_stats(list(charges))
+    core = _core_rejections(db)
     rows = []
     for sub in candidates:
         last_paid = last_paid_map.get((sub.source, sub.external_id))
+        stat = stats.get((sub.source, sub.external_id))
+        last_rej = stat["last_rejected"] if stat else None
         # Dual client lookup: external_id first, then RUT fallback
         client: Client | None = clients_by_id.get((sub.source, sub.client_external_id or "")) if sub.client_external_id else None
         if client is None and sub.client_social_id:
@@ -432,9 +578,17 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None) -
 
         rows.append({
             "source": sub.source,
+            "account": sub.source,
             "subscription_id": sub.external_id,
             "external_id": sub.external_id,
+            "charge_id": None,
+            "source_record_id": str(sub.source_record_id) if sub.source_record_id else None,
             "secondary_status": group,
+            "estado": group,
+            "monto": _num(sub.amount),
+            "monto_vigente": _vigente(stat, sub),
+            "attempts": stat["attempts"] if stat else 0,
+            **_rejection_fields(last_rej, core.get((last_rej.source, last_rej.external_id)) if last_rej else None),
             "rut": client.social_id if client else sub.client_social_id,
             "client_name": _name(client) or _subscription_client_name(sub),
             "started_at": sub.suscription_date,
@@ -447,6 +601,7 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None) -
             "phone": client.phone_number if client else None,
         })
 
+    rows = _apply_filters(rows, filters)
     sort_key = "cancelled_at" if group == "inactiva" else "started_at"
     return sorted(rows, key=lambda r: str(r.get(sort_key) or ""), reverse=True)
 
@@ -454,51 +609,98 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None) -
 @router.get("/group", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
 def group_subscriptions(
     db: Annotated[Session, Depends(get_db)],
+    filters: Filters,
     group: Literal["inactiva", "incobrable", "nunca_cobrado"] = "inactiva",
     date_from: str | None = None,
     date_to: str | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
 ) -> dict:
-    return _page(_group_rows(db, group, _date(date_from, "date_from"), _date(date_to, "date_to")), offset, limit)
+    return _page(_group_rows(db, group, _date(date_from, "date_from"), _date(date_to, "date_to"), filters), offset, limit)
 
 
-@router.get("/group/export", dependencies=[Depends(require_permissions("virtualpos.recovery.export"))], tags=["Recovery"])
+CSV_COLUMNS = (
+    "cuenta", "id_suscripcion", "id_cargo", "monto", "fecha_rechazo", "codigo_rechazo", "motivo_rechazo", "estado",
+    "intentos", "ultimo_cobro", "fecha_cancelacion", "source_record_id", "external_id", "rut", "nombre", "email", "telefono",
+)
+PII_COLUMNS = ("rut", "nombre", "email", "telefono")
+_CSV_ROW_KEYS = {
+    "cuenta": "account", "id_suscripcion": "subscription_id", "id_cargo": "charge_id", "monto": "monto",
+    "fecha_rechazo": "rejection_at", "codigo_rechazo": "rejection_code", "motivo_rechazo": "rejection_reason",
+    "estado": "estado", "intentos": "attempts", "ultimo_cobro": "last_paid_date", "fecha_cancelacion": "cancelled_at",
+    "source_record_id": "source_record_id", "external_id": "external_id", "rut": "rut", "nombre": "client_name",
+    "email": "email", "telefono": "phone",
+}
+
+
+def _csv_safe(value: Any) -> Any:
+    """Neutralize CSV formula injection in text cells (leading = + - @, tab or CR)."""
+    if isinstance(value, str) and value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def _csv_response(rows: list[dict], filename: str, include_pii: bool) -> Response:
+    columns = [c for c in CSV_COLUMNS if include_pii or c not in PII_COLUMNS]
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([_csv_safe(row.get(_CSV_ROW_KEYS[c])) for c in columns])
+    return Response(output.getvalue().encode("utf-8-sig"), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+def _audit_export(db: Session, user: User, endpoint: str, filters: dict, row_count: int, include_pii: bool) -> None:
+    """Export audit trail in write_runs: who, when (started_at), endpoint, filters and row count. No content, no PII."""
+    now = datetime.now().astimezone()
+    db.add(WriteRun(
+        source="virtualpos", resource_type="recovery_export", external_id=endpoint, operation="export_csv", status="completed",
+        request_payload={"user_id": str(user.id), "username": user.username, "endpoint": endpoint, "filters": filters, "rows": row_count, "pii_included": include_pii},
+        finished_at=now,
+    ))
+    db.commit()
+
+
+def _export(db: Session, user: User, endpoint: str, rows: list[dict], filename: str, filters: dict) -> Response:
+    include_pii = "virtualpos.recovery.export" in permission_codes(user)
+    _audit_export(db, user, endpoint, filters, len(rows), include_pii)
+    return _csv_response(rows, filename, include_pii)
+
+
+ExportUser = Annotated[User, Depends(require_permissions("virtualpos.recovery.export"))]
+
+
+@router.get("/group/export", tags=["Recovery"])
 def export_group_subscriptions(
     db: Annotated[Session, Depends(get_db)],
+    user: ExportUser,
+    filters: Filters,
     group: Literal["inactiva", "incobrable", "nunca_cobrado"] = "inactiva",
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> Response:
-    group_labels = {"inactiva": "Fecha cancelación", "incobrable": "Último cobro", "nunca_cobrado": "Fecha inicio"}
-    date_col = group_labels.get(group, "Fecha")
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(["ID_SUB", "RUT", "Nombre completo", "Fecha inicio", date_col, "Estado secundario", "Último cobro", "Antigüedad (días)", "Monto mensual", "Email", "Teléfono"])
-    for row in _group_rows(db, group, _date(date_from, "date_from"), _date(date_to, "date_to")):
-        date_val = row["cancelled_at"] if group == "inactiva" else row["last_paid_date"] if group == "incobrable" else row["started_at"]
-        writer.writerow([
-            row["subscription_id"], row["rut"], row["client_name"], row["started_at"],
-            date_val, row["secondary_status"], row["last_paid_date"], row["antiquity_days"],
-            row["amount"], row["email"], row["phone"],
-        ])
-    filename = f"socios-{group}.csv"
-    return Response(output.getvalue().encode("utf-8-sig"), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    rows = _group_rows(db, group, _date(date_from, "date_from"), _date(date_to, "date_to"), filters)
+    audit = {"group": group, "date_from": date_from, "date_to": date_to, **filters.as_audit()}
+    return _export(db, user, "recovery/group/export", rows, f"socios-{group}.csv", {k: v for k, v in audit.items() if v is not None})
 
 
-@router.get("/cancelled/export", dependencies=[Depends(require_permissions("virtualpos.recovery.export"))], tags=["Recovery"])
-def export_cancelled_subscriptions(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None) -> Response:
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(["ID_SUB", "RUT", "Nombre completo", "Fecha de inicio", "Fecha de cancelacion", "Antiguedad (dias)", "Monto total recaudado", "Email", "Telefono"])
-    for row in _cancelled_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to")):
-        writer.writerow([row["subscription_id"], row["rut"], row["client_name"], row["started_at"], row["cancelled_at"], row["antiquity_days"], row["amount"], row["email"], row["phone"]])
-    return Response(output.getvalue().encode("utf-8-sig"), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=socios-cancelados.csv"})
+@router.get("/cancelled/export", tags=["Recovery"])
+def export_cancelled_subscriptions(db: Annotated[Session, Depends(get_db)], user: ExportUser, filters: Filters, date_from: str | None = None, date_to: str | None = None) -> Response:
+    rows = _cancelled_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to"), filters)
+    audit = {"date_from": date_from, "date_to": date_to, **filters.as_audit()}
+    return _export(db, user, "recovery/cancelled/export", rows, "socios-cancelados.csv", {k: v for k, v in audit.items() if v is not None})
+
+
+@router.get("/rejected/export", tags=["Recovery"])
+def export_rejected_charges(db: Annotated[Session, Depends(get_db)], user: ExportUser, filters: Filters, bucket: Literal["retry", "card"] = "retry", date_from: str | None = None, date_to: str | None = None) -> Response:
+    rows = _rejected_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to"), bucket, filters)
+    audit = {"bucket": bucket, "date_from": date_from, "date_to": date_to, **filters.as_audit()}
+    return _export(db, user, "recovery/rejected/export", rows, f"cargos-rechazados-{bucket}.csv", {k: v for k, v in audit.items() if v is not None})
 
 
 @router.get("/rejected", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
-def rejected_charges(db: Annotated[Session, Depends(get_db)], bucket: Literal["retry", "card"] = "retry", date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return _page(_rejected_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to"), bucket), offset, limit)
+def rejected_charges(db: Annotated[Session, Depends(get_db)], filters: Filters, bucket: Literal["retry", "card"] = "retry", date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return _page(_rejected_rows(db, _date(date_from, "date_from"), _date(date_to, "date_to"), bucket, filters), offset, limit)
 
 
 @router.get("/retry-history", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
@@ -507,8 +709,8 @@ def retry_history(db: Annotated[Session, Depends(get_db)], date_from: str | None
 
 
 @router.get("/card-expirations", dependencies=[Depends(require_permissions("virtualpos.recovery.view"))], tags=["Recovery"])
-def expired_card_charges(db: Annotated[Session, Depends(get_db)], offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return _page(_rejected_rows(db, None, None, "card"), offset, limit)
+def expired_card_charges(db: Annotated[Session, Depends(get_db)], filters: Filters, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return _page(_rejected_rows(db, None, None, "card", filters), offset, limit)
 
 
 class RetryItem(BaseModel):
