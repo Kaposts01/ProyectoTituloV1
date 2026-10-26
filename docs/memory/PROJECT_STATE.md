@@ -79,6 +79,10 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **KPIs (Sprint 2, en progreso)**: componentes KpiCard, ChannelChart y ChannelKpiStrip en `frontend/src/components`; tipos y notas en `features/shared/kpis.ts`; vitest configurado. Backend agrega `kpis.rejected_charges` en los 4 canales. Payku calcula MRR desde la última transacción `success` (cifra sin cambio: 5.339.000). TCH agrega `kpis.recaudo_mensual`. Toku filtra chargeable en el churn.
 - **Bloqueo externo**: BLQ-TK-01 (Toku `flow_name`) sigue sin sprint asignado. Bloquea alta de socios y cambio de tarjeta, no los KPIs.
 
+## Actualizacion 2026-10-26 (Sprint 2 casi completo)
+
+- **TK-10 completada**: filtro y orden global por estado secundario Toku antes de paginar; 6 tests con offset>0 en `tests/test_staging_api.py` (Toku y VirtualPOS). **SYNC-GAP-02** caracterizado (9 tests en `tests/test_etl_tch.py`; decisión de negocio pendiente). **SYNC-GAP-04** mitigado (49 tests en `tests/test_sync_gap04_payload_shapes.py`; log `_log_null_relations`). **FE-03** completada. **KPI-02..04** completadas; **KPI-01** pendiente de verificación contra VirtualPOS staging.
+
 ## Actualizacion 2026-10-21 (sesion iterativa)
 
 - **RISK-VP-02 (267fd47)**: `create_subscription` comprueba `VpSubscription` con status ACTIVA/SUSCRIBIENDO antes de llamar al proveedor. HTTP 409 si hay duplicado.

@@ -25,15 +25,15 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 
 | ID | Tarea | Estado | Responsable |
 | --- | --- | --- | --- |
-| FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | En progreso | — |
-| KPI-01 | Estandarizar KPIs VirtualPOS/resumen | En progreso | — |
-| KPI-02 | Estandarizar KPIs Toku/resumen | En progreso | — |
-| KPI-03 | Estandarizar KPIs Payku/resumen | En progreso | — |
-| KPI-04 | Estandarizar KPIs TCH/resumen | En progreso | — |
+| FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | Completada | — |
+| KPI-01 | Estandarizar KPIs VirtualPOS/resumen | Parcial: falta verificación contra VP staging | — |
+| KPI-02 | Estandarizar KPIs Toku/resumen | Completada | — |
+| KPI-03 | Estandarizar KPIs Payku/resumen | Completada | — |
+| KPI-04 | Estandarizar KPIs TCH/resumen | Completada | — |
 
 ### Definición de Done (Sprint 2)
 
-- [ ] `FE-03`: Componentes en `frontend/src/components/` (KpiCard, ChannelChart, ChannelKpiStrip) con data contracts explícitos; tipos y notas en `features/shared/kpis.ts`; vitest configurado; usados por al menos un canal
+- [x] `FE-03`: Componentes en `frontend/src/components/` (KpiCard, ChannelChart, ChannelKpiStrip) con data contracts explícitos; tipos y notas en `features/shared/kpis.ts`; vitest configurado; usados por al menos un canal
 - [ ] `KPI-01–04`: KPIs estándar por canal con notas de fuente visibles (ver notas de sesión)
 
 ### Notas de sesión
@@ -44,6 +44,12 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
   - Payku: MRR calculado desde la última transacción `success` (sin cambio de cifras: 5.339.000). Nota visible: "Cobertura histórica no certificada · MRR desde última transacción success".
   - TCH: conserva "mandatos vigentes" y agrega `kpis.recaudo_mensual` ("recaudo aceptado del mes"). Nota visible: "Fuente: reportes Excel oficiales".
   - Toku: el churn filtra suscripciones chargeable.
+- Sesión 2026-10-26:
+  - TK-10 completada: filtro y orden global por estado secundario antes de paginar; 6 tests con offset>0 en `tests/test_staging_api.py` (Toku y VirtualPOS); no depende de flow_name.
+  - SYNC-GAP-02 caracterizado: 9 tests en `tests/test_etl_tch.py` y script de auditoría de solo lectura `scripts/maintenance/audit_tch_duplicate_cuotas.sql`. Sigue abierto como decisión de negocio (¿rechazo y pago posterior de la misma cuota son dos cargos?).
+  - SYNC-GAP-04 mitigado: 49 tests en `tests/test_sync_gap04_payload_shapes.py`; log agregado `_log_null_relations` (solo conteos, sin PII).
+  - KPI-01..04: KPI-01 rótulo "Cargos rechazados"; nota Toku y nota Payku visibles; KPI-04 mezcla fuentes: recaudo mensual y transacciones desde `tch_recaudacion_mensual`, MRR/ARPU/churn/LTV desde `TchSuscripcion` (valores distintos, rotulados). KPI-01 queda pendiente de verificación contra VirtualPOS staging.
+  - FE-03 completada (KpiCard, ChannelChart, ChannelKpiStrip).
 
 ---
 
@@ -62,13 +68,13 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 | DATA-02 | Documentar modelo de datos Toku | Completada | — |
 | DATA-03 | Documentar modelo de datos Payku | Completada | — |
 | DATA-04 | Documentar modelo de datos TCH (ETL + tablas tch_*) | Completada | — |
-| TK-10 | Filtrar y ordenar estado secundario Toku (no depende de flow_name) | En curso | — |
+| TK-10 | Filtrar y ordenar estado secundario Toku (no depende de flow_name) | Completada | — |
 | SYNC-01 | Auditar idempotencia y trazabilidad en consolidación | Completada | — |
 
 ### Definición de Done (Sprint 1)
 
 - [x] `DATA-01–04`: Cada canal tiene doc en `docs/data/` con tablas, campos clave, relaciones y brechas conocidas
-- [ ] `TK-10`: Pendiente de cierre. `docs/tasks.md` (línea 147) la registra como "En curso": el código filtra y ordena antes de paginar, pero la instancia API en `:8000` requiere recarga. BLQ-TK-01 es un bloqueo externo sin sprint asignado (ver Hoja de Ruta)
+- [x] `TK-10`: Completada (2026-10-26). El código filtra y ordena antes de paginar y tiene tests con offset>0. BLQ-TK-01 es un bloqueo externo sin sprint asignado (ver Hoja de Ruta)
 - [x] `SYNC-01`: Informe de idempotencia — 5 gaps documentados en `docs/data/sync-idempotency.md`
 
 ### Notas de sesión
@@ -108,7 +114,7 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 |---|--------|-----------------|--------|----------|
 | 0 | **Onboarding & Fundación** ✅ Completado | Entorno operativo + App.tsx modularizado | OPS-07, FE-02 | 2 sem |
 | 1 | **Auditoría de Datos** ✅ Completado | Documentar datos objeto por canal | DATA-01–04, TK-10, SYNC-01 | 2 sem |
-| 2 | **Componentes + KPIs** ← *activo (en progreso)* | Componentes compartidos + KPIs estándar | FE-03, KPI-01–04 | 2 sem |
+| 2 | **Componentes + KPIs** ← *activo: casi completo, falta verificación KPI-01 contra VP staging* | Componentes compartidos + KPIs estándar | FE-03, KPI-01–04 | 2 sem |
 | 3 | Gráficos + Sidebar | Gráficos estandarizados + sidebar con salud | CHART-01–04, UI-20–21 | 2 sem |
 | 4 | Recuperador VP | Mejoras al recuperador VirtualPOS | REC-03, WR-VP-05, PK-05 | 2 sem |
 | 5 | Recuperador General | Recuperador multi-canal (Toku/Payku/TCH) | REC-04–06 | 3 sem |

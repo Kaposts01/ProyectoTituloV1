@@ -144,7 +144,7 @@ Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, 
 | TK-07 | Mejorar tabla de métodos de pago Toku | Completada | La tabla muestra cliente, tarjeta, banco y asociaciones como valores escalares, sin objetos ni RUT incorrecto. |
 | TK-08 | Corregir relaciones de ficha de cliente Toku | Completada | Los extractores y la consolidación preservan el customer ID aunque Toku lo entregue como texto; la ficha relaciona suscripciones y métodos por ID o RUT normalizado, deudas por suscripción y transacciones por método de pago cuando no hay cliente directo. |
 | TK-09 | Corregir cobros y ficha de suscripción Toku | Completada | Estado secundario y último cobro usan la última transacción `SUCCESS` de `payment_intents[].id_subscription`; la ficha vincula métodos, deudas y transacciones por el ID de suscripción. |
-| TK-10 | Filtrar y ordenar estado secundario Toku | En curso | El código permite filtrar y ordenar globalmente por estado secundario antes de paginar; la instancia API activa en `:8000` conserva un worker anterior y requiere recarga. |
+| TK-10 | Filtrar y ordenar estado secundario Toku | Completada | Filtro y orden global por estado secundario antes de paginar; no depende de flow_name. Cubierto por 6 tests con offset>0 en `tests/test_staging_api.py` (Toku y VirtualPOS). |
 | TK-11 | Mejorar registros relacionados de suscripciones Toku | Completada | Cliente muestra RUT y estado; métodos de pago muestran estado; deudas y transacciones muestran estado y fecha en sus fichas relacionadas. |
 | UI-02 | Ajustar anchos y márgenes de vistas | Completada | El contenido usa todo el ancho disponible y las tablas conservan sus columnas sin recortarse. |
 | UI-03 | Mejorar filtros y orden de tablas | Completada | Los filtros son claros y cada columna de datos permite ordenar ascendente o descendente. |
@@ -493,18 +493,18 @@ Plan visual: https://claude.ai/artifact/RjnJYnghhrxA8AJb33kZjr
 | DATA-02 | Documentar modelo de datos Toku | Completada | Documento en docs/data/toku.md con tablas de canal, campos clave, consolidación y brechas conocidas. |
 | DATA-03 | Documentar modelo de datos Payku | Completada | Documento en docs/data/payku.md con tablas de canal, campos clave, consolidación y brechas conocidas. |
 | DATA-04 | Documentar modelo de datos TCH | Completada | Documento en docs/data/tch.md con ETL, tablas tch_* y brechas conocidas. |
-| TK-10 | Filtrar y ordenar estado secundario Toku | En curso | Filtro y orden global por estado secundario antes de paginar. No depende de flow_name; BLQ-TK-01 es externo y no bloquea esta tarea. |
+| TK-10 | Filtrar y ordenar estado secundario Toku | Completada | Filtro y orden global por estado secundario antes de paginar. No depende de flow_name; BLQ-TK-01 es externo y no bloquea esta tarea. Tests con offset>0 en `tests/test_staging_api.py` (6 casos, Toku y VirtualPOS). |
 | SYNC-01 | Auditar idempotencia y trazabilidad en consolidación | Completada | 5 gaps documentados en docs/data/sync-idempotency.md. |
 
 ### Sprint 2: Componentes Compartidos y KPIs
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | En progreso | Componentes en frontend/src/components/ con data contracts explícitos; JetBrains Mono en valores numéricos; tests básicos de render; usados por al menos un canal como validación. |
-| KPI-01 | Estandarizar KPIs VirtualPOS/resumen | En progreso | MRR, ARPU, Suscripciones activas, Churn mensual y Cargos rechazados usando KpiCard.tsx; datos verificados contra VP staging. |
-| KPI-02 | Estandarizar KPIs Toku/resumen | En progreso | Mismos KPI canónicos para Toku; MRR desde suscripciones ACTIVE con método chargeable; nota sobre campos específicos de Toku. |
-| KPI-03 | Estandarizar KPIs Payku/resumen | En progreso | KPIs con nota visible de cobertura histórica no certificada; MRR desde última transacción success asociada. |
-| KPI-04 | Estandarizar KPIs TCH/resumen | En progreso | KPIs desde tch_recaudacion_mensual (controles oficiales); nota "fuente: reportes Excel oficiales" visible al operador. |
+| FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | Completada | Componentes en frontend/src/components/ con data contracts explícitos; JetBrains Mono en valores numéricos; tests básicos de render; usados por al menos un canal como validación. |
+| KPI-01 | Estandarizar KPIs VirtualPOS/resumen | Parcial: falta verificación contra VP staging | MRR, ARPU, Suscripciones activas, Churn mensual y Cargos rechazados usando KpiCard.tsx; rótulo "Cargos rechazados". Pendiente verificar contra VP staging. |
+| KPI-02 | Estandarizar KPIs Toku/resumen | Completada | Mismos KPI canónicos para Toku; MRR desde suscripciones ACTIVE con método chargeable; nota visible "MRR desde suscripciones activas con medio de pago chargeable · Campos específicos de Toku". |
+| KPI-03 | Estandarizar KPIs Payku/resumen | Completada | KPIs con nota visible de cobertura histórica no certificada; MRR desde última transacción success asociada. |
+| KPI-04 | Estandarizar KPIs TCH/resumen | Completada | `kpis.recaudo_mensual` y transacciones mensuales desde tch_recaudacion_mensual; MRR, ARPU, clientes activos, churn y LTV desde TchSuscripcion (valores distintos, rotulados "Mandatos vigentes" y "Recaudo aceptado del mes"); nota "fuente: reportes Excel oficiales" visible al operador. |
 
 ### Sprint 3: Gráficos y Barra Lateral
 
