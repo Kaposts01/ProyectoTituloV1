@@ -1240,3 +1240,46 @@ def test_secondary_status_sort_is_global_before_pagination(db_session, source, p
         assert [item["external_id"] for item in page["items"]] == full_ids[offset: offset + 3]
     page2 = fetch(limit=2, offset=2)
     assert [item["external_id"] for item in page2["items"]] == full_ids[2:4]
+
+
+def test_month_coverage_gaps_helper() -> None:
+    gaps = staging._month_coverage_gaps
+    assert gaps([]) == []
+    assert gaps([{"year": 2099, "month": 3}]) == []
+    assert gaps([{"year": 2099, "month": 3}, {"year": 2099, "month": 4}]) == []
+    assert gaps([{"year": 2098, "month": 11}, {"year": 2099, "month": 2}]) == [
+        {"year": 2098, "month": 12},
+        {"year": 2099, "month": 1},
+    ]
+    assert gaps([{"year": 2099, "month": 5}, {"year": 2099, "month": 5}, {"year": 2099, "month": 7}]) == [
+        {"year": 2099, "month": 6}
+    ]
+
+
+def test_toku_activity_uses_payments_and_keeps_invoice_activity(db_session) -> None:
+    db_session.add_all(
+        [
+            Charge(source="toku", external_id="act-inv-1", client_external_id="c", status="PAID", amount="2000", charge_date="2097-03-01", raw_payload={}),
+            Payment(source="toku", external_id="act-pay-1", client_external_id="c", status="SUCCESS", amount="1500", payment_date="2098-05-02", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+    dashboard = staging.channel_dashboard("toku", db=db_session)
+    assert dashboard["activity_resource"] == "transaction"
+    assert any(e["year"] == 2098 and e["month"] == 5 for e in dashboard["activity"])
+    assert not any(e["year"] == 2097 for e in dashboard["activity"])
+    assert any(e["year"] == 2097 and e["month"] == 3 for e in dashboard["invoice_activity"])
+    assert {2097, 2098} <= set(dashboard["years"])
+
+
+def test_payku_dashboard_exposes_coverage_gaps(db_session) -> None:
+    db_session.add_all(
+        [
+            Payment(source="payku", external_id="gap-1", status="SUCCESS", amount="100", payment_date="2097-11-05", raw_payload={}),
+            Payment(source="payku", external_id="gap-2", status="SUCCESS", amount="100", payment_date="2098-02-05", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+    gaps = staging.channel_dashboard("payku", db=db_session)["coverage_gaps"]
+    assert {"year": 2097, "month": 12} in gaps and {"year": 2098, "month": 1} in gaps
+    assert {"year": 2097, "month": 11} not in gaps

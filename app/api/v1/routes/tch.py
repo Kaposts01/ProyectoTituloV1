@@ -235,6 +235,7 @@ def tch_summary() -> dict:
             else_=0,
         )
         periodo_activacion = func.substring(TchSuscripcion.fecha_activacion, 1, 7)
+        transacciones_fuente = "recaudacion_mensual" if controles else "transacciones"
         if controles:
             total_aceptadas = sum(control.aceptadas_cantidad for control in controles)
             total_rechazadas = sum(control.rechazadas_cantidad for control in controles)
@@ -398,6 +399,7 @@ def tch_summary() -> dict:
             "kpis": tch_kpis,
             "years": years,
             "transacciones_mensuales": transacciones_mensuales,
+            "transacciones_fuente": transacciones_fuente,
             "activaciones_mensuales": activaciones_mensuales,
             "bajas_mensuales": bajas_mensuales,
             "active_subs_monthly": active_subs_monthly,

@@ -196,3 +196,19 @@ def test_tch_recaudo_adds_accepted_transactions_and_keeps_legacy_alias() -> None
 def test_tch_recaudo_amount_parsing_is_defensive(raw, expected) -> None:
     out = tch._recaudo_mensual_kpis([_ctrl("2026-09", 2, raw)])
     assert out["mrr"] == expected
+
+
+def test_tch_summary_reports_monthly_series_source(db_session, monkeypatch) -> None:
+    from sqlalchemy import delete
+
+    monkeypatch.setattr(tch, "_get_db", lambda: db_session)
+    db_session.execute(delete(TchRecaudacionMensual))
+    db_session.flush()
+    assert tch.tch_summary()["transacciones_fuente"] == "transacciones"
+
+    db_session.add(TchRecaudacionMensual(
+        periodo="2099-01", aceptadas_cantidad=1, aceptadas_monto="100",
+        rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="t.xlsx",
+    ))
+    db_session.flush()
+    assert tch.tch_summary()["transacciones_fuente"] == "recaudacion_mensual"

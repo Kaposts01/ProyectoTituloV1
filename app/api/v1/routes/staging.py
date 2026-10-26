@@ -2615,6 +2615,23 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
     }
 
 
+def _month_coverage_gaps(entries: list[dict[str, Any]]) -> list[dict[str, int]]:
+    """Meses sin transacciones entre el primer y el ultimo mes con datos (cruza anios)."""
+    present = {(int(e["year"]), int(e["month"])) for e in entries if e.get("year") and e.get("month")}
+    if len(present) < 2:
+        return []
+    first, last = min(present), max(present)
+    gaps: list[dict[str, int]] = []
+    year, month = first
+    while (year, month) < last:
+        month += 1
+        if month > 12:
+            year, month = year + 1, 1
+        if (year, month) < last and (year, month) not in present:
+            gaps.append({"year": year, "month": month})
+    return gaps
+
+
 def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
     chargeable_subscription_ids = {
         subscription_id
@@ -2683,17 +2700,26 @@ def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
         )
     ), 2)
 
-    activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
-    invoice_rows = db.execute(select(CCharge.charge_date, CCharge.amount).where(CCharge.source == "toku"))
-    for due_date, amount in invoice_rows:
-        month = _month(due_date)
-        if month:
-            activity_by_month[month]["count"] += 1
-            activity_by_month[month]["amount"] += _amount(amount)
-    activity = [
-        {"year": year, "month": month, "count": int(values["count"]), "amount": round(values["amount"], 2)}
-        for (year, month), values in sorted(activity_by_month.items())
-    ]
+    # 'activity' = tendencia de cobros (transacciones reales, CPayment); la serie de
+    # facturas (deuda emitida) se conserva sin cambios bajo 'invoice_activity'.
+    def _monthly_activity(rows: Any) -> list[dict[str, Any]]:
+        by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
+        for row_date, amount in rows:
+            month = _month(row_date)
+            if month:
+                by_month[month]["count"] += 1
+                by_month[month]["amount"] += _amount(amount)
+        return [
+            {"year": year, "month": month, "count": int(values["count"]), "amount": round(values["amount"], 2)}
+            for (year, month), values in sorted(by_month.items())
+        ]
+
+    invoice_activity = _monthly_activity(
+        db.execute(select(CCharge.charge_date, CCharge.amount).where(CCharge.source == "toku"))
+    )
+    activity = _monthly_activity(
+        db.execute(select(CPayment.payment_date, CPayment.amount).where(CPayment.source == "toku"))
+    )
 
     class _Record:
         __slots__ = ("payload", "resource_type")
@@ -2749,9 +2775,10 @@ def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
         "resources": resource_counts,
         "resource_amounts": resource_amounts,
         "statuses": sorted(statuses, key=lambda item: (item["resource"], item["status"])),
-        "activity_resource": "invoice",
+        "activity_resource": "transaction",
         "activity": activity,
-        "years": sorted({entry["year"] for entry in activity}, reverse=True),
+        "invoice_activity": invoice_activity,
+        "years": sorted({entry["year"] for entry in activity + invoice_activity}, reverse=True),
         "last_sync": (
             {
                 "status": latest_run.status,
@@ -2856,6 +2883,7 @@ def _payku_centralized_dashboard(db: Session) -> dict[str, Any]:
         "statuses": sorted(statuses, key=lambda item: (item["resource"], item["status"])),
         "activity_resource": "transaction",
         "activity": activity,
+        "coverage_gaps": _month_coverage_gaps(activity),
         "years": sorted({entry["year"] for entry in dated_series}, reverse=True),
         "last_sync": (
             {
