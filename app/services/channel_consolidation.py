@@ -58,6 +58,20 @@ def _toku_payment_subscription_id(payload: dict) -> str | None:
     return None
 
 
+def _log_null_relations(resource: str, rows: list[dict], fields: tuple[str, ...]) -> None:
+    """SYNC-GAP-04: loguea cuantas filas quedaron con relaciones NULL (solo conteos, sin PII)."""
+    if not rows:
+        return
+    counts = {f: sum(1 for r in rows if r.get(f) is None) for f in fields}
+    if any(counts.values()):
+        logger.warning(
+            "relaciones NULL %s: %s de %d filas",
+            resource,
+            ", ".join(f"{f}={n}" for f, n in counts.items()),
+            len(rows),
+        )
+
+
 # ── Trazabilidad: source_record_id ────────────────────────────────────────────
 
 def _source_record_ids(
@@ -324,6 +338,7 @@ def _consolidate_toku_subscriptions(db: Session) -> int:
             "currency": t.currency_code,
             "raw_payload": t.raw_payload,
         })
+    _log_null_relations('toku.subscription', rows, ('client_external_id',))
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
@@ -342,6 +357,7 @@ def _consolidate_toku_invoices(db: Session) -> int:
             "charge_date": t.due_date,
             "raw_payload": t.raw_payload,
         })
+    _log_null_relations('toku.invoice', rows, ('subscription_external_id', 'client_external_id'))
     return _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "invoice"))
 
 
@@ -360,6 +376,7 @@ def _consolidate_toku_transactions(db: Session) -> int:
             "payment_date": t.created_at_api,
             "raw_payload": t.raw_payload,
         })
+    _log_null_relations('toku.transaction', rows, ('charge_external_id', 'client_external_id'))
     return _upsert_centralized(db, Payment, "uq_payment_source_external_id", _link_source_records(db, rows, "transaction"))
 
 
@@ -470,6 +487,7 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
             "currency": p.currency,
             "raw_payload": p.raw_payload,
         })
+    _log_null_relations('payku.subscription', rows, ('client_external_id', 'plan_external_id'))
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
@@ -487,6 +505,7 @@ def _consolidate_payku_transactions(db: Session) -> int:
             "payment_date": p.created_at_api,
             "raw_payload": p.raw_payload,
         })
+    _log_null_relations('payku.transaction', rows, ('charge_external_id',))
     return _upsert_centralized(db, Payment, "uq_payment_source_external_id", _link_source_records(db, rows, "transaction"))
 
 

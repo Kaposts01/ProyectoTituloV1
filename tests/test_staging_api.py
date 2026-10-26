@@ -1126,3 +1126,117 @@ def test_general_dashboard_routes_precede_the_provider_detail_route() -> None:
 
     assert paths.index("/dashboard/general/clients") < paths.index("/{source}/{resource_type}/{external_id}")
     assert paths.index("/dashboard/general/subscriptions") < paths.index("/{source}/{resource_type}/{external_id}")
+
+
+# --- TK-10: filtro/orden por secondary_status son globales (antes de paginar) ---
+
+def _seed_secondary_status_subs(db_session, source: str, prefix: str) -> dict[str, str]:
+    """Siembra suscripciones activas con 3 estados secundarios distintos; devuelve {external_id: estado}."""
+    expected = {
+        f"{prefix}-cobrable-a": "cobrable",
+        f"{prefix}-cobrable-b": "cobrable",
+        f"{prefix}-incobrable-a": "incobrable",
+        f"{prefix}-incobrable-b": "incobrable",
+        f"{prefix}-nunca": "Nunca Cobrado",
+        f"{prefix}-inactiva": "inactiva",
+    }
+    paid_dates = {"cobrable": "2099-04-01", "incobrable": "2000-01-01"}
+    rows: list = []
+    for external_id, secondary in expected.items():
+        rows.append(
+            Subscription(
+                source=source,
+                external_id=external_id,
+                status="CANCELED" if secondary == "inactiva" else "ACTIVE",
+                raw_payload={"id": external_id},
+            )
+        )
+        if secondary in paid_dates:
+            if source == "toku":
+                rows.append(
+                    Payment(
+                        source="toku",
+                        external_id=f"{external_id}-tx",
+                        status="SUCCESS",
+                        payment_date=paid_dates[secondary],
+                        raw_payload={"payment_intents": [{"id_subscription": external_id}]},
+                    )
+                )
+            else:
+                rows.append(
+                    Charge(
+                        source=source,
+                        external_id=f"{external_id}-charge",
+                        subscription_external_id=external_id,
+                        status="pagado",
+                        charge_date=paid_dates[secondary],
+                        raw_payload={},
+                    )
+                )
+    db_session.add_all(rows)
+    db_session.flush()
+    return expected
+
+
+@pytest.mark.parametrize("source,prefix", [("toku", "tk10-toku"), ("virtualpos", "tk10-vp")])
+def test_secondary_status_filter_is_global_before_pagination(db_session, source, prefix) -> None:
+    db_source = "virtualpos1" if source == "virtualpos" else source
+    expected = _seed_secondary_status_subs(db_session, db_source, prefix)
+    mine = {k for k in expected}
+
+    def fetch(**kwargs):
+        return staging.list_records(
+            source=source, resource_type="subscription", filter_field="secondary_status",
+            query="cobrable", db=db_session, **kwargs,
+        )
+
+    full = fetch(limit=100000, offset=0)
+    full_ids = [item["external_id"] for item in full["items"]]
+    # total refleja el filtrado completo, no la pagina ni el universo sin filtrar
+    assert full["total"] == len(full_ids)
+    assert {i for i in full_ids if i in mine} == {f"{prefix}-cobrable-a", f"{prefix}-cobrable-b"}
+    assert all(item["secondary_status"] == "cobrable" for item in full["items"])
+
+    # Pagina 2 con limit pequeno: mismos registros que el corte global, con total global
+    page2 = fetch(limit=1, offset=1)
+    assert page2["total"] == full["total"]
+    assert page2["offset"] == 1 and page2["limit"] == 1
+    assert [item["external_id"] for item in page2["items"]] == full_ids[1:2]
+    assert all(item["secondary_status"] == "cobrable" for item in page2["items"])
+
+    # Paginas sucesivas (y la ultima) coinciden con el corte global; acotado para no hacer N consultas
+    for offset in (0, 2, 4, max(full["total"] - 2, 0)):
+        page = fetch(limit=2, offset=offset)
+        assert page["total"] == full["total"]
+        assert [item["external_id"] for item in page["items"]] == full_ids[offset: offset + 2]
+
+    # Offset mas alla del total: sin items, total intacto
+    beyond = fetch(limit=2, offset=full["total"] + 10)
+    assert beyond["items"] == [] and beyond["total"] == full["total"]
+
+
+@pytest.mark.parametrize("source,prefix", [("toku", "tk10s-toku"), ("virtualpos", "tk10s-vp")])
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+def test_secondary_status_sort_is_global_before_pagination(db_session, source, prefix, direction) -> None:
+    db_source = "virtualpos1" if source == "virtualpos" else source
+    expected = _seed_secondary_status_subs(db_session, db_source, prefix)
+
+    def fetch(**kwargs):
+        return staging.list_records(
+            source=source, resource_type="subscription", sort_field="secondary_status",
+            sort_direction=direction, db=db_session, **kwargs,
+        )
+
+    full = fetch(limit=100000, offset=0)
+    full_ids = [item["external_id"] for item in full["items"]]
+    keys = [item["secondary_status"].casefold() for item in full["items"]]
+    assert keys == sorted(keys, reverse=direction == "desc")
+    assert {i for i in full_ids if i.startswith(prefix)} == set(expected)
+
+    # Cada pagina (offset > 0, limit pequeno) es el corte del orden global y total no es el de la pagina
+    for offset in (0, 3, max(full["total"] - 3, 0)):
+        page = fetch(limit=3, offset=offset)
+        assert page["total"] == full["total"] == len(full_ids)
+        assert [item["external_id"] for item in page["items"]] == full_ids[offset: offset + 3]
+    page2 = fetch(limit=2, offset=2)
+    assert [item["external_id"] for item in page2["items"]] == full_ids[2:4]
