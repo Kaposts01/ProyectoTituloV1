@@ -1,5 +1,20 @@
 .app-layout { display: flex; min-height: 100vh; }
 
+/* Franja de ambiente (solo no produccion) */
+.env-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  height: var(--env-banner-h); display: flex; align-items: center; justify-content: center;
+  padding: 0 12px; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  background: var(--env-warn-bg); color: var(--env-warn-text);
+  font-size: 13px; letter-spacing: 0.04em;
+}
+html.has-env-banner body { padding-top: var(--env-banner-h); }
+html.has-env-banner .sidebar { top: var(--env-banner-h); height: calc(100vh - var(--env-banner-h)); }
+html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: calc(100vh - var(--env-banner-h)); }
+@media (max-width: 640px) { .env-banner-detail { display: none; } }
+.environment-confirm { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.environment-confirm p { flex-basis: 100%; margin: 0; }
+
 /* ── Sidebar ─────────────────────────────────────────────────────── */
 .sidebar {
   position: sticky; top: 0; align-self: flex-start;
@@ -251,6 +266,7 @@ td:first-child { font-weight: 700; }
     transform: translateX(-100%); transition: transform 0.25s ease;
   }
   .sidebar.open { transform: translateX(0); }
+  html.has-env-banner .burger-btn { top: calc(var(--env-banner-h) + 14px); }
   .sidebar-close { display: flex; }
 
   /* ── Content padding for fixed burger ───────────────────────────── */

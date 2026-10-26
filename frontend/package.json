@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:sandbox": "vite --mode sandbox",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",

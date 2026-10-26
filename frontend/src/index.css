@@ -54,6 +54,9 @@
   --health-error:    #ff8a80;
   --health-unknown:  #93adb3;
   --shadow-card:     rgba(26, 61, 71, 0.08);
+  --env-warn-bg:     #f2c14e;
+  --env-warn-text:   #2b1d00;
+  --env-banner-h:    32px;
 
   /* aliases for App.css compatibility */
   --bg:              var(--bg-base);
@@ -104,6 +107,8 @@ html[data-theme="dark"] {
   --health-error:    #ff8a80;
   --health-unknown:  #93adb3;
   --shadow-card:     rgba(0, 0, 0, 0.45);
+  --env-warn-bg:     #6b4a00;
+  --env-warn-text:   #ffe9b0;
 
   --bg:              var(--bg-base);
   --surface:         var(--bg-surface);

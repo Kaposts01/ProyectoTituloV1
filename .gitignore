@@ -42,3 +42,5 @@ uvicorn_err.log
 
 .env.*
 !.env.example
+# Config de Vite del sandbox: solo puerto y proxy, sin secretos.
+!frontend/.env.sandbox
