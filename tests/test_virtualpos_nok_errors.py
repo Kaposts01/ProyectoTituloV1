@@ -265,13 +265,6 @@ def test_retry_charge_nok_marca_failed(monkeypatch, db_session) -> None:
     assert run.status == "failed" and "E-060" in run.error_message
 
 
-def test_adopcion_por_internal_code_no_aplica() -> None:
-    """internal_code no se expone en los cargos listados (docs/datos): no se inventa el campo ni se adopta."""
-    import inspect
-
-    assert "internal_code" not in inspect.getsource(svc._list_pending_charges)
-
-
 # ---- sync ---------------------------------------------------------------------------------------------------
 
 

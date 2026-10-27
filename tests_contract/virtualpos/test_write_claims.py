@@ -51,6 +51,26 @@ def test_vp_c07_internal_code_duplicado(claim, created_charges, sub_variable):
 
 
 @write_test
+@pytest.mark.contract(claim="VP-C29")
+def test_vp_c29_reutilizar_internal_code_tras_cancelar(claim, created_charges, sub_variable):
+    """Doc: docs/integrations/virtualpos/resources/charges.md (internal_code). Sin esperado documentado.
+    Observa si se puede crear un cargo con un internal_code cuyo cargo anterior fue cancelado
+    (la app crea uno nuevo en ese caso, no adopta el cancelado)."""
+    code = created_charges.internal_code("VP-C29")
+    first = created_charges.create(sub_variable, "VP-C29", internal_code=code)
+    cid = charge_obj(first.body).get("id")
+    if not first.ok or not cid:
+        pytest.skip(f"No se pudo crear el cargo de prueba ({_observed(first)}).")
+    cancelled = call("DELETE", f"/v3/charge/{cid}")
+    if not cancelled.ok:
+        pytest.skip(f"No se pudo cancelar el cargo de prueba ({_observed(cancelled)}).")
+    second = created_charges.create(sub_variable, "VP-C29", internal_code=code, days=21)
+    claim.check("VP-C29", f"{DOCS}/charges.md", "HTTP 200", _observed(second),
+                http_status=second.status, error_code=second.error_code,
+                note="2do POST con el mismo internal_code tras cancelar el 1.º")
+
+
+@write_test
 @pytest.mark.contract(claim="VP-C27")
 def test_vp_c27_errores_de_negocio_llegan_con_http_200(claim, created_charges, sub_variable):
     """Doc: docs/integrations/virtualpos/resources/errors.md (los errores se documentan como HTTP 4xx).

@@ -478,6 +478,27 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     return plan
 
 
+async def _find_charge_by_internal_code(provider: Any, subscription_id: str, internal_code: str) -> dict | None:
+    """Cargo de la suscripción con ese `internal_code` y estado distinto de `cancelado` (todas las páginas).
+
+    Un fallo del listado se propaga: sin listado no se puede garantizar idempotencia y no se crea el cargo.
+    """
+    page = 1
+    while True:
+        response = await provider.list_charges(subscription_id, page=page, limit=100)
+        for item in _items(response, "charges"):
+            if (
+                item.get("id")
+                and _as_text(item.get("internal_code")) == internal_code
+                and str(item.get("status") or "").strip().lower() != "cancelado"
+            ):
+                return item
+        pages = (response.get("pagination") or {}).get("pages") if isinstance(response, dict) else None
+        if not isinstance(pages, int) or page >= pages:
+            return None
+        page += 1
+
+
 async def create_charge(db: Session, subscription_id: str, data: dict[str, Any], platform: str = "virtualpos1") -> Charge:
     """Create a VirtualPOS charge on an active subscription and persist the response locally."""
     all_secrets = (
@@ -490,9 +511,8 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
 
     ensure_charge_allowed_on_plan(db, subscription_id, platform)
 
-    # internal_code NO es idempotente en VirtualPOS (2.º POST = 2 cargos) y los cargos listados no exponen
-    # ese campo (ver VP-C28): no hay forma verificable de adoptar un cargo previo; no se inventa el campo.
     request_data = {"suscription_id": subscription_id, **data}
+    internal_code = _as_text(data.get("internal_code"))
 
     write_run = WriteRun(
         source=platform,
@@ -505,17 +525,28 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     db.add(write_run)
     db.commit()
 
+    adopted = False
     try:
         async with VirtualPOSClient(platform=platform) as provider:
-            response = await provider.create_charge(request_data)
-            payload = _charge_payload(response)
-            charge_id = _as_text((payload or {}).get("id") or (payload or {}).get("charge_id"))
-            if not charge_id:
-                raise RuntimeError("VirtualPOS returned no charge identifier")
-            if payload is None or len(payload) <= 1:
-                payload = _charge_payload(await provider.get_charge(charge_id))
-            if payload is None:
-                raise RuntimeError("VirtualPOS returned no charge payload")
+            existing = None
+            if internal_code:
+                # VP no impone idempotencia por internal_code (2 POST = 2 cargos): si un POST previo se cortó por
+                # timeout pero el cargo se creó, el reintento lo adopta aquí en vez de duplicarlo.
+                existing = await _find_charge_by_internal_code(provider, subscription_id, internal_code)
+            if existing is not None:
+                adopted = True
+                payload = {"suscription_id": subscription_id, **existing}
+                charge_id = _as_text(payload.get("id"))
+            else:
+                response = await provider.create_charge(request_data)
+                payload = _charge_payload(response)
+                charge_id = _as_text((payload or {}).get("id") or (payload or {}).get("charge_id"))
+                if not charge_id:
+                    raise RuntimeError("VirtualPOS returned no charge identifier")
+                if payload is None or len(payload) <= 1:
+                    payload = _charge_payload(await provider.get_charge(charge_id))
+                if payload is None:
+                    raise RuntimeError("VirtualPOS returned no charge payload")
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, all_secrets)
@@ -526,7 +557,7 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     sanitized_payload = sanitize_record(payload)
     write_run.external_id = charge_id
     write_run.status = "remote_succeeded"
-    write_run.response_payload = sanitized_payload
+    write_run.response_payload = {"adopted": True, "charge_id": charge_id} if adopted else sanitized_payload
     db.commit()
 
     try:
@@ -545,9 +576,13 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
             db.flush()
         else:
             source_record.payload = sanitized_payload
-        charge = Charge(source=platform, external_id=charge_id, source_record_id=source_record.id)
+        charge = db.scalar(select(Charge).where(Charge.external_id == charge_id, Charge.source == platform))
+        if charge is None:
+            charge = Charge(source=platform, external_id=charge_id, source_record_id=source_record.id)
+            db.add(charge)
+        else:
+            charge.source_record_id = source_record.id
         _materialize_charge(charge, sanitized_payload)
-        db.add(charge)
         write_run.status = "completed"
         write_run.finished_at = datetime.now(UTC)
         db.commit()
