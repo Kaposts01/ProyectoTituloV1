@@ -78,7 +78,7 @@ def test_public_environment_no_auth_no_sensitive(monkeypatch) -> None:
     assert res.status_code == 200
     body = res.json()
     assert body["app_env"] in {"production", "sandbox", "qa"}
-    assert set(body) == {"app_env", "label", "is_production", "access_cookie_name"}
+    assert set(body) == {"app_env", "label", "is_production", "access_cookie_name", "enabled_channels"}
     assert "example.test" not in res.text
     assert settings.database_url not in res.text
 
@@ -160,3 +160,65 @@ def test_scheduler_start_policy(monkeypatch, env, flag, expected) -> None:
     monkeypatch.setattr(settings, "app_env", env)
     monkeypatch.setattr(settings, "sandbox_scheduler_enabled", flag)
     assert main_module.scheduler_should_start() is expected
+
+
+def _set_creds(monkeypatch, *, vp: bool, toku: bool, payku: bool) -> None:
+    for name, on, fields in (
+        ("virtualpos", vp, ("base_url", "api_key", "secret_key")),
+        ("toku", toku, ("base_url", "api_key")),
+        ("payku", payku, ("base_url", "api_key", "secret_key")),
+    ):
+        for f in fields:
+            monkeypatch.setattr(settings, f"{name}_{f}", "x" if on else "")
+
+
+def _enabled() -> list[str]:
+    res = TestClient(app).get("/api/v1/system/environment")
+    assert res.status_code == 200
+    return res.json()["enabled_channels"]
+
+
+def test_enabled_channels_production(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    assert _enabled() == ["virtualpos1", "virtualpos2", "toku", "payku", "tch"]
+
+
+def test_enabled_channels_sandbox_only_vp1_and_toku(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "sandbox")
+    _set_creds(monkeypatch, vp=True, toku=True, payku=False)
+    assert _enabled() == ["virtualpos1", "toku", "tch"]
+
+
+def test_enabled_channels_sandbox_channel_without_credentials(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "sandbox")
+    _set_creds(monkeypatch, vp=True, toku=False, payku=False)
+    assert _enabled() == ["virtualpos1", "tch"]
+    assert "virtualpos2" not in _enabled()
+
+
+def test_scheduler_trigger_disabled_channels(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.api.v1.routes import scheduler as sched_routes
+
+    monkeypatch.setattr(settings, "app_env", "sandbox")
+    _set_creds(monkeypatch, vp=True, toku=False, payku=False)
+    ran: list = []
+
+    async def fake_sync(run_id, channels):
+        ran.append(channels)
+
+    monkeypatch.setattr(sched_routes, "sync_all_channels", fake_sync)
+    monkeypatch.setattr(sched_routes, "get_scheduler", lambda: SimpleNamespace(get_job=lambda _id: object()))
+    client = _login(monkeypatch, ["sync.run"])
+    url = "/api/v1/scheduler/jobs/sync_all_channels/run"
+
+    res = client.post(url, json={"channels": ["payku", "virtualpos2"]})
+    assert res.status_code == 409
+    assert "deshabilitado" in res.json()["detail"]
+    assert ran == []
+
+    res = client.post(url, json={"channels": ["virtualpos1", "payku"]})
+    assert res.status_code == 202
+    assert res.json()["skipped_channels"] == ["payku"]
+    assert ran == [["virtualpos1"]]

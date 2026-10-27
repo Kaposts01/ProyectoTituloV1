@@ -8,10 +8,19 @@ from fastapi import APIRouter, Depends
 from app.core.config import settings
 from app.core.security import access_cookie_name, require_permissions
 from app.models.auth import User
+from app.scheduler.jobs.sync_all import channel_is_enabled
 
 router = APIRouter()
 
 _LABELS = {"production": "Producción", "sandbox": "Sandbox", "qa": "QA"}
+
+
+_CHANNEL_ORDER = ("virtualpos1", "virtualpos2", "toku", "payku")
+
+
+def enabled_channels() -> list[str]:
+    """Canales habilitados en el ambiente actual (misma regla que el scheduler). TCH es Excel: siempre."""
+    return [c for c in _CHANNEL_ORDER if channel_is_enabled(c)] + ["tch"]
 
 
 def _safe_url(raw: str) -> str | None:
@@ -30,6 +39,7 @@ def get_environment() -> dict:
         "label": _LABELS[mode],
         "is_production": settings.is_production,
         "access_cookie_name": access_cookie_name(mode),
+        "enabled_channels": enabled_channels(),
     }
 
 

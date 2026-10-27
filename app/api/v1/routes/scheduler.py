@@ -13,11 +13,12 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import get_current_user, get_db, require_permissions
 from app.models.etl_run import EtlRun
 from app.scheduler import event_bus
 from app.scheduler.engine import JOB_SYNC_ALL, get_scheduler
-from app.scheduler.jobs.sync_all import sync_all_channels
+from app.scheduler.jobs.sync_all import channel_is_enabled, sync_all_channels
 
 _VALID_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
 
@@ -110,13 +111,27 @@ async def trigger_job(
             detail=f"Ya hay una sincronización activa (run_id={active.id}). Espera a que termine.",
         )
 
+    requested = list(dict.fromkeys(body.channels)) if body.channels is not None else None
+    skipped: list[str] = []
+    channels_to_run = requested
+    if requested is not None:
+        skipped = [c for c in requested if not channel_is_enabled(c)]
+        channels_to_run = [c for c in requested if c not in skipped]
+        if not channels_to_run:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Canal(es) deshabilitado(s) en {settings.env_mode}: {', '.join(skipped)}.",
+            )
+    else:
+        skipped = [c for c in _VALID_CHANNELS if not channel_is_enabled(c)]
+
     run_id = str(uuid.uuid4())
     if job_id == JOB_SYNC_ALL:
-        background_tasks.add_task(sync_all_channels, run_id, body.channels)
+        background_tasks.add_task(sync_all_channels, run_id, channels_to_run)
     else:
         raise HTTPException(status_code=400, detail="Job no soporta ejecución manual.")
 
-    return {"run_id": run_id, "status": "accepted"}
+    return {"run_id": run_id, "status": "accepted", "skipped_channels": sorted(skipped)}
 
 
 @router.get("/runs", tags=["Scheduler"])

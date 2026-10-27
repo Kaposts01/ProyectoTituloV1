@@ -168,9 +168,17 @@ def trigger_full_sync(body: FullSyncRequest, background_tasks: BackgroundTasks) 
     unknown = set(body.providers) - set(_ALL_PROVIDERS)
     if unknown:
         raise HTTPException(status_code=422, detail=f"Proveedores desconocidos: {sorted(unknown)}")
+    providers = list(dict.fromkeys(body.providers))
+    skipped = [p for p in providers if not settings.channel_enabled(p)]
+    providers = [p for p in providers if p not in skipped]
+    if not providers:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Canal(es) deshabilitado(s) en {settings.env_mode}: {', '.join(skipped) or 'ninguno solicitado'}.",
+        )
     db = _get_db()
     try:
-        run = EtlRun(status="running", records_upserted=0, phase=f"sync_{body.providers[0]}")
+        run = EtlRun(status="running", records_upserted=0, phase=f"sync_{providers[0]}")
         db.add(run)
         db.commit()
         db.refresh(run)
@@ -178,8 +186,8 @@ def trigger_full_sync(body: FullSyncRequest, background_tasks: BackgroundTasks) 
     finally:
         db.close()
 
-    background_tasks.add_task(_run_full_sync_background, run_id, body.providers)
-    return {"run_id": str(run_id), "status": "running", "providers": body.providers}
+    background_tasks.add_task(_run_full_sync_background, run_id, providers)
+    return {"run_id": str(run_id), "status": "running", "providers": providers, "skipped_providers": skipped}
 
 
 # ── Core ETL endpoints ────────────────────────────────────────────────────────
