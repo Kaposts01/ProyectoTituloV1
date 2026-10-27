@@ -44,3 +44,6 @@ uvicorn_err.log
 !.env.example
 # Config de Vite del sandbox: solo puerto y proxy, sin secretos.
 !frontend/.env.sandbox
+
+# Informes de la suite de contrato (drift doc vs proveedor)
+reports/contract/
