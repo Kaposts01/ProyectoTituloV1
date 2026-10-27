@@ -2,7 +2,8 @@ import { useState } from "react";
 import { downloadFile, friendlyError, getJson, postJson } from "../../api";
 import type { RecoveryResponse, RecoveryRow } from "../shared/types";
 import { recoveryNestedValue, recoveryRowKey, recoveryValue } from "../shared/utils";
-import { RECOVERY_CHANNELS, type RecoveryChannelId } from "./recoveryChannels";
+import { useEnabledChannels } from "../shared/environment";
+import { RECOVERY_CHANNELS, enabledAccounts, type RecoveryChannelId } from "./recoveryChannels";
 import { RecoveryTable } from "./RecoveryTable";
 import {
   EMPTY_FILTERS, canExport, exportTarget, listPath, tabAcceptsFilters,
@@ -21,6 +22,8 @@ type Props = {
 
 export function RecoveryPanel({ channel, can }: Props) {
   const config = RECOVERY_CHANNELS[channel];
+  const { enabled: enabledChannels } = useEnabledChannels();
+  const accounts = enabledAccounts(config.accounts, enabledChannels);
   const [tab, setTab] = useState<RecoveryTab>("cancelled");
   const [group, setGroup] = useState<RecoveryGroup>("inactiva");
   const [filters, setFilters] = useState<RecoveryFilterValues>(EMPTY_FILTERS);
@@ -165,7 +168,7 @@ export function RecoveryPanel({ channel, can }: Props) {
           <label>Cuenta
             <select value={filters.account} onChange={(event) => setFilter("account", event.target.value)}>
               <option value="">Todas</option>
-              {config.accounts.map((account) => <option key={account.value} value={account.value}>{account.label}</option>)}
+              {accounts.map((account) => <option key={account.value} value={account.value}>{account.label}</option>)}
             </select>
           </label>
           <label>Monto mínimo<input className="mono" type="number" min="0" inputMode="numeric" value={filters.minAmount} onChange={(event) => setFilter("minAmount", event.target.value)} /></label>

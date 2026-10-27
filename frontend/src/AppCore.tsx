@@ -49,6 +49,7 @@ import { ChannelKpiStrip } from "./components/ChannelKpiStrip";
 import { ChannelChart } from "./components/ChannelChart";
 import { activationVsChurnChart, statusStackedChart, tchSourceNote } from "./features/dashboard/channelCharts";
 import { normalizeKpis } from "./features/shared/kpis";
+import { useEnabledChannels } from "./features/shared/environment";
 import { ChannelDashboardView } from "./features/dashboard/ChannelDashboardView";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
 import { applyChargeFilter } from "./features/dashboard/applyChargeFilter";
@@ -196,6 +197,15 @@ function AppCore() {
   const [lastEtlRun, setLastEtlRun] = useState<EtlRun | null>(null);
   const [etlError, setEtlError] = useState<string | null>(null);
   const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
+  const { isEnabled: isChannelEnabled } = useEnabledChannels();
+  const vp2Enabled = isChannelEnabled("virtualpos2");
+  useEffect(() => {
+    if (vp2Enabled) return;
+    setClientVpPlatform((p) => (p === "virtualpos2" ? "virtualpos1" : p));
+    setPlanVpPlatform((p) => (p === "virtualpos2" ? "virtualpos1" : p));
+    setSubVpPlatform((p) => (p === "virtualpos2" ? "virtualpos1" : p));
+    setVpPlatform((p) => (p === "virtualpos2" ? "virtualpos1" : p));
+  }, [vp2Enabled]);
   const [tchView, setTchView] = useState<"summary" | "clientes" | "suscripciones" | "transacciones" | "cliente-detalle" | "suscripcion-detalle" | "transaccion-detalle" | null>(null);
   const [tchSummary, setTchSummary] = useState<TchSummary | null>(null);
   const [tchSuscripciones, setTchSuscripciones] = useState<TchSuscripcionesResp | null>(null);
@@ -1300,7 +1310,7 @@ function AppCore() {
     setEtlRunning(true);
     setEtlError(null);
     postJson<{ run_id: string }>("/api/v1/etl/full-sync", {
-      providers: ["virtualpos", "toku", "payku"],
+      providers: (["virtualpos", "toku", "payku"] as const).filter((provider) => isChannelEnabled(provider === "virtualpos" ? "virtualpos1" : provider)),
     })
       .then(({ run_id }) => _pollEtlRun(run_id))
       .catch((err: unknown) => {
@@ -2258,7 +2268,7 @@ function AppCore() {
       {filterControls}
       {activeSection.source === "virtualpos" ? (
         <div className="vp-platform-filter">
-          {(["all", "virtualpos1", "virtualpos2"] as const).map((p) => (
+          {(["all", "virtualpos1", "virtualpos2"] as const).filter((p) => p !== "virtualpos2" || vp2Enabled).map((p) => (
             <button
               key={p}
               className={`vp-platform-btn${vpPlatform === p ? " active" : ""}`}
@@ -2829,9 +2839,9 @@ function AppCore() {
               <button type="button" className={`vp-account-btn${clientVpPlatform === "virtualpos1" ? " active" : ""}`} onClick={() => setClientVpPlatform("virtualpos1")}>
                 Cuenta 1
               </button>
-              <button type="button" className={`vp-account-btn${clientVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setClientVpPlatform("virtualpos2")}>
+{vp2Enabled && (              <button type="button" className={`vp-account-btn${clientVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setClientVpPlatform("virtualpos2")}>
                 Cuenta 2
-              </button>
+              </button>)}
             </div>
           </div>
         )}
@@ -3285,6 +3295,7 @@ function AppCore() {
           onOpenResource={openChannelResource}
           onReport={setReportScope}
           onSync={syncChannel}
+          syncUnavailable={!isChannelEnabled(channelData.source === "virtualpos" ? "virtualpos1" : channelData.source)}
         />
       )
     ) : (
@@ -3382,9 +3393,9 @@ function AppCore() {
                 <button type="button" className={`vp-account-btn${planVpPlatform === "virtualpos1" ? " active" : ""}`} onClick={() => setPlanVpPlatform("virtualpos1")}>
                   Cuenta 1
                 </button>
-                <button type="button" className={`vp-account-btn${planVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setPlanVpPlatform("virtualpos2")}>
+  {vp2Enabled && (              <button type="button" className={`vp-account-btn${planVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setPlanVpPlatform("virtualpos2")}>
                   Cuenta 2
-                </button>
+                </button>)}
               </div>
             </div>
             <div className="edit-form-grid">
@@ -3450,9 +3461,9 @@ function AppCore() {
                 <button type="button" className={`vp-account-btn${subVpPlatform === "virtualpos1" ? " active" : ""}`} onClick={() => setSubVpPlatform("virtualpos1")}>
                   Cuenta 1
                 </button>
-                <button type="button" className={`vp-account-btn${subVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setSubVpPlatform("virtualpos2")}>
+  {vp2Enabled && (              <button type="button" className={`vp-account-btn${subVpPlatform === "virtualpos2" ? " active" : ""}`} onClick={() => setSubVpPlatform("virtualpos2")}>
                   Cuenta 2
-                </button>
+                </button>)}
               </div>
             </div>
             <div className="edit-form-grid">

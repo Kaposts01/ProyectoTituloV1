@@ -2,9 +2,9 @@ import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getJson, postJson, postForm, friendlyError } from "../../api";
 import { invalidateCache } from "../../apiCache";
+import { CHANNEL_UNAVAILABLE_TITLE, useEnabledChannels } from "../shared/environment";
 import type { EtlRun, SchedulerJob, SseEvent } from "../shared/types";
 
-const _ALL_PHASES = ["sync_virtualpos1", "sync_virtualpos2", "sync_toku", "sync_payku", "consolidating"];
 const _PHASE_LABELS: Record<string, string> = {
   sync_virtualpos1: "VirtualPOS VP1",
   sync_virtualpos2: "VirtualPOS VP2",
@@ -27,14 +27,33 @@ const VP_SUB_OPTS: Array<{ key: VpSubKey; label: string; channels: string[] }> =
   { key: "vp1",  label: "Solo VP1",  channels: ["virtualpos1"] },
   { key: "vp2",  label: "Solo VP2",  channels: ["virtualpos2"] },
 ];
+const _API_CHANNELS = ["virtualpos1", "virtualpos2", "toku", "payku"];
 
-function getPhasesForChannels(channels: string[] | null | undefined): string[] {
-  if (!channels) return _ALL_PHASES;
+/** Presets de cuentas VirtualPOS; con una sola cuenta habilitada, "VP1 + VP2" se sustituye por "VP1"/"VP2". */
+export function vpSubOptions(enabled: string[]): Array<{ key: VpSubKey; label: string; channels: string[] }> {
+  const vp1 = enabled.includes("virtualpos1");
+  const vp2 = enabled.includes("virtualpos2");
+  if (vp1 && vp2) return VP_SUB_OPTS;
+  if (vp1) return [{ key: "vp1", label: "VP1", channels: ["virtualpos1"] }];
+  if (vp2) return [{ key: "vp2", label: "VP2", channels: ["virtualpos2"] }];
+  return [];
+}
+
+/** Payload de sync: null (todos) si todo esta habilitado; si no, solo canales habilitados. */
+export function syncPayloadChannels(selected: string[] | null, enabled: string[]): string[] | null {
+  if (selected === null) {
+    return _API_CHANNELS.every((c) => enabled.includes(c)) ? null : _API_CHANNELS.filter((c) => enabled.includes(c));
+  }
+  return selected.filter((c) => enabled.includes(c));
+}
+
+export function getPhasesForChannels(channels: string[] | null | undefined, enabled: string[] = [..._API_CHANNELS, "tch"]): string[] {
   const phases: string[] = [];
-  if (channels.includes("virtualpos1")) phases.push("sync_virtualpos1");
-  if (channels.includes("virtualpos2")) phases.push("sync_virtualpos2");
-  if (channels.includes("toku")) phases.push("sync_toku");
-  if (channels.includes("payku")) phases.push("sync_payku");
+  const wanted = (c: string) => enabled.includes(c) && (!channels || channels.includes(c));
+  if (wanted("virtualpos1")) phases.push("sync_virtualpos1");
+  if (wanted("virtualpos2")) phases.push("sync_virtualpos2");
+  if (wanted("toku")) phases.push("sync_toku");
+  if (wanted("payku")) phases.push("sync_payku");
   phases.push("consolidating");
   return phases;
 }
@@ -50,11 +69,11 @@ function cronLabel(cron: string): string {
   return map[cron] ?? cron;
 }
 
-function runTypeLabel(channels: string[] | null): string {
+function runTypeLabel(channels: string[] | null, enabled: string[]): string {
   if (!channels || channels.length === 0) return "—";
   const map: Record<string, string> = { virtualpos1: "VP1", virtualpos2: "VP2", toku: "Toku", payku: "Payku", tch: "TCH" };
-  const apiChannels = ["virtualpos1", "virtualpos2", "toku", "payku"];
-  const hasAllApi = apiChannels.every((c) => channels.includes(c));
+  const apiChannels = _API_CHANNELS.filter((c) => enabled.includes(c));
+  const hasAllApi = apiChannels.length > 0 && apiChannels.every((c) => channels.includes(c));
   if (hasAllApi && channels.includes("tch")) return "Sync completa";
   if (hasAllApi) return "Sync completa";
   if (channels.length === 1 && channels[0] === "tch") return "TCH (importación)";
@@ -62,6 +81,7 @@ function runTypeLabel(channels: string[] | null): string {
 }
 
 export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boolean; canViewRuns: boolean; canImportTch: boolean }) {
+  const { enabled } = useEnabledChannels();
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [runs, setRuns] = useState<{ total: number; items: EtlRun[] }>({ total: 0, items: [] });
   const [runsOffset, setRunsOffset] = useState(0);
@@ -146,9 +166,14 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
 
   async function triggerSync() {
     const opt = CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)!;
-    const channels = selectedChannelKey === "virtualpos"
-      ? VP_SUB_OPTS.find((o) => o.key === vpSubKey)!.channels
-      : opt.channels;
+    const vpOpts = vpSubOptions(enabled);
+    const vpChosen = vpOpts.find((o) => o.key === vpSubKey) ?? vpOpts[0];
+    const selected = selectedChannelKey === "virtualpos" ? (vpChosen?.channels ?? []) : opt.channels;
+    const channels = syncPayloadChannels(selected, enabled);
+    if (channels !== null && channels.length === 0) {
+      setTriggerError("No hay canales habilitados para sincronizar en este ambiente.");
+      return;
+    }
     setTriggeredChannels(channels);
     setTriggering(true);
     setTriggerError(null);
@@ -200,12 +225,13 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     return evts.length ? (evts[evts.length - 1].pct ?? null) : null;
   }
 
+  const allPhases = useMemo(() => getPhasesForChannels(null, enabled), [enabled]);
   const activePhases = useMemo(() => {
-    if (triggeredChannels !== undefined) return getPhasesForChannels(triggeredChannels);
+    if (triggeredChannels !== undefined) return getPhasesForChannels(triggeredChannels, enabled);
     const seen = new Set(sseEvents.filter((e) => e.phase && e.type !== "error").map((e) => e.phase!));
-    const inferred = _ALL_PHASES.filter((p) => seen.has(p));
-    return inferred.length > 0 ? inferred : _ALL_PHASES;
-  }, [triggeredChannels, sseEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+    const inferred = allPhases.filter((p) => seen.has(p));
+    return inferred.length > 0 ? inferred : allPhases;
+  }, [triggeredChannels, sseEvents, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const globalPct = useMemo(() => {
     if (!activeRunId || activePhases.length === 0) return null;
@@ -244,6 +270,16 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     return <span className={`badge ${cls}`}>{label}</span>;
   }
 
+  const channelAvailable = (key: ChannelKey): boolean => {
+    if (key === "all") return true;
+    if (key === "virtualpos") return enabled.includes("virtualpos1") || enabled.includes("virtualpos2");
+    return enabled.includes(key);
+  };
+  const vpOptions = vpSubOptions(enabled);
+  const effectiveVpSubKey = vpOptions.some((o) => o.key === vpSubKey) ? vpSubKey : vpOptions[0]?.key;
+  useEffect(() => {
+    if (!channelAvailable(selectedChannelKey)) setSelectedChannelKey("all");
+  }, [enabled, selectedChannelKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const isRunning = jobs.some((j) => j.status === "running");
   const hasMore = runs.items.length < runs.total;
 
@@ -256,13 +292,13 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
           <span className="channel-selector-label">Canal:</span>
           <div className="channel-selector">
             {CHANNEL_OPTS.filter((opt) => opt.key !== "tch" || canImportTch).map((opt) => (
-              <button key={opt.key} className={`channel-btn${selectedChannelKey === opt.key ? " active" : ""}`} disabled={isRunning || triggering} onClick={() => setSelectedChannelKey(opt.key)}>{opt.label}</button>
+              <button key={opt.key} className={`channel-btn${selectedChannelKey === opt.key ? " active" : ""}`} disabled={isRunning || triggering || !channelAvailable(opt.key)} title={channelAvailable(opt.key) ? undefined : CHANNEL_UNAVAILABLE_TITLE} onClick={() => setSelectedChannelKey(opt.key)}>{opt.label}</button>
             ))}
           </div>
           {selectedChannelKey === "virtualpos" && (
             <div className="channel-selector vp-sub-selector">
-              {VP_SUB_OPTS.map((sub) => (
-                <button key={sub.key} className={`channel-btn channel-btn-sm${vpSubKey === sub.key ? " active" : ""}`} disabled={isRunning || triggering} onClick={() => setVpSubKey(sub.key)}>{sub.label}</button>
+              {vpOptions.map((sub) => (
+                <button key={sub.key} className={`channel-btn channel-btn-sm${effectiveVpSubKey === sub.key ? " active" : ""}`} disabled={isRunning || triggering} onClick={() => setVpSubKey(sub.key)}>{sub.label}</button>
               ))}
             </div>
           )}
@@ -369,7 +405,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
                   <td className="runs-date hide-mobile">{fmtDate(run.finished_at)}</td>
                   <td className="runs-dur">{isThisRunActive && globalPct !== null ? <span className="runs-live-dur">⟳ {globalPct}%</span> : fmtDuration(run.started_at, run.finished_at)}</td>
                   <td>{statusBadge(run.status)}</td>
-                  <td className="runs-type">{runTypeLabel(run.channels_processed)}</td>
+                  <td className="runs-type">{runTypeLabel(run.channels_processed, enabled)}</td>
                   <td className="runs-rec">{run.records_upserted != null ? <span className="runs-rec-val">{run.records_upserted.toLocaleString()}</span> : <span className="muted-copy">—</span>}</td>
                   <td>{run.status === "running" ? (isThisRunActive ? <span className="runs-watching-dot" title="Viendo en vivo">●</span> : <button className="runs-ver-btn" onClick={() => { setActiveRunId(run.id); setTriggeredChannels(undefined); }}>Ver en vivo</button>) : null}</td>
                 </tr>

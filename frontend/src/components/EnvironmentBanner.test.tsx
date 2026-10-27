@@ -18,7 +18,7 @@ describe("EnvironmentBanner", () => {
     const banner = await screen.findByRole("status");
     expect(banner).toHaveTextContent(/SANDBOX/);
     expect(banner).toHaveTextContent(/no es producción/);
-    expect(document.documentElement).toHaveClass("has-env-banner");
+    await waitFor(() => expect(document.documentElement).toHaveClass("has-env-banner"));
   });
 
   it("no se muestra en produccion", async () => {

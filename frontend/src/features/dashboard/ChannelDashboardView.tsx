@@ -1,3 +1,4 @@
+import { CHANNEL_UNAVAILABLE_TITLE } from "../shared/environment";
 import { useState, type ReactNode } from "react";
 import { getJson } from "../../api";
 import {
@@ -33,6 +34,7 @@ export function ChannelDashboardView({
   onOpenResource,
   onReport,
   onSync,
+  syncUnavailable = false,
 }: {
   data: ChannelDashboard;
   mode: "count" | "amount";
@@ -44,6 +46,7 @@ export function ChannelDashboardView({
   onOpenResource: (resource: string) => void;
   onReport: (scope: string) => void;
   onSync: (source: string) => void;
+  syncUnavailable?: boolean;
 }) {
   const metrics = data.source === "virtualpos" ? virtualPosMetrics : data.source === "toku" ? tokuMetrics : paykuMetrics;
   const activeYear = year ?? defaultYear(data.years) ?? null;
@@ -114,7 +117,7 @@ export function ChannelDashboardView({
           </div>
           <div className="channel-hero-bottom-row">
             <div className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}><span />{syncLabel}</div>
-            <button className={`sync-btn ${syncing ? "syncing" : ""}`} disabled={syncing} onClick={() => onSync(data.source)}>{syncing ? "Sincronizando…" : "↻ Sincronizar"}</button>
+            <button className={`sync-btn ${syncing ? "syncing" : ""}`} disabled={syncing || syncUnavailable} title={syncUnavailable ? CHANNEL_UNAVAILABLE_TITLE : undefined} onClick={() => onSync(data.source)}>{syncing ? "Sincronizando…" : "↻ Sincronizar"}</button>
             <button className="sync-btn sync-btn-secondary" onClick={() => onReport(data.source)}>Generar reporte</button>
           </div>
         </div>

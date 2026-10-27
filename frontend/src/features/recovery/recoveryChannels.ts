@@ -24,3 +24,11 @@ export const RECOVERY_CHANNELS: Record<RecoveryChannelId, RecoveryChannelConfig>
     accounts: [{ value: "virtualpos1", label: "virtualpos1" }, { value: "virtualpos2", label: "virtualpos2" }],
   },
 };
+
+/** Cuentas del filtro 'Cuenta' limitadas a las habilitadas en el ambiente (los values son nombres de canal). */
+export function enabledAccounts(
+  accounts: RecoveryChannelConfig["accounts"],
+  enabledChannels: string[],
+): RecoveryChannelConfig["accounts"] {
+  return accounts.filter((account) => enabledChannels.includes(account.value));
+}
