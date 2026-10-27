@@ -146,15 +146,17 @@ class VirtualPOSClient:
             return {}
 
     async def retry_charge(self, charge_id: str) -> Any:
-        return await self._get(f"/v3/charge/{charge_id}/retry")
+        # GET que cambia estado (relanza el cobro): tras un timeout el primer intento pudo ejecutarse, no se reintenta.
+        return await self._get(f"/v3/charge/{charge_id}/retry", retry=False)
 
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        for attempt in range(settings.virtualpos_read_retries + 1):
+    async def _get(self, path: str, params: dict[str, Any] | None = None, *, retry: bool = True) -> Any:
+        attempts = settings.virtualpos_read_retries + 1 if retry else 1
+        for attempt in range(attempts):
             try:
                 response = await self._client.get(path, params=params)
                 break
             except (httpx.ReadTimeout, httpx.ReadError, httpx.ConnectError):
-                if attempt == settings.virtualpos_read_retries:
+                if attempt == attempts - 1:
                     raise
                 await asyncio.sleep(2**attempt)
         response.raise_for_status()
