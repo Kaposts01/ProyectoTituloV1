@@ -32,7 +32,7 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
 ### Definición de Done (Sprint 4)
 
 - [ ] `REC-03`: motivos desde `latest_rejection_*` con catálogo oficial; filtros antes de paginar; CSV con columnas de trazabilidad (rut, nombre, email y teléfono solo con permiso de exportar); auditoría en `write_runs` sin datos personales; módulo `features/recovery` con el canal como parámetro. Pendiente: verificación visual en navegador y descarga real del CSV.
-- [ ] `WR-VP-05`: implementada tras `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` (apagada por defecto). Pendiente: prueba V-5 (`POST /v3/charge` sobre plan MONTO_FIJO). Si funciona, activar la bandera y cerrar; si no, revisar el enfoque.
+- [ ] `WR-VP-05`: implementada tras `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` (apagada por defecto). V-5 ejecutada en sandbox el 2026-10-27: `POST /v3/charge` fue aceptado sobre plan MONTO_FIJO (sin E-113). Pendiente: decidir la continuidad de cobros mensuales tras cancelar los futuros y hacer una prueba controlada en producción antes de activar la bandera allí.
 - [ ] `PK-05`: pendiente de VAL-PK-01 (Q-06, Q-08, Q-11, Q-27, Q-29; el usuario consultará con soporte de Payku).
 - [ ] Test preexistente fallido: `tests/test_charge_recovery.py::test_retry_history_endpoint_returns_items_and_total` (la base de pruebas acumula filas). No causado por este trabajo.
 
@@ -45,7 +45,7 @@ Metodología: **Scrum adaptado** — sprints de 2 semanas, sesiones de Claude Co
   - ENV-01 parcial: `APP_ENV` carga `.env.sandbox`/`.env.qa` encima de `.env`; guarda de arranque contra URLs de otro ambiente; canal sin URL de sandbox deshabilitado; `WRITES_ENABLED` apagados por defecto. VirtualPOS tiene sandbox documentado; Toku no; Payku sin sandbox oficial confirmado. Pendiente: credenciales de prueba del usuario.
   - PK-05 sigue pendiente: depende de VAL-PK-01.
   - Roles: `soporte`, `jefatura` y `ejecutivo` no existen en el código (solo `admin` y un coordinador legacy). Propuesta de matriz pendiente de confirmación del usuario.
-  - Pendiente de Sprint 4: verificación visual y descarga del CSV (REC-03); prueba V-5 en sandbox (WR-VP-05); preguntas Q-06, Q-08, Q-11, Q-27 y Q-29 con soporte de Payku (PK-05).
+  - Pendiente de Sprint 4: verificación visual y descarga del CSV (REC-03); prueba controlada de WR-VP-05 en producción (la V-5 en sandbox ya se ejecutó); preguntas Q-06, Q-08, Q-11, Q-27 y Q-29 con soporte de Payku (PK-05).
 
 ---
 

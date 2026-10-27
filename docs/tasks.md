@@ -244,7 +244,7 @@ Cada tarea sigue el mismo patrón de tres capas:
 | WR-VP-02 | Habilitar cancelación real de suscripciones VirtualPOS | Completada | `DELETE /v3/suscription/:id` ejecutado desde el modal de confirmación; estado en bdlocal cambia a CANCELADA. |
 | WR-VP-03 | Habilitar cancelación real de cargos VirtualPOS | Completada | `DELETE /v3/charge/:id` ejecutado desde ficha y tabla; cargo actualizado en bdlocal. |
 | WR-VP-04 | Habilitar cancelación real de pagos VirtualPOS | Completada | `DELETE /v3/payment/:uuid` ejecutado desde la ruta interna `DELETE /api/v1/writes/virtualpos/payments/{id}`; pago actualizado en staging y entidad centralizada. |
-| WR-VP-05 | Flujo especial: cancelar cargos futuros y reasignar monto en suscripción activa | En curso (sin validar en sandbox) | Implementado detrás de la bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` (apagada por defecto): cancela cargos futuros pendientes (`DELETE /v3/charges/{suscription_id}`; E-079 y E-059 no-op) y reasigna monto creando primero el cargo nuevo y cancelando el del mismo mes solo si el nuevo funciona. Endpoints con CSRF, permisos de cargos, dry_run por defecto y trazabilidad en `write_runs`. Falta confirmar que `POST /v3/charge` funciona en planes MONTO_FIJO (prueba V-5 en VALIDATION-PLAN.md; la doc indica E-113). |
+| WR-VP-05 | Flujo especial: cancelar cargos futuros y reasignar monto en suscripción activa | Implementada; V-5 ejecutada en sandbox: POST /v3/charge aceptado en plan fijo; pendiente decidir continuidad de cobros mensuales y prueba controlada en producción | Implementado detrás de la bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` (apagada por defecto): cancela cargos futuros pendientes (`DELETE /v3/charges/{suscription_id}`; E-079 y E-059 no-op) y reasigna monto creando primero el cargo nuevo y cancelando el del mismo mes solo si el nuevo funciona. Endpoints con CSRF, permisos de cargos, dry_run por defecto y trazabilidad en `write_runs`. V-5 (2026-10-27, sandbox): `POST /v3/charge` aceptado en plan MONTO_FIJO, sin E-113 (la doc indica E-113; contradicción no resuelta). Bandera apagada; no probado con cargos automáticos futuros ni en producción (ver VALIDATION-PLAN.md). |
 
 ### WR-TK: Escritura Toku
 
@@ -459,7 +459,7 @@ Fuente de referencia: [informe comparativo](https://claude.ai/artifact/7R7N8sJHP
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación creado en `docs/integrations/virtualpos/VALIDATION-PLAN.md` (commit `c9dc349`) con prerequisitos de sandbox, requests Postman exactos por pregunta y tabla de archivos a actualizar según resultado. Falta ejecutar en sandbox. |
+| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación creado en `docs/integrations/virtualpos/VALIDATION-PLAN.md` (commit `c9dc349`) con prerequisitos de sandbox, requests Postman exactos por pregunta y tabla de archivos a actualizar según resultado. V-5 ejecutada en sandbox 2026-10-27 (POST /v3/charge aceptado en plan fijo; ver VALIDATION-PLAN.md). V-1 a V-4 pendientes. |
 | VAL-PK-01 | Resolver preguntas abiertas críticas Payku (Q-06, Q-08, Q-11, Q-27, Q-29) | En curso | Plan de validación creado en `docs/integrations/payku/VALIDATION-PLAN.md` (commit `c9dc349`) con 5 preguntas ordenadas por impacto, requests Postman SP-3/SP-4 y riesgo por cada supuesto sin confirmar. Falta ejecutar contra API Payku. |
 
 ### BUG: Defectos descubiertos durante la revisión de workflows
@@ -538,7 +538,7 @@ Plan visual: https://claude.ai/artifact/RjnJYnghhrxA8AJb33kZjr
 | ENV-01 | Separar Sandbox, QA y Producción | Parcial | Cada entorno con base, credenciales y providers propios; Producción en cluster PostgreSQL independiente; proceso de deploy y migración por entorno documentado. Hecho: carga de `.env.sandbox`/`.env.qa` por `APP_ENV`, guarda de arranque contra URLs de otro ambiente, canal sin URL de sandbox deshabilitado y `WRITES_ENABLED` apagados por defecto. Pendiente: credenciales de prueba del usuario. |
 | BCK-01 | Automatizar respaldo y recuperación | Pendiente | Backup físico WAL/PITR + dump lógico; verificación, retención y simulacro de restauración documentados; política de retención definida. |
 | OPS-09 | Evaluar entrega de progreso en tiempo real | Pendiente | Decisión documentada: SSE actual se mantiene o evoluciona a WebSocket; autenticación, reconexión y persistencia de eventos evaluadas. |
-| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación ejecutado; REVIEW.md actualizado con resultados; prerequisitos de sandbox confirmados. |
+| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación ejecutado; REVIEW.md actualizado con resultados; prerequisitos de sandbox confirmados. V-5 ejecutada en sandbox 2026-10-27 (POST /v3/charge aceptado en plan fijo; ver VALIDATION-PLAN.md). |
 | VAL-PK-01 | Resolver preguntas abiertas Payku (Q-06, Q-08, Q-11, Q-27, Q-29) | En curso | 5 preguntas ejecutadas contra API Payku; VALIDATION-PLAN.md actualizado con resultados. |
 
 ## TODOS.md — Diferidos

@@ -6,6 +6,8 @@
 
 ## 1. Por qué una suscripción nueva
 
+> **Nota sandbox 2026-10-27 (V-5):** la fila de cancelar cargos y crear otros asume que `POST /v3/charge` exige `MONTO_VARIABLE`. Esa inferencia **no se observó** en sandbox: un cargo fue aceptado sobre una suscripción activa de plan `MONTO_FIJO`, y la reasignación de monto por cargos funcionó en plan `MONTO_VARIABLE`. Límites: solo sandbox; no se probó con cargos automáticos futuros ya programados en plan fijo (posible cobro duplicado del mes) ni la continuidad de cobros tras cancelar todos los cargos. La decisión del 2026-10-12 (descartar cancelar y recrear) debe **revisarse tras validar en producción**. Detalle en [VALIDATION-PLAN.md](../../VALIDATION-PLAN.md) § V-5.
+
 | Opción | ¿Sirve con `MONTO_FIJO`? | Respaldo oficial |
 | --- | --- | --- |
 | Editar la suscripción (monto, `plan_id`, `charge_program`) | ❌ No existe el endpoint | Endpoints de Suscription: crear, recuperar, cancelar, listar y `changecard` |

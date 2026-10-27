@@ -279,7 +279,7 @@ async function getOrCreatePlan(monto) {
 | Monto excepcional | Buscar el plan fijo equivalente; si no existe, crearlo y guardarlo en el catálogo. | Los planes no se pueden editar ni eliminar por API. |
 | Cambio de monto | Cancelar la suscripción actual y crear una nueva contra el plan fijo de destino. | El socio debe inscribir su tarjeta nuevamente; no existe migración de token. |
 
-**Recomendación:** ofrecer solo montos predefinidos y limitar los montos excepcionales a un proceso administrativo. No usar `POST /v3/charge` ni `POST /v3/charge/online`: son operaciones para planes `MONTO_VARIABLE`.
+**Recomendación:** ofrecer solo montos predefinidos y limitar los montos excepcionales a un proceso administrativo. No usar `POST /v3/charge` ni `POST /v3/charge/online`: la documentación los asocia a planes `MONTO_VARIABLE`. Nota: en la prueba V-5 (sandbox, 2026-10-27) `POST /v3/charge` sí fue aceptado sobre un plan `MONTO_FIJO`; ver `VALIDATION-PLAN.md`. En producción sigue sin validar.
 
 ## 10. Probarlo en Postman
 

@@ -202,8 +202,32 @@ Signature: {{jwt_token}}
 Anotar en "Resultados observados V-5" la fecha, el codigo HTTP y el `code`/mensaje de error recibido (sin `api_key`, `Signature` ni datos de tarjeta), el tipo de plan usado y el `suscription_id` de prueba. Si hubo Caso A, cancelar el cargo de prueba con `DELETE {{base_url}}/v3/charge/{{charge_id}}` (solo pendientes) para no dejar cobros programados en sandbox.
 
 **Impacto en el codigo segun el resultado.**
-- Si Caso A: activar la bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` en el ambiente que corresponda, validar el orden seguro de WR-VP-05 (crear primero, cancelar el del mismo mes despues) y completar WR-VP-05 en `tasks.md`. Actualizar `integrations/virtualpos/resources/charges.md` quitando la inferencia sobre `MONTO_VARIABLE`.
+- Si Caso A (ocurrió en sandbox el 2026-10-27): activar la bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` solo en sandbox; en producción mantenerla apagada hasta una prueba controlada, validar el orden seguro de WR-VP-05 (crear primero, cancelar el del mismo mes despues) y completar WR-VP-05 en `tasks.md`. Actualizar `integrations/virtualpos/resources/charges.md` quitando la inferencia sobre `MONTO_VARIABLE`.
 - Si Caso B: no activar la bandera. Revisar el enfoque para planes fijos antes de cualquier cambio de monto (la decision de negocio sigue siendo mantener la suscripcion y que el monto sea el ultimo cobrado). Registrar el resultado en `tasks.md` (WR-VP-05) y en `docs/memory/PROJECT_STATE.md`.
+
+**Estado:** Ejecutada en sandbox 2026-10-27 (cuenta 1, base `crm_sandbox`; escrituras activadas solo por variables de proceso).
+
+**Resultados observados V-5**
+
+- A) Suscripcion ACTIVA de plan `MONTO_FIJO` (tipo segun `vp_plans.raw_payload.type`): `POST /v3/charge` fue **aceptado** (`charge_date` futura, monto 1000, `internal_code` unico). No aparecio E-113. El cargo quedo `pendiente` y se cancelo con `DELETE /v3/charge/{id}`.
+- B) Suscripcion de plan `MONTO_VARIABLE`: crear cargo X OK; reasignar monto (crear cargo Y de otro monto y luego cancelar X, mismo mes) OK en el orden seguro (crear primero, cancelar despues). `DELETE /v3/charges/{suscription_id}` cancelo el cargo pendiente Y y devolvio `cancel_charges[]` con `status` `cancelado`. Al final no quedaban cargos pendientes.
+- Conclusion: la inferencia "`POST /v3/charge` exige plan `MONTO_VARIABLE`" (charges.md, workflows/cambiar-monto.md, workflows/alta-socio.md) **no se observo** en sandbox y contradice la documentacion actual.
+
+**No probado (limites)**
+
+1. Solo sandbox. Produccion no se probo y podria comportarse distinto.
+2. Las suscripciones de plan fijo usadas no tenian cargos pendientes programados. No se sabe si, con cargos automaticos futuros ya existentes, un cargo manual duplica el cobro del mes.
+3. Si se cancelan todos los cargos futuros de una suscripcion de plan fijo, VirtualPOS no generara cobros automaticos para esos meses. El CRM tendria que crear los cargos de los meses siguientes (un POST por cargo). Decision de diseno pendiente.
+4. No se probo que el cobro manual se ejecute realmente sobre la tarjeta en la fecha.
+
+**Que actualizar**
+
+- `resources/charges.md`: nota junto a E-113 agregada; quitar la inferencia cuando se confirme en produccion.
+- `workflows/cambiar-monto.md`: nota en § 1; revisar la decision del 2026-10-12 tras validar en produccion.
+- `workflows/alta-socio.md`: pendiente; corregir la afirmacion "POST /v3/charge exige plan MONTO_VARIABLE" tras validar en produccion.
+- `tasks.md`: WR-VP-05 y VAL-VP-01 con el estado real.
+- `docs/memory/PROJECT_STATE.md`: entrada del 2026-10-27.
+- Bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN`: puede activarse en sandbox; en produccion debe seguir apagada hasta una prueba controlada.
 
 ---
 
@@ -245,7 +269,7 @@ Simulador de banco: RUT `11.111.111-1`, clave `123`.
 | V-2 | — | — | — | Pendiente |
 | V-3 | — | — | — | Pendiente |
 | V-4 | — | — | — | Pendiente |
-| V-5 | — | — | — | Pendiente |
+| V-5 | 2026-10-27 | A (aceptado en plan fijo, con limites) | `POST /v3/charge` aceptado sobre plan `MONTO_FIJO` sin E-113; cargo de prueba cancelado | Ejecutada en sandbox. Pendiente: continuidad de cobros mensuales y prueba controlada en produccion |
 
 ---
 
