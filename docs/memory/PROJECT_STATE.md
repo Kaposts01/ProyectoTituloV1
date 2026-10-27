@@ -84,6 +84,12 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 - **TK-10 completada**: filtro y orden global por estado secundario Toku antes de paginar; 6 tests con offset>0 en `tests/test_staging_api.py` (Toku y VirtualPOS). **SYNC-GAP-02** caracterizado (9 tests en `tests/test_etl_tch.py`; decisión de negocio pendiente). **SYNC-GAP-04** mitigado (49 tests en `tests/test_sync_gap04_payload_shapes.py`; log `_log_null_relations`). **FE-03** completada. **KPI-02..04** completadas; **KPI-01** pendiente de verificación contra VirtualPOS staging.
 - **Sprint 3 (en progreso)**: CHART-01..04 completadas en código con ChannelChart (verificación de cifras y apariencia pendiente; "Crecimiento real mensual" y "Churn %" siguen con componentes antiguos). UI-20 y UI-21 completadas en código: sidebar corregida y `GET /api/v1/sync-runs/health` con puntos de salud; falta verificación visual en navegador y contraste.
 
+## Actualizacion 2026-10-27 (suite de contrato VirtualPOS)
+
+- **Suite de contrato** en `tests_contract/` (excluida por defecto de pytest; comando y guardas en [tests_contract/README.md](../../tests_contract/README.md)). Ejecutada contra el sandbox (cuenta 1): 29 afirmaciones, 12 discrepancias; informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado).
+- **Hallazgos principales**: los errores de negocio (E-059, E-078, E-079) llegan con HTTP 200 y `status: NOK`; `internal_code` no es idempotente (dos POST con el mismo código crearon dos cargos, sin E-086), por lo que el CRM debe deduplicar consultando los cargos antes de crear; los filtros `charge_date_from`/`charge_date_to` de cargos se ignoran; `limit=101` y `page=0` no dan error (comportamiento no documentado).
+- V-1 resuelta: `charge_program[]` del listado de suscripciones trae el programa completo. V-2, V-3 y V-4 siguen pendientes (requieren tarjeta y cobro real).
+
 ## Actualizacion 2026-10-27 (V-5 en sandbox, WR-VP-05)
 
 - **V-5 ejecutada en sandbox**: `POST /v3/charge` fue aceptado sobre una suscripcion activa de plan `MONTO_FIJO` (sin E-113). Esto contradice la inferencia de charges.md y de workflows/cambiar-monto.md (`MONTO_VARIABLE`). Detalle en `integrations/virtualpos/VALIDATION-PLAN.md`.

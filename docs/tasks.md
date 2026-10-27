@@ -459,8 +459,9 @@ Fuente de referencia: [informe comparativo](https://claude.ai/artifact/7R7N8sJHP
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación creado en `docs/integrations/virtualpos/VALIDATION-PLAN.md` (commit `c9dc349`) con prerequisitos de sandbox, requests Postman exactos por pregunta y tabla de archivos a actualizar según resultado. V-5 ejecutada en sandbox 2026-10-27 (POST /v3/charge aceptado en plan fijo; ver VALIDATION-PLAN.md). V-1 a V-4 pendientes. |
+| VAL-VP-01 | Validar contratos VirtualPOS en sandbox (V-1 a V-5) | En curso | Plan de validación creado en `docs/integrations/virtualpos/VALIDATION-PLAN.md` (commit `c9dc349`) con prerequisitos de sandbox, requests Postman exactos por pregunta y tabla de archivos a actualizar según resultado. V-5 ejecutada en sandbox 2026-10-27 (POST /v3/charge aceptado en plan fijo; ver VALIDATION-PLAN.md). V-1 resuelta el mismo día (VP-C01: el listado trae el charge_program completo). V-2, V-3 y V-4 pendientes (requieren tarjeta y cobro real). |
 | VAL-PK-01 | Resolver preguntas abiertas críticas Payku (Q-06, Q-08, Q-11, Q-27, Q-29) | En curso | Plan de validación creado en `docs/integrations/payku/VALIDATION-PLAN.md` (commit `c9dc349`) con 5 preguntas ordenadas por impacto, requests Postman SP-3/SP-4 y riesgo por cada supuesto sin confirmar. Falta ejecutar contra API Payku. |
+| CT-01 | Suite de contrato VirtualPOS (doc vs sandbox) | En curso | Lotes 0-2 hechos (`tests_contract/`; informe `reports/contract/virtualpos/drift-20261027-122121.md`, no versionado). Lote 3 requiere tarjetas de prueba; lote 4: etiquetado de afirmaciones y script de cruce. V-1 resuelta; V-2 a V-4 pendientes. |
 
 ### BUG: Defectos descubiertos durante la revisión de workflows
 

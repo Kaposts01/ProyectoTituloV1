@@ -176,8 +176,10 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 - `charge_date` ≥ hoy (`E-078`), formato `YYYY-MM-DD`.
 - `internal_code` funciona como **llave de idempotencia**: `E-086` = "El internal_code ya ha sido utilizado para autorizar un cargo". Úsalo siempre (ej. `<socio>-<periodo>`).
 - Por los mensajes `E-112`/`E-113`, se infiere que exige plan activo y de tipo `MONTO_VARIABLE` (relación inferida desde el catálogo de errores).
-- **Nota sandbox 2026-10-27:** la inferencia anterior **no se observó**. `POST /v3/charge` fue aceptado sobre una suscripción activa de plan `MONTO_FIJO` (cargo `pendiente`, luego cancelado; no apareció E-113). El mensaje oficial de E-113 se conserva arriba sin cambios. Límites y pendientes en [VALIDATION-PLAN.md](../VALIDATION-PLAN.md) (V-5). Falta confirmar en producción.
+- **Nota sandbox 2026-10-27:** [CLAIM:VP-C05] la inferencia anterior **no se observó**. `POST /v3/charge` fue aceptado sobre una suscripción activa de plan `MONTO_FIJO` (cargo `pendiente`, luego cancelado; no apareció E-113). El mensaje oficial de E-113 se conserva arriba sin cambios. Límites y pendientes en [VALIDATION-PLAN.md](../VALIDATION-PLAN.md) (V-5). Falta confirmar en producción.
 - Límite mensual de cargos (`E-087`).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C07] (DRIFT): `internal_code` **no** es idempotente. Dos `POST /v3/charge` con el mismo `internal_code` crearon dos cargos (HTTP 200, sin E-086). La afirmación de arriba sobre la llave de idempotencia queda contradicha por esta prueba. El CRM debe deduplicar consultando los cargos de la suscripción antes de crear.
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C21] (DRIFT): E-078 (`charge_date` pasada) llega con HTTP 200 y cuerpo `{"status":"NOK","code":400,"error":{...}}`, no con HTTP 400. Ver [errors.md](errors.md#objeto-error).
 
 ### Ejemplo práctico
 
@@ -400,6 +402,7 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 ### Consideraciones
 
 - `charge_id` contiene un punto (`cid_xxx.yyy`): no lo uses directamente como nombre de columna/clave sin escapar.
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C28] (CONFIRMADO): el detalle (`GET /v3/charge/{id}`) trae `internal_code`. Campos observados: amount, charge_date, created_at, description, id, internal_code, status.
 
 ### Ejemplo práctico
 
@@ -498,6 +501,8 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 ### Consideraciones
 
 - Solo cargos pendientes (`E-059`).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C12] (DRIFT): E-059 (cargo no pendiente) llega con HTTP 200 y cuerpo `{"status":"NOK","code":400,"error":{...}}`, no con HTTP 400. Borrar un `charge_id` inexistente devuelve E-058 ("No existe el plan asociado al charge_id"), también con HTTP 200 (hallazgo adicional del informe, sin ID de afirmación).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C09] (CONFIRMADO): `DELETE /v3/charge/{id}` funciona con la firma documentada (solo `api_key`).
 
 ### Ejemplo práctico
 
@@ -711,6 +716,7 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 
 - Ojo con la ruta: es `/v3/charges/{suscription_id}` (**plural** `charges` + ID de **suscripción**).
 - La suscripción sigue `ACTIVA`: podrías crear cargos nuevos después (planes variables).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C11] (DRIFT): E-079 (sin cargos pendientes) llega con HTTP 200 y cuerpo `status: NOK`, no con HTTP 400.
 
 ### Ejemplo práctico
 
@@ -846,6 +852,10 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 
 - Es **por suscripción**: no existe un "listar todos los cargos del comercio". Para un barrido global: suscripciones → cargos de cada una (N+1 llamadas).
 - Alternativa más barata para cargos **cobrados**: abonos diarios (`/v3/deposit/{date}/sales` trae `suscription_charge.cid`).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C13] (CONFIRMADO): `status=pendiente` devuelve solo cargos pendientes (no incluyó cancelados y sí incluyó el pendiente de prueba).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C26] (DRIFT): `charge_date_from` y `charge_date_to` se ignoran; devuelve todos los cargos (18 de 18, igual que sin filtro).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C19] (PARCIAL): en el listado `amount` es número entero (no string); `charge_date` es `YYYY-MM-DD`; el `id` es string con prefijo `cid_`.
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C28] (CONFIRMADO): `internal_code` aparece en el listado de cargos y en el detalle. No viene en `charge_program[]` del listado de suscripciones (ver [subscriptions.md](subscriptions.md)).
 
 ### Ejemplo práctico
 

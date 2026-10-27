@@ -51,6 +51,8 @@ Suscription ──1:N──> Charge (cuota del mes)
 
 ## 3. Job diario de seguimiento
 
+> **Observado en sandbox 2026-10-27** [CLAIM:VP-C01] (CONFIRMADO): `GET /v3/suscriptions` trae `charge_program[]` completo; coincide con `GET /v3/suscription/{id}/charges` (probado con 5 suscripciones). El PASO 1 no necesita un `GET /v3/suscription/{id}` adicional por suscripción. En la misma prueba, `amount` de `charge_program[]` llegó como número entero y no como string [CLAIM:VP-C19] (PARCIAL); el "castear" del PASO 1 queda como precaución.
+
 ```text
 PASO 1 · Cuotas (masivo)                            GET /v3/suscriptions?status=ACTIVA&limit=100&page=1..N
 ↓  Por cada suscripción → charge_program[] → upsert vpos_charges (charge_id, suscription_id, charge_date, amount, status)
@@ -160,7 +162,7 @@ Las tablas ya definidas en [sync-virtualpos.md § 5](sync-virtualpos.md#5-tablas
 
 | # | Pregunta | Cómo validarla |
 | --- | --- | --- |
-| V-1 | ¿El listado `GET /v3/suscriptions` trae el `charge_program` **completo** de cada suscripción (como el ejemplo oficial)? | Postman SC-1: comparar con `GET /v3/suscription/{id}/charges` |
+| V-1 | ¿El listado `GET /v3/suscriptions` trae el `charge_program` **completo** de cada suscripción (como el ejemplo oficial)? | Postman SC-1: comparar con `GET /v3/suscription/{id}/charges`. **Resuelta 2026-10-27 [CLAIM:VP-C01]: sí, trae el `charge_program[]` completo.** |
 | V-2 | ¿Una cuota `pagado` o `rechazado` trae `payment.order.uuid` en `GET /v3/charge/{id}`? (el ejemplo del endpoint no lo muestra) | Postman SC-3 |
 | V-3 | ¿`GET /v3/payments` incluye las transacciones de cuotas recurrentes, o solo los pagos spot? ¿Con qué `merchant_internal_code`? | Postman SC-6: buscar el `uuid` de SC-3 |
 | V-4 | Un reintento de una cuota rechazada, ¿reutiliza el mismo Payment (más intentos) o crea otro? | Rechazar una cuota en sandbox, reintentar y comparar `payment.order.uuid` |

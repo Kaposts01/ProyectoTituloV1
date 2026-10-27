@@ -31,14 +31,19 @@ Hay **dos cosas distintas**:
 | `message` | Detalle del error (puede incluir valores, ej. el UUID) |
 | `doc_url` | URL de documentación |
 
+> **Observado en sandbox 2026-10-27** [CLAIM:VP-C27] (DRIFT): los errores de negocio llegan con **HTTP 200** y cuerpo `{"status":"NOK","code":400,"error":{"error_code":"E-0xx","message":"...","doc_url":"..."}}`, no con HTTP 400. Ejemplo: E-078 (fecha de cargo pasada). El cliente del CRM lo trata como error (`VirtualPOSAPIError`). Mismo patrón en [CLAIM:VP-C11] E-079 y [CLAIM:VP-C12] E-059 (ver [charges.md](charges.md)).
+
 ### Manejo recomendado en backend (**Recomendación**)
 
 1. Detecta error por `status == "NOK"` **o** HTTP ≥ 400 (no solo por uno de los dos).
+   - **Observado en sandbox 2026-10-27** [CLAIM:VP-C27]: en sandbox los errores de negocio llegan con HTTP 200 y `status: NOK`, así que la condición `status == "NOK"` es la que se dispara.
 2. Decide por `error_code`, nunca por `message` (el texto puede cambiar).
 3. Clasifica:
    - **No reintentar** (error de datos): validación de campos, `E-083` (cliente ya existe → buscar y continuar), `E-086` (internal_code ya usado → el cargo ya existe: trátalo como éxito idempotente).
+   - **Observado en sandbox 2026-10-27** [CLAIM:VP-C07] (DRIFT): `internal_code` **no** es idempotente. Dos POST con el mismo código crearon dos cargos (HTTP 200, sin E-086). No asumir E-086 como garantía: el CRM debe deduplicar consultando los cargos de la suscripción antes de crear.
    - **Configuración/contrato** (alertar a una persona): `E-013`, `E-014`, `E-015`, `E-038`, `E-045`, `E-046`, `E-074`.
    - **"Vacío" que no es error** (registrar y seguir): `E-041`, `E-066`, `E-079`, `E-082`, `E-110`.
+   - **Observado en sandbox 2026-10-27** [CLAIM:VP-C11] (DRIFT): E-079 llega como HTTP 200 con `status: NOK`. El cliente del CRM lo recibe como `VirtualPOSAPIError` (con `error_code` E-079) y los llamadores que esperan un "vacío" lo tratan como no-op: `cancel_future_charges` registra "sin cargos pendientes" y sigue (E-059 igual). Resuelto el 2026-10-27: la clasificación "registrar y seguir" se aplica en cada llamador, no en el cliente.
    - **Reintentable con backoff**: HTTP 5xx, timeouts, `E-029`…`E-034` (falló el inicio con el adquirente). Los 5xx y rate limits **no están documentados** por VirtualPOS. No confirmado en la documentación oficial de VirtualPOS.
 4. Guarda `error_code` + `message` + request id propio en tus logs (sin el header `Signature`).
 
@@ -159,6 +164,8 @@ Hay **dos cosas distintas**:
 
 #### Charge
 
+> **Observado en sandbox 2026-10-27** [CLAIM:VP-C07] [CLAIM:VP-C12]: E-058 ("No existe el plan asociado al charge_id") se obtuvo al borrar un cargo inexistente (HTTP 200, NOK; hallazgo adicional sin ID de afirmación en el informe). E-086 no se observó: un segundo POST con el mismo `internal_code` creó otro cargo.
+
 | Código | Mensaje |
 | --- | --- |
 | `E-054` | Error en el parámetro charge_date. |
@@ -186,6 +193,8 @@ Hay **dos cosas distintas**:
 | `E-083` | Este cliente ya existe. |
 
 #### Listados / paginación / filtros
+
+> **Observado en sandbox 2026-10-27** [CLAIM:VP-C14] (DRIFT): `limit=101` y `page=0` no dieron E-091 ni E-090: HTTP 200 (con `limit=101` devolvió 25 registros). Comportamiento no documentado; no depender de él.
 
 | Código | Mensaje |
 | --- | --- |

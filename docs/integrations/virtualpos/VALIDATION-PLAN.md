@@ -9,7 +9,7 @@
 
 | # | Pregunta | Impacto | Carpeta Postman |
 |---|---|---|---|
-| V-1 | ¿`GET /v3/suscriptions` trae `charge_program[]` completo de cada suscripcion (como el ejemplo oficial)? | VP-28, seguimiento masivo | 05 · Seguimiento de cobros |
+| V-1 | ¿`GET /v3/suscriptions` trae `charge_program[]` completo de cada suscripcion (como el ejemplo oficial)? (Resuelta 2026-10-27: sí, VP-C01) | VP-28, seguimiento masivo | 05 · Seguimiento de cobros |
 | V-2 | ¿`GET /v3/charge/{id}` de cargo pagado trae `payment.order.uuid`? | VP-28 (critico) | 05 · Seguimiento |
 | V-3 | ¿`GET /v3/payments` incluye transacciones recurrentes PAT? | seguimiento completo | 05 · Seguimiento |
 | V-4 | ¿Un reintento reutiliza el mismo Payment o crea uno nuevo? | REC-02, seguimiento | 05 · Seguimiento |
@@ -265,11 +265,19 @@ Simulador de banco: RUT `11.111.111-1`, clave `123`.
 
 | # | Fecha | Resultado (A/B) | Evidencia resumida | Conclusion |
 |---|---|---|---|---|
-| V-1 | — | — | — | Pendiente |
-| V-2 | — | — | — | Pendiente |
-| V-3 | — | — | — | Pendiente |
-| V-4 | — | — | — | Pendiente |
+| V-1 | 2026-10-27 | A (confirmado) | `GET /v3/suscriptions` trae `charge_program[]` igual a `GET /v3/suscription/{id}/charges` en 5 suscripciones ([CLAIM:VP-C01]) | Resuelta. Caso A: el job masivo no necesita llamadas adicionales |
+| V-2 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
+| V-3 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
+| V-4 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
 | V-5 | 2026-10-27 | A (aceptado en plan fijo, con limites) | `POST /v3/charge` aceptado sobre plan `MONTO_FIJO` sin E-113; cargo de prueba cancelado | Ejecutada en sandbox. Pendiente: continuidad de cobros mensuales y prueba controlada en produccion |
+
+---
+
+## Suite de contrato (2026-10-27)
+
+La suite de contrato (`tests_contract/`, excluida por defecto de pytest) compara la documentación de `docs/integrations/virtualpos/` con el sandbox real. Ejecución, variables y guardas en [tests_contract/README.md](../../../tests_contract/README.md). Cada prueba registra esperado frente a observado; un desacuerdo no falla la prueba.
+
+El informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado, en `.gitignore`) recoge 29 afirmaciones y 12 discrepancias de la ejecución del 2026-10-27 (cuenta 1, sandbox). Las notas "Observado en sandbox 2026-10-27" de los recursos citan cada afirmación con su ID `[CLAIM:VP-Cnn]`. Resultado: V-1 resuelta (VP-C01); V-2, V-3 y V-4 siguen pendientes porque requieren tarjeta y cobro real; V-5 tiene resultado (sección anterior).
 
 ---
 

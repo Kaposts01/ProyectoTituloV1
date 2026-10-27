@@ -56,6 +56,12 @@ stateDiagram-v2
 
 **`charge_program[]`:** `id`, `charge_date` (`yyyy-mm-dd`), `amount`, `status` (`pendiente`, `pagado`, `cancelado`, `procesando`, `rechazado`), `description` (ej. "Cargo 1 de 12").
 
+> **Observado en sandbox 2026-10-27** [CLAIM:VP-C01] (CONFIRMADO): `GET /v3/suscriptions` trae `charge_program[]` completo en cada suscripción; coincide con `GET /v3/suscription/{id}/charges` (probado con 5 suscripciones).
+>
+> **Observado en sandbox 2026-10-27** [CLAIM:VP-C28]: `internal_code` NO viene dentro de `charge_program[]` del listado de suscripciones. Para verlo hay que consultar los cargos (ver [charges.md](charges.md)).
+>
+> **Observado en sandbox 2026-10-27** [CLAIM:VP-C19] (PARCIAL): en `charge_program[]` `amount` es número entero (no string); `charge_date` es `YYYY-MM-DD`; el id del cargo es string con prefijo `cid_`.
+
 **`client`:** `email`, `first_name`, `last_name`, `social_id`, `phone`, `gender` (`{id, name}`), `birth_date`.
 
 **`address`** (documentado en el objeto, pero no aparece en ningún ejemplo de endpoint): `id`, `address_name`, `street_name`, `street_number`, `dpto_number`, `additional_information`, `additional_commerce_notes`, `comuna_id`, `comuna_name`, `region_id`, `region_name`. Probablemente aplica a planes con `shipping_address = T` (inferencia).
@@ -401,6 +407,7 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 
 - Es la consulta que debes hacer al recibir el `callback_url` o el retorno del navegador.
 - `amount` de cada cargo viene como string (`"6990"`) en los ejemplos: castea a número.
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C19] (PARCIAL): en la prueba `amount` de `charge_program[]` llegó como número entero, no como string.
 
 ### Ejemplo práctico
 
