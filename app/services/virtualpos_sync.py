@@ -141,6 +141,7 @@ async def sync_virtualpos(
         client_factory = VirtualPOSClient if platform == "virtualpos1" else lambda: VirtualPOSClient(platform)
         async with client_factory() as client:
             processed = 0
+            skipped_subscriptions: list[str] = []
             limit = 100
             for resource_type, read_page in (
                 ("client", client.list_clients),
@@ -176,7 +177,9 @@ async def sync_virtualpos(
                 subscription_records += len(subscriptions)
                 sanitized_subs = [_sanitize_record(s) for s in subscriptions]
                 processed += _store_records(db, platform, "subscription", sanitized_subs)
-                store_vp_resources(db, "subscription", sanitized_subs, platform=platform)
+                store_vp_resources(
+                    db, "subscription", sanitized_subs, platform=platform, skipped_subscriptions=skipped_subscriptions
+                )
                 for subscription in sanitized_subs:
                     subscription_id = _subscription_id(subscription)
                     if subscription_id is None:
@@ -217,6 +220,8 @@ async def sync_virtualpos(
             reconcile_charge_recoveries(db, platform)
 
             run.status = "completed"
+            if skipped_subscriptions:
+                run.error_message = f"{len(skipped_subscriptions)} suscripciones omitidas por duplicado activo"
         run.records_processed = processed
         run.finished_at = datetime.now(UTC)
         db.commit()
