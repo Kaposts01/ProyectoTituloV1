@@ -490,6 +490,8 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
 
     ensure_charge_allowed_on_plan(db, subscription_id, platform)
 
+    # internal_code NO es idempotente en VirtualPOS (2.º POST = 2 cargos) y los cargos listados no exponen
+    # ese campo (ver VP-C28): no hay forma verificable de adoptar un cargo previo; no se inventa el campo.
     request_data = {"suscription_id": subscription_id, **data}
 
     write_run = WriteRun(
@@ -658,7 +660,14 @@ FIXED_PLAN_BLOCKED_MESSAGE = (
 
 
 def _provider_error_code(exc: Exception) -> str | None:
-    """Extrae el código E-nnn de una respuesta de error de VirtualPOS (sin exponer el cuerpo completo)."""
+    """Extrae el código E-nnn de un error de VirtualPOS (sin exponer el cuerpo completo).
+
+    Prefiere `VirtualPOSAPIError.error_code` (NOK con HTTP 200); respaldo por regex sobre `exc.response.text`
+    (HTTPStatusError con HTTP 4xx/5xx).
+    """
+    code = getattr(exc, "error_code", None)
+    if isinstance(code, str) and code:
+        return code
     response = getattr(exc, "response", None)
     text = getattr(response, "text", "") or ""
     match = re.search(r"E-\d{3}", text)
@@ -761,7 +770,8 @@ async def cancel_future_charges(
 
     Sin `charge_ids` usa DELETE /v3/charges/{suscription_id} (plural, solo toca pendientes); con `charge_ids`
     usa DELETE /v3/charge/{id} individual, re-consultando el estado de cada uno justo antes de borrar.
-    E-079/E-059 (nada pendiente) son un resultado no-op, no un error.
+    E-079/E-059 (nada pendiente) son un resultado no-op, no un error. VirtualPOS los devuelve como
+    HTTP 200 + cuerpo NOK (VirtualPOSAPIError) o, de forma defensiva, como HTTPStatusError 400.
     """
     platform = _resolve_platform(db, subscription_id, platform)
     all_secrets = (

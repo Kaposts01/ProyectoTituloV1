@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
 from app.core.security import require_csrf, require_permissions
+from app.integrations.virtualpos.client import VirtualPOSAPIError
 from app.models.crm import Charge as CCharge
 from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription
@@ -86,6 +87,9 @@ from app.services.write_virtualpos import (
     update_client,
 )
 
+# VirtualPOS responde errores de negocio con HTTP 200 + NOK (VirtualPOSAPIError); .response.status_code = code del cuerpo.
+_VP_ERRORS = (HTTPStatusError, VirtualPOSAPIError)
+
 router = APIRouter()
 
 
@@ -156,7 +160,7 @@ async def update_virtualpos_client(
         raise HTTPException(status_code=404, detail="VirtualPOS client not found") from None
     except InvalidClientDataError:
         raise HTTPException(status_code=422, detail="Invalid RUT") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the update") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="VirtualPOS update requires local reconciliation") from None
@@ -190,7 +194,7 @@ async def create_virtualpos_client(
         raise HTTPException(status_code=409, detail="Ya existe un cliente con ese documento de identidad en VirtualPOS") from None
     except InvalidClientDataError:
         raise HTTPException(status_code=422, detail="Invalid RUT") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the client") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="VirtualPOS client requires local reconciliation") from None
@@ -215,7 +219,7 @@ async def create_virtualpos_plan(
         plan = await create_plan(db, body.model_dump(exclude_none=True, mode="json"))
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the plan") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="VirtualPOS plan requires local reconciliation") from None
@@ -256,7 +260,7 @@ async def create_virtualpos_subscription(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except DuplicateSubscriptionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la suscripción") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="La suscripción requiere reconciliación local") from None
@@ -280,7 +284,7 @@ async def cancel_virtualpos_subscription(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except SubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción no encontrada") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
@@ -322,7 +326,7 @@ async def create_virtualpos_charge(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except FixedPlanChargeBlockedError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the charge") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="VirtualPOS charge requires local reconciliation") from None
@@ -348,7 +352,7 @@ async def cancel_virtualpos_future_charges(
         return await cancel_future_charges(db, subscription_id, dry_run=dry_run)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación de cargos") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
@@ -390,7 +394,7 @@ async def reassign_virtualpos_subscription_amount(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except FixedPlanChargeBlockedError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la reasignación de monto") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="La reasignación requiere reconciliación local") from None
@@ -412,7 +416,7 @@ async def cancel_virtualpos_charge(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except ChargeNotFoundError:
         raise HTTPException(status_code=404, detail="Cargo no encontrado") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación del cargo") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
@@ -438,7 +442,7 @@ async def retry_virtualpos_charge(
         raise HTTPException(status_code=409, detail=str(exc)) from None
     except ChargeNotFoundError:
         raise HTTPException(status_code=404, detail="Cargo no encontrado") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó el reintento del cargo") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="El reintento requiere reconciliación local") from None
@@ -605,10 +609,13 @@ async def batch_retry_virtualpos_charges(
             results.append({"charge_id": charge_id, "success": False, "status": None, "error": str(exc)})
         except ChargeNotFoundError:
             results.append({"charge_id": charge_id, "success": False, "status": None, "error": "Cargo no encontrado"})
-        except HTTPStatusError as exc:
+        except _VP_ERRORS as exc:
             try:
-                body = exc.response.json()
-                vp_msg = body.get("message") or body.get("error") or body.get("detail")
+                if isinstance(exc, VirtualPOSAPIError):
+                    vp_msg = f"{exc.error_code or 'NOK'}: {exc.message}"[:300]
+                else:
+                    body = exc.response.json()
+                    vp_msg = body.get("message") or body.get("error") or body.get("detail")
             except (TypeError, ValueError):
                 vp_msg = exc.response.text[:300] if exc.response.text else None
             error_msg = vp_msg or f"Error HTTP {exc.response.status_code}"
@@ -821,7 +828,7 @@ async def cancel_virtualpos_payment(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except PaymentNotFoundError:
         raise HTTPException(status_code=404, detail="Pago no encontrado") from None
-    except HTTPStatusError as exc:
+    except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación del pago") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None

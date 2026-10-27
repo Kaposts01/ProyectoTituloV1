@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.integrations.virtualpos.client import VirtualPOSClient
+from app.integrations.virtualpos.client import VirtualPOSAPIError, VirtualPOSClient
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services.channel_consolidation import consolidate_to_centralized
@@ -229,6 +229,9 @@ async def sync_virtualpos(
         db.rollback()
         run.status = "failed"
         run.error_message = _safe_error_message(exc)
+        if isinstance(exc, VirtualPOSAPIError):
+            # NOK con HTTP 200: antes se leía como página vacía; ahora el run falla con el código del proveedor.
+            run.error_message = _safe_error_message(Exception(f"Sync interrumpido por VirtualPOS: {exc}"))
         run.finished_at = datetime.now(UTC)
         db.add(run)
         db.commit()

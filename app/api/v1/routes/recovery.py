@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.routes.crm import get_db
 from app.core.config import settings
 from app.core.security import require_csrf, require_permissions
-from app.integrations.virtualpos.client import VirtualPOSClient
+from app.integrations.virtualpos.client import VirtualPOSAPIError, VirtualPOSClient
 from app.models.auth import User
 from app.models.charge_recovery import ChargeRecovery
 from app.models.core import CoreCharge
@@ -730,6 +730,12 @@ class RetryRequest(BaseModel):
     items: list[RetryItem] = Field(min_length=1, max_length=200)
 
 
+def _vp_error_label(exc: HTTPStatusError | VirtualPOSAPIError) -> str:
+    if isinstance(exc, VirtualPOSAPIError):
+        return f"VirtualPOS {exc.error_code}" if exc.error_code else "VirtualPOS NOK"
+    return f"HTTP {exc.response.status_code}"
+
+
 @router.post("/retries", dependencies=[Depends(require_permissions("virtualpos.charges.retry")), Depends(require_csrf)], tags=["Recovery"])
 async def request_retries(body: RetryRequest, db: Annotated[Session, Depends(get_db)]) -> dict:
     results = []
@@ -739,8 +745,8 @@ async def request_retries(body: RetryRequest, db: Annotated[Session, Depends(get
             results.append({"source": item.source, "external_id": item.external_id, "success": True, "status": charge.status})
         except (ChargeNotFoundError, WriteDisabledError) as exc:
             results.append({"source": item.source, "external_id": item.external_id, "success": False, "error": type(exc).__name__})
-        except HTTPStatusError as exc:
-            results.append({"source": item.source, "external_id": item.external_id, "success": False, "error": f"HTTP {exc.response.status_code}"})
+        except (HTTPStatusError, VirtualPOSAPIError) as exc:
+            results.append({"source": item.source, "external_id": item.external_id, "success": False, "error": _vp_error_label(exc)})
     return {"results": results, "succeeded": sum(result["success"] for result in results)}
 
 

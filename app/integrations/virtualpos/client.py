@@ -1,10 +1,94 @@
 import asyncio
+import json
+import re
 from typing import Any, Self
 
 import httpx
 
 from app.core.config import settings
 from app.integrations.virtualpos.auth import build_signature
+
+_ERROR_CODE_RE = re.compile(r"^E-\d{3}$")
+_LONG_DIGITS_RE = re.compile(r"\b\d{12,19}\b")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
+
+
+def _clean_message(value: Any) -> str:
+    """Mensaje del proveedor apto para logs/write_runs: sin control chars, sin secuencias tipo PAN, acotado."""
+    text = _CONTROL_RE.sub(" ", str(value or "")).strip()
+    return _LONG_DIGITS_RE.sub("[redacted]", text)[:300]
+
+
+class _ErrorResponse:
+    """Respuesta ligera y saneada de un error de negocio de VirtualPOS (compatible con httpx.Response en lo usado)."""
+
+    def __init__(self, status_code: int, body: dict[str, Any]) -> None:
+        self.status_code = status_code
+        self.headers: dict[str, str] = {}
+        self._body = body
+        self.text = json.dumps(body, ensure_ascii=False)
+        self.content = self.text.encode()
+
+    def json(self) -> dict[str, Any]:
+        return dict(self._body)
+
+
+class VirtualPOSAPIError(Exception):
+    """Error de negocio de VirtualPOS: el proveedor responde HTTP 200 con cuerpo `{"status": "NOK", ...}`.
+
+    `http_status` es el HTTP real (normalmente 200); `provider_code` el `code` del cuerpo (p. ej. 400);
+    `response.status_code` replica `provider_code` para que los llamadores que mapean HTTPStatusError sigan sirviendo.
+    """
+
+    def __init__(
+        self, error_code: str | None, message: str, provider_code: int | None, http_status: int | None
+    ) -> None:
+        self.error_code = error_code
+        self.message = message
+        self.provider_code = provider_code
+        self.http_status = http_status
+        status = provider_code if isinstance(provider_code, int) and 400 <= provider_code <= 599 else 400
+        error: dict[str, Any] = {"message": message}
+        if error_code:
+            error["error_code"] = error_code
+        self.response = _ErrorResponse(status, {"status": "NOK", "code": provider_code, "error": error})
+        label = error_code or "sin código"
+        super().__init__(f"VirtualPOS rechazó la operación ({label}, code={provider_code}): {message}")
+
+
+def _api_error_from_body(body: Any, http_status: int | None) -> VirtualPOSAPIError | None:
+    """Devuelve el error si el cuerpo JSON es un NOK de negocio; None si es una respuesta normal."""
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    nok = str(body.get("status") or "").upper() == "NOK"
+    if not nok and not (isinstance(error, dict) and error.get("error_code")):
+        return None
+    detail = error if isinstance(error, dict) else {}
+    raw_code = str(detail.get("error_code") or "").strip()
+    error_code = raw_code if _ERROR_CODE_RE.match(raw_code) else None
+    message = _clean_message(detail.get("message") or (error if isinstance(error, str) else "") or body.get("message"))
+    provider_code = body.get("code")
+    return VirtualPOSAPIError(
+        error_code, message, provider_code if isinstance(provider_code, int) else None, http_status
+    )
+
+
+def _decode(response: httpx.Response, *, lenient: bool = False, empty_ok: bool = False) -> Any:
+    """Valida la respuesta: HTTP no-2xx -> HTTPStatusError; NOK/E-nnn con HTTP 200 -> VirtualPOSAPIError."""
+    response.raise_for_status()
+    if empty_ok and not response.content:
+        return {}
+    try:
+        body = response.json()
+    except Exception:
+        if lenient:
+            return {}
+        raise
+    api_error = _api_error_from_body(body, response.status_code)
+    if api_error is not None:
+        raise api_error
+    return body
 
 
 class VirtualPOSClient:
@@ -49,13 +133,11 @@ class VirtualPOSClient:
 
     async def update_client(self, client_id: str, data: dict[str, Any]) -> Any:
         response = await self._client.put(f"/v3/client/{client_id}", json=data)
-        response.raise_for_status()
-        return response.json()
+        return _decode(response)
 
     async def create_client(self, data: dict[str, Any]) -> Any:
         response = await self._client.post("/v3/client", json=data)
-        response.raise_for_status()
-        return response.json()
+        return _decode(response)
 
     async def list_plans(self) -> Any:
         return await self._get("/v3/plans")
@@ -65,8 +147,7 @@ class VirtualPOSClient:
 
     async def create_plan(self, data: dict[str, Any]) -> Any:
         response = await self._client.post("/v3/plan", json=data)
-        response.raise_for_status()
-        return response.json()
+        return _decode(response)
 
     async def list_subscriptions(self, page: int = 1, limit: int = 100) -> Any:
         return await self._get("/v3/suscriptions", params={"page": page, "limit": limit})
@@ -76,20 +157,15 @@ class VirtualPOSClient:
 
     async def cancel_subscription(self, subscription_id: str) -> Any:
         response = await self._client.delete(f"/v3/suscription/{subscription_id}")
-        response.raise_for_status()
-        return response.json()
+        return _decode(response)
 
     async def create_card_change_link(self, subscription_id: str) -> Any:
         response = await self._client.put(f"/v3/suscription/{subscription_id}/changecard")
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        return response.json()
+        return _decode(response, empty_ok=True)
 
     async def create_subscription(self, data: dict[str, Any]) -> Any:
         response = await self._client.post("/v3/suscription", json=data)
-        response.raise_for_status()
-        return response.json()
+        return _decode(response)
 
     async def list_payments(self, page: int = 1, limit: int = 100) -> Any:
         return await self._get("/v3/payments", params={"page": page, "limit": limit})
@@ -102,8 +178,7 @@ class VirtualPOSClient:
 
     async def delete_payment(self, payment_uuid: str) -> Any:
         response = await self._client.delete(f"/v3/payment/{payment_uuid}")
-        response.raise_for_status()
-        return response.json()
+        return _decode(response)
 
     async def list_charges(
         self, subscription_id: str, page: int = 1, limit: int = 100, status: str | None = None
@@ -118,18 +193,11 @@ class VirtualPOSClient:
 
     async def create_charge(self, data: dict[str, Any]) -> Any:
         response = await self._client.post("/v3/charge", json=data)
-        response.raise_for_status()
-        return response.json()
+        return _decode(response)
 
     async def delete_charge(self, charge_id: str) -> Any:
         response = await self._client.delete(f"/v3/charge/{charge_id}")
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        try:
-            return response.json()
-        except Exception:
-            return {}
+        return _decode(response, lenient=True, empty_ok=True)
 
     async def delete_subscription_charges(self, subscription_id: str) -> Any:
         """DELETE /v3/charges/{suscription_id}: cancela TODOS los cargos pendientes sin cancelar la suscripción.
@@ -137,13 +205,7 @@ class VirtualPOSClient:
         Devuelve `cancel_charges[]`; E-079 (HTTP 400) si no hay cargos pendientes.
         """
         response = await self._client.delete(f"/v3/charges/{subscription_id}")
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        try:
-            return response.json()
-        except Exception:
-            return {}
+        return _decode(response, lenient=True, empty_ok=True)
 
     async def retry_charge(self, charge_id: str) -> Any:
         # GET que cambia estado (relanza el cobro): tras un timeout el primer intento pudo ejecutarse, no se reintenta.
@@ -159,8 +221,4 @@ class VirtualPOSClient:
                 if attempt == attempts - 1:
                     raise
                 await asyncio.sleep(2**attempt)
-        response.raise_for_status()
-        try:
-            return response.json()
-        except Exception:
-            return {}
+        return _decode(response, lenient=True)
