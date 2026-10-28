@@ -75,9 +75,10 @@ Select-String -Path docs/tasks.md -Pattern '^\|\s*([A-Z][A-Z0-9]*(-[A-Z0-9]+)+)\
 | Sprint 1: Auditoría de datos | Documentar el modelo de datos real por canal y auditar la idempotencia | Cerrado el 2026-10-25 | Hecho | Ninguno (decisión de negocio SYNC-GAP-02 abierta, ver DEC-04) |
 | Sprint 2: Componentes y KPIs | Componentes compartidos y KPIs estándar por canal | Cerrado en código; falta KPI-01 contra VirtualPOS staging | Hecho | Acceso humano a VP staging (USR-03) |
 | Sprint 3: Gráficos y sidebar | Gráficos estandarizados y sidebar con salud de canal | Cerrado en código; falta verificación visual | Hecho | Revisión visual en navegador (USR-02) |
-| Sprint 4: Recuperador VP y facturación gestionada (Opción A) | Recuperador VP mejorado y cambios de cobro con solicitud y aprobación | En curso: BILL-01 a BILL-08 y REC-03 completadas en código | Estimación original del handoff: unas 20 h de IA para la Opción A y PK-05; restan BILL-09 a BILL-16 (por re-estimar) | Migraciones 0037/0038 sin aplicar (USR-01); soporte de Payku para PK-05; tarjetas de rechazo para VAL-VP-01 |
+| Sprint 4: Recuperador VP y facturación gestionada (Opción A) | Recuperador VP mejorado y cambios de cobro con solicitud y aprobación | En curso: BILL-01 a BILL-08 y REC-03 completadas en código | Estimación original del handoff: unas 20 h de IA para la Opción A y PK-05; restan BILL-09 a BILL-22 (por re-estimar) | Migraciones 0037/0038 sin aplicar (USR-01; en `crm_sandbox` las aplica el orquestador, en `crm` el usuario); soporte de Payku para PK-05; tarjetas de rechazo para VAL-VP-01 |
 | Sprint 5: Recuperador general | Recuperador multicanal en `/general/recuperador` (VP, Toku, Payku, TCH) | Pendiente | 24 a 32 h de IA, 10 a 13 días de equipo | TK-20 (REC-04, que define «suscripción activa» desde los reportes de Toku); PK-06 y sandbox de Payku (REC-05) |
 | Sprint 6: Infraestructura y operaciones | Ambientes, respaldo, operación y validaciones | Pendiente | 12 a 16 h de IA, 8 a 10 días de equipo | Decisiones de hosting, RPO/RTO, credenciales de sandbox y quién ejecuta las validaciones (DEC-11, DEC-12) |
+| Línea transversal: ciclo de pruebas en sandbox | Desplegar, probar en sandbox, decidir y resumir con skill y agentes personales, según el [runbook](operations/sandbox-testing-and-decisions.md) | Aprobado el 2026-10-28 (DEC-27); ciclos por ejecutar | Por estimar | En producción siempre con el usuario; escenarios nuevos no catalogados se avisan antes |
 | Línea transversal: E2E sandbox por canal | Probar de punta a punta cada canal en su sandbox | En curso (VirtualPOS parcial, Toku con guardas, Payku bloqueada, TCH sin iniciar) | Por estimar | Sandbox de Toku sin transacciones ni medios de pago; Payku sin credenciales |
 
 ## 3. Sprints
@@ -93,7 +94,7 @@ Resumen; el detalle de cada tarea está en la sección 4 y las lecciones en 7.1.
 
 ### 3.2 Sprint 4: Recuperador VP y facturación gestionada (Opción A)
 
-- **Estado:** en curso. Rama `sprint-4/recuperador-vp` (cada rama de sprint contiene a la anterior), 13 commits locales sin subir al remoto.
+- **Estado:** en curso. Rama `sprint-4/recuperador-vp` (cada rama de sprint contiene a la anterior), 14 commits locales sin subir al remoto.
 - **Objetivo:** mejorar el recuperador de socios VirtualPOS (motivos de rechazo, filtros, CSV trazable) y habilitar que el CRM gestione cambios de cobro de VirtualPOS con solicitud, aprobación, ejecución segura y auditoría (Opción A), sin cambiar planes y sin pedir de nuevo la tarjeta al socio.
 
 **Hecho**
@@ -107,13 +108,15 @@ Resumen; el detalle de cada tarea está en la sección 4 y las lecciones en 7.1.
 
 **En curso**
 
+- BILL-19 (tanda 2 de arreglos: API, política, scheduler y KPIs), sin commit aún.
+- Ciclo de pruebas en sandbox con skill y agentes personales (`sandbox-orchestrator`, `sandbox-tester`, `decision-maker`, en la carpeta personal del usuario, no versionados) y el [runbook](operations/sandbox-testing-and-decisions.md), aprobado el 2026-10-28 (DEC-27): en sandbox sin problema; en producción siempre con el usuario y más cuidado. Orden acordado: arreglos de la revisión (BILL-17 a BILL-20) → importador de Toku (TK-17 a TK-22) → pruebas de contrato en sandbox de VirtualPOS (BILL-11).
 - VAL-VP-01 y CT-01: V-1 y V-5 resueltas; V-2 a V-4 y los lotes 3 y 4 de la suite de contrato requieren tarjeta y cobro real.
 - Revisión de Toku contra la API real (TK-13), importador de reportes de Toku (TK-14 a TK-22) y su suite de contrato (VAL-TK-01), que alimentan el Sprint 5.
 
 **Pendiente**
 
-- BILL-09 a BILL-16 (allowlist del piloto, controles de consistencia, pruebas de contrato P0, piloto y reversión, revisión de código independiente, lock por cargo en `retry_charge`, rechazo de tareas de renovación con comentario, reautorización por cambio de categoría).
-- Acción del usuario: aplicar las migraciones 0037 y 0038 y el seed de roles en `crm` y `crm_sandbox` (USR-01).
+- BILL-09 a BILL-16 (allowlist del piloto, controles de consistencia, pruebas de contrato P0, piloto y reversión, revisión de código independiente, lock por cargo en `retry_charge`, rechazo de tareas de renovación con comentario, reautorización por cambio de categoría) y BILL-17 a BILL-22 (resultado de la revisión independiente: tanda 1 hecha en código, tandas 1b, 2 y 3 y backlog menor).
+- Migraciones 0037 y 0038 y seed de roles: en `crm_sandbox` los aplica el orquestador avisando al usuario (DEC-28); en `crm` los aplica el usuario (USR-01).
 - Verificaciones humanas: bandeja de cambios de cobro y Renovaciones, recuperador y CSV, Sprints 3 y 4 (USR-02, USR-03).
 - PK-05 (certificar cobertura histórica de Payku) depende del soporte de Payku.
 
@@ -121,15 +124,15 @@ Resumen; el detalle de cada tarea está en la sección 4 y las lecciones en 7.1.
 
 - Soporte de Payku: sandbox y preguntas Q-xx (DEC-10). Bloquea PK-05 y VAL-PK-01.
 - Tarjetas de prueba con rechazo y cambio de tarjeta para V-2 a V-4 (DEC-09).
-- Migraciones 0037/0038 sin aplicar a las bases: bloquea cualquier prueba de BILL en entorno real.
+- Migraciones 0037/0038 sin aplicar a las bases: bloquea cualquier prueba de BILL en entorno real (en `crm_sandbox` las puede aplicar el orquestador).
 
 **Definición de hecho del Sprint 4**
 
 - [x] REC-03 en código con pruebas automáticas.
 - [x] BILL-01 a BILL-08 en código con pruebas automáticas; suite al cierre de sesión: backend 844, frontend 179, `ruff` limpio.
 - [ ] REC-03 verificada: revisión visual y descarga real del CSV.
-- [ ] Migraciones 0037 y 0038 y seed de roles aplicados en `crm` y `crm_sandbox`.
-- [ ] BILL-09 a BILL-16 completadas en código.
+- [ ] Migraciones 0037 y 0038 y seed de roles aplicados en `crm_sandbox` (orquestador) y en `crm` (usuario).
+- [ ] BILL-09 a BILL-22 completadas en código.
 - [ ] BILL-11 ejecutada: pruebas de contrato P0 en sandbox VP con resultados anotados en el documento de diseño.
 - [ ] BILL-12: piloto GB-PI-01 a GB-PI-11 sin criterios de abort y script de reversión probado.
 - [ ] BILL-13: revisión de código independiente y documentación de la Opción A al día.
@@ -219,12 +222,18 @@ Cada ID aparece en una sola fila. Estado según el vocabulario de 1.3. Orden den
 | BILL-08 | Pestaña Renovaciones en la bandeja | Completada en código; verificación visual y en sandbox pendientes | Pestaña Renovaciones con las tareas del chequeo, que abren una solicitud de tipo renovación (commit f307b64). |
 | BILL-09 | Allowlist del piloto | Pendiente | Solo se aceptan solicitudes y se revisan renovaciones para suscripciones de la allowlist (GB-JB-20); bandera de plan fijo encendida solo para ella. |
 | BILL-10 | Controles de consistencia y cola de reconciliación | Pendiente | Controles diarios de solo lectura GB-CS-02 a GB-CS-14 (desfases, doble pendiente, mes sin cargo, cargos no registrados, doble cobro) y cola de reconciliación para `reconciliation_required`, que bloquea la suscripción. |
-| BILL-11 | Pruebas de contrato P0 en sandbox VP | Pendiente | Ejecutar CT-00, CT-CO-AUTO, CT-CO-DUP, CT-CO-NC3, CT-RZ-MC, CT-RZ-SWAP, CT-CANCEL y CT-STALE (recetas en el documento de diseño) y anotar resultados; condiciona el piloto (GB-PI-01). Algunas requieren tarjeta y esperar fechas de cobro (DEC-09). |
+| BILL-11 | Pruebas de contrato P0 en sandbox VP | Pendiente | Ejecutar CT-00, CT-CO-AUTO, CT-CO-DUP, CT-CO-NC3, CT-RZ-MC, CT-RZ-SWAP, CT-CANCEL y CT-STALE (recetas en el documento de diseño) y anotar resultados; condiciona el piloto (GB-PI-01). Algunas requieren tarjeta y esperar fechas de cobro (DEC-09). Catálogo, topes y limpieza en el [runbook](operations/sandbox-testing-and-decisions.md) (sección 3.1); las 8 pruebas se aprueban en bloque una vez escritas y el orquestador registra un DEC-xx al aprobar la receta definitiva. |
 | BILL-12 | Piloto GB-PI-01 a GB-PI-11 y script de reversión | Pendiente | Piloto con 5 a 10 suscripciones voluntarias, fases de 1 mes y 12 meses, criterios de éxito y de abort (GB-PI-05 y GB-PI-06) y script de reversión probado (GB-PI-07). Depende de BILL-09, BILL-10 y BILL-11. |
-| BILL-13 | Revisión de código independiente y documentación de la Opción A | Pendiente | Paso 7 del plan: revisión independiente del código de BILL-01 a BILL-10 y documentación operativa al día. |
+| BILL-13 | Revisión de código independiente y documentación de la Opción A | En curso | Paso 7 del plan. Revisión independiente completada (4 frentes); sus resultados están en BILL-17 a BILL-22. Pendiente: documentación operativa de la Opción A al día. |
 | BILL-14 | Lock por cargo en `retry_charge` | Pendiente | Un solo `/retry` por cargo ante doble clic o dos usuarios a la vez (GB-RZ-30); responde 409 o «ya en curso» sin llamar a VirtualPOS. |
 | BILL-15 | Rechazar tareas de renovación con comentario | Pendiente | Al rechazar una tarea de renovación, se cierra con el comentario y la suscripción deja de ser «calendario modificado» desde el fin del horizonte (GB-JB-32). |
 | BILL-16 | Reautorización por cambio de categoría de aprobaciones | Pendiente | Entre la solicitud y la ejecución se revalida el estado; si la doble aprobación está encendida y la variación cambió de categoría, se pide reaprobación (GB-AP-13, parte final). |
+| BILL-17 | Tanda 1 de arreglos de la revisión independiente (planificador y aplicación) | Completada en código; verificación en sandbox pendiente | Commit 8a77809. Acotó el reemplazo al mes original (meses pasados van a revisión manual con `reason` `replacement_outside_month`), punto abierto en DEC-30. Suite al cierre de la tanda: backend 897, frontend 179. |
+| BILL-18 | Tanda 1b: ventana de 31 días y meses sin cobro previo | Pendiente | Depende de DEC-30 (ventana de 31 días y reemplazo de mes atrasado). Además, por decisión del usuario (DEC-29): mes con solo cobros cancelados va a revisión manual; mes sin ningún cobro se crea con aviso `month_without_charge`. |
+| BILL-19 | Tanda 2: API, política, scheduler y KPIs | En curso | Arreglos de la revisión independiente en la API `/billing`, la política de aprobadores, el scheduler y los KPIs. Sin commit aún. |
+| BILL-20 | Tanda 3: frontend de aplicar y lecturas, y Toku | Pendiente | Frontend de aplicar y lecturas; en Toku, orden de las guardas en `delete_subscription`, aviso en el arranque para `APP_ENV=development` con Toku sin cambiar el comportamiento (DEC-29) y endurecimiento de regex. |
+| BILL-21 | Hallazgos menores y de accesibilidad de la revisión | Pendiente | Backlog: `Dialog` inert, `role=tabpanel`, `border-left` del timeline (DESIGN.md), fecha del formulario en la zona de Chile y cobro puntual sin tope superior. |
+| BILL-22 | Observabilidad de solicitudes y del barrido | Pendiente | Alerta de solicitudes en `requiere_conciliacion` o barridas; registro del barrido en el tablero. Acción del usuario: ejecutar `SHOW idle_in_transaction_session_timeout` en la base real y reportar el valor, para revisar ese parámetro. |
 
 ### 4.2 VirtualPOS
 
@@ -481,16 +490,16 @@ Cada ID aparece en una sola fila. Estado según el vocabulario de 1.3. Orden den
 
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
-| USR-01 | Aplicar migraciones 0037/0038 y seed de roles en cada base | Pendiente | Usuario: `alembic upgrade head` y `scripts/maintenance/seed_roles.py` en `crm` y en `crm_sandbox` (con `APP_ENV=sandbox`). Sin esto no existen los permisos ni el rol `ejecutivo` en la base y la Opción A no funciona en esos ambientes. |
+| USR-01 | Aplicar migraciones 0037/0038 y seed de roles en cada base | Pendiente | `alembic upgrade head` y `scripts/maintenance/seed_roles.py`. En `crm_sandbox` (con `APP_ENV=sandbox`) los aplica el orquestador avisando al usuario (DEC-28); en `crm` (producción o local productiva) siempre el usuario. Sin esto no existen los permisos ni el rol `ejecutivo` en la base y la Opción A no funciona en esos ambientes. |
 | USR-02 | Revisión visual en navegador | Pendiente | Usuario: Sprints 3 y 4 (franja de sandbox, tema oscuro, menú móvil, contraste de los puntos de salud, gráficos, recuperador y descarga real del CSV), bandeja de cambios de cobro y pestaña Renovaciones. |
 | USR-03 | Verificar KPI-01 y CHART-01 contra VirtualPOS staging | Pendiente | Usuario: acceso humano a VP staging. |
 | USR-04 | Respuesta del soporte de Payku | Pendiente | Usuario: activar el sandbox y responder las preguntas Q-xx (DEC-10). |
 | USR-05 | Tarjetas de prueba de rechazo | Pendiente | Usuario: tarjetas con rechazo y cambio de tarjeta para V-2 a V-4 de VirtualPOS y mecanismo de rechazos de Toku (DEC-09). |
 | USR-06 | Apagar los túneles de Cloudflare | Pendiente | Usuario: los túneles son públicos y solo los protege el login; buscar con `Get-Process cloudflared` y detener con `Stop-Process`. Las URLs cambian en cada arranque. |
 | USR-07 | Crear usuarios `soporte` y `ejecutivo` en cada ambiente | Pendiente | Usuario: cada ambiente tiene su propia base de usuarios; hoy no hay usuarios con rol `soporte`. Evaluar también un secreto JWT propio para sandbox. |
-| USR-08 | Subir la rama y abrir PR | Pendiente | Solo cuando el usuario lo pida: hoy `sprint-4/recuperador-vp` tiene 13 commits locales sin subir y no hay PR abierto; `master` local está un commit adelante del remoto. |
+| USR-08 | Subir la rama y abrir PR | Pendiente | Solo cuando el usuario lo pida: hoy `sprint-4/recuperador-vp` tiene 14 commits locales sin subir y no hay PR abierto; `master` local está un commit adelante del remoto. |
 | USR-09 | Exportar un reporte de Deudas de Toku actualizado | Pendiente | Usuario: descargar del Backoffice de Toku un reporte de Deudas nuevo (hoy solo existe el del 2026-08-09) y luego exportar los reportes cada semana (DEC-21). Insumo de TK-14. |
-| USR-10 | Aplicar las migraciones 0039 a 0041 y repetir el seed de roles cuando existan | Pendiente | Usuario: ampliar USR-01 (0037 y 0038) con las migraciones 0039 a 0041 (TK-17): `alembic upgrade head` y `scripts/maintenance/seed_roles.py` en `crm` y `crm_sandbox`. El permiso `toku.reports.import` queda solo para admin (DEC-22). El webhook de Toku ya está cubierto por TK-12. |
+| USR-10 | Aplicar las migraciones 0039 a 0041 y repetir el seed de roles cuando existan | Pendiente | Ampliar USR-01 (0037 y 0038) con las migraciones 0039 a 0041 (TK-17): `alembic upgrade head` y `scripts/maintenance/seed_roles.py`. En `crm_sandbox` los aplica el orquestador avisando al usuario (DEC-28); en `crm` siempre el usuario. El permiso `toku.reports.import` queda solo para admin (DEC-22). El webhook de Toku ya está cubierto por TK-12. |
 
 ### 4.12 Horizonte sin sprint asignado
 
@@ -553,6 +562,10 @@ Las referencias de la primera columna son propias de esta sección (familia DEC)
 | DEC-24 | D9: «tarjeta bloqueada» y «vencida» | Resuelta (2026-10-28) | Usuario | Bloqueada = código 1019 o medio `permanent_failed` (con el motivo visible); se incorporan del catálogo oficial de Toku 1051 (bloqueada en primer uso) y 2043 (lista negra) como bloqueada y 2044 (junto a 1010 y 2063) como vencida, aunque no estén entre los 24 códigos observados en los reportes. TK-20 |
 | DEC-25 | D10: un medio con falla temporal sin racha no es recuperable | Resuelta (2026-10-28) | Usuario | Definición de recuperable sin cambios: racha de 3 o más cuotas impagas seguidas, o tarjeta bloqueada, o tarjeta vencida. REC-04 |
 | DEC-26 | Consultas a soporte de Toku (seis preguntas) | Abierta, a cargo del usuario | Soporte de Toku | (1) ambiente de pruebas oficial; (2) tarjetas y montos de prueba para TE, PE y UE, y cómo generar una transacción fallida y medios en `temporary_failed`, `permanent_failed` e `inscription_failed`; (3) regla exacta de paso a `permanent_failed` y su combinación con `max_collection_attempts`; (4) dónde se expone el estado de una suscripción no recurrente y cómo se cancela; (5) entrega de webhooks (2xx frente a 200, secreto en GET, retención); (6) permisos de la API de reportes. Relacionada con TK-15, TK-12 y VAL-TK-01 |
+| DEC-27 | Aprobación del [runbook de pruebas en sandbox y decisiones](operations/sandbox-testing-and-decisions.md) | Resuelta (2026-10-28) | Usuario | Condición literal: en sandbox sin problema; en producción siempre con el usuario y más cuidado. Es la autorización explícita de CLAUDE.md §9, limitada a sandbox y a escenarios catalogados. Resuelve las seis decisiones abiertas del redactor: escritura permanente solo en escenarios catalogados (los nuevos se avisan antes); las 8 pruebas CT-xx se aprueban en bloque una vez escritas (el orquestador registra un DEC-xx al aprobar la receta; las de tarjeta o espera de fechas se coordinan); el Excel sintético de TCH se carga con el servicio de importación directo con `APP_ENV=sandbox` contra `crm_sandbox`; límites de 2 vueltas, 1 reintento de limpieza, 30 cobros, 100 GET y 50 filas; el runbook vive en `docs/operations/`. Ante la duda sobre el ambiente se trata como producción (Toku comparte host; `APP_ENV=development` equivale a producción). Afecta BILL-11 |
+| DEC-28 | Migraciones y seeds en `crm_sandbox` | Resuelta (2026-10-28) | Usuario | El orquestador o el decisor pueden aplicarlos en `crm_sandbox` avisando al usuario; en `crm` (producción o local productiva) nunca: siempre el usuario. Actualiza USR-01 y USR-10 |
+| DEC-29 | Decisiones del usuario sobre la revisión independiente de la Opción A | Resuelta (2026-10-28); implementación pendiente en parte | Usuario | (1) Los arreglos van en tres tandas: A = BILL-17, BILL-19 y BILL-20. (2) Mes con solo cobros cancelados: revisión manual. (3) Mes sin ningún cobro: se crea con aviso `month_without_charge` (pendiente de implementar en la tanda 1b, BILL-18). (4) Aviso en el arranque para `APP_ENV=development` con Toku, sin cambiar el comportamiento (pendiente de implementar en la tanda 3, BILL-20). (5) Orden: arreglos, luego importador de Toku (TK-17 a TK-22), luego pruebas de contrato en sandbox de VirtualPOS (BILL-11) |
+| DEC-30 | Ventana de 31 días y reemplazo de un mes atrasado | Abierta | Usuario | La tanda 1 (commit 8a77809) acotó el reemplazo al mes original (meses pasados van a revisión manual con `reason` `replacement_outside_month`), lo que contradice la decisión del usuario del handoff: «si el mes ya pasó hace 31 días o menos y no tiene cobro pagado, procesando o rechazado se crea el reemplazo con fecha de mañana». Opciones: **A (recomendada)** respetar la regla del usuario atribuyendo cada cobro a su mes de origen por el `internal_code` `{sub}-{YYYYMM}-{monto}` y no por la fecha, en el plan y en la verificación; **B** dejar el comportamiento actual (meses atrasados siempre a revisión manual); **C** híbrido: respetar la regla, pero a revisión manual si mañana cae en el mes siguiente y ya existe el cobro regular de ese mes. Relacionada con DEC-07 y BILL-18 |
 
 ## 6. Deuda técnica
 
@@ -594,6 +607,7 @@ Migradas desde `docs/memory/CURRENT_SPRINT.md`. Plan visual original de los spri
 - **2026-10-28 (Opción A y Toku).** Decisiones finales de la facturación gestionada (VirtualPOS sigue creando los cobros; horizonte de 12 meses solo al aplicar un cambio; chequeo diario de solo lectura; solo admin aprueba con autoaprobación auditada; doble aprobación apagada); catálogo de 175 escenarios vigentes. Implementados BILL-01 a BILL-08. Corregido BUG-VP-02. Guardas de escritura de Toku (TK-16) y mediciones del sandbox de Toku (ver 3.5). Esta reorganización documental unificó el plan en este archivo.
 - **2026-10-28 (Toku: hallazgos y diseño del importador de reportes).** Medido con solo lecturas en el sandbox y diseñado el importador de reportes (TK-14 a TK-22; decisiones DEC-16 a DEC-25; consultas a soporte en DEC-26). `.gitignore` ahora ignora `*.xlsx` y `*.xls` (datos personales). Estado al cierre: backend 844 pruebas, frontend 179; rama `sprint-4/recuperador-vp` con 13 commits locales sin subir (último de código e6202a7; documentación 7c967c7 y este registro).
 - **Lección de privacidad (2026-10-28).** Durante el diseño se imprimió por error, en el contexto de un agente, contenido de hojas de reportes con datos personales (no se guardó en disco ni se reprodujo). Al explorar reportes de Toku se lee solo el encabezado de la hoja y se confirma que la fila sea de encabezados antes de imprimir (regla 7 de 1.4).
+- **2026-10-28 (revisión independiente de la Opción A y ciclo de pruebas en sandbox).** Revisión en 4 frentes con resultados en BILL-17 a BILL-22: (1) planificador y aplicación: reemplazo acotado al mes original, contradice la regla de 31 días del usuario (DEC-30); (2) API, política, scheduler y KPIs: arreglos de la tanda 2 (BILL-19); (3) frontend y Toku: aplicar y lecturas, orden de guardas en `delete_subscription`, aviso con `APP_ENV=development`, regex (BILL-20); (4) accesibilidad y observabilidad: `Dialog` inert, `role=tabpanel`, zona horaria del formulario, alertas del barrido (BILL-21, BILL-22). Estado de pruebas al cierre de la tanda 1: backend 897 y frontend 179. La rama `sprint-4/recuperador-vp` lleva 14 commits locales sin subir (verificado con `git rev-list --count '@{u}..HEAD'`). Aprobado el runbook de pruebas en sandbox (DEC-27, DEC-28) y registradas las decisiones del usuario sobre la revisión (DEC-29, DEC-30 abierta).
 
 **Correcciones de inconsistencias detectadas el 2026-10-28** (prevalece el código y los commits):
 
