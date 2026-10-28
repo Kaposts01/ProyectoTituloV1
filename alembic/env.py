@@ -6,6 +6,15 @@ from alembic import context
 from app.core.config import settings
 from app.db.session import Base
 from app.models.auth import Permission, Role, User  # noqa: F401
+from app.models.billing import (  # noqa: F401
+    BillingChangeRequest,
+    BillingChangeRequestEvent,
+    BillingPolicy,
+    BillingPolicyAudit,
+    BillingRenewalTask,
+    VpCalendarMark,
+    VpManagedCharge,
+)
 from app.models.charge_recovery import ChargeRecovery  # noqa: F401
 from app.models.core import (  # noqa: F401
     CoreCharge,
