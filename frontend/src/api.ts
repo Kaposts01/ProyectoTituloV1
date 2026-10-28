@@ -47,11 +47,24 @@ export function friendlyError(error: unknown, fallback = "Ocurrió un error ines
   return fallback;
 }
 
+/** Error HTTP con el estado y el `detail` crudo (p. ej. {code, message, ...}) para quien necesite decidir por código. */
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function checkResponse(response: Response): Promise<void> {
   if (response.ok) return;
   const data = await response.json().catch(() => null);
   const detail = extractErrorDetail(data);
-  throw new Error(httpErrorMessage(response.status, detail));
+  const rawDetail = data && typeof data === "object" ? (data as Record<string, unknown>).detail : undefined;
+  throw new ApiError(httpErrorMessage(response.status, detail), response.status, rawDetail);
 }
 
 async function jsonResponse<T>(response: Response): Promise<T> {

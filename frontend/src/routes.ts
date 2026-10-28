@@ -8,6 +8,7 @@ export type AppRoute =
   | { kind: "resource"; source: ProviderSource; resource: string }
   | { kind: "record"; source: ProviderSource; resource: string; externalId: string }
   | { kind: "recovery" }
+  | { kind: "billingChanges" }
   | { kind: "tch"; view: "summary" | "clientes" | "suscripciones" | "transacciones" }
   | { kind: "tchSubscription"; numeroFicha: number }
   | { kind: "admin"; view: "usuarios" | "sincronizacion" }
@@ -81,6 +82,7 @@ export function parseRoute(pathname: string): AppRoute | null {
   }
 
   if (parts[0] === "virtualpos" && parts[1] === "recuperador-socios") return { kind: "recovery" };
+  if (parts[0] === "virtualpos" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
 
   const source = parts[0];
   if (source === "virtualpos" || source === "toku" || source === "payku") {
@@ -105,6 +107,7 @@ export function routePath(route: AppRoute): string {
   }
   if (route.kind === "channel") return `/${route.source}/resumen`;
   if (route.kind === "recovery") return "/virtualpos/recuperador-socios";
+  if (route.kind === "billingChanges") return "/virtualpos/cambios-de-cobro";
   if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : route.view}`;
   if (route.kind === "tchSubscription") return `/tch/suscripciones/${route.numeroFicha}`;
   if (route.kind === "admin") return `/admin/${route.view === "usuarios" ? "usuarios" : "sincronizaciones"}`;

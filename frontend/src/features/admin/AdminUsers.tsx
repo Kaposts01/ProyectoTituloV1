@@ -3,11 +3,14 @@ import { getJson } from "../../api";
 import type { AdminRole } from "../shared/types";
 import { UsersSubPanel } from "./UsersSubPanel";
 import { RolesSubPanel } from "./RolesSubPanel";
+import { PolicyPanel } from "../billing/PolicyPanel";
+import { PERM_POLICY } from "../billing/types";
 
 export function AdminUsers({ permissions }: { permissions: string[] }) {
   const canManageUsers = permissions.includes("users.manage");
   const canManageRoles = permissions.includes("roles.manage");
-  const [subTab, setSubTab] = useState<"users" | "roles">("users");
+  const canManagePolicy = permissions.includes(PERM_POLICY);
+  const [subTab, setSubTab] = useState<"users" | "roles" | "approvals">("users");
   const [roles, setRoles] = useState<AdminRole[]>([]);
   const [allPermissions, setAllPermissions] = useState<Array<{ code: string; description: string }>>([]);
 
@@ -25,16 +28,21 @@ export function AdminUsers({ permissions }: { permissions: string[] }) {
   return (
     <section className="panel">
       <p className="eyebrow">ADMINISTRACIÓN</p>
-      <h1>{subTab === "users" ? "Usuarios" : "Roles y permisos"}</h1>
+      <h1>{subTab === "users" ? "Usuarios" : subTab === "roles" ? "Roles y permisos" : "Aprobaciones de cambios de cobro"}</h1>
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
         <button className={`channel-btn${subTab === "users" ? " active" : ""}`} onClick={() => setSubTab("users")}>Usuarios</button>
         {canManageRoles ? (
           <button className={`channel-btn${subTab === "roles" ? " active" : ""}`} onClick={() => setSubTab("roles")}>Roles</button>
         ) : null}
+        {canManagePolicy ? (
+          <button className={`channel-btn${subTab === "approvals" ? " active" : ""}`} onClick={() => setSubTab("approvals")}>Aprobaciones</button>
+        ) : null}
       </div>
       {subTab === "users"
         ? <UsersSubPanel canManage={canManageUsers} roles={roles} />
-        : <RolesSubPanel canManage={canManageRoles} allPermissions={allPermissions} />}
+        : subTab === "roles"
+          ? <RolesSubPanel canManage={canManageRoles} allPermissions={allPermissions} />
+          : <PolicyPanel roles={roles} canListUsers={canManageUsers} />}
     </section>
   );
 }

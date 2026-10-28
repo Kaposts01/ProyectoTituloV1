@@ -29,6 +29,8 @@ export type SidebarProps = {
   onClose: () => void;
   recoveryOpen: boolean;
   onRecovery: () => void;
+  billingOpen?: boolean;
+  onBilling?: () => void;
   profileOpen?: boolean;
   health?: ChannelHealthMap;
 };
@@ -48,7 +50,7 @@ export function Sidebar({
   generalView, onGeneralClients, onGeneralSubscriptions, onAutoReport,
   onChannel, onSection, onToggle, onTheme, onTch,
   permissions, onAdmin, adminOpen, adminTab,
-  onLogout, onProfile, open, onClose, recoveryOpen, onRecovery, profileOpen = false, health,
+  onLogout, onProfile, open, onClose, recoveryOpen, onRecovery, billingOpen = false, onBilling, profileOpen = false, health,
 }: SidebarProps) {
   const can = (permission: string) => permissions.includes(permission);
   useEffect(() => {
@@ -57,7 +59,7 @@ export function Sidebar({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-  const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !profileOpen && generalView === "summary";
+  const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !profileOpen && generalView === "summary";
   const go = (fn: () => void) => () => { fn(); onClose(); };
   const visibleGroups = providerGroups.map((group) => ({
     ...group,
@@ -125,6 +127,15 @@ export function Sidebar({
                       onClick={go(onRecovery)}
                     >
                       Recuperador de Socios
+                    </button>
+                  ) : null}
+                  {group.name === "VirtualPOS" && onBilling && can("virtualpos.billing_changes.view") ? (
+                    <button
+                      className={billingOpen ? "sidebar-item nested active" : "sidebar-item nested"}
+                      aria-current={billingOpen ? "page" : undefined}
+                      onClick={go(onBilling)}
+                    >
+                      Cambios de cobro
                     </button>
                   ) : null}
                 </>
