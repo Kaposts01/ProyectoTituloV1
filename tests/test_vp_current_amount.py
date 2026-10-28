@@ -1,8 +1,9 @@
 """Monto vigente VP: ultimo monto cobrado (helper, ETL, KPI MRR, recuperador). Todo en transaccion con rollback."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,11 +13,14 @@ from app.models.crm import Charge as CCharge
 from app.models.crm import Subscription as CSub
 from app.models.vp import VpCharge, VpPlan, VpSubscription
 from app.services import channel_consolidation as cc
+from app.services import vp_current_amount
+from app.services.rejected_month import now_chile
 from app.services.vp_current_amount import load_monto_vigente, pick_monto_vigente
 from tests.test_charge_recovery import db_session  # noqa: F401  (fixture)
 
 P = "virtualpos1"
-TODAY = datetime.now(tz=UTC).date()
+CHILE = ZoneInfo("America/Santiago")
+TODAY = now_chile().date()  # 'hoy' en hora Chile, igual que el servicio (evita tests intermitentes)
 
 
 def _d(days: int) -> str:
@@ -96,6 +100,81 @@ def test_pick_monto_vigente_pura() -> None:
     assert pick_monto_vigente(rows, fallback="50") == Decimal("250")
     assert pick_monto_vigente([rows[2], rows[3]], fallback="50") == Decimal("50")
     assert pick_monto_vigente([], fallback=None) is None
+
+
+# -- 'Hoy' en hora Chile (no UTC) ----------------------------------------------
+
+def _fake_chile(monkeypatch, *args: int) -> datetime:
+    fake = datetime(*args, tzinfo=CHILE)
+    monkeypatch.setattr(vp_current_amount, "now_chile", lambda: fake)
+    return fake
+
+
+def test_pick_borde_chile_31_enero_noche_utc_ya_es_febrero(monkeypatch) -> None:
+    # Chile 2099-01-31 22:00 (verano, UTC-3) == UTC 2099-02-01 01:00
+    fake = _fake_chile(monkeypatch, 2099, 1, 31, 22, 0)
+    assert fake.astimezone(ZoneInfo("UTC")).date() == date(2099, 2, 1)
+    rows = [("c1", "pagado", "2099-01-31", "100"), ("c2", "pagado", "2099-02-01", "200")]
+    assert pick_monto_vigente(rows, fallback="50") == Decimal("100")
+    assert pick_monto_vigente([rows[1]], fallback="50") == Decimal("50")
+
+
+def test_pick_borde_chile_1_febrero_madrugada_utc_aun_es_enero(monkeypatch) -> None:
+    # Chile siempre va detras de UTC, asi que "UTC aun en enero con Chile en febrero" no existe; este caso
+    # fija el limite inferior: Chile 2099-02-01 00:30 ya cuenta como 'hoy' = 02-01 y el cargo del 01-31 sigue vigente.
+    fake = _fake_chile(monkeypatch, 2099, 2, 1, 0, 30)
+    rows = [("c1", "pagado", "2099-01-31", "100"), ("c2", "pagado", "2099-02-01", "200")]
+    assert fake.date() == date(2099, 2, 1)
+    assert pick_monto_vigente(rows, fallback="50") == Decimal("200")
+
+
+def test_pick_cargo_con_fecha_igual_a_hoy_se_incluye(monkeypatch) -> None:
+    _fake_chile(monkeypatch, 2099, 6, 15, 12, 0)
+    rows = [("c1", "pagado", "2099-06-14", "100"), ("c2", "procesando", "2099-06-15", "300"), ("c3", "pagado", "2099-06-16", "999")]
+    assert pick_monto_vigente(rows) == Decimal("300")
+
+
+def test_pick_charge_date_con_timestamp_iso(monkeypatch) -> None:
+    _fake_chile(monkeypatch, 2099, 1, 31, 22, 0)
+    rows = [("c1", "pagado", "2099-01-30T10:00:00", "100"), ("c2", "pagado", "2099-01-31T23:30:00", "250"),
+            ("c3", "pagado", "2099-02-01T00:10:00", "999")]
+    assert pick_monto_vigente(rows) == Decimal("250")
+
+
+def test_pick_today_explicito_gana_sobre_now_chile(monkeypatch) -> None:
+    _fake_chile(monkeypatch, 2099, 1, 31, 22, 0)
+    rows = [("c1", "pagado", "2099-01-31", "100"), ("c2", "pagado", "2099-02-01", "200")]
+    assert pick_monto_vigente(rows, today=date(2099, 2, 1)) == Decimal("200")
+    assert pick_monto_vigente(rows, today=date(2099, 1, 30)) is None
+
+
+def test_load_today_explicito_gana_sobre_now_chile(db_session: Session, monkeypatch) -> None:  # noqa: F811
+    _fake_chile(monkeypatch, 2099, 1, 31, 22, 0)
+    db_session.add_all([_vp_sub("vtd-1", None), VpCharge(platform=P, external_id="vtd-c1", subscription_external_id="vtd-1",
+                                                        status="pagado", charge_date="2099-02-01", amount="200")])
+    db_session.flush()
+    assert (P, "vtd-1") not in load_monto_vigente(db_session, family="vp", sources=[P])
+    assert load_monto_vigente(db_session, family="vp", sources=[P], today=date(2099, 2, 1))[(P, "vtd-1")] == Decimal("200")
+
+
+def test_paridad_pick_y_load_con_mismo_now_chile(db_session: Session, monkeypatch) -> None:  # noqa: F811
+    charges = [
+        ("vpp-c1", "pagado", "2099-01-30", "100"),
+        ("vpp-c2", "procesando", "2099-01-31T23:30:00", "250"),
+        ("vpp-c3", "pagado", "2099-02-01", "999"),
+        ("vpp-c4", "rechazado", "2099-01-31", "777"),
+    ]
+    db_session.add_all([_vp_sub("vpp-1", "50")] + [
+        VpCharge(platform=P, external_id=e, subscription_external_id="vpp-1", status=s, charge_date=d, amount=a)
+        for e, s, d, a in charges
+    ])
+    db_session.flush()
+    for moment, expected in [((2099, 1, 31, 22, 0), Decimal("250")), ((2099, 1, 30, 22, 0), Decimal("100")),
+                             ((2099, 2, 1, 0, 30), Decimal("999")), ((2099, 1, 29, 12, 0), Decimal("50"))]:
+        _fake_chile(monkeypatch, *moment)
+        pick = pick_monto_vigente(charges, fallback="50")
+        load = load_monto_vigente(db_session, family="vp", sources=[P])[(P, "vpp-1")]
+        assert pick == load == expected, moment
 
 
 def test_kpi_mrr_sigue_el_ultimo_cobro_no_el_plan() -> None:

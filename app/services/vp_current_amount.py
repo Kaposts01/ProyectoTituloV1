@@ -18,7 +18,7 @@ centralizadas (``subscriptions``/``charges``/``plans``, columna ``source``).
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.models.crm import Charge, Plan, Subscription
 from app.models.vp import VpCharge, VpPlan, VpSubscription
+from app.services.rejected_month import now_chile
 
 VIGENTE_CHARGE_STATUSES: tuple[str, ...] = ("pagado", "procesando")
 
@@ -57,7 +58,7 @@ def pick_monto_vigente(
     Util para quien ya tiene los cargos en memoria; ``load_monto_vigente`` aplica
     la misma regla en SQL.
     """
-    cutoff = (today or datetime.now(tz=UTC).date()).isoformat()
+    cutoff = (today or now_chile().date()).isoformat()
     best: tuple[str, str, Decimal] | None = None
     for external_id, status, charge_date, amount in charges:
         if str(status or "").strip().lower() not in VIGENTE_CHARGE_STATUSES:
@@ -96,7 +97,7 @@ def load_monto_vigente(
     sub_src = getattr(sub_m, src)
     plan_src = getattr(plan_m, src)
     source_list = list(sources) if sources is not None else None
-    cutoff = (today or datetime.now(tz=UTC).date()).isoformat()
+    cutoff = (today or now_chile().date()).isoformat()
 
     result: MontoVigenteMap = {}
 
