@@ -1,4 +1,4 @@
-"""Siembra permisos y roles por defecto (soporte). Idempotente; solo agrega permisos faltantes.
+"""Siembra permisos y roles por defecto (soporte, ejecutivo). Idempotente; solo agrega permisos faltantes.
 
 Uso: PYTHONPATH=. .venv/Scripts/python.exe scripts/maintenance/seed_roles.py
 Usa la base del ambiente activo (APP_ENV / DATABASE_URL). Imprime solo nombres de rol y conteos.

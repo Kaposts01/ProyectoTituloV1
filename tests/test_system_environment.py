@@ -12,11 +12,13 @@ from app.main import app
 from app.models.auth import Permission, Role, User
 from app.services.rbac import (
     PERMISSIONS,
+    executive_permission_codes,
     seed_default_roles,
     seed_permissions,
     support_permission_codes,
 )
 
+# Soporte hereda `virtualpos.billing_changes.view` por incluir todos los `.view` (decisión intencional).
 EXPECTED_SUPPORT = {c for c in PERMISSIONS if c.endswith(".view")} | {
     "virtualpos.charges.retry",
     "system.environment.switch",
@@ -222,3 +224,58 @@ def test_scheduler_trigger_disabled_channels(monkeypatch) -> None:
     assert res.status_code == 202
     assert res.json()["skipped_channels"] == ["payku"]
     assert ran == [["virtualpos1"]]
+
+
+NEW_BILLING_PERMISSIONS = {
+    "virtualpos.billing_changes.request",
+    "virtualpos.billing_changes.approve",
+    "virtualpos.billing_changes.view",
+    "virtualpos.billing_policy.manage",
+}
+BILLING_WRITE_PERMISSIONS = {
+    "virtualpos.billing_changes.request",
+    "virtualpos.billing_changes.approve",
+    "virtualpos.billing_policy.manage",
+}
+
+
+def test_billing_permissions_in_catalog() -> None:
+    assert NEW_BILLING_PERMISSIONS <= set(PERMISSIONS)
+
+
+def test_billing_permissions_assigned_to_admin(db) -> None:
+    seed_permissions(db)
+    admin = db.scalar(select(Role).where(Role.name == "admin"))
+    assert admin is not None
+    assert NEW_BILLING_PERMISSIONS <= {p.code for p in admin.permissions}
+
+
+def test_executive_permissions_view_only_and_no_dangerous() -> None:
+    codes = executive_permission_codes()
+    assert codes and all(c.endswith(".view") for c in codes)
+    for forbidden in ("export", "create", "cancel", "update", "delete", "manage", "merge", "run", "retry", "switch"):
+        assert not any(f".{forbidden}" in c for c in codes), forbidden
+    assert not codes & BILLING_WRITE_PERMISSIONS
+    assert "virtualpos.recovery.export" not in codes
+    assert "virtualpos.billing_changes.view" in codes
+
+
+def test_support_has_no_billing_write_permissions() -> None:
+    assert not support_permission_codes() & BILLING_WRITE_PERMISSIONS
+
+
+def test_seed_executive_role_idempotent_and_additive(db) -> None:
+    seed_default_roles(db)
+    role = db.scalar(select(Role).where(Role.name == "ejecutivo"))
+    assert role is not None and role.description
+    assert {p.code for p in role.permissions} == executive_permission_codes()
+
+    extra = db.scalar(select(Permission).where(Permission.code == "users.manage"))
+    role.permissions.append(extra)
+    db.flush()
+    first = seed_default_roles(db)
+    second = seed_default_roles(db)
+    assert first == second
+    role = db.scalar(select(Role).where(Role.name == "ejecutivo"))
+    assert "users.manage" in {p.code for p in role.permissions}  # nunca quita
+    assert db.query(Role).filter(Role.name == "ejecutivo").count() == 1

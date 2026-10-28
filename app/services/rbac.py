@@ -51,6 +51,10 @@ PERMISSIONS: dict[str, str] = {
     "core.identity.review": "Aprobar o rechazar candidatos de identidad",
     "core.identity.merge": "Ejecutar merge técnico de identidades",
     "system.environment.switch": "Cambiar entre ambientes Producción y Sandbox",
+    "virtualpos.billing_changes.request": "Solicitar cambios de cobro VirtualPOS",
+    "virtualpos.billing_changes.approve": "Aprobar o rechazar cambios de cobro VirtualPOS",
+    "virtualpos.billing_changes.view": "Ver bandeja e historial de cambios de cobro VirtualPOS",
+    "virtualpos.billing_policy.manage": "Configurar aprobadores de cambios de cobro VirtualPOS",
 }
 
 SUPPORT_ROLE_NAME = "soporte"
@@ -61,6 +65,15 @@ SUPPORT_EXTRA_PERMISSIONS = ("virtualpos.charges.retry", "system.environment.swi
 def support_permission_codes() -> set[str]:
     """Permisos del rol soporte: todos los `.view` + reintento de cargos + cambio de ambiente."""
     return {code for code in PERMISSIONS if code.endswith(".view")} | set(SUPPORT_EXTRA_PERMISSIONS)
+
+EXECUTIVE_ROLE_NAME = "ejecutivo"
+EXECUTIVE_ROLE_DESCRIPTION = "Ejecutivo: solo lectura de todos los módulos"
+
+
+def executive_permission_codes() -> set[str]:
+    """Permisos del rol ejecutivo: únicamente los `.view` (nada que escriba, exporte ni reintente)."""
+    return {code for code in PERMISSIONS if code.endswith(".view")}
+
 
 _RESOURCE_PERMISSIONS = {
     "virtualpos": {
@@ -100,23 +113,31 @@ def seed_permissions(db: Session) -> None:
     db.flush()
 
 
-def seed_default_roles(db: Session) -> dict[str, int]:
-    """Crea el rol `soporte` o le agrega los permisos faltantes (nunca quita). Idempotente.
-
-    No modifica admin/coordinador/jefatura. Devuelve {nombre_de_rol: cantidad_de_permisos}.
-    """
-    seed_permissions(db)
-    wanted = support_permission_codes()
+def _ensure_role(db: Session, name: str, description: str, wanted: set[str]) -> int:
     by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted))).all()}
-    role = db.scalar(select(Role).where(Role.name == SUPPORT_ROLE_NAME))
+    role = db.scalar(select(Role).where(Role.name == name))
     if role is None:
-        role = Role(name=SUPPORT_ROLE_NAME, description=SUPPORT_ROLE_DESCRIPTION)
+        role = Role(name=name, description=description)
         db.add(role)
     present = {p.code for p in role.permissions}
     for code in sorted(wanted - present):
         role.permissions.append(by_code[code])
     db.flush()
-    return {SUPPORT_ROLE_NAME: len(role.permissions)}
+    return len(role.permissions)
+
+
+def seed_default_roles(db: Session) -> dict[str, int]:
+    """Crea los roles `soporte` y `ejecutivo` o les agrega los permisos faltantes (nunca quita). Idempotente.
+
+    No modifica admin/coordinador/jefatura. Devuelve {nombre_de_rol: cantidad_de_permisos}.
+    """
+    seed_permissions(db)
+    return {
+        SUPPORT_ROLE_NAME: _ensure_role(db, SUPPORT_ROLE_NAME, SUPPORT_ROLE_DESCRIPTION, support_permission_codes()),
+        EXECUTIVE_ROLE_NAME: _ensure_role(
+            db, EXECUTIVE_ROLE_NAME, EXECUTIVE_ROLE_DESCRIPTION, executive_permission_codes()
+        ),
+    }
 
 
 def get_user(db: Session, user_id: str) -> User | None:
