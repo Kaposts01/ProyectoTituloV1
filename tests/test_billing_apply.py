@@ -418,11 +418,11 @@ def test_e059_skips_old_and_cancels_new_manual_of_that_month(db_session):
 
 
 def test_e079_is_noop(db_session):
-    """E-079 (nada pendiente) no es error."""
+    """E-079 (nada pendiente) no es error: se consulta el estado real (aqui ya cancelado -> already_cancelled)."""
     STATE["e079"] = {"auto-05"}
     user, req = _setup(db_session)
     result = _apply(db_session, req, user)
-    assert result.status == "ejecutada" and "auto-05" not in result.cancelled
+    assert result.status == "ejecutada" and "auto-05" in result.cancelled  # tanda 1: ya no es un 'noop' ciego
 
 
 def test_final_verification_detects_double_pending(db_session):

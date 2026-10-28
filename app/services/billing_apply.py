@@ -26,10 +26,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -48,17 +49,23 @@ from app.models.vp import VpSubscription
 from app.models.write_run import WriteRun
 from app.services import write_virtualpos as wv
 from app.services.billing_plan import (
+    CANCELLED_STATES,
     PENDING_STATES,
     PlanAction,
     PlanCharge,
     PlanInput,
     PlanResult,
     build_plan,
+    is_cancelled_status,
+    norm_state,
     plan_to_preview_json,
 )
 from app.services.read_only_provider_sync import safe_error_message
-from app.services.rejected_month import now_chile
-from app.services.write_virtualpos import ReconciliationRequiredError
+from app.services.rejected_month import CHILE_TZ, now_chile
+from app.services.write_virtualpos import (
+    ProviderListingError,
+    ReconciliationRequiredError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +95,16 @@ class InvalidRequestStateError(BillingApplyError):
 
 class SubscriptionBusyError(BillingApplyError):
     """Otra operacion tiene el lock de la suscripcion (la API la traduce a 409)."""
+
+
+class UnparseableChargesError(BillingApplyError):
+    """El proveedor devolvió cobros con id, fecha o monto no interpretables: se aborta el plan (nada se escribió)."""
+
+    def __init__(self, count: int, by_status: dict[str, int]) -> None:
+        self.count = count
+        self.by_status = by_status
+        detail = ", ".join(f"{st or 'sin estado'}: {n}" for st, n in sorted(by_status.items()))
+        super().__init__(f"{count} cobro(s) del proveedor no son interpretables (id, fecha o monto inválidos; estados: {detail}).")
 
 
 class SubscriptionBlockedError(BillingApplyError):
@@ -142,6 +159,7 @@ class _Ctx:
     last_error: BaseException | None = None
     created_by_month: dict[str, list[str]] = field(default_factory=dict)
     created_ids: list[str] = field(default_factory=list)
+    lock_conn: Any = None  # conexion dedicada del advisory lock (comprobacion `SELECT 1` antes de cancelar)
 
 
 # ----------------------------- utilidades -----------------------------
@@ -172,8 +190,9 @@ def lock_key(platform: str, subscription_id: str) -> int:
 
 
 @contextmanager
-def subscription_lock(db: Session, platform: str, subscription_id: str) -> Iterator[None]:
-    """`pg_try_advisory_xact_lock` en una conexion dedicada, retenida hasta salir del bloque."""
+def subscription_lock(db: Session, platform: str, subscription_id: str) -> Iterator[Any]:
+    """`pg_try_advisory_xact_lock` en una conexion dedicada, retenida hasta salir del bloque. Cede la conexion
+    para poder comprobar que sigue viva (`idle_in_transaction_session_timeout` la mataria y soltaria el lock)."""
     engine = db.get_bind().engine
     conn = engine.connect()
     try:
@@ -181,7 +200,7 @@ def subscription_lock(db: Session, platform: str, subscription_id: str) -> Itera
         got = conn.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": lock_key(platform, subscription_id)}).scalar()
         if not got:
             raise SubscriptionBusyError(f"La suscripción {subscription_id} está siendo modificada por otra operación.")
-        yield
+        yield conn
     finally:
         try:
             conn.rollback()  # libera el lock xact
@@ -233,17 +252,10 @@ def _months_from(start: str, n: int) -> list[str]:
 
 
 async def _fetch_charges(platform: str, subscription_id: str) -> list[dict[str, Any]]:
-    """Todos los cargos de la suscripcion (todas las paginas, todos los estados). Un fallo se propaga."""
-    out: list[dict[str, Any]] = []
+    """Todos los cargos de la suscripcion (todas las paginas, todos los estados). Fail-closed: un fallo, una forma
+    inesperada o un listado posiblemente incompleto lanzan (`ProviderListingError`) en vez de seguir con parte."""
     async with wv.VirtualPOSClient(platform=platform) as provider:
-        page = 1
-        while True:
-            response = await provider.list_charges(subscription_id, page=page, limit=100)
-            out.extend(wv._items(response, "charges"))
-            pages = (response.get("pagination") or {}).get("pages") if isinstance(response, dict) else None
-            if not isinstance(pages, int) or page >= pages:
-                return out
-            page += 1
+        return await wv.fetch_all_charge_pages(provider, subscription_id)
 
 
 def _alive_managed_ids(db: Session, platform: str, sub: str) -> set[str]:
@@ -257,18 +269,103 @@ def _own_managed_ids(db: Session, request_id: uuid.UUID) -> set[str]:
         VpManagedCharge.request_id == request_id, VpManagedCharge.status.in_(ALIVE_MANAGED))))
 
 
-def _to_plan_charges(items: list[dict[str, Any]], managed: set[str], exclude: set[str] | frozenset[str] = frozenset()) -> list[PlanCharge]:
+def _crm_codes(db: Session, platform: str, sub: str, request_id: uuid.UUID | None = None) -> set[str]:
+    """internal_code de los `create_charge` que el CRM ordeno (WriteRuns con solicitud). Registro previo al POST sin
+    esquema nuevo: el WriteRun se confirma ANTES de llamar al proveedor, asi un cobro creado cuyo registro en
+    `vp_managed_charges` fallo igual se reconoce como del CRM por su internal_code."""
+    q = select(WriteRun.request_payload["internal_code"].astext).where(
+        WriteRun.source == platform, WriteRun.operation == "create_charge", WriteRun.request_id.is_not(None),
+        WriteRun.request_payload["suscription_id"].astext == sub,
+    )
+    if request_id is not None:
+        q = q.where(WriteRun.request_id == request_id)
+    return {c for c in db.scalars(q) if c}
+
+
+def _one_off_managed_ids(db: Session, platform: str, sub: str) -> set[str]:
+    """charge_id de los cobros registrados cuya solicitud de origen es un cobro puntual (`one_off_charge`)."""
+    return set(db.scalars(
+        select(VpManagedCharge.charge_id)
+        .join(BillingChangeRequest, BillingChangeRequest.id == VpManagedCharge.request_id)
+        .where(VpManagedCharge.platform == platform, VpManagedCharge.subscription_external_id == sub,
+               BillingChangeRequest.request_type == "one_off_charge")))
+
+
+def _window_replacement_ids(db: Session, platform: str, sub: str) -> set[str]:
+    """Reemplazos de ventana: cobros del CRM fechados el dia siguiente a su creacion (JB-03). Sin esquema nuevo."""
+    out: set[str] = set()
+    for cid, charge_date, created_at in db.execute(
+        select(VpManagedCharge.charge_id, VpManagedCharge.charge_date, VpManagedCharge.created_at).where(
+            VpManagedCharge.platform == platform, VpManagedCharge.subscription_external_id == sub)):
+        if charge_date is not None and created_at is not None and (
+                charge_date - created_at.astimezone(CHILE_TZ).date() == timedelta(days=1)):
+            out.add(cid)
+    return out
+
+
+@dataclass
+class _Known:
+    """Lo que el CRM sabe de sus propios cobros (para marcar is_crm / is_one_off)."""
+
+    managed: set[str] = field(default_factory=set)
+    one_off: set[str] = field(default_factory=set)
+    codes: set[str] = field(default_factory=set)
+    replacements: set[str] = field(default_factory=set)
+
+
+def _known(db: Session, platform: str, sub: str) -> _Known:
+    return _Known(managed=_alive_managed_ids(db, platform, sub), one_off=_one_off_managed_ids(db, platform, sub),
+                  codes=_crm_codes(db, platform, sub), replacements=_window_replacement_ids(db, platform, sub))
+
+
+def _to_plan_charges(
+    items: list[dict[str, Any]], known: _Known | set[str], exclude: set[str] | frozenset[str] = frozenset(),
+) -> list[PlanCharge]:
+    """Convierte el listado del proveedor. Un cobro (no cancelado) con id, fecha o monto no interpretable NO se
+    descarta en silencio: se lanza `UnparseableChargesError` (sin valores de montos ni ids)."""
+    kn = known if isinstance(known, _Known) else _Known(managed=set(known))
     out: list[PlanCharge] = []
+    bad: Counter[str] = Counter()
     for item in items:
         cid = wv._as_text(item.get("id"))
-        charge_date, amount = _to_date(item.get("charge_date")), _to_int(item.get("amount"))
-        if not cid or cid in exclude or charge_date is None or amount is None:
+        status = str(item.get("status") or "")
+        if cid and cid in exclude:
             continue
+        charge_date, amount = _to_date(item.get("charge_date")), _to_int(item.get("amount"))
+        if not cid or charge_date is None or amount is None:
+            if not is_cancelled_status(status):  # un cancelado ilegible no cambia ningun mes
+                bad[norm_state(status)] += 1
+            continue
+        code = wv._as_text(item.get("internal_code")) or None
         out.append(PlanCharge(
-            charge_id=cid, status=str(item.get("status") or ""), charge_date=charge_date, amount=amount,
-            internal_code=wv._as_text(item.get("internal_code")) or None, is_crm=cid in managed,
+            charge_id=cid, status=status, charge_date=charge_date, amount=amount, internal_code=code,
+            is_crm=cid in kn.managed or (code is not None and code in kn.codes), is_one_off=cid in kn.one_off,
         ))
+    if bad:
+        raise UnparseableChargesError(sum(bad.values()), dict(bad))
     return out
+
+
+_PAID_OR_PENDING = frozenset({"pagado", "paid"}) | PENDING_STATES
+
+
+def _resolve_charge_day(db: Session, inp: PlanInput, charges: list[PlanCharge], kn: _Known) -> int | None:
+    """Dia de cobro: `previous_charge_day` de la solicitud (ya en inp.charge_day) > marca activa de la suscripcion >
+    dia mas frecuente (empate: el mayor) entre los 12 cobros pagados/pendientes mas recientes, sin puntuales ni
+    reemplazos de ventana. None si no hay base (el planificador devuelve `missing_charge_day`)."""
+    if inp.request_type == "one_off" or inp.new_charge_day is not None or inp.charge_day is not None:
+        return inp.charge_day
+    mark_day = db.scalar(select(VpCalendarMark.charge_day).where(
+        VpCalendarMark.platform == inp.platform, VpCalendarMark.subscription_external_id == inp.subscription_external_id,
+        VpCalendarMark.is_active.is_(True)))
+    if mark_day:
+        return int(mark_day)
+    cands = [c for c in charges if c.state in _PAID_OR_PENDING and not c.is_puntual and c.charge_id not in kn.replacements]
+    recent = sorted(cands, key=lambda c: c.charge_date, reverse=True)[:12]
+    if not recent:
+        return None
+    freq = Counter(c.charge_date.day for c in recent)
+    return max(freq, key=lambda d: (freq[d], d))
 
 
 def _request_to_input(req: BillingChangeRequest, today: date) -> PlanInput:
@@ -291,11 +388,18 @@ async def _current_plan(
     db: Session, inp: PlanInput, *, exclude_own: uuid.UUID | None
 ) -> tuple[PlanInput, PlanResult, list[dict[str, Any]]]:
     """Plan recalculado con el estado actual. `exclude_own`: oculta los cobros ya creados por esta solicitud
-    (reaplicacion tras fallo parcial) para que el plan sea el mismo y `create_charge` los adopte."""
+    (reaplicacion tras fallo parcial) para que el plan sea el mismo y `create_charge` los adopte; incluye los que
+    no llegaron a registrarse (se reconocen por el internal_code de los create_charge de la solicitud)."""
     items = await _fetch_charges(inp.platform, inp.subscription_external_id)
-    managed = _alive_managed_ids(db, inp.platform, inp.subscription_external_id)
-    exclude = _own_managed_ids(db, exclude_own) if exclude_own else set()
-    full = replace(inp, charges=tuple(_to_plan_charges(items, managed, exclude)))
+    kn = _known(db, inp.platform, inp.subscription_external_id)
+    exclude: set[str] = set()
+    if exclude_own:
+        exclude = _own_managed_ids(db, exclude_own)
+        own_codes = _crm_codes(db, inp.platform, inp.subscription_external_id, exclude_own)
+        exclude |= {cid for it in items
+                    if (cid := wv._as_text(it.get("id"))) and (wv._as_text(it.get("internal_code")) or "") in own_codes}
+    charges = _to_plan_charges(items, kn, exclude)
+    full = replace(inp, charge_day=_resolve_charge_day(db, inp, charges, kn), charges=tuple(charges))
     return full, build_plan(full), items
 
 
@@ -423,14 +527,32 @@ def _mark_managed(ctx: _Ctx, charge_id: str, status: str) -> None:
 async def _status_of(ctx: _Ctx, charge_id: str) -> str | None:
     for item in await _fetch_charges(ctx.platform, ctx.sub):
         if wv._as_text(item.get("id")) == charge_id:
-            return str(item.get("status") or "").strip().lower()
+            return norm_state(item.get("status"))
     return None
+
+
+def _annotate_applied_after_timeout(ctx: _Ctx, charge_id: str) -> None:
+    """El WriteRun hijo de un intento de cancelacion fallido (timeout) que luego resulto aplicado se anota
+    (solo trazabilidad: no cambia el comportamiento)."""
+    try:
+        for run in ctx.db.scalars(select(WriteRun).where(
+                WriteRun.request_id == ctx.req.id, WriteRun.operation == "cancel_future_charges",
+                WriteRun.external_id == ctx.sub, WriteRun.status == "failed")):
+            if (run.request_payload or {}).get("charge_ids") == [charge_id]:
+                run.response_payload = {**(run.response_payload or {}), "applied_after_timeout": True, "charge_id": charge_id}
+        ctx.db.commit()
+    except Exception as exc:  # noqa: BLE001 - anotacion best-effort
+        ctx.db.rollback()
+        log.warning("no se pudo anotar el WriteRun de %s: %s", charge_id, _err(exc))
 
 
 async def _cancel_one(ctx: _Ctx, charge_id: str) -> str:
     """Cancela UN cargo por id (nunca el DELETE plural). Devuelve
     cancelled | already_cancelled | covered | noop | failed. Hasta 2 intentos; antes de cada uno
-    `cancel_future_charges` relee los pendientes, asi que tras un timeout no se repite un DELETE ya aplicado."""
+    `cancel_future_charges` relee los pendientes, asi que tras un timeout no se repite un DELETE ya aplicado.
+    E-079 y "no pendiente" se resuelven igual: se consulta el estado real (cancelado -> already_cancelled;
+    pendiente -> failed; otro, p. ej. pagado/procesando -> covered)."""
+    errored = False
     for _attempt in (1, 2):
         try:
             res = await wv.cancel_future_charges(
@@ -440,20 +562,21 @@ async def _cancel_one(ctx: _Ctx, charge_id: str) -> str:
             if res["cancelled"]:
                 return "cancelled"
             reason = (res["skipped"] or [{}])[0].get("reason")
-            if reason == "E-079":
-                return "noop"
             if reason == "E-059":
                 return "covered"
-            state = await _status_of(ctx, charge_id)  # no_pendiente: ver que es
+            state = await _status_of(ctx, charge_id)  # E-079 / no_pendiente: ver que es
             if state is None:
                 return "noop"
-            if state in ("cancelado", "cancelada", "cancelled", "canceled"):
+            if state in CANCELLED_STATES:
+                if errored:
+                    _annotate_applied_after_timeout(ctx, charge_id)
                 return "already_cancelled"
             if state in PENDING_STATES:
                 ctx.last_error = RuntimeError(f"El cobro {charge_id} figura pendiente pero no se pudo cancelar.")
                 return "failed"
             return "covered"
         except Exception as exc:  # noqa: BLE001 - estado incierto: se relee en el siguiente intento
+            errored = True
             ctx.last_error = exc
             log.warning("cancel %s fallo: %s", charge_id, _err(exc))
     return "failed"
@@ -468,8 +591,8 @@ async def _compensate(ctx: _Ctx, charge_ids: list[str]) -> list[str]:
     except Exception as exc:  # noqa: BLE001
         ctx.last_error = exc
         return list(charge_ids)
-    status = {wv._as_text(i.get("id")): str(i.get("status") or "").strip().lower() for i in items}
-    left = [cid for cid in charge_ids if status.get(cid) not in ("cancelado", "cancelada", "cancelled", "canceled")]
+    status = {wv._as_text(i.get("id")): norm_state(i.get("status")) for i in items}
+    left = [cid for cid in charge_ids if status.get(cid) not in CANCELLED_STATES]
     for cid in charge_ids:
         _mark_managed(ctx, cid, "requiere_conciliacion" if cid in left else "compensado")
     return left
@@ -535,7 +658,7 @@ async def _handle_create_failure(ctx: _Ctx, action: PlanAction, k: int, exc: Bas
         for item in await _fetch_charges(ctx.platform, ctx.sub):
             cid = wv._as_text(item.get("id"))
             if (cid and cid not in ctx.created_ids and wv._as_text(item.get("internal_code")) == action.internal_code
-                    and str(item.get("status") or "").strip().lower() not in ("cancelado", "cancelada")):
+                    and norm_state(item.get("status")) in PENDING_STATES):
                 _upsert_managed(ctx, cid, action)  # huerfano de un POST con timeout
                 ctx.created_ids.append(cid)
     except Exception as read_exc:  # noqa: BLE001
@@ -593,7 +716,7 @@ async def _cancel_all(ctx: _Ctx, plan: PlanResult) -> tuple[list[str], list[str]
 async def _verify(ctx: _Ctx, inp: PlanInput, plan: PlanResult) -> tuple[list[str], list[PlanCharge]]:
     """Relee y exige exactamente un pendiente por mes esperado. Devuelve (problemas, cargos actuales)."""
     items = await _fetch_charges(ctx.platform, ctx.sub)
-    charges = _to_plan_charges(items, _alive_managed_ids(ctx.db, ctx.platform, ctx.sub))
+    charges = _to_plan_charges(items, _known(ctx.db, ctx.platform, ctx.sub))
     problems: list[str] = []
     if inp.request_type == "one_off":
         codes = {a.internal_code for a in plan.create}
@@ -607,7 +730,12 @@ async def _verify(ctx: _Ctx, inp: PlanInput, plan: PlanResult) -> tuple[list[str
         problems.append("el plan de verificación tiene errores: " + ", ".join(e.code for e in vplan.errors))
     if vplan.create or vplan.cancel:
         problems.append("quedan acciones pendientes: " + ", ".join(sorted({a.month for a in vplan.create + vplan.cancel})))
-    skip = {c.month for c in vplan.covered} | {m.month for m in vplan.manual_review}
+    own = set(ctx.created_ids) | _own_managed_ids(ctx.db, ctx.req.id)
+    double = sorted({c.month for c in charges if c.charge_id in own and c.state in PENDING_STATES
+                     and c.month in {cm.month for cm in vplan.covered}})
+    if double:  # mes cubierto (pagado/procesando/rechazado) que ademas tiene un pendiente creado por esta solicitud
+        problems.append("meses cubiertos con un cobro nuevo pendiente (doble cobro): " + ", ".join(double))
+    skip = {c.month for c in vplan.covered} | {m.month for m in vplan.manual_review} | set(vplan.kept_due_today)
     unchanged = set(vplan.unchanged)
     bad = [m for m in _months_from(plan.summary.horizon_start, inp.horizon_months) if m not in skip and m not in unchanged]
     if bad:
@@ -616,7 +744,7 @@ async def _verify(ctx: _Ctx, inp: PlanInput, plan: PlanResult) -> tuple[list[str
 
 
 def _upsert_mark(ctx: _Ctx, inp: PlanInput, charges: list[PlanCharge]) -> dict[str, Any] | None:
-    crm = [c for c in charges if c.is_crm and c.state in PENDING_STATES]
+    crm = [c for c in charges if c.is_crm and not c.is_puntual and c.state in PENDING_STATES]  # sin puntuales
     if not crm:
         return None
     last = max(crm, key=lambda c: c.charge_date)
@@ -635,8 +763,23 @@ def _upsert_mark(ctx: _Ctx, inp: PlanInput, charges: list[PlanCharge]) -> dict[s
     return {"last_scheduled_month": mark.last_scheduled_month, "charge_day": day, "amount": inp.new_amount}
 
 
+def _check_lock_alive(ctx: _Ctx) -> None:
+    """Comprobacion barata (`SELECT 1`) de la conexion dedicada del lock antes de la fase de cancelaciones: si el
+    servidor la cerro (p. ej. `idle_in_transaction_session_timeout`), el advisory lock ya no esta y no se cancela nada."""
+    if ctx.lock_conn is None:
+        return
+    try:
+        ctx.lock_conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise _reconciliation(
+            ctx, f"Se perdió la conexión del lock de la suscripción antes de cancelar los cobros antiguos: {_err(exc)}",
+            {"created": ctx.created_ids, "phase": "before_cancellations"}, exc) from exc
+
+
 async def _execute(ctx: _Ctx, inp: PlanInput, plan: PlanResult, drift: dict[str, Any] | None) -> ApplyResult:
     await _create_all(ctx, plan)
+    if plan.cancel:
+        _check_lock_alive(ctx)
     cancelled, covered_late = await _cancel_all(ctx, plan)
     try:
         problems, charges = await _verify(ctx, inp, plan)
@@ -696,7 +839,7 @@ async def apply_change_request(
     platform, sub = req.platform, req.subscription_external_id
     wv.ensure_charge_allowed_on_plan(db, sub, platform)
 
-    with subscription_lock(db, platform, sub):
+    with subscription_lock(db, platform, sub) as lock_conn:
         db.refresh(req)
         if req.status == "ejecutada":
             return ApplyResult(request_id=req.id, status="ejecutada", already_applied=True, write_run_id=req.write_run_id)
@@ -717,7 +860,7 @@ async def apply_change_request(
         if plan.errors:
             return _not_executable(db, req, actor_user_id, "invalid_plan", {"errors": [e.code for e in plan.errors]})
         new_preview = plan_to_preview_json(plan)
-        cancelled_ids = {wv._as_text(i.get("id")) for i in items if str(i.get("status") or "").strip().lower() in ("cancelado", "cancelada")}
+        cancelled_ids = {wv._as_text(i.get("id")) for i in items if is_cancelled_status(i.get("status"))}
         drift = compute_drift(req.plan_preview or {}, new_preview, {c for c in cancelled_ids if c})
         if drift is not None and not accept_drift:
             raise PlanDriftError(drift, new_preview)
@@ -741,7 +884,7 @@ async def apply_change_request(
         _event(db, req.id, "aplicando", actor_user_id, {"write_run_id": str(run.id), "drift_accepted": drift})
         db.commit()
 
-        ctx = _Ctx(db=db, req=req, platform=platform, sub=sub, actor=actor_user_id, run=run)
+        ctx = _Ctx(db=db, req=req, platform=platform, sub=sub, actor=actor_user_id, run=run, lock_conn=lock_conn)
         try:
             return await _execute(ctx, inp, plan, drift)
         except (ApplyFailedError, ReconciliationRequiredError):
@@ -751,10 +894,75 @@ async def apply_change_request(
             ctx.req = db.get(BillingChangeRequest, req.id) or req
             ctx.run = db.get(WriteRun, run.id)
             raise _reconciliation(ctx, f"Error inesperado al aplicar: {_err(exc)}", {"created": ctx.created_ids}, exc) from exc
+        except BaseException as exc:
+            # CancelledError / KeyboardInterrupt tras el claim: la solicitud no puede quedar en 'aplicando'.
+            try:
+                db.rollback()
+                ctx.req = db.get(BillingChangeRequest, req.id) or req
+                ctx.run = db.get(WriteRun, run.id)
+                _reconciliation(ctx, f"Aplicación interrumpida ({type(exc).__name__}); revisar el estado en el proveedor.",
+                                {"created": ctx.created_ids, "interrupted": type(exc).__name__}, exc)
+            except Exception as rec_exc:  # noqa: BLE001 - se relanza igual la excepcion original
+                log.error("no se pudo registrar la interrupcion de %s: %s", req.id, _err(rec_exc))
+            raise
+
+
+STUCK_APPLYING_MINUTES = 30
+
+
+def sweep_stuck_applying(
+    db: Session, *, older_than_minutes: int = STUCK_APPLYING_MINUTES, now: datetime | None = None
+) -> list[uuid.UUID]:
+    """Barredor: solicitudes en 'aplicando' sin actividad hace mas de `older_than_minutes` (proceso caido) pasan a
+    `requiere_conciliacion` con evento 'requiere_conciliacion' (actor sistema); sus cobros vivos quedan bloqueando la
+    suscripcion. Si el lock de la suscripcion esta tomado (aplicacion viva) se omite. Devuelve los ids barridos.
+    Invocable; NO registrado en el scheduler (otra tanda)."""
+    cutoff = (now or datetime.now(UTC)) - timedelta(minutes=older_than_minutes)
+    stuck = list(db.execute(select(BillingChangeRequest.id, BillingChangeRequest.platform,
+                                   BillingChangeRequest.subscription_external_id).where(
+        BillingChangeRequest.status == "aplicando", BillingChangeRequest.updated_at < cutoff)))
+    swept: list[uuid.UUID] = []
+    for req_id, platform, sub in stuck:
+        try:
+            with subscription_lock(db, platform, sub):
+                msg = f"Solicitud en 'aplicando' sin actividad por más de {older_than_minutes} min: requiere conciliación."
+                changed = db.execute(
+                    update(BillingChangeRequest)
+                    .where(BillingChangeRequest.id == req_id, BillingChangeRequest.status == "aplicando",
+                           BillingChangeRequest.updated_at < cutoff)
+                    .values(status="requiere_conciliacion", error_message=msg, updated_at=func.now())
+                    .execution_options(synchronize_session=False)).rowcount
+                if changed != 1:
+                    db.rollback()
+                    continue
+                db.execute(update(VpManagedCharge).where(
+                    VpManagedCharge.request_id == req_id, VpManagedCharge.status == "creado").values(status="requiere_conciliacion"))
+                db.execute(update(WriteRun).where(WriteRun.request_id == req_id, WriteRun.status == "pending").values(
+                    status="reconciliation_required", error_message=msg, finished_at=datetime.now(UTC)))
+                _event(db, req_id, "requiere_conciliacion", None, {"reason": "stuck_applying", "older_than_minutes": older_than_minutes})
+                db.commit()
+                swept.append(req_id)
+        except SubscriptionBusyError:
+            db.rollback()
+    return swept
 
 
 __all__ = [
-    "ApplyFailedError", "ApplyResult", "BillingApplyError", "InvalidRequestStateError", "PlanDriftError",
-    "RequestNotFoundError", "SubscriptionBlockedError", "SubscriptionBusyError", "apply_change_request",
-    "compute_drift", "is_subscription_blocked", "lock_key", "preview_change", "subscription_lock",
+    "ApplyFailedError",
+    "ApplyResult",
+    "BillingApplyError",
+    "InvalidRequestStateError",
+    "PlanDriftError",
+    "ProviderListingError",
+    "RequestNotFoundError",
+    "SubscriptionBlockedError",
+    "SubscriptionBusyError",
+    "UnparseableChargesError",
+    "apply_change_request",
+    "compute_drift",
+    "is_subscription_blocked",
+    "lock_key",
+    "preview_change",
+    "subscription_lock",
+    "sweep_stuck_applying",
 ]

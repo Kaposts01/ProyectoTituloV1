@@ -13,6 +13,7 @@ from app.integrations.virtualpos.client import VirtualPOSAPIError
 from app.models.crm import Charge as CCharge
 from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription
+from app.services.billing_apply import SubscriptionBusyError
 from app.services.write_payku import (
     ClientNotFoundError as PaykuClientNotFoundError,
 )
@@ -64,6 +65,7 @@ from app.services.write_toku import (
     update_invoice as toku_update_invoice,
 )
 from app.services.write_virtualpos import (
+    BillingFlowConflictError,
     ChargeNotFoundError,
     ClientNotFoundError,
     DuplicateClientError,
@@ -72,6 +74,7 @@ from app.services.write_virtualpos import (
     InvalidClientDataError,
     PaymentNotFoundError,
     PluralCancelForbiddenError,
+    ProviderListingError,
     ReconciliationRequiredError,
     RetryBlockedError,
     SubscriptionNotFoundError,
@@ -328,6 +331,8 @@ async def create_virtualpos_charge(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except FixedPlanChargeBlockedError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    except ProviderListingError:
+        raise HTTPException(status_code=502, detail="Listado de cobros de VirtualPOS incompleto o inesperado") from None
     except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the charge") from None
     except ReconciliationRequiredError:
@@ -356,6 +361,8 @@ async def cancel_virtualpos_future_charges(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except PluralCancelForbiddenError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    except ProviderListingError:
+        raise HTTPException(status_code=502, detail="Listado de cobros de VirtualPOS incompleto o inesperado") from None
     except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación de cargos") from None
     except ReconciliationRequiredError:
@@ -398,6 +405,10 @@ async def reassign_virtualpos_subscription_amount(
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except FixedPlanChargeBlockedError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    except (BillingFlowConflictError, SubscriptionBusyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except ProviderListingError:
+        raise HTTPException(status_code=502, detail="Listado de cobros de VirtualPOS incompleto o inesperado") from None
     except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la reasignación de monto") from None
     except ReconciliationRequiredError:

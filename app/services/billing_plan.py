@@ -18,6 +18,7 @@ Reglas clave:
 from __future__ import annotations
 
 import calendar
+import re
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -30,6 +31,25 @@ RequestType = Literal["change_amount", "change_date", "renew_calendar", "one_off
 
 PENDING_STATES = frozenset({"pendiente", "pending"})
 CANCELLED_STATES = frozenset({"cancelado", "cancelada", "cancelled", "canceled"})
+# internal_code que genera `build_one_off_plan`: `{sub}-T{tarea}-{YYYYMMDD}-{monto}` o `{sub}-{YYYYMMDD}-{monto}-oneoff`.
+_ONE_OFF_CODE = re.compile(r"-T.+-\d{8}-\d+$|-\d{8}-\d+-oneoff$")
+
+
+def norm_state(status: Any) -> str:
+    """Normalizacion UNICA de estados del proveedor (strip + minusculas)."""
+    return str(status or "").strip().lower()
+
+
+def is_pending_status(status: Any) -> bool:
+    return norm_state(status) in PENDING_STATES
+
+
+def is_cancelled_status(status: Any) -> bool:
+    return norm_state(status) in CANCELLED_STATES
+
+
+def is_one_off_code(internal_code: str | None) -> bool:
+    return bool(internal_code and _ONE_OFF_CODE.search(internal_code))
 COVERING_STATES = frozenset({"pagado", "procesando", "rechazado"})
 _COVER_ALIASES = {"paid": "pagado", "processing": "procesando", "rejected": "rechazado"}
 
@@ -51,6 +71,12 @@ class PlanCharge:
     amount: int
     internal_code: str | None = None
     is_crm: bool = False
+    is_one_off: bool = False  # cobro puntual por tarea: ajeno al calendario regular (ver `is_puntual`)
+
+    @property
+    def is_puntual(self) -> bool:
+        """Puntual por bandera (solicitud one_off_charge de origen) o por el patron de internal_code de build_one_off_plan."""
+        return self.is_one_off or is_one_off_code(self.internal_code)
 
     @property
     def is_manual(self) -> bool:
@@ -144,6 +170,7 @@ class PlanResult:
     manual_review: tuple[ManualReviewMonth, ...] = ()
     unchanged: tuple[str, ...] = ()
     kept_automatic_after_horizon: tuple[KeptCharge, ...] = ()
+    kept_due_today: tuple[str, ...] = ()  # meses con un pendiente fechado HOY: no se toca (riesgo de doble cobro)
     warnings: tuple[PlanIssue, ...] = ()
     errors: tuple[PlanIssue, ...] = ()
     noop: bool = False
@@ -232,7 +259,7 @@ def _resolve_charge_day(inp: PlanInput, today: date) -> int | None:
         return inp.new_charge_day
     if inp.charge_day is not None:
         return inp.charge_day
-    live = [c for c in inp.charges if c.state not in CANCELLED_STATES]
+    live = [c for c in inp.charges if c.state not in CANCELLED_STATES and not c.is_puntual]
     paid = [c for c in live if _COVER_ALIASES.get(c.state, c.state) in ("pagado", "procesando") and c.charge_date <= today]
     pool = paid or live
     return max(pool, key=lambda c: c.charge_date).charge_date.day if pool else None
@@ -266,6 +293,7 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
     covered: list[CoveredMonth] = []
     review: list[ManualReviewMonth] = []
     unchanged: list[str] = []
+    kept_today: list[str] = []
     creates: list[PlanAction] = []
     cancel_plan: list[tuple[str, PlanCharge]] = []
     shifted = 0  # cuantos reemplazos de ventana ya usaron 'manana' (espaciado JB-09)
@@ -281,7 +309,12 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
                 if _cover_reason(c.state) == "unknown_status":
                     warnings.append(_issue("unknown_status", f"Estado desconocido {c.status!r}: mes tratado como cubierto.", key))
             continue
-        pend = [c for c in cs if c.state in PENDING_STATES]
+        pend = [c for c in cs if c.state in PENDING_STATES and not c.is_puntual]  # puntuales: ni cancel ni keep
+        due_today = [c for c in pend if c.charge_date == today]
+        if due_today:  # puede estar ya en proceso en VP: ni cancelar ni reemplazar (riesgo de doble cobro)
+            warnings.append(_issue("due_today_kept", "Cobro pendiente fechado hoy: no se toca.", key))
+            kept_today.append(key)
+            continue
         if len(pend) > 1:
             warnings.append(_issue("multiple_pending", f"{len(pend)} cobros pendientes en el mes (CO-02).", key))
         foreign = [c for c in pend if c.is_manual and not c.is_crm]
@@ -308,6 +341,9 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
                     review.append(ManualReviewMonth(key, target, overdue))
                     continue  # sin create => no se cancela nada de ese mes
                 cdate = tomorrow + timedelta(days=shifted)
+                if (cdate.year, cdate.month) != ym:  # el reemplazo debe caer en SU mes (de lo contrario duplicaria el siguiente)
+                    review.append(ManualReviewMonth(key, target, overdue, "replacement_outside_month"))
+                    continue
                 shifted += 1
             else:
                 cdate = target
@@ -337,14 +373,14 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
     if previous is None and cancels:
         previous = Counter(a.amount for a in cancels).most_common(1)[0][0]
     return _finish(inp, tuple(creates), cancels, tuple(covered), tuple(review), tuple(unchanged), kept_after,
-                   tuple(warnings), previous, horizon_keys[0], last_key)
+                   tuple(warnings), previous, horizon_keys[0], last_key, tuple(kept_today))
 
 
 def _finish(
     inp: PlanInput, creates: tuple[PlanAction, ...], cancels: tuple[PlanAction, ...],
     covered: tuple[CoveredMonth, ...], review: tuple[ManualReviewMonth, ...], unchanged: tuple[str, ...],
     kept_after: tuple[KeptCharge, ...], warnings: tuple[PlanIssue, ...], previous: int | None,
-    h_start: str | None, h_end: str | None,
+    h_start: str | None, h_end: str | None, kept_due_today: tuple[str, ...] = (),
 ) -> PlanResult:
     delta = inp.new_amount - previous if previous is not None else None
     pct = round(abs(delta) / previous * 100, 2) if previous else None
@@ -358,7 +394,7 @@ def _finish(
     return PlanResult(
         request_type=inp.request_type, subscription_external_id=inp.subscription_external_id,
         create=creates, cancel=cancels, covered=covered, manual_review=review, unchanged=unchanged,
-        kept_automatic_after_horizon=kept_after, warnings=warnings,
+        kept_automatic_after_horizon=kept_after, kept_due_today=kept_due_today, warnings=warnings,
         noop=not creates and not cancels and not review, summary=summary,
     )
 
@@ -395,7 +431,7 @@ def build_renewal_plan(inp: PlanInput) -> PlanResult:
     errs = _validate(inp)
     if errs:
         return _failed(inp, errs)
-    crm_months = [c.month for c in inp.charges if c.is_crm and c.state not in CANCELLED_STATES]
+    crm_months = [c.month for c in inp.charges if c.is_crm and not c.is_puntual and c.state not in CANCELLED_STATES]
     if not crm_months:
         return _failed(inp, [_issue("no_crm_calendar", "Sin cobros del CRM: la suscripcion no tiene calendario modificado.")])
     start = _add_months(_parse_month(max(crm_months)), 1)
@@ -469,6 +505,7 @@ def plan_to_preview_json(result: PlanResult) -> dict[str, Any]:
             for m in result.manual_review
         ],
         "unchanged": list(result.unchanged),
+        "kept_due_today": list(result.kept_due_today),
         "kept_automatic_after_horizon": [
             {"month": k.month, "charge_id": k.charge_id, "charge_date": k.charge_date.isoformat(), "amount": k.amount}
             for k in result.kept_automatic_after_horizon
@@ -486,7 +523,24 @@ def plan_to_preview_json(result: PlanResult) -> dict[str, Any]:
 
 
 __all__ = [
-    "CoveredMonth", "KeptCharge", "ManualReviewMonth", "PlanAction", "PlanCharge", "PlanInput", "PlanIssue",
-    "PlanResult", "PlanSummary", "build_amount_change_plan", "build_date_change_plan", "build_one_off_plan",
-    "build_plan", "build_renewal_plan", "month_date", "plan_to_preview_json",
+    "CoveredMonth",
+    "KeptCharge",
+    "ManualReviewMonth",
+    "PlanAction",
+    "PlanCharge",
+    "PlanInput",
+    "PlanIssue",
+    "PlanResult",
+    "PlanSummary",
+    "build_amount_change_plan",
+    "build_date_change_plan",
+    "build_one_off_plan",
+    "build_plan",
+    "build_renewal_plan",
+    "is_cancelled_status",
+    "is_one_off_code",
+    "is_pending_status",
+    "month_date",
+    "norm_state",
+    "plan_to_preview_json",
 ]

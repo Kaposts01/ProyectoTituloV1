@@ -13,12 +13,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
-from app.models.billing import VpCalendarMark
+from app.models.billing import BillingChangeRequest, VpCalendarMark, VpManagedCharge
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
 from app.models.vp import VpPlan, VpSubscription
 from app.models.write_run import WriteRun
+from app.services.billing_plan import is_cancelled_status, is_pending_status
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
 
 log = logging.getLogger(__name__)
@@ -481,24 +482,21 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
 
 
 async def _find_charge_by_internal_code(provider: Any, subscription_id: str, internal_code: str) -> dict | None:
-    """Cargo de la suscripción con ese `internal_code` y estado distinto de `cancelado` (todas las páginas).
+    """Cargo PENDIENTE de la suscripción con ese `internal_code` (todas las páginas).
 
-    Un fallo del listado se propaga: sin listado no se puede garantizar idempotencia y no se crea el cargo.
+    Solo se adoptan pendientes (un cobro pagado/procesando con el mismo código no se reutiliza; los cancelados, en
+    cualquiera de sus 4 variantes, tampoco). Un fallo o una forma inesperada del listado se propaga: sin listado
+    completo no se puede garantizar idempotencia y no se crea el cargo.
     """
-    page = 1
-    while True:
-        response = await provider.list_charges(subscription_id, page=page, limit=100)
-        for item in _items(response, "charges"):
-            if (
-                item.get("id")
-                and _as_text(item.get("internal_code")) == internal_code
-                and str(item.get("status") or "").strip().lower() != "cancelado"
-            ):
-                return item
-        pages = (response.get("pagination") or {}).get("pages") if isinstance(response, dict) else None
-        if not isinstance(pages, int) or page >= pages:
-            return None
-        page += 1
+    for item in await fetch_all_charge_pages(provider, subscription_id):
+        if (
+            item.get("id")
+            and _as_text(item.get("internal_code")) == internal_code
+            and not is_cancelled_status(item.get("status"))
+            and is_pending_status(item.get("status"))
+        ):
+            return item
+    return None
 
 
 async def create_charge(
@@ -768,17 +766,45 @@ def _items(response: Any, key: str) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
-async def _list_pending_charges(provider: Any, subscription_id: str) -> list[dict[str, Any]]:
-    """Cargos en estado exactamente `pendiente` (nunca procesando/pagado/rechazado), todas las páginas."""
-    pending: list[dict[str, Any]] = []
+class ProviderListingError(Exception):
+    """Listado de cobros incompleto o con forma inesperada: fail-closed, no se planifica ni se escribe con él."""
+
+
+_CHARGES_PAGE_LIMIT = 100
+_CHARGES_MAX_PAGES = 200
+
+
+async def fetch_all_charge_pages(provider: Any, subscription_id: str, status: str | None = None) -> list[dict[str, Any]]:
+    """Todas las páginas de `list_charges`, en modo estricto: una respuesta que no es dict con lista `charges` de dicts,
+    o sin `pagination.pages` entero cuando la página viene llena (indicio de más páginas), lanza `ProviderListingError`."""
+    out: list[dict[str, Any]] = []
     page = 1
     while True:
-        response = await provider.list_charges(subscription_id, page=page, limit=100, status="pendiente")
-        pending.extend(c for c in _items(response, "charges") if c.get("status") == "pendiente" and c.get("id"))
-        pages = (response.get("pagination") or {}).get("pages") if isinstance(response, dict) else None
-        if not isinstance(pages, int) or page >= pages:
-            return pending
+        kwargs: dict[str, Any] = {"page": page, "limit": _CHARGES_PAGE_LIMIT}
+        if status is not None:
+            kwargs["status"] = status
+        response = await provider.list_charges(subscription_id, **kwargs)
+        raw = response.get("charges") if isinstance(response, dict) else None
+        if not isinstance(raw, list) or any(not isinstance(item, dict) for item in raw):
+            raise ProviderListingError("Respuesta inesperada del listado de cobros del proveedor (se aborta, fail-closed).")
+        out.extend(raw)
+        pagination = response.get("pagination")
+        pages = pagination.get("pages") if isinstance(pagination, dict) else None
+        if isinstance(pages, bool) or not isinstance(pages, int):
+            if len(raw) >= _CHARGES_PAGE_LIMIT:
+                raise ProviderListingError("Listado de cobros posiblemente incompleto: página llena sin pagination.pages.")
+            return out
+        if page >= pages:
+            return out
         page += 1
+        if page > _CHARGES_MAX_PAGES:
+            raise ProviderListingError("Listado de cobros con demasiadas páginas (se aborta).")
+
+
+async def _list_pending_charges(provider: Any, subscription_id: str) -> list[dict[str, Any]]:
+    """Cargos pendientes (estado normalizado con `is_pending_status`; nunca procesando/pagado/rechazado), todas las páginas."""
+    items = await fetch_all_charge_pages(provider, subscription_id, status="pendiente")
+    return [c for c in items if is_pending_status(c.get("status")) and c.get("id")]
 
 
 def _reconcile_cancelled_charges(db: Session, platform: str, cancelled: list[dict[str, Any]]) -> None:
@@ -836,6 +862,50 @@ def has_active_calendar_mark(db: Session, platform: str, subscription_id: str) -
     ) is not None
 
 
+LIVE_MANAGED_STATUSES = ("creado", "requiere_conciliacion")
+OPEN_REQUEST_STATUSES = ("pendiente", "aprobada", "aplicando", "requiere_conciliacion")
+
+
+def has_live_managed_charges(db: Session, platform: str, subscription_id: str) -> bool:
+    """Hay cobros del CRM vivos (`creado`/`requiere_conciliacion`) en la suscripción, aunque no exista marca."""
+    return db.scalar(
+        select(VpManagedCharge.id).where(
+            VpManagedCharge.platform == platform,
+            VpManagedCharge.subscription_external_id == subscription_id,
+            VpManagedCharge.status.in_(LIVE_MANAGED_STATUSES),
+        ).limit(1)
+    ) is not None
+
+
+def has_open_change_request(db: Session, platform: str, subscription_id: str) -> bool:
+    return db.scalar(
+        select(BillingChangeRequest.id).where(
+            BillingChangeRequest.platform == platform,
+            BillingChangeRequest.subscription_external_id == subscription_id,
+            BillingChangeRequest.status.in_(OPEN_REQUEST_STATUSES),
+        ).limit(1)
+    ) is not None
+
+
+class BillingFlowConflictError(Exception):
+    """El flujo viejo (reassign-amount) no puede esquivar los controles del flujo de solicitudes de cambio."""
+
+
+BILLING_FLOW_CONFLICT_MESSAGE = (
+    "La suscripción está gestionada por el flujo de solicitudes de cambio de cobro (calendario modificado, cobros del "
+    "CRM vivos o solicitud abierta): use ese flujo en vez de la reasignación directa de monto."
+)
+
+
+def ensure_no_billing_flow_conflict(db: Session, platform: str, subscription_id: str) -> None:
+    if (
+        has_active_calendar_mark(db, platform, subscription_id)
+        or has_live_managed_charges(db, platform, subscription_id)
+        or has_open_change_request(db, platform, subscription_id)
+    ):
+        raise BillingFlowConflictError(BILLING_FLOW_CONFLICT_MESSAGE)
+
+
 async def cancel_future_charges(
     db: Session,
     subscription_id: str,
@@ -871,7 +941,9 @@ async def cancel_future_charges(
         result["noop"] = not result["would_cancel"]
         return result
 
-    if charge_ids is None and has_active_calendar_mark(db, platform, subscription_id):
+    if charge_ids is None and (
+        has_active_calendar_mark(db, platform, subscription_id) or has_live_managed_charges(db, platform, subscription_id)
+    ):
         raise PluralCancelForbiddenError(PLURAL_CANCEL_FORBIDDEN_MESSAGE)
 
     if not settings.virtualpos_writes_enabled:
@@ -968,12 +1040,42 @@ async def reassign_subscription_amount(
     internal_code: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
+    """Flujo VIEJO de reasignación de monto. No puede esquivar los controles del flujo de solicitudes de cambio:
+    toma el `subscription_lock` de billing_apply (escrituras reales) y se rechaza con `BillingFlowConflictError`
+    si hay marca de calendario activa, cobros del CRM vivos o una solicitud abierta en la suscripción."""
+    from app.services.billing_apply import (
+        subscription_lock,  # import local: billing_apply importa este módulo
+    )
+
+    platform = _resolve_platform(db, subscription_id, platform)
+    if dry_run:
+        ensure_no_billing_flow_conflict(db, platform, subscription_id)
+        return await _reassign_subscription_amount(
+            db, subscription_id, new_amount, effective_date, platform=platform, description=description,
+            internal_code=internal_code, dry_run=True)
+    with subscription_lock(db, platform, subscription_id):
+        ensure_no_billing_flow_conflict(db, platform, subscription_id)
+        return await _reassign_subscription_amount(
+            db, subscription_id, new_amount, effective_date, platform=platform, description=description,
+            internal_code=internal_code, dry_run=False)
+
+
+async def _reassign_subscription_amount(
+    db: Session,
+    subscription_id: str,
+    new_amount: int,
+    effective_date: str,
+    *,
+    platform: str,
+    description: str | None = None,
+    internal_code: str | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
     """Reemplaza el cargo pendiente del periodo (mes de `effective_date`) por uno nuevo con `new_amount`.
 
     Orden seguro: primero CREAR el cargo nuevo y solo si tuvo éxito cancelar los pendientes del periodo,
     para no dejar nunca al socio sin cobros si el POST falla (p. ej. E-113).
     """
-    platform = _resolve_platform(db, subscription_id, platform)
     period = effective_date[:7]
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
