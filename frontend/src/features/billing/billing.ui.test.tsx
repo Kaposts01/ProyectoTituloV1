@@ -43,14 +43,17 @@ function detail(over: Record<string, unknown> = {}) {
 
 let listItems: ReturnType<typeof req>[] = [];
 let detailData = detail();
+let requesters: { id: string; username: string }[] = [];
 
 beforeEach(() => {
   mocks.getJson.mockReset();
   mocks.postJson.mockReset();
   mocks.putJson.mockReset();
   listItems = [req()];
+  requesters = [{ id: "11111111-1111-4111-8111-111111111111", username: "ana" }, { id: "22222222-2222-4222-8222-222222222222", username: "beto" }];
   detailData = detail();
   mocks.getJson.mockImplementation(async (path: string) => {
+    if (path === "/api/v1/billing/requesters") return { items: requesters };
     if (path.startsWith("/api/v1/billing/changes?")) return { items: listItems, total: listItems.length, limit: 25, offset: 0 };
     if (path.startsWith("/api/v1/billing/changes/")) return detailData;
     throw new Error(`ruta no mockeada ${path}`);
@@ -116,14 +119,54 @@ describe("bandeja", () => {
     });
   });
 
-  it("un filtro invalido no consulta y avisa", async () => {
+  it("el selector de solicitante lista usuarios, filtra por requested_by y conserva Todos", async () => {
     render(<BillingInbox can={canOf(READONLY)} />);
     await screen.findByRole("table");
-    const calls = mocks.getJson.mock.calls.length;
-    fireEvent.change(screen.getByLabelText("Solicitante (ID)"), { target: { value: "no-es-uuid" } });
+    const select = await screen.findByLabelText("Solicitante") as HTMLSelectElement;
+    await waitFor(() => expect(select.disabled).toBe(false));
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(["Todos", "ana", "beto"]);
+    fireEvent.change(select, { target: { value: "22222222-2222-4222-8222-222222222222" } });
     fireEvent.click(screen.getByRole("button", { name: "Buscar" }));
-    expect((await screen.findByRole("alert")).textContent).toMatch(/UUID/);
-    expect(mocks.getJson.mock.calls.length).toBe(calls);
+    await waitFor(() => {
+      const last = new URL(mocks.getJson.mock.calls.at(-1)![0], "http://x").searchParams;
+      expect(last.get("requested_by")).toBe("22222222-2222-4222-8222-222222222222");
+    });
+    fireEvent.change(select, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Buscar" }));
+    await waitFor(() => {
+      const last = new URL(mocks.getJson.mock.calls.at(-1)![0], "http://x").searchParams;
+      expect(last.has("requested_by")).toBe(false);
+    });
+  });
+
+  it("«Mis solicitudes» sigue funcionando aunque el usuario no figure en la lista", async () => {
+    render(<BillingInbox can={canOf(READONLY)} currentUserId="33333333-3333-4333-8333-333333333333" />);
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Mis solicitudes" }));
+    expect((screen.getByLabelText("Solicitante") as HTMLSelectElement).value).toBe("33333333-3333-4333-8333-333333333333");
+    fireEvent.click(screen.getByRole("button", { name: "Buscar" }));
+    await waitFor(() => {
+      const last = new URL(mocks.getJson.mock.calls.at(-1)![0], "http://x").searchParams;
+      expect(last.get("requested_by")).toBe("33333333-3333-4333-8333-333333333333");
+    });
+  });
+
+  it("si falla la lista de solicitantes avisa, permite reintentar y no bloquea la bandeja", async () => {
+    const base = mocks.getJson.getMockImplementation()!;
+    let failOnce = true;
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/v1/billing/requesters" && failOnce) { failOnce = false; throw apiError(500, "boom"); }
+      return base(path);
+    });
+    render(<BillingInbox can={canOf(READONLY)} />);
+    expect(await screen.findByRole("table")).toBeTruthy();
+    expect((await screen.findByText(/No se pudo cargar la lista de solicitantes/)).textContent).toBeTruthy();
+    expect((screen.getByLabelText("Solicitante") as HTMLSelectElement).disabled).toBe(false);
+    const buscar = screen.getByRole("button", { name: "Buscar" }) as HTMLButtonElement;
+    expect(buscar.disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    await waitFor(() => expect(screen.queryByText(/No se pudo cargar la lista de solicitantes/)).toBeNull());
+    await waitFor(() => expect(Array.from((screen.getByLabelText("Solicitante") as HTMLSelectElement).options).length).toBe(3));
   });
 });
 

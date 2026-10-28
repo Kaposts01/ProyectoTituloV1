@@ -350,6 +350,12 @@ def list_change_requests(
     return {"items": [_request_json(r, names) for r in rows], "total": total, "limit": limit, "offset": offset}
 
 
+@router.get("/requesters", tags=TAGS)
+def list_change_requesters(_user: Viewer, db: Db) -> dict:
+    """Usuarios que han creado solicitudes (solo id y username), para el filtro de la bandeja."""
+    return {"items": [{"id": str(uid), "username": name} for uid, name in svc.list_requesters(db)]}
+
+
 @router.get("/changes/{request_id}", tags=TAGS)
 def get_change_request(request_id: uuid.UUID, _user: Viewer, db: Db) -> dict:
     """Detalle con `plan_preview`, `rules_snapshot` y eventos."""

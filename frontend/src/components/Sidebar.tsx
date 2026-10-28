@@ -86,6 +86,15 @@ export function Sidebar({
           <button className={generalView === "subscriptions" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralSubscriptions)}>Suscripciones</button>
           <button className={generalView === "report" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onAutoReport)}>Reporte automático</button>
         </> : null}
+        {onBilling && can("virtualpos.billing_changes.view") ? (
+          <button
+            className={billingOpen ? "sidebar-item nested active" : "sidebar-item nested"}
+            aria-current={billingOpen ? "page" : undefined}
+            onClick={go(onBilling)}
+          >
+            Cambios de cobro
+          </button>
+        ) : null}
         {visibleGroups.map((group) => (
           <section className="sidebar-group" key={group.name}>
             <div className="channel-heading">
@@ -127,15 +136,6 @@ export function Sidebar({
                       onClick={go(onRecovery)}
                     >
                       Recuperador de Socios
-                    </button>
-                  ) : null}
-                  {group.name === "VirtualPOS" && onBilling && can("virtualpos.billing_changes.view") ? (
-                    <button
-                      className={billingOpen ? "sidebar-item nested active" : "sidebar-item nested"}
-                      aria-current={billingOpen ? "page" : undefined}
-                      onClick={go(onBilling)}
-                    >
-                      Cambios de cobro
                     </button>
                   ) : null}
                 </>

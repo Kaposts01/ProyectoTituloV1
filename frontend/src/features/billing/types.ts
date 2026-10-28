@@ -34,6 +34,10 @@ export type PlanPreview = {
   summary?: PlanSummary | null;
 };
 
+/** Solicitante del filtro de la bandeja: solo id y nombre de usuario. */
+export type Requester = { id: string; username: string };
+export type RequesterList = { items: Requester[] };
+
 export type BillingRequest = {
   id: string;
   request_type: RequestType;

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidebar, type SidebarProps } from "../../components/Sidebar";
-import { parseRoute, routePath } from "../../routes";
+import { legacyRedirectPath, parseRoute, routePath } from "../../routes";
 
 afterEach(cleanup);
 
@@ -22,14 +22,34 @@ function setup(permissions: string[], over: Partial<SidebarProps> = {}) {
 
 describe("ruta cambios de cobro", () => {
   it("parsea y construye la ruta", () => {
+    expect(parseRoute("/general/cambios-de-cobro")).toEqual({ kind: "billingChanges" });
+    expect(parseRoute("/general/cambios-de-cobro/")).toEqual({ kind: "billingChanges" });
+    expect(parseRoute("/general/cambios-de-cobro/x")).toBeNull();
+    expect(routePath({ kind: "billingChanges" })).toBe("/general/cambios-de-cobro");
+  });
+
+  it("la ruta antigua de VirtualPOS sigue resolviendo y redirige a la nueva", () => {
     expect(parseRoute("/virtualpos/cambios-de-cobro")).toEqual({ kind: "billingChanges" });
     expect(parseRoute("/virtualpos/cambios-de-cobro/")).toEqual({ kind: "billingChanges" });
     expect(parseRoute("/virtualpos/cambios-de-cobro/x")).toBeNull();
-    expect(routePath({ kind: "billingChanges" })).toBe("/virtualpos/cambios-de-cobro");
+    expect(legacyRedirectPath("/virtualpos/cambios-de-cobro")).toBe("/general/cambios-de-cobro");
+    expect(legacyRedirectPath("/virtualpos/cambios-de-cobro/")).toBe("/general/cambios-de-cobro");
+    expect(legacyRedirectPath("/general/cambios-de-cobro")).toBeNull();
+    expect(legacyRedirectPath("/virtualpos/recuperador-socios")).toBeNull();
   });
 });
 
 describe("entrada del menu", () => {
+  it("vive en General (no en VirtualPOS) y solo depende de su permiso view", () => {
+    setup(["virtualpos.billing_changes.view"]);
+    expect(screen.getByRole("button", { name: "Cambios de cobro" })).toBeTruthy();
+    cleanup();
+    setup(["dashboard.view", "virtualpos.clients.view", "virtualpos.billing_changes.view"], { openProvider: "VirtualPOS" });
+    const labels = Array.from(document.querySelectorAll(".sidebar-nav > button")).map((n) => n.textContent);
+    expect(labels).toEqual(["Dashboard", "Clientes", "Suscripciones", "Reporte automático", "Cambios de cobro"]);
+    expect(document.querySelector(".sidebar-group")?.textContent).not.toContain("Cambios de cobro");
+  });
+
   it("aparece solo con el permiso view", () => {
     setup(["virtualpos.clients.view"]);
     expect(screen.queryByRole("button", { name: "Cambios de cobro" })).toBeNull();

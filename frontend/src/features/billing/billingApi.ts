@@ -1,7 +1,7 @@
 import { getJson, postJson, putJson } from "../../api";
 import { listPath, type InboxFilters, type InboxTab } from "./billingQuery";
 import type {
-  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, Policy, PolicyAuditList, PolicyPatch, PreviewResponse,
+  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, Policy, PolicyAuditList, PolicyPatch, PreviewResponse, RequesterList,
 } from "./types";
 
 const BASE = "/api/v1/billing";
@@ -18,6 +18,8 @@ export const withdrawRequest = (id: string, comment?: string) => postJson<Billin
 export const reopenRequest = (id: string, comment: string) => postJson<BillingRequestDetail>(`${BASE}/changes/${enc(id)}/reopen`, { comment });
 export const applyRequest = (id: string, acceptDrift: boolean) =>
   postJson<ApplyResponse>(`${BASE}/changes/${enc(id)}/apply`, acceptDrift ? { accept_drift: true } : {});
+
+export const fetchRequesters = () => getJson<RequesterList>(`${BASE}/requesters`);
 
 export const fetchPolicy = () => getJson<Policy>(`${BASE}/policy`);
 export const updatePolicy = (patch: PolicyPatch) => putJson<Policy>(`${BASE}/policy`, patch);

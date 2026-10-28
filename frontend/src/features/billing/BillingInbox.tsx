@@ -8,7 +8,7 @@ import {
 import { EMPTY_FILTERS, validateFilters, type InboxFilters, type InboxTab } from "./billingQuery";
 import { CreateRequestDialog } from "./CreateRequestDialog";
 import { RequestDetail } from "./RequestDetail";
-import { PERM_REQUEST, type BillingList, type BillingRequestDetail, type Platform, type RequestStatus, type RequestType } from "./types";
+import { PERM_REQUEST, type BillingList, type BillingRequestDetail, type Platform, type Requester, type RequestStatus, type RequestType } from "./types";
 import { Notice, StatusBadge } from "./ui";
 import "./billing.css";
 
@@ -34,6 +34,8 @@ export function BillingInbox({ can, currentUserId }: Props) {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const seq = useRef(0);
+  const [requesters, setRequesters] = useState<Requester[]>([]);
+  const [requestersState, setRequestersState] = useState<"loading" | "ready" | "error">("loading");
 
   const load = useCallback(async (nextTab: InboxTab, filters: InboxFilters, nextOffset: number) => {
     const mine = ++seq.current;
@@ -52,6 +54,19 @@ export function BillingInbox({ can, currentUserId }: Props) {
   }, []);
 
   useEffect(() => { void load(tab, applied, offset); }, [load, tab, applied, offset]);
+
+  const loadRequesters = useCallback(async () => {
+    setRequestersState("loading");
+    try {
+      const result = await api.fetchRequesters();
+      setRequesters(result.items);
+      setRequestersState("ready");
+    } catch {
+      setRequestersState("error");
+    }
+  }, []);
+
+  useEffect(() => { void loadRequesters(); }, [loadRequesters]);
 
   function changeTab(next: InboxTab) {
     if (next === tab) return;
@@ -96,7 +111,7 @@ export function BillingInbox({ can, currentUserId }: Props) {
     <main className="app-shell bx-page">
       <div className="topbar">
         <div>
-          <p className="eyebrow">VirtualPOS</p>
+          <p className="eyebrow">General</p>
           <h1>Cambios de cobro</h1>
         </div>
         {can(PERM_REQUEST) ? <button className="bx-btn bx-btn-primary" onClick={() => { setNotice(null); setCreating(true); }}>Nueva solicitud</button> : null}
@@ -130,8 +145,13 @@ export function BillingInbox({ can, currentUserId }: Props) {
         <label>Suscripción
           <input className="mono" value={draft.subscription} maxLength={255} onChange={(e) => setField("subscription", e.target.value)} />
         </label>
-        <label>Solicitante (ID)
-          <input className="mono" value={draft.requestedBy} maxLength={36} onChange={(e) => setField("requestedBy", e.target.value)} />
+        <label>Solicitante
+          <select value={draft.requestedBy} disabled={requestersState === "loading"} onChange={(e) => setField("requestedBy", e.target.value)}>
+            <option value="">{requestersState === "loading" ? "Cargando…" : "Todos"}</option>
+            {requesters.map((r) => <option key={r.id} value={r.id}>{r.username}</option>)}
+            {draft.requestedBy && !requesters.some((r) => r.id === draft.requestedBy)
+              ? <option value={draft.requestedBy}>{draft.requestedBy === currentUserId ? "Mis solicitudes" : "Usuario seleccionado"}</option> : null}
+          </select>
         </label>
         {currentUserId ? <button type="button" className="bx-btn bx-btn-ghost" onClick={() => setField("requestedBy", currentUserId)}>Mis solicitudes</button> : null}
         <label>Desde
@@ -144,6 +164,12 @@ export function BillingInbox({ can, currentUserId }: Props) {
         <button type="button" className="bx-btn bx-btn-ghost" onClick={clearFilters} disabled={loading}>Limpiar</button>
       </form>
       {filterError ? <Notice tone="error">{filterError}</Notice> : null}
+      {requestersState === "error" ? (
+        <Notice tone="warning" live>
+          No se pudo cargar la lista de solicitantes; puede seguir usando la bandeja sin ese filtro.{" "}
+          <button type="button" className="bx-btn bx-btn-ghost" onClick={() => void loadRequesters()}>Reintentar</button>
+        </Notice>
+      ) : null}
       <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
       {error ? (
         <Notice tone="error">

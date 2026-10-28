@@ -11,7 +11,7 @@ import "./Staging.css";
 import { ActivacionCaidaChart, ChannelKpiChart, ChurnMensualChart, CrecimientoMensualChart, IngresosMensualesChart, MonthlyStatusChart } from "./MonthlyStatusChart";
 import type { ChannelRow, MonthlyEntry } from "./MonthlyStatusChart";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
-import { parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
+import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
 import type {
@@ -1404,7 +1404,6 @@ function AppCore() {
     setAdminOpen(false);
     setRecoveryOpen(false);
     setBillingOpen(true);
-    setOpenProvider("VirtualPOS");
     setProfileView(null);
     if (updateUrl) navigate({ kind: "billingChanges" });
   }
@@ -1639,6 +1638,7 @@ function AppCore() {
       showRecovery(false);
     } else if (route.kind === "billingChanges") {
       showBillingChanges(false);
+      if (legacyRedirectPath(location.pathname)) navigate(route, true);
     } else if (route.kind === "tch") {
       showTch(route.view, false);
     } else if (route.kind === "tchSubscription") {

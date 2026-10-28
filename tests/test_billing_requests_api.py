@@ -577,3 +577,37 @@ def test_expiry_job_is_not_registered_in_scheduler():
         if path.name in ("billing_requests.py",):
             continue
         assert "expire_pending_requests" not in path.read_text(encoding="utf-8"), path
+
+
+# ----------------------------- solicitantes (filtro de la bandeja) -----------------------------
+
+
+def test_requesters_lists_only_users_with_requests_id_and_username(w):
+    """Solo id+username de quienes figuran como solicitantes, DISTINCT y ordenados por username; sin PII."""
+    for _ in range(2):  # el mismo solicitante con dos solicitudes aparece una sola vez
+        created = w.create("requester")
+        assert w.post("requester", f"/changes/{created['id']}/withdraw").status_code == 200  # libera la suscripción
+    w.create("admin1")
+    r = w.get("support", "/requesters")  # solo permiso .view
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert all(set(i) == {"id", "username"} for i in items)
+    assert [i["id"] for i in items].count(str(w.requester.id)) == 1
+    got = {i["id"]: i["username"] for i in items}
+    assert got == {str(w.requester.id): w.requester.username, str(w.admin1.id): w.admin1.username}
+    assert [i["username"] for i in items] == sorted(i["username"] for i in items)
+    assert str(w.stranger.id) not in got and str(w.support.id) not in got
+    body = r.text.lower()
+    assert "email" not in body and "role" not in body and "password" not in body
+
+
+def test_requesters_empty_without_requests(w):
+    r = w.get("support", "/requesters")
+    assert r.status_code == 200 and r.json() == {"items": []}
+
+
+def test_requesters_requires_session_and_view_permission(w):
+    assert TestClient(app).get(f"{BASE}/requesters").status_code == 401
+    nobody = make_user(w.db)
+    client, _ = client_for(w.db, nobody)
+    assert client.get(f"{BASE}/requesters").status_code == 403

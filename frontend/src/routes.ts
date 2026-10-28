@@ -82,6 +82,8 @@ export function parseRoute(pathname: string): AppRoute | null {
   }
 
   if (parts[0] === "virtualpos" && parts[1] === "recuperador-socios") return { kind: "recovery" };
+  if (parts[0] === "general" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
+  // Ruta anterior (grupo VirtualPOS): sigue resolviendo; AppCore la redirige a la ruta canónica.
   if (parts[0] === "virtualpos" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
 
   const source = parts[0];
@@ -98,6 +100,14 @@ export function parseRoute(pathname: string): AppRoute | null {
   return null;
 }
 
+/** Ruta canónica si `pathname` es una ruta antigua que debe redirigirse (reemplazando el historial); null si no. */
+export function legacyRedirectPath(pathname: string): string | null {
+  const route = parseRoute(pathname);
+  if (!route) return null;
+  const canonical = routePath(route);
+  return pathname.replace(/\/+$/, "") === canonical ? null : canonical;
+}
+
 export function routePath(route: AppRoute): string {
   if (route.kind === "central") {
     if (route.view === "summary") return "/central/resumen";
@@ -107,7 +117,7 @@ export function routePath(route: AppRoute): string {
   }
   if (route.kind === "channel") return `/${route.source}/resumen`;
   if (route.kind === "recovery") return "/virtualpos/recuperador-socios";
-  if (route.kind === "billingChanges") return "/virtualpos/cambios-de-cobro";
+  if (route.kind === "billingChanges") return "/general/cambios-de-cobro";
   if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : route.view}`;
   if (route.kind === "tchSubscription") return `/tch/suscripciones/${route.numeroFicha}`;
   if (route.kind === "admin") return `/admin/${route.view === "usuarios" ? "usuarios" : "sincronizaciones"}`;

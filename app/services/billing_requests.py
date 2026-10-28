@@ -810,6 +810,16 @@ def usernames(db: Session, ids: set[uuid.UUID | None]) -> dict[uuid.UUID, str]:
     return {uid: name for uid, name in db.execute(select(User.id, User.username).where(User.id.in_(wanted)))}
 
 
+def list_requesters(db: Session) -> list[tuple[uuid.UUID, str]]:
+    """Solicitantes distintos (id, username) que figuran en billing_change_requests; sin otros datos del usuario."""
+    stmt = (
+        select(User.id, User.username)
+        .where(User.id.in_(select(BillingChangeRequest.requested_by_user_id)))
+        .order_by(User.username, User.id)
+    )
+    return [(uid, name) for uid, name in db.execute(stmt)]
+
+
 __all__ = [
     "ADMIN_ROLE",
     "PERM_APPROVE",
@@ -848,6 +858,7 @@ __all__ = [
     "get_request",
     "is_approver",
     "list_policy_audit",
+    "list_requesters",
     "list_requests",
     "normalize_platform",
     "policy_values",
