@@ -501,11 +501,12 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
 
     thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
     sync_total: int = db.scalar(
-        select(func.count()).select_from(SyncRun).where(SyncRun.started_at >= thirty_days_ago)
+        select(func.count()).select_from(SyncRun).where(
+            SyncRun.started_at >= thirty_days_ago, SyncRun.is_channel_source())  # sin jobs de facturacion
     ) or 0
     sync_completed: int = db.scalar(
         select(func.count()).select_from(SyncRun).where(
-            SyncRun.started_at >= thirty_days_ago, SyncRun.status == "completed"
+            SyncRun.started_at >= thirty_days_ago, SyncRun.status == "completed", SyncRun.is_channel_source()
         )
     ) or 0
     sync_success_rate_pct: float | None = round(100 * sync_completed / sync_total, 1) if sync_total > 0 else None

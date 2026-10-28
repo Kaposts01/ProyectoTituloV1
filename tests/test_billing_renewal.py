@@ -336,13 +336,14 @@ def test_jobs_registered_with_expected_schedule():
     sched = AsyncIOScheduler(timezone="America/Santiago")
     sched_engine.register_jobs(sched)
     jobs = {j.id: j for j in sched.get_jobs()}
-    assert {"sync_all_channels", "retry_failed_channels", "billing_renewal_check", "billing_expire_requests"} <= set(jobs)
+    assert {"sync_all_channels", "retry_failed_channels", "billing_renewal_check", "billing_expire_requests",
+            "billing_sweep_applying"} <= set(jobs)
     renewal = str(jobs["billing_renewal_check"].trigger)
     assert "hour='3'" in renewal and "minute='0'" in renewal
     assert "minute='10'" in str(jobs["billing_expire_requests"].trigger)
     assert str(jobs["billing_renewal_check"].trigger.timezone) == "America/Santiago"
     sched_engine.register_jobs(sched)  # idempotente
-    assert len(sched.get_jobs()) == 4
+    assert len(sched.get_jobs()) == 5
 
 
 @pytest.mark.parametrize(("env_mode", "flag", "starts"), [("sandbox", False, False), ("sandbox", True, True), ("production", False, True)])

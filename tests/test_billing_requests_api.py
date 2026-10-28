@@ -212,8 +212,9 @@ def test_create_errors_map_to_409_and_422(w):
     w.post("requester", f"/changes/{first['id']}/withdraw")
     bad_plan = w.post("admin1", "/changes", {**BODY, "request_type": "one_off_charge", "new_amount": 5000,
                                               "new_charge_date": "2026-10-28", "horizon_start_month": None})
-    assert bad_plan.status_code == 422 and bad_plan.json()["detail"]["code"] == "plan_errors"
-    assert bad_plan.json()["detail"]["errors"][0]["code"] == "past_charge_date"
+    # tanda 2: la fecha de hoy la rechaza la validacion de entrada (el plan_errors queda como segunda barrera)
+    assert bad_plan.status_code == 422 and bad_plan.json()["detail"]["code"] == "invalid_fields"
+    assert "2026-10-28" not in bad_plan.text
     assert w.post("admin1", "/changes", {**BODY, "new_amount": None}).status_code == 422
     assert w.post("admin1", "/changes", {**BODY, "new_amount": 0}).status_code == 422
     assert w.post("admin1", "/changes", {**BODY, "platform": "otra"}).status_code == 422
@@ -429,7 +430,8 @@ def test_apply_failure_is_502_fallida_then_reopen_and_retry(w):
 
 
 def test_apply_reconciliation_is_503_and_reopen_by_policy_manager(w):
-    """RA-09/RA-10: no se pudo cancelar un antiguo -> 503 y 'requiere_conciliacion'; reabre quien tiene billing_policy.manage."""
+    """RA-09/RA-10: no se pudo cancelar un antiguo -> 503 y 'requiere_conciliacion'; reabre un aprobador de la politica
+    (tanda 2: billing_policy.manage por si solo ya no basta)."""
     rid = w.create("admin1")["id"]
     STATE["delete_fail"] = {"auto-03": 10}
     r = w.post("admin1", f"/changes/{rid}/apply", {})
@@ -439,7 +441,8 @@ def test_apply_reconciliation_is_503_and_reopen_by_policy_manager(w):
     no_plural_delete()
     assert w.post("executive", f"/changes/{rid}/reopen", {"comment": "x"}).status_code == 403
     assert w.post("requester", f"/changes/{rid}/reopen", {"comment": "x"}).status_code == 403
-    done = w.post("manager", f"/changes/{rid}/reopen", {"comment": "conciliado a mano"})
+    assert w.post("manager", f"/changes/{rid}/reopen", {"comment": "conciliado a mano"}).status_code == 403
+    done = w.post("admin2", f"/changes/{rid}/reopen", {"comment": "conciliado a mano"})
     assert done.status_code == 200 and done.json()["status"] == "aprobada"
 
 

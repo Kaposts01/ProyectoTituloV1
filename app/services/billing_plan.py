@@ -307,7 +307,7 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
                                         tuple(c.charge_id for c in blocking if c.charge_id)))
             for c in blocking:
                 if _cover_reason(c.state) == "unknown_status":
-                    warnings.append(_issue("unknown_status", f"Estado desconocido {c.status!r}: mes tratado como cubierto.", key))
+                    warnings.append(_issue("unknown_status", "Estado de cobro desconocido para el CRM: mes tratado como cubierto.", key))
             continue
         pend = [c for c in cs if c.state in PENDING_STATES and not c.is_puntual]  # puntuales: ni cancel ni keep
         due_today = [c for c in pend if c.charge_date == today]

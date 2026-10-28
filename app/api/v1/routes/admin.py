@@ -13,6 +13,7 @@ from app.core.security import (
     require_permissions,
 )
 from app.models.auth import Permission, Role, User
+from app.services.billing_requests import policy_effective_approvers
 from app.services.rbac import PERMISSIONS, serialize_user
 
 router = APIRouter()
@@ -58,6 +59,22 @@ def _is_active_admin(user: User, roles: list[Role] | None = None, is_active: boo
 
 
 
+def _guard_billing_approvers(db: Session, before: set[uuid.UUID] | None) -> None:
+    """Extiende la guarda del ultimo admin: tras aplicar (sin confirmar) el cambio pendiente en la sesion, la politica
+    de aprobadores de cambios de cobro no puede quedar SIN aprobadores efectivos si antes tenia. 409 y rollback."""
+    if not before:
+        return
+    db.flush()
+    after = policy_effective_approvers(db)
+    if after is not None and not after:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Este cambio dejaría la política de cambios de cobro VirtualPOS sin ningún aprobador efectivo "
+                   "(usuario activo con el permiso 'approve'). Agregue otro aprobador a la política primero.",
+        )
+
+
 @router.get("/permissions", dependencies=[Depends(require_permissions("roles.manage"))], tags=["Administration"])
 def list_permissions() -> list[dict[str, str]]:
     return [{"code": code, "description": description} for code, description in sorted(PERMISSIONS.items())]
@@ -94,9 +111,12 @@ def update_role(role_id: uuid.UUID, body: RoleInput, db: Session = Depends(get_d
         raise HTTPException(status_code=404, detail="Role not found")
     if role.name == "admin" and body.name != "admin":
         raise HTTPException(status_code=422, detail="The admin role cannot be renamed")
+    permissions = _permissions(db, body.permission_codes)
+    approvers_before = policy_effective_approvers(db)
     role.name = body.name
     role.description = body.description
-    role.permissions = _permissions(db, body.permission_codes)
+    role.permissions = permissions
+    _guard_billing_approvers(db, approvers_before)  # quitar `approve` o renombrar un rol listado en la politica
     db.commit()
     return {"id": str(role.id), "name": role.name}
 
@@ -142,10 +162,12 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
         ).all()
         if len(locked_ids) == 1:
             raise HTTPException(status_code=422, detail="Cannot deactivate or remove the last active admin")
+    approvers_before = policy_effective_approvers(db)
     if body.is_active is not None:
         user.is_active = body.is_active
     if body.role_ids is not None:
         user.roles = next_roles
+    _guard_billing_approvers(db, approvers_before)  # desactivar / quitar rol al ultimo aprobador efectivo
     db.commit()
     return {"id": str(user.id), "username": user.username, "is_active": user.is_active}
 

@@ -9,19 +9,24 @@ Los errores salen como `detail = {"code", "message", ...}`; nunca incluyen paylo
 from __future__ import annotations
 
 import logging
+import re
 import uuid
+from collections.abc import Callable, Coroutine
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from typing import Annotated, Any, Literal, NoReturn
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from httpx import HTTPStatusError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
-from app.core.security import require_any_permission, require_csrf, require_permissions
+from app.core.security import require_csrf, require_permissions
 from app.integrations.virtualpos.client import VirtualPOSAPIError
 from app.models.auth import User
 from app.models.billing import (
@@ -36,22 +41,48 @@ from app.services import billing_requests as svc
 from app.services.billing_apply import (
     ApplyFailedError,
     ApplyResult,
+    BillingApplyError,
     InvalidRequestStateError,
     PlanDriftError,
     RequestNotFoundError,
     SubscriptionBlockedError,
     SubscriptionBusyError,
+    UnparseableChargesError,
+    reduce_stored_error,
 )
 from app.services.billing_plan import plan_to_preview_json
 from app.services.write_virtualpos import (
+    BillingFlowConflictError,
+    ChargeNotFoundError,
     FixedPlanChargeBlockedError,
+    PluralCancelForbiddenError,
+    ProviderListingError,
     ReconciliationRequiredError,
     WriteDisabledError,
 )
 
 log = logging.getLogger(__name__)
 
-router = APIRouter()
+
+
+class _NoEchoRoute(APIRoute):
+    """422 de validacion de esquema SIN el eco del valor recibido (`input`/`ctx`): solo `loc`, `msg` y `type`."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original = super().get_route_handler()
+
+        async def handler(request: Request) -> Response:
+            try:
+                return await original(request)
+            except RequestValidationError as exc:
+                detail = [{"loc": list(e.get("loc", ())), "msg": str(e.get("msg", "")), "type": str(e.get("type", ""))}
+                          for e in exc.errors()]
+                return JSONResponse(status_code=422, content={"detail": detail})
+
+        return handler
+
+
+router = APIRouter(route_class=_NoEchoRoute)
 TAGS = ["Billing changes"]
 
 RequestType = Literal["change_amount", "change_date", "renew_calendar", "one_off_charge"]
@@ -159,6 +190,16 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(409, _detail(exc.code, str(exc),
                                          open_request_id=str(exc.request_id) if exc.request_id else None,
                                          open_request_status=exc.status))
+    if isinstance(exc, ProviderListingError):  # texto del proveedor/excepcion NUNCA se reenvia
+        raise HTTPException(502, _detail(
+            "provider_listing_incomplete",
+            "El listado de cobros de VirtualPOS llegó incompleto o con forma inesperada; no se calculó ni escribió nada. "
+            "Reintente más tarde."))
+    if isinstance(exc, UnparseableChargesError):  # solo cantidad y estados: nunca montos ni ids del proveedor
+        raise HTTPException(422, _detail(
+            "unparseable_charges",
+            "VirtualPOS devolvió cobros que no se pueden interpretar (id, fecha o monto inválidos); no se calculó ni "
+            "escribió nada.", count=exc.count, by_status=_safe_states(exc.by_status)))
     if isinstance(exc, SubscriptionBusyError):
         raise HTTPException(409, _detail("subscription_busy", "Otra operación está modificando esta suscripción; reintente en unos segundos."))
     if isinstance(exc, SubscriptionBlockedError):
@@ -178,6 +219,10 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(403, _detail("writes_disabled", "Las escrituras a VirtualPOS están deshabilitadas."))
     if isinstance(exc, FixedPlanChargeBlockedError):
         raise HTTPException(422, _detail("fixed_plan_charge_blocked", str(exc)))
+    if isinstance(exc, PluralCancelForbiddenError | BillingFlowConflictError):  # no alcanzables desde estas rutas; por si acaso
+        raise HTTPException(409, _detail("billing_flow_conflict", "La operación choca con el flujo de solicitudes de cambio."))
+    if isinstance(exc, ChargeNotFoundError):
+        raise HTTPException(409, _detail("charge_not_found", "Un cobro de la operación ya no existe en VirtualPOS."))
     if isinstance(exc, RequestNotFoundError):
         raise HTTPException(404, _detail("request_not_found", "Solicitud no encontrada."))
     if isinstance(exc, svc.SubscriptionUnknownError):
@@ -194,6 +239,8 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(422, _detail(exc.code, str(exc)))
     if isinstance(exc, svc.NotApproverError | svc.SelfApprovalNotAllowedError | svc.NotAllowedError):
         raise HTTPException(403, _detail(exc.code, str(exc)))
+    if isinstance(exc, BillingApplyError):  # cualquier otro error tipado de aplicacion: nunca 500
+        raise HTTPException(409, _detail("billing_apply_error", "No se pudo aplicar el cambio; revise el estado de la solicitud."))
     if isinstance(exc, _PROVIDER_ERRORS):
         # Mensaje generico: jamas se reenvia el cuerpo/mensaje del proveedor. Solo el codigo E-nnn, si lo hay.
         code = getattr(exc, "error_code", None)
@@ -204,10 +251,19 @@ def _http(exc: BaseException) -> NoReturn:
 
 
 _HANDLED = (
-    PlanDriftError, InvalidRequestStateError, SubscriptionBusyError, SubscriptionBlockedError, ApplyFailedError,
-    ReconciliationRequiredError, WriteDisabledError, FixedPlanChargeBlockedError, RequestNotFoundError,
-    svc.BillingRequestError, *_PROVIDER_ERRORS,
+    BillingApplyError, svc.BillingRequestError, ProviderListingError, ReconciliationRequiredError, WriteDisabledError,
+    FixedPlanChargeBlockedError, PluralCancelForbiddenError, BillingFlowConflictError, ChargeNotFoundError,
+    *_PROVIDER_ERRORS,
 )
+
+
+def _safe_states(by_status: dict[str, int]) -> dict[str, int]:
+    """Estados del proveedor (texto externo) reducidos a un identificador corto [a-z0-9_]."""
+    out: dict[str, int] = {}
+    for state, n in by_status.items():
+        key = re.sub(r"[^a-z0-9_]", "_", str(state or "").lower())[:30] or "sin_estado"
+        out[key] = out.get(key, 0) + int(n)
+    return out
 
 
 # ----------------------------- serializacion -----------------------------
@@ -239,9 +295,18 @@ def _request_json(r: BillingChangeRequest, names: dict[uuid.UUID, str]) -> dict[
         "approved_by": names.get(r.approved_by_user_id) if r.approved_by_user_id else None,
         "self_approved": r.self_approved, "decided_at": _iso(r.decided_at), "decision_comment": r.decision_comment,
         "write_run_id": str(r.write_run_id) if r.write_run_id else None, "expires_at": _iso(r.expires_at),
-        "executed_at": _iso(r.executed_at), "error_message": r.error_message,
+        "executed_at": _iso(r.executed_at), "error_message": reduce_stored_error(r.error_message),
         "created_at": _iso(r.created_at), "updated_at": _iso(r.updated_at),
     }
+
+
+def _safe_event_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
+    """Eventos antiguos pudieron guardar texto libre en `error`/`previous_error`: pasan por la misma reduccion."""
+    out = dict(detail or {})
+    for key in ("error", "previous_error"):
+        if isinstance(out.get(key), str):
+            out[key] = reduce_stored_error(out[key])
+    return out
 
 
 def _event_json(e: BillingChangeRequestEvent, names: dict[uuid.UUID, str]) -> dict[str, Any]:
@@ -249,7 +314,7 @@ def _event_json(e: BillingChangeRequestEvent, names: dict[uuid.UUID, str]) -> di
         "id": str(e.id), "event_type": e.event_type,
         "actor_user_id": str(e.actor_user_id) if e.actor_user_id else None,
         "actor": names.get(e.actor_user_id) if e.actor_user_id else "sistema",
-        "detail": e.detail or {}, "created_at": _iso(e.created_at),
+        "detail": _safe_event_detail(e.detail), "created_at": _iso(e.created_at),
     }
 
 
@@ -409,11 +474,10 @@ def withdraw_change_request(request_id: uuid.UUID, current_user: Requester, db: 
 
 
 @router.post("/changes/{request_id}/reopen", dependencies=_CSRF, tags=TAGS)
-def reopen_change_request(
-    request_id: uuid.UUID, body: RequiredCommentBody, db: Db,
-    current_user: Annotated[User, Depends(require_any_permission(svc.PERM_POLICY, svc.PERM_APPROVE))],
-) -> dict:
-    """Reabre una solicitud `fallida` / `requiere_conciliacion` a `aprobada` (comentario obligatorio; sin reintento automático)."""
+def reopen_change_request(request_id: uuid.UUID, body: RequiredCommentBody, current_user: Approver, db: Db) -> dict:
+    """Reabre una solicitud `fallida` / `requiere_conciliacion` (comentario obligatorio; sin reintento automático).
+
+    Solo un aprobador según la política vigente (el permiso de política no basta); no con la suscripción bloqueada."""
     try:
         req = svc.reopen(db, request_id, current_user, body.comment)
     except _HANDLED as exc:

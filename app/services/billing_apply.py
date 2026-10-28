@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import uuid
 from collections import Counter
 from collections.abc import Iterator
@@ -70,6 +71,7 @@ from app.services.write_virtualpos import (
 log = logging.getLogger(__name__)
 
 ALIVE_MANAGED = ("creado", "requiere_conciliacion")
+ACTIVE_STATUSES = frozenset({"activa", "activo", "active"})
 _REQUEST_TYPE_TO_PLAN = {
     "change_amount": "change_amount", "change_date": "change_date",
     "renew_calendar": "renew_calendar", "one_off_charge": "one_off",
@@ -172,6 +174,53 @@ def _secrets() -> tuple[str | None, ...]:
 
 def _err(exc: BaseException) -> str:
     return safe_error_message(exc, _secrets())  # type: ignore[arg-type]
+
+
+_SAFE_ERROR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,60}(?: (?:E-\d{1,4}|HTTP \d{3}))*$")
+_PROVIDER_CODE_RE = re.compile(r"^E-\d{1,4}$")
+_ERR_CODE_IN_TEXT = re.compile(r"\bE-\d{1,4}\b")
+LEGACY_ERROR_LABEL = "error_registrado"
+
+
+def error_label(exc: BaseException | None) -> str:
+    """Etiqueta SIN texto libre para `billing_change_requests.error_message` y los eventos: solo el nombre del tipo y,
+    si existe en la cadena de causas, el codigo E-nnn de VirtualPOS o el estado HTTP. El detalle completo (saneado) queda
+    unicamente en `write_runs`. Nunca incluye el mensaje de la excepcion (puede traer correos, RUT, URLs con ids)."""
+    if exc is None:
+        return "ErrorDesconocido"
+    parts = [type(exc).__name__]
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        code = getattr(cur, "error_code", None)
+        if isinstance(code, str) and _PROVIDER_CODE_RE.match(code):
+            parts.append(code)
+            break
+        status = getattr(getattr(cur, "response", None), "status_code", None)
+        if isinstance(status, int) and 100 <= status <= 599:
+            parts.append(f"HTTP {status}")
+            break
+        cur = cur.__cause__
+    return " ".join(parts)
+
+
+def reduce_stored_error(value: Any) -> str | None:
+    """Misma reduccion para lo ya persistido (filas anteriores a la tanda 2 con texto libre): conserva una etiqueta valida
+    y, si no lo es, deja solo un marcador (mas el codigo E-nnn si el texto lo traia)."""
+    if value is None or value == "":
+        return None
+    text = str(value).strip()
+    if _SAFE_ERROR_RE.match(text):
+        return text
+    code = _ERR_CODE_IN_TEXT.search(text)
+    return f"{LEGACY_ERROR_LABEL} {code.group(0)}" if code else LEGACY_ERROR_LABEL
+
+
+def is_active_status(status: Any) -> bool:
+    """`ACTIVA` en cualquier capitalizacion/idioma (vp_subscriptions guarda 'ACTIVA'; `subscriptions` puede traer
+    'activa' o 'active' segun el ETL)."""
+    return str(status or "").strip().lower() in ACTIVE_STATUSES
 
 
 def _chile_now(now: datetime | None) -> datetime:
@@ -384,9 +433,15 @@ def _request_to_input(req: BillingChangeRequest, today: date) -> PlanInput:
     )
 
 
-async def _current_plan(
-    db: Session, inp: PlanInput, *, exclude_own: uuid.UUID | None
-) -> tuple[PlanInput, PlanResult, list[dict[str, Any]]]:
+@dataclass
+class _Current:
+    inp: PlanInput
+    plan: PlanResult
+    items: list[dict[str, Any]]
+    previous_charge_day: int | None  # dia vigente ANTES del cambio (aunque el cambio traiga un dia nuevo)
+
+
+async def _current_plan_full(db: Session, inp: PlanInput, *, exclude_own: uuid.UUID | None) -> _Current:
     """Plan recalculado con el estado actual. `exclude_own`: oculta los cobros ya creados por esta solicitud
     (reaplicacion tras fallo parcial) para que el plan sea el mismo y `create_charge` los adopte; incluye los que
     no llegaron a registrarse (se reconocen por el internal_code de los create_charge de la solicitud)."""
@@ -399,14 +454,24 @@ async def _current_plan(
         exclude |= {cid for it in items
                     if (cid := wv._as_text(it.get("id"))) and (wv._as_text(it.get("internal_code")) or "") in own_codes}
     charges = _to_plan_charges(items, kn, exclude)
-    full = replace(inp, charge_day=_resolve_charge_day(db, inp, charges, kn), charges=tuple(charges))
-    return full, build_plan(full), items
+    day = _resolve_charge_day(db, inp, charges, kn)
+    previous_day = day if inp.new_charge_day is None else _resolve_charge_day(db, replace(inp, new_charge_day=None), charges, kn)
+    full = replace(inp, charge_day=day, charges=tuple(charges))
+    return _Current(full, build_plan(full), items, previous_day)
 
 
-async def preview_change(
+async def _current_plan(
+    db: Session, inp: PlanInput, *, exclude_own: uuid.UUID | None
+) -> tuple[PlanInput, PlanResult, list[dict[str, Any]]]:
+    cur = await _current_plan_full(db, inp, exclude_own=exclude_own)
+    return cur.inp, cur.plan, cur.items
+
+
+async def preview_change_with_day(
     db: Session, request_or_input: BillingChangeRequest | uuid.UUID | PlanInput, *, now: datetime | None = None
-) -> PlanResult:
-    """dry_run de solo lectura (AP-29): plan con el estado actual del proveedor. No escribe ni cambia estados."""
+) -> tuple[PlanResult, int | None]:
+    """Como `preview_change` y ademas el dia de cobro vigente resuelto (solicitud > marca activa > dia modal sin
+    puntuales ni reemplazos): `create_request` lo guarda en `previous_charge_day` para que el dia quede fijo."""
     today = _chile_now(now).date()
     if isinstance(request_or_input, PlanInput):
         inp = replace(request_or_input, today=request_or_input.today or today)
@@ -417,7 +482,15 @@ async def preview_change(
             raise RequestNotFoundError(str(request_or_input))
         inp = _request_to_input(req, today)
         exclude_own = req.id
-    _, plan, _ = await _current_plan(db, inp, exclude_own=exclude_own)
+    cur = await _current_plan_full(db, inp, exclude_own=exclude_own)
+    return cur.plan, cur.previous_charge_day
+
+
+async def preview_change(
+    db: Session, request_or_input: BillingChangeRequest | uuid.UUID | PlanInput, *, now: datetime | None = None
+) -> PlanResult:
+    """dry_run de solo lectura (AP-29): plan con el estado actual del proveedor. No escribe ni cambia estados."""
+    plan, _day = await preview_change_with_day(db, request_or_input, now=now)
     return plan
 
 
@@ -610,11 +683,22 @@ def _finish_run(ctx: _Ctx, status: str, message: str | None = None, payload: dic
     ctx.run.finished_at = datetime.now(UTC)
 
 
-def _set_request(ctx: _Ctx, status: str, event: str, message: str | None, detail: dict[str, Any]) -> None:
+def _event_detail(detail: dict[str, Any], cause: BaseException | None) -> dict[str, Any]:
+    """Detalle para el EVENTO: sin texto libre (la clave `error` pasa a la etiqueta del tipo). El detalle completo va
+    solo al WriteRun (`_finish_run`)."""
+    out = dict(detail)
+    if "error" in out:
+        out["error"] = error_label(cause)
+    return out
+
+
+def _set_request(ctx: _Ctx, status: str, event: str, error: str | None, detail: dict[str, Any],
+                 cause: BaseException | None = None) -> None:
+    """`error` ya es una etiqueta segura (`error_label` o un codigo fijo); nunca el mensaje de la excepcion."""
     req = ctx.req
     req.status = status
-    req.error_message = message[:2000] if message else None
-    _event(ctx.db, req.id, event, ctx.actor, detail)
+    req.error_message = error[:200] if error else None
+    _event(ctx.db, req.id, event, ctx.actor, _event_detail(detail, cause))
 
 
 def _reconciliation(ctx: _Ctx, message: str, detail: dict[str, Any], cause: BaseException | None = None) -> ReconciliationRequiredError:
@@ -623,7 +707,8 @@ def _reconciliation(ctx: _Ctx, message: str, detail: dict[str, Any], cause: Base
         row = ctx.db.scalar(select(VpManagedCharge).where(VpManagedCharge.platform == ctx.platform, VpManagedCharge.charge_id == cid))
         if row is not None and row.status == "creado":
             row.status = "requiere_conciliacion"
-    _set_request(ctx, "requiere_conciliacion", "requiere_conciliacion", message, detail)
+    _set_request(ctx, "requiere_conciliacion", "requiere_conciliacion",
+                 error_label(cause) if cause is not None else "ReconciliationRequired", detail, cause)
     _finish_run(ctx, "reconciliation_required", message, detail)
     ctx.db.commit()
     err = ReconciliationRequiredError(message)
@@ -672,7 +757,7 @@ async def _handle_create_failure(ctx: _Ctx, action: PlanAction, k: int, exc: Bas
         why = "no se pudo releer el estado del proveedor" if uncertain else "falló la compensación"
         return _reconciliation(ctx, f"Falló el cobro {k} ({action.month}) y {why}; revisar duplicados. {_err(exc)}", base, exc)
     msg = f"No se creó el cobro {k} ({action.month}); se compensaron {len(to_compensate)} y no se canceló ningún cobro anterior. {_err(exc)}"
-    _set_request(ctx, "fallida", "fallida", msg, base)
+    _set_request(ctx, "fallida", "fallida", error_label(exc), base, exc)
     _finish_run(ctx, "failed", msg, base)
     ctx.db.commit()
     return ApplyFailedError(ctx.req.id, exc, base["compensated"])
@@ -850,7 +935,7 @@ async def apply_change_request(
 
         # Revalidacion (RA-22 / JB-17 / AP-13): suscripcion ACTIVA y mismo plan.
         state = _subscription_state(db, platform, sub)
-        if state is None or (state[0] or "").strip().upper() != "ACTIVA":
+        if state is None or not is_active_status(state[0]):
             return _not_executable(db, req, actor_user_id, "subscription_not_active", {"status": state[0] if state else None})
         expected_plan = (req.rules_snapshot or {}).get("plan_external_id")
         if expected_plan and state[1] != expected_plan:
@@ -916,7 +1001,8 @@ def sweep_stuck_applying(
     """Barredor: solicitudes en 'aplicando' sin actividad hace mas de `older_than_minutes` (proceso caido) pasan a
     `requiere_conciliacion` con evento 'requiere_conciliacion' (actor sistema); sus cobros vivos quedan bloqueando la
     suscripcion. Si el lock de la suscripcion esta tomado (aplicacion viva) se omite. Devuelve los ids barridos.
-    Invocable; NO registrado en el scheduler (otra tanda)."""
+    Registrado en el scheduler como `billing_sweep_applying` (cada 15 min). En la solicitud solo queda el codigo
+    `StuckApplying`; el mensaje completo va al WriteRun."""
     cutoff = (now or datetime.now(UTC)) - timedelta(minutes=older_than_minutes)
     stuck = list(db.execute(select(BillingChangeRequest.id, BillingChangeRequest.platform,
                                    BillingChangeRequest.subscription_external_id).where(
@@ -930,7 +1016,7 @@ def sweep_stuck_applying(
                     update(BillingChangeRequest)
                     .where(BillingChangeRequest.id == req_id, BillingChangeRequest.status == "aplicando",
                            BillingChangeRequest.updated_at < cutoff)
-                    .values(status="requiere_conciliacion", error_message=msg, updated_at=func.now())
+                    .values(status="requiere_conciliacion", error_message="StuckApplying", updated_at=func.now())
                     .execution_options(synchronize_session=False)).rowcount
                 if changed != 1:
                     db.rollback()
@@ -960,9 +1046,13 @@ __all__ = [
     "UnparseableChargesError",
     "apply_change_request",
     "compute_drift",
+    "error_label",
+    "is_active_status",
     "is_subscription_blocked",
     "lock_key",
     "preview_change",
+    "preview_change_with_day",
+    "reduce_stored_error",
     "subscription_lock",
     "sweep_stuck_applying",
 ]

@@ -159,12 +159,12 @@ def test_create_noop_plan_is_rejected(db_session):
 
 
 def test_create_plan_errors_are_rejected_with_detail(db_session):
-    """CO-27: fecha de cobro puntual no futura -> PlanInvalidError con el detalle del plan (422)."""
+    """CO-27: fecha de cobro puntual no futura (hoy) -> 422. Desde la tanda 2 la rechaza antes la validacion de entrada
+    (new_charge_date entre manana y hoy + 5 anos); el planificador conserva `past_charge_date` como segunda barrera."""
     _kit, _a1, _a2, requester = world(db_session)
-    with pytest.raises(br.PlanInvalidError) as ei:
+    with pytest.raises(br.InvalidRequestFieldsError):
         create(db_session, requester, request_type="one_off_charge", new_amount=5000,
                new_charge_date=date(2026, 10, 28), horizon_start_month=None)
-    assert ei.value.errors and ei.value.errors[0]["code"] == "past_charge_date"
 
 
 @pytest.mark.parametrize("over", [
@@ -478,13 +478,13 @@ def test_reopen_with_comment_goes_back_to_approved(db_session, status):
     """Reabrir: solo desde fallida/requiere_conciliacion, con comentario; evento reintentada{action: reabierta}."""
     _kit, admin1, _a2, requester = world(db_session)
     req = create(db_session, requester)
-    force_status(db_session, req, status, "fallo previo")
+    force_status(db_session, req, status, "RuntimeError E-113")
     out = br.reopen(db_session, req.id, admin1, " tras revisar el proveedor ", now=NOW)
     assert out.status == "aprobada" and out.error_message is None
     ev = br.get_events(db_session, req.id)[-1]
     assert ev.event_type == "reintentada" and ev.actor_user_id == admin1.id
     assert ev.detail["action"] == "reabierta" and ev.detail["from_status"] == status
-    assert ev.detail["comment"] == "tras revisar el proveedor" and ev.detail["previous_error"] == "fallo previo"
+    assert ev.detail["comment"] == "tras revisar el proveedor" and ev.detail["previous_error"] == "RuntimeError E-113"
     assert no_provider_writes()  # no hay reintento automatico
 
 
@@ -509,7 +509,7 @@ def test_reopen_only_from_failed_states(db_session, status):
 
 
 def test_reopen_authorization(db_session):
-    """Reabre quien tiene billing_policy.manage O es aprobador segun la politica; ejecutivo/soporte no."""
+    """Tanda 2: reabre SOLO un aprobador segun la politica vigente; billing_policy.manage por si solo no basta."""
     kit, admin1, _a2, requester = world(db_session)
     manager = make_user(db_session, kit["gestor"])  # manage, sin condicion de aprobador
     listed = make_user(db_session, kit["aprobador"])
@@ -518,10 +518,10 @@ def test_reopen_authorization(db_session):
     set_policy(db_session, approver_user_ids=[str(listed.id)])
     req = create(db_session, requester)
     force_status(db_session, req, "fallida")
-    for denied in (executive, unlisted, requester):
+    for denied in (executive, unlisted, requester, manager):
         with pytest.raises(br.NotApproverError):
             br.reopen(db_session, req.id, denied, "x")
-    assert br.reopen(db_session, req.id, manager, "gestor").status == "aprobada"
+    assert db_session.get(BillingChangeRequest, req.id).status == "fallida"
     force_status(db_session, req, "requiere_conciliacion")
     assert br.reopen(db_session, req.id, listed, "aprobador").status == "aprobada"
     force_status(db_session, req, "fallida")

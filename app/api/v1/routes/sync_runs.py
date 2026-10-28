@@ -23,7 +23,10 @@ def get_db():
 
 @router.get("", dependencies=[Depends(require_permissions("sync_runs.view"))])
 def list_sync_runs(db: Session = Depends(get_db)) -> list[dict[str, object]]:  # noqa: B008
-    runs = db.scalars(select(SyncRun).order_by(SyncRun.started_at.desc()).limit(50)).all()
+    # Solo corridas de canales: las de los jobs de facturacion (`billing_*`) se ven en /scheduler/jobs.
+    runs = db.scalars(
+        select(SyncRun).where(SyncRun.is_channel_source()).order_by(SyncRun.started_at.desc()).limit(50)
+    ).all()
     return [
         {
             "id": str(run.id),

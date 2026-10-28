@@ -67,8 +67,10 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
     from app.scheduler.jobs.billing_jobs import (
         JOB_BILLING_EXPIRE,
         JOB_BILLING_RENEWAL,
+        JOB_BILLING_SWEEP,
         billing_expire_requests,
         billing_renewal_check,
+        billing_sweep_applying,
     )
 
     if not scheduler.get_job(JOB_BILLING_RENEWAL):
@@ -92,3 +94,14 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
         )
         logger.info("Job '%s' registrado (cada hora, minuto 10).", JOB_BILLING_EXPIRE)
+    if not scheduler.get_job(JOB_BILLING_SWEEP):
+        # :05/:20/:35/:50 para no chocar con la expiracion de :10 (ambos tocan billing_change_requests).
+        scheduler.add_job(
+            billing_sweep_applying,
+            trigger="cron",
+            minute="5,20,35,50",
+            id=JOB_BILLING_SWEEP,
+            name="Barrido de solicitudes atascadas en 'aplicando'",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (cada 15 min: :05/:20/:35/:50).", JOB_BILLING_SWEEP)

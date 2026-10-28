@@ -7,6 +7,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
 
+# Los jobs de facturacion registran su corrida en `sync_runs` con `source` = id del job, SIEMPRE con este prefijo.
+# Los KPI y listados de sincronizacion de CANALES excluyen por prefijo (no por lista blanca de canales): un canal nuevo
+# aparece solo, y un job de facturacion nuevo queda excluido mientras respete el prefijo (lo exige un test sobre
+# BILLING_JOB_IDS).
+BILLING_JOB_PREFIX = "billing_"
+
 
 class SyncRun(Base):
     __tablename__ = "sync_runs"
@@ -18,3 +24,8 @@ class SyncRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     records_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+    @classmethod
+    def is_channel_source(cls):
+        """Condicion SQL: fila de sincronizacion de un canal (no de un job de facturacion)."""
+        return ~cls.source.startswith(BILLING_JOB_PREFIX, autoescape=True)

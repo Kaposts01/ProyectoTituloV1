@@ -285,15 +285,39 @@ def _validate_policy(db: Session, after: dict[str, Any], actor_id: uuid.UUID | N
         bad = sorted(set(ids) - active)
         if bad:
             raise PolicyValidationError("unknown_user", f"Usuarios aprobadores inexistentes o inactivos: {', '.join(bad)}.")
+    effective = effective_approver_ids(db, out["approver_roles"], ids)
+    if not effective:  # AP-23: SIEMPRE al menos un aprobador EFECTIVO (activo, con el permiso `approve` y listado por rol o id)
+        raise PolicyValidationError(
+            "no_approvers",
+            "La política no tendría ningún aprobador efectivo: hace falta al menos un usuario activo con el permiso "
+            "'approve' que sea aprobador por rol o por id (AP-23).",
+        )
     if out["self_approval_enabled"] is False:  # AP-24
-        effective = effective_approver_ids(db, out["approver_roles"], ids)
         if not effective - ({actor_id} if actor_id else set()):
             raise PolicyValidationError(
                 "no_other_approver",
                 "Sin autoaprobación, las solicitudes de quien edita no tendrían quién las apruebe: "
                 "no existe otro aprobador activo distinto (AP-24).",
             )
+    if out["dual_approval_enabled"]:
+        # El solicitante cuenta como UNA aprobacion solo con autoaprobacion; sin ella el solicitante puede ser uno de los
+        # efectivos y aun asi deben quedar 2 distintos: hacen falta 3 (con autoaprobacion bastan 2).
+        needed = 2 if out["self_approval_enabled"] else 3
+        if len(effective) < needed:
+            raise PolicyValidationError(
+                "dual_insufficient_approvers",
+                f"Con doble aprobación hacen falta al menos {needed} aprobadores efectivos distintos "
+                f"(hay {len(effective)}).",
+            )
     return out
+
+
+def policy_effective_approvers(db: Session) -> set[uuid.UUID] | None:
+    """Aprobadores efectivos de la politica vigente SIN crearla; None si aun no existe la fila (nada que proteger)."""
+    policy = db.scalar(select(BillingPolicy).where(BillingPolicy.singleton.is_(True)))
+    if policy is None:
+        return None
+    return effective_approver_ids(db, list(policy.approver_roles or []), [str(x) for x in (policy.approver_user_ids or [])])
 
 
 def update_policy(db: Session, actor: User, patch: dict[str, Any], reason: str | None = None) -> BillingPolicy:
@@ -384,7 +408,18 @@ def normalize_platform(value: str | None) -> str:
     return raw
 
 
-def _validate_params(p: RequestParams) -> None:
+def _add_years(d: date, years: int) -> date:
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:  # 29 de febrero
+        return d.replace(year=d.year + years, day=28)
+
+
+def _month_index(ym: str) -> int:
+    return int(ym[:4]) * 12 + int(ym[5:7]) - 1
+
+
+def _validate_params(p: RequestParams, today: date) -> None:
     if p.request_type not in REQUEST_TYPES:
         raise InvalidRequestFieldsError(f"request_type debe ser uno de: {', '.join(REQUEST_TYPES)}.")
     if not (p.subscription_external_id or "").strip():
@@ -395,8 +430,15 @@ def _validate_params(p: RequestParams) -> None:
         raise InvalidRequestFieldsError("new_charge_day debe estar entre 1 y 31.")
     if p.horizon_months is not None and not 1 <= p.horizon_months <= 60:
         raise InvalidRequestFieldsError("horizon_months debe estar entre 1 y 60.")
-    if p.horizon_start_month is not None and not _MONTH_RE.match(p.horizon_start_month):
-        raise InvalidRequestFieldsError("horizon_start_month debe tener formato YYYY-MM.")
+    if p.horizon_start_month is not None:
+        if not _MONTH_RE.match(p.horizon_start_month):
+            raise InvalidRequestFieldsError("horizon_start_month debe tener formato YYYY-MM.")
+        current = _month_index(today.strftime("%Y-%m"))
+        if not current - 1 <= _month_index(p.horizon_start_month) <= current + 24:
+            raise InvalidRequestFieldsError(
+                "horizon_start_month debe estar entre el mes anterior al actual y 24 meses hacia adelante.")
+    if p.new_charge_date is not None and not today + timedelta(days=1) <= p.new_charge_date <= _add_years(today, 5):
+        raise InvalidRequestFieldsError("new_charge_date debe estar entre mañana y 5 años desde hoy (hora de Chile).")
     t = p.request_type
     if t == "change_amount":
         if p.new_amount is None:
@@ -436,17 +478,17 @@ async def prepare_request(db: Session, params: RequestParams, *, now: datetime |
     p = params
     p.platform = normalize_platform(p.platform)
     p.subscription_external_id = p.subscription_external_id.strip()
-    _validate_params(p)
+    today = ba._chile_now(now).date()
+    _validate_params(p, today)
     state = ba._subscription_state(db, p.platform, p.subscription_external_id)
     if state is None:
         raise SubscriptionUnknownError("Suscripción no encontrada.")
-    if (state[0] or "").strip().upper() != "ACTIVA":
+    if not ba.is_active_status(state[0]):
         raise SubscriptionNotActiveError(state[0])
     if ba.is_subscription_blocked(db, p.platform, p.subscription_external_id):
         raise SubscriptionBlockedError("La suscripción tiene cobros en conciliación pendiente; resuélvalo antes de pedir cambios.")
 
     policy = get_policy(db)
-    today = ba._chile_now(now).date()
     amount = p.new_amount
     if amount is None:  # change_date / renew_calendar: el monto es el actual
         if p.request_type == "renew_calendar":
@@ -474,7 +516,8 @@ async def prepare_request(db: Session, params: RequestParams, *, now: datetime |
     )
     if p.request_type == "change_date":
         req.previous_amount = Decimal(amount)
-    plan = await ba.preview_change(db, req, now=now)
+    plan, charge_day = await ba.preview_change_with_day(db, req, now=now)
+    req.previous_charge_day = charge_day  # el dia vigente queda fijo desde la solicitud (no cambia al aplicar)
     preview = plan_to_preview_json(plan)
     if plan.errors:
         raise PlanInvalidError(preview["errors"])
@@ -562,9 +605,15 @@ def _lock_request(db: Session, request_id: uuid.UUID) -> BillingChangeRequest:
 
 
 def _approver_ids(db: Session, request_id: uuid.UUID) -> set[uuid.UUID]:
-    return {a for a in db.scalars(select(BillingChangeRequestEvent.actor_user_id).where(
+    """Aprobadores de la ronda vigente: tras una reapertura (evento `reintentada`) las aprobaciones anteriores no cuentan."""
+    last_reopen = db.scalar(select(func.max(BillingChangeRequestEvent.created_at)).where(
+        BillingChangeRequestEvent.request_id == request_id, BillingChangeRequestEvent.event_type == "reintentada"))
+    q = select(BillingChangeRequestEvent.actor_user_id).where(
         BillingChangeRequestEvent.request_id == request_id,
-        BillingChangeRequestEvent.event_type.in_(("aprobada", "autoaprobada")))) if a is not None}
+        BillingChangeRequestEvent.event_type.in_(("aprobada", "autoaprobada")))
+    if last_reopen is not None:
+        q = q.where(BillingChangeRequestEvent.created_at > last_reopen)
+    return {a for a in db.scalars(q) if a is not None}
 
 
 def _clean_comment(comment: str | None, *, required: bool) -> str | None:
@@ -658,12 +707,13 @@ def withdraw(db: Session, request_id: uuid.UUID, actor: User, comment: str | Non
     """Retira una solicitud `pendiente`: solo su solicitante o un admin (AP-33)."""
     text = _clean_comment(comment, required=False)
     req = _lock_request(db, request_id)
-    if req.status != "pendiente":
-        db.rollback()
-        raise RequestStateConflictError(req.status, ("pendiente",))
+    # Propiedad ANTES que estado: quien no puede retirar no debe enterarse del estado de la solicitud (403 antes que 409).
     if actor.id != req.requested_by_user_id and not any(r.name == ADMIN_ROLE for r in actor.roles):
         db.rollback()
         raise NotAllowedError("Solo el solicitante o un administrador puede retirar la solicitud.")
+    if req.status != "pendiente":
+        db.rollback()
+        raise RequestStateConflictError(req.status, ("pendiente",))
     updated = db.execute(
         update(BillingChangeRequest)
         .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == "pendiente")
@@ -682,23 +732,41 @@ def withdraw(db: Session, request_id: uuid.UUID, actor: User, comment: str | Non
 def reopen(db: Session, request_id: uuid.UUID, actor: User, comment: str | None, *, now: datetime | None = None) -> BillingChangeRequest:
     """`fallida` / `requiere_conciliacion` -> `aprobada`, explicito, con comentario obligatorio. Sin reintento automatico.
 
-    Quien: permiso `billing_policy.manage` O aprobador segun la politica. Evento `reintentada` con
-    `detail.action = "reabierta"` (el CHECK de BD no admite un tipo `reabierta`).
+    Quien: SIEMPRE un aprobador segun la politica vigente (el permiso `billing_policy.manage` por si solo no basta).
+    La suscripcion no debe estar bloqueada por cobros en conciliacion de OTRA solicitud. Se reinician las aprobaciones
+    (`approvals_count = 0`) y se recalcula `approvals_required` con la politica vigente: si ahora exige 2, vuelve a
+    `pendiente` (con nuevo vencimiento) para reunir aprobadores distintos; si exige 1, queda `aprobada` (la reapertura la
+    hace un aprobador). Evento `reintentada` con `detail.action = "reabierta"` y el estado previo (el CHECK de BD no
+    admite un tipo `reabierta`).
     """
     text = _clean_comment(comment, required=True)
     req = _lock_request(db, request_id)
     if req.status not in REOPENABLE_STATUSES:
         db.rollback()
         raise RequestStateConflictError(req.status, REOPENABLE_STATUSES)
-    if PERM_POLICY not in permission_codes(actor):
-        _require_approver(db, actor, req.id, "reopen")
-    previous_status, previous_error = req.status, req.error_message
+    policy = _require_approver(db, actor, req.id, "reopen")
+    if ba.is_subscription_blocked(db, req.platform, req.subscription_external_id, exclude_request=req.id):
+        db.rollback()
+        raise SubscriptionBlockedError("La suscripción tiene cobros en conciliación pendiente de otra solicitud.")
+    previous_status = req.status
+    previous_error = ba.reduce_stored_error(req.error_message)
+    previous_count, previous_required = int(req.approvals_count), int(req.approvals_required)
+    summary = (req.plan_preview or {}).get("summary") or {}
+    variation = summary.get("variation_pct")
+    required = required_approvals(policy, subscriptions=1, variation_pct=float(variation) if variation is not None else None)
+    when = _utc(now)
+    new_status = "aprobada" if required == 1 else "pendiente"
+    values: dict[str, Any] = {
+        "status": new_status, "error_message": None, "approvals_count": 0, "approvals_required": required,
+        "decided_at": when if new_status == "aprobada" else None, "updated_at": func.now()}
+    if new_status == "pendiente":
+        values["expires_at"] = when + timedelta(days=int(policy.request_expiry_days))
     try:
         with db.begin_nested():  # el indice unico de "una abierta por suscripcion" puede rechazar el UPDATE
             updated = db.execute(
                 update(BillingChangeRequest)
                 .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == previous_status)
-                .values(status="aprobada", error_message=None, decided_at=_utc(now), updated_at=func.now())
+                .values(**values)
                 .execution_options(synchronize_session=False)
             ).rowcount
     except IntegrityError:
@@ -708,7 +776,9 @@ def reopen(db: Session, request_id: uuid.UUID, actor: User, comment: str | None,
         db.rollback()
         raise RequestStateConflictError(_current_status(db, request_id), REOPENABLE_STATUSES)
     _event(db, req.id, "reintentada", actor.id, {
-        "action": "reabierta", "from_status": previous_status, "comment": text, "previous_error": previous_error})
+        "action": "reabierta", "from_status": previous_status, "to_status": new_status, "comment": text,
+        "previous_error": previous_error, "previous_approvals_count": previous_count,
+        "previous_approvals_required": previous_required, "new_approvals_required": required})
     db.commit()
     db.refresh(req)
     return req
@@ -725,7 +795,8 @@ def _expire_one(db: Session, req: BillingChangeRequest, when: datetime) -> None:
 def expire_pending_requests(db: Session, now: datetime | None = None) -> list[uuid.UUID]:
     """Pasa a `expirada` las `pendiente` con `expires_at <= now` (limite INCLUSIVO). Idempotente.
 
-    Invocable por el scheduler (paso 6; aun NO esta registrada). Evento `expirada` con actor NULL (sistema).
+    La invoca el job `billing_expire_requests` del scheduler (cada hora, minuto 10; ver `app/scheduler/engine.py`).
+    Evento `expirada` con actor NULL (sistema).
     """
     when = _utc(now)
     rows = db.execute(
@@ -861,6 +932,7 @@ __all__ = [
     "list_requesters",
     "list_requests",
     "normalize_platform",
+    "policy_effective_approvers",
     "policy_values",
     "prepare_request",
     "reject",

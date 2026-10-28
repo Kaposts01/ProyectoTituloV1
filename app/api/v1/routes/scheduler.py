@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -21,9 +22,12 @@ from app.scheduler import event_bus
 from app.scheduler.engine import JOB_SYNC_ALL, get_scheduler
 from app.scheduler.jobs.billing_jobs import (
     BILLING_JOB_IDS,
+    JOB_BILLING_EXPIRE,
     JOB_BILLING_RENEWAL,
+    JOB_BILLING_SWEEP,
     billing_expire_requests,
     billing_renewal_check,
+    billing_sweep_applying,
 )
 from app.scheduler.jobs.sync_all import channel_is_enabled, sync_all_channels
 
@@ -32,6 +36,10 @@ _VALID_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch
 
 class TriggerBody(BaseModel):
     channels: list[str] | None = None
+
+
+# Una fila `running` mas vieja que esto se considera abandonada (proceso caido): no bloquea para siempre el 409.
+_BILLING_RUN_STALE_AFTER = timedelta(hours=1)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -136,13 +144,20 @@ async def trigger_job(
     if job_id in BILLING_JOB_IDS:  # solo lectura hacia el proveedor: no depende de canales ni de la sync activa
         if body.channels is not None:
             raise HTTPException(status_code=422, detail="Este job no admite selección de canales.")
-        running = db.scalar(select(SyncRun).where(SyncRun.source == job_id, SyncRun.status == "running").limit(1))
+        running = db.scalar(select(SyncRun).where(
+            SyncRun.source == job_id, SyncRun.status == "running",
+            SyncRun.started_at > datetime.now(UTC) - _BILLING_RUN_STALE_AFTER).limit(1))
         if running:
             raise HTTPException(status_code=409, detail=f"El job ya está en ejecución (run_id={running.id}).")
-        billing_run_id = str(uuid.uuid4())
-        job_fn = billing_renewal_check if job_id == JOB_BILLING_RENEWAL else billing_expire_requests
-        background_tasks.add_task(job_fn, billing_run_id)
-        return {"run_id": billing_run_id, "status": "accepted", "skipped_channels": []}
+        billing_run_id = uuid.uuid4()
+        # La fila `running` se crea AQUI, antes de lanzar la tarea: asi un segundo clic ve la fila y recibe 409. El job
+        # la adopta por su run_id (si la tarea aun no arranco, no hay hueco entre el chequeo y la fila).
+        db.add(SyncRun(id=billing_run_id, source=job_id, status="running"))
+        db.commit()
+        job_fn = {JOB_BILLING_RENEWAL: billing_renewal_check, JOB_BILLING_EXPIRE: billing_expire_requests,
+                  JOB_BILLING_SWEEP: billing_sweep_applying}[job_id]
+        background_tasks.add_task(job_fn, str(billing_run_id))
+        return {"run_id": str(billing_run_id), "status": "accepted", "skipped_channels": []}
 
     # Validar canales si se pasan
     if body.channels is not None:

@@ -20,7 +20,10 @@ Reglas (cada una con su escenario)
 - `vencida` cuando hoy > `due_date` (JB-31). Si el chequeo no corrio varios dias y ya paso, la tarea nace `vencida` (JB-33).
 - Prioridad `alta` si esta `vencida` (JB-31) o faltan menos de `HIGH_PRIORITY_DAYS` (15) dias (JB-27, propuesta del doc); si no, `normal`.
 - Suscripcion que deja de estar ACTIVA (CANCELADA, FINALIZADA, SUSCRIPCION_FALLIDA...) o marca desactivada/inexistente: no se
-  crea tarea y la abierta se cierra como `no_aplica` con `close_reason` (JB-35).
+  crea tarea y la abierta se cierra como `no_aplica` con `close_reason` (JB-35). "Activa" se compara sin importar
+  mayusculas ni idioma (`ACTIVA`/`activa`/`active`). Si la suscripcion aun NO esta sincronizada (no existe en
+  `vp_subscriptions` ni en `subscriptions`) la marca se omite (contador `unsynced`) y una tarea abierta queda abierta y
+  marcada `data_stale`: no se cierra como `no_aplica`.
 - Renovacion ejecutada (AP-34, JB-30): si el calendario se extendio (la marca ya llega mas lejos que la tarea) o la solicitud
   enlazada quedo `ejecutada`, la tarea pasa a `cerrada` enlazando `request_id` (la `origin_request_id` de la marca si esta ejecutada).
 - `data_stale` (JB-36): la ultima sincronizacion COMPLETADA de la plataforma (`sync_runs.source = platform`) tiene mas de
@@ -69,6 +72,7 @@ class RenewalCheckResult:
     closed: int = 0  # cerradas por renovacion ejecutada
     not_applicable: int = 0  # cerradas `no_aplica` (suscripcion no ACTIVA / sin marca activa)
     stale: int = 0  # tareas abiertas marcadas `data_stale` tras la corrida
+    unsynced: int = 0  # marcas cuya suscripcion aun no esta sincronizada (ni vp_subscriptions ni subscriptions): se omiten
     errors: int = 0  # registros que fallaron (aislados por SAVEPOINT)
 
     def merge(self, other: RenewalCheckResult) -> None:
@@ -145,10 +149,17 @@ def _process_mark(db: Session, mark: VpCalendarMark, *, today: date, now_utc: da
     task = _find_open_task(db, platform, sub)
 
     state = ba._subscription_state(db, platform, sub)
-    status = (state[0] or "").strip().upper() if state else ""
-    if status != "ACTIVA":  # JB-35
+    if state is None:
+        # Aun no sincronizada (no existe en vp_subscriptions ni en subscriptions): NO es "ya no activa". No se cierra ni
+        # se crea nada; si habia una tarea abierta queda abierta marcada `data_stale` y se cuenta para la corrida.
+        out.unsynced += 1
+        if task is not None and not task.data_stale:
+            task.data_stale = True
+        return out
+    if not ba.is_active_status(state[0]):  # JB-35 (mayusculas/idioma: ACTIVA / activa / active)
         if task is not None:
-            _close(task, "no_aplica", f"La suscripción ya no está ACTIVA (estado: {status or 'desconocido'}).", now_utc)
+            shown = (state[0] or "").strip().upper() or "desconocido"
+            _close(task, "no_aplica", f"La suscripción ya no está ACTIVA (estado: {shown}).", now_utc)
             out.not_applicable += 1
         return out
 
