@@ -1,3 +1,4 @@
+import { planIssueText } from "./billingPlan";
 import type { DriftDiff, PlanIssue, PlanPreview } from "./types";
 
 export type BillingErrorInfo = {
@@ -16,6 +17,7 @@ const POLICY_MESSAGES: Record<string, string> = {
   no_other_approver: "Sin autoaprobación, sus propias solicitudes no tendrían quién las apruebe: no existe otro aprobador activo distinto de usted (AP-24). Agregue otro aprobador o mantenga la autoaprobación.",
   unknown_role: "Alguno de los roles aprobadores no existe. Revise la selección.",
   unknown_user: "Alguno de los usuarios aprobadores no existe o está inactivo. Revise la selección.",
+  dual_insufficient_approvers: "Con doble aprobación hacen falta más aprobadores efectivos y distintos (con autoaprobación basta uno más; sin ella, dos más). Agregue aprobadores o desactive la doble aprobación.",
   invalid_value: "Alguno de los valores indicados no es válido. Revise los campos.",
 };
 
@@ -40,6 +42,12 @@ const CODE_MESSAGES: Record<string, string> = {
   invalid_fields: "Alguno de los datos indicados no es válido. Revise el formulario.",
   apply_failed: "No se pudo aplicar el cambio en VirtualPOS. Los cobros creados se compensaron y el calendario original quedó intacto. La solicitud quedó «fallida»: un aprobador puede reabrirla.",
   reconciliation_required: "La aplicación quedó incompleta y requiere conciliación manual. La solicitud pasó a «requiere conciliación»; un aprobador debe revisarla antes de reabrirla.",
+  provider_listing_incomplete: "No se pudo leer completo el listado de cobros del proveedor; reintente. No se calculó ni escribió nada.",
+  billing_flow_conflict: "La operación choca con el flujo de solicitudes de cambio de cobro. Actualice y revise el estado de la solicitud.",
+  charge_not_found: "Un cobro de la operación ya no existe en VirtualPOS. Actualice y revise el estado de la solicitud.",
+  billing_apply_error: "No se pudo aplicar el cambio; revise el estado de la solicitud antes de reintentar.",
+  stale_session: "Sesión desactualizada: recargue la página.",
+  unparseable_charges: "VirtualPOS devolvió cobros que no se pueden interpretar; no se calculó ni escribió nada.",
   provider_error: "VirtualPOS no respondió correctamente y no se escribió nada. Reintente más tarde.",
 };
 
@@ -55,6 +63,20 @@ const STATUS_MESSAGES: Record<number, string> = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** `count` y `by_status` solo como número y estados normalizados ([a-z0-9_]); nunca texto del proveedor. */
+function unparseableMessage(detail: Record<string, unknown>): string {
+  const base = CODE_MESSAGES.unparseable_charges;
+  const count = typeof detail.count === "number" && Number.isInteger(detail.count) && detail.count >= 0 && detail.count < 1_000_000 ? detail.count : null;
+  const states = isRecord(detail.by_status)
+    ? Object.entries(detail.by_status)
+      .filter(([k, v]) => /^[a-z0-9_]{1,30}$/.test(k) && typeof v === "number" && Number.isInteger(v) && v >= 0)
+      .map(([k, v]) => `${k}: ${v}`)
+    : [];
+  if (count === null && states.length === 0) return base;
+  const head = count === null ? "VirtualPOS devolvió cobros que no se pueden interpretar" : `VirtualPOS devolvió ${count} cobros que no se pueden interpretar`;
+  return `${head}${states.length ? ` (por estado: ${states.join(", ")})` : ""}; no se calculó ni escribió nada.`;
 }
 
 /**
@@ -84,10 +106,13 @@ export function describeBillingError(error: unknown, fallback: string): BillingE
     };
   }
   const info: BillingErrorInfo = { status, code, message: (code && CODE_MESSAGES[code]) || STATUS_MESSAGES[status] || fallback };
+  if (code === "unparseable_charges" && isRecord(detail)) info.message = unparseableMessage(detail);
   if (code === "plan_errors" && isRecord(detail) && Array.isArray(detail.errors)) {
-    info.planErrors = detail.errors.filter(isRecord).map((e) => ({
-      code: String(e.code ?? ""), message: String(e.message ?? ""), month: typeof e.month === "string" ? e.month : null,
-    }));
+    // El `message` del servidor NO se usa: el texto sale del código estable.
+    info.planErrors = detail.errors.filter(isRecord).map((e) => {
+      const issueCode = typeof e.code === "string" ? e.code : "";
+      return { code: issueCode, message: planIssueText(issueCode, "error"), month: typeof e.month === "string" && /^\d{4}-\d{2}$/.test(e.month) ? e.month : null };
+    });
   }
   if (code === "open_request_exists" && isRecord(detail) && typeof detail.open_request_id === "string") info.openRequestId = detail.open_request_id;
   return info;

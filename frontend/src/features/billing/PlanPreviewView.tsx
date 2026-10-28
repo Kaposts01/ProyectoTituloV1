@@ -1,4 +1,4 @@
-import { buildKeptRows, buildPlanRows, PLAN_KIND_LABEL, PLAN_KIND_TONE } from "./billingPlan";
+import { buildKeptRows, buildPlanRows, PLAN_KIND_LABEL, PLAN_KIND_TONE, planIssueText } from "./billingPlan";
 import { formatClp, formatPct, formatSignedClp } from "./billingLabels";
 import type { PlanPreview } from "./types";
 import { Badge, Notice } from "./ui";
@@ -8,6 +8,7 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
   if (!plan) return <p className="muted-copy">Sin vista previa disponible.</p>;
   const rows = buildPlanRows(plan);
   const kept = buildKeptRows(plan);
+  const dueToday = (plan.kept_due_today ?? []).filter((m): m is string => typeof m === "string");
   const s = plan.summary;
   return (
     <div>
@@ -29,13 +30,13 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
       {(plan.errors ?? []).length > 0 ? (
         <Notice tone="error">
           Errores del plan:
-          <ul>{plan.errors!.map((e, i) => <li key={i}>{e.month ? <><span className="mono">{e.month}</span>: </> : null}{e.message}</li>)}</ul>
+          <ul>{plan.errors!.map((e, i) => <li key={i}>{e.month ? <><span className="mono">{e.month}</span>: </> : null}{planIssueText(e.code, "error")}</li>)}</ul>
         </Notice>
       ) : null}
       {(plan.warnings ?? []).length > 0 ? (
         <Notice tone="warning">
           Avisos:
-          <ul>{plan.warnings!.map((w, i) => <li key={i}>{w.month ? <><span className="mono">{w.month}</span>: </> : null}{w.message}</li>)}</ul>
+          <ul>{plan.warnings!.map((w, i) => <li key={i}>{w.month ? <><span className="mono">{w.month}</span>: </> : null}{planIssueText(w.code, "warning")}</li>)}</ul>
         </Notice>
       ) : null}
       {plan.noop ? <Notice tone="neutral">El plan no produce cambios.</Notice> : null}
@@ -59,6 +60,13 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
             </tbody>
           </table>
         </div>
+      ) : null}
+      {dueToday.length > 0 ? (
+        <>
+          <h3>Cobros de hoy conservados</h3>
+          <p className="muted-copy">Hay un cobro pendiente fechado hoy en estos meses: no se toca, para evitar un doble cobro.</p>
+          <ul>{dueToday.map((m) => <li key={m} className="mono">{m}</li>)}</ul>
+        </>
       ) : null}
       {kept.length > 0 ? (
         <>

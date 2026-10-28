@@ -52,3 +52,8 @@ export function listParams(tab: InboxTab, filters: InboxFilters, offset: number,
 export function listPath(tab: InboxTab, filters: InboxFilters, offset = 0, limit = 25): string {
   return `/api/v1/billing/changes?${listParams(tab, filters, offset, limit).toString()}`;
 }
+
+/** Último offset válido para `total` elementos: el inicio de la última página (se usa al quedar vacía la página pedida). */
+export function lastPageOffset(total: number, pageSize: number): number {
+  return Math.max(0, Math.floor((total - 1) / pageSize) * pageSize);
+}

@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { statusLabel, statusTone, type Tone } from "./billingLabels";
 import "./billing.css";
 
@@ -20,16 +21,38 @@ type DialogProps = {
   /** Mientras es true no se puede cerrar con Escape ni clic fuera. */
   busy?: boolean;
   wide?: boolean;
+  /** Con cambios sin guardar, un clic en el fondo NO cierra el diálogo (Escape y «Cancelar» siguen siendo explícitos). */
+  dirty?: boolean;
 };
 
 /**
- * Diálogo modal accesible: mueve el foco al abrir (primer campo), lo atrapa con Tab, cierra con Escape
+ * Diálogo modal accesible: se monta en un portal fuera de la app, deja `inert` + `aria-hidden` el resto de la página
+ * mientras está abierto, mueve el foco al abrir (primer campo), lo atrapa con Tab, cierra con Escape
  * y devuelve el foco al elemento que lo abrió.
  */
-export function Dialog({ title, children, onClose, busy = false, wide = false }: DialogProps) {
+export function Dialog({ title, children, onClose, busy = false, wide = false, dirty = false }: DialogProps) {
   const titleId = useId();
-  const ref = useRef<HTMLDivElement>(null);
+  const [host] = useState(() => document.createElement("div"));
   const opener = useRef<Element | null>(null);
+  useLayoutEffect(() => {
+    opener.current = document.activeElement; // antes de volver inert el resto: el navegador puede quitar el foco
+    document.body.appendChild(host);
+    const others = Array.from(document.body.children).filter((el) => el !== host && el instanceof HTMLElement) as HTMLElement[];
+    const saved = others.map((el) => ({ el, inert: el.hasAttribute("inert"), ariaHidden: el.getAttribute("aria-hidden") }));
+    for (const { el } of saved) {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    return () => {
+      for (const { el, inert, ariaHidden } of saved) {
+        if (!inert) el.removeAttribute("inert");
+        if (ariaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", ariaHidden);
+      }
+      host.remove();
+    };
+  }, [host]);
+  const ref = useRef<HTMLDivElement>(null);
   const busyRef = useRef(busy);
   const closeRef = useRef(onClose);
   useEffect(() => {
@@ -38,7 +61,6 @@ export function Dialog({ title, children, onClose, busy = false, wide = false }:
   });
 
   useEffect(() => {
-    opener.current = document.activeElement;
     const root = ref.current;
     const first = root?.querySelector<HTMLElement>("textarea, input, select") ?? root?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? root)?.focus();
@@ -63,8 +85,8 @@ export function Dialog({ title, children, onClose, busy = false, wide = false }:
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
 
-  return (
-    <div className="bx-dialog-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+  return createPortal(
+    <div className="bx-dialog-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy && !dirty) onClose(); }}>
       <div
         ref={ref} className="bx-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
         style={wide ? undefined : { width: "min(560px, 100%)" }} onKeyDown={onKeyDown}
@@ -72,7 +94,8 @@ export function Dialog({ title, children, onClose, busy = false, wide = false }:
         <h2 id={titleId}>{title}</h2>
         {children}
       </div>
-    </div>
+    </div>,
+    host,
   );
 }
 

@@ -1,4 +1,5 @@
 /** HTTP utilities compartidas por todos los módulos del frontend. */
+import { noteServerDate } from "./serverClock";
 
 export let csrfToken = "";
 
@@ -60,6 +61,7 @@ export class ApiError extends Error {
 }
 
 async function checkResponse(response: Response): Promise<void> {
+  noteServerDate(response.headers?.get?.("date"));
   if (response.ok) return;
   const data = await response.json().catch(() => null);
   const detail = extractErrorDetail(data);

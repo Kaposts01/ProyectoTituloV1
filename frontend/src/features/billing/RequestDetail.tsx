@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { describeBillingError, type BillingErrorInfo } from "./billingErrors";
 import * as api from "./billingApi";
 import {
-  availableActions, eventComment, eventLabel, expiryText, formatDateTime, PLATFORM_LABELS, requestSummary, typeLabel,
+  approveBlockReason, availableActions, canWithdrawRequest, CHILE_TZ_NOTE, eventComment, eventLabel, eventNotes, eventTechnical, expiryText,
+  formatDateTime, PLATFORM_LABELS, requestSummary, technicalCode, typeLabel,
 } from "./billingLabels";
 import { describeDrift } from "./billingPlan";
+import { applyOutcome } from "./billingResult";
 import { PlanPreviewView } from "./PlanPreviewView";
 import type { ApplyResponse, BillingRequestDetail } from "./types";
 import { Dialog, Notice, StatusBadge } from "./ui";
@@ -19,16 +21,25 @@ const ACTION_COPY: Record<ActionKind, { title: string; confirm: string; busy: st
   apply: { title: "Aplicar cambio en VirtualPOS", confirm: "Aplicar ahora", busy: "Aplicando…", comment: "none", help: "Se recalcula el plan con el estado actual de VirtualPOS y se ejecutan las escrituras cobro por cobro. Esta acción modifica cobros reales." },
 };
 
+/** Etiqueta técnica corta del error (p. ej. «RuntimeError»): se muestra tal cual, en mono, sin interpretarla. */
+function techLine(value: unknown) {
+  const code = technicalCode(value);
+  return code ? <p className="bx-tech">Código técnico: <span className="mono">{code}</span></p> : null;
+}
+
 type DriftState = { info: NonNullable<BillingErrorInfo["drift"]> };
 
 type Props = {
   id: string;
   can: (permission: string) => boolean;
+  /** Usuario actual: «Retirar» solo para el solicitante (o admin) y detecta si ya aprobó. Sin él no se oculta nada. */
+  currentUserId?: string;
+  isAdmin?: boolean;
   /** Se invoca tras cualquier cambio de estado para que la bandeja se refresque. */
   onChanged: () => void;
 };
 
-export function RequestDetail({ id, can, onChanged }: Props) {
+export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChanged }: Props) {
   const [detail, setDetail] = useState<BillingRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -39,7 +50,7 @@ export function RequestDetail({ id, can, onChanged }: Props) {
   const [commentError, setCommentError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState<BillingErrorInfo | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: "ok" | "warning"; text: string } | null>(null);
   const inFlight = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -90,6 +101,7 @@ export function RequestDetail({ id, can, onChanged }: Props) {
     setCommentError(null);
     try {
       let message: string;
+      let tone: "ok" | "warning" = "ok";
       if (action === "approve") {
         const updated = await api.approveRequest(detail.id, text || undefined);
         message = updated.status === "aprobada" ? "Solicitud aprobada. Ya puede aplicarse." : `Aprobación registrada (${updated.approvals_count} de ${updated.approvals_required}). Falta otro aprobador.`;
@@ -104,13 +116,11 @@ export function RequestDetail({ id, can, onChanged }: Props) {
         message = "Solicitud reabierta como aprobada. Aplíquela cuando esté lista.";
       } else {
         const result: ApplyResponse = await api.applyRequest(detail.id, Boolean(drift));
-        message = result.already_applied
-          ? "La solicitud ya estaba aplicada."
-          : `Cambio aplicado: ${result.created} cobros creados y ${result.cancelled} cancelados${result.manual_review_months ? `; ${result.manual_review_months} meses quedan en revisión manual` : ""}.`;
+        ({ message, tone } = applyOutcome(result));
       }
       setAction(null);
       setDrift(null);
-      setNotice(message);
+      setNotice({ tone, text: message });
       onChanged();
       await load();
       headingRef.current?.focus();
@@ -120,8 +130,10 @@ export function RequestDetail({ id, can, onChanged }: Props) {
         setDrift({ info: info.drift });
         setDriftAck(false);
       } else {
-        setDialogError(info);
-        if (info.status === 409 || info.status === 502 || info.status === 503 || info.code === "request_not_found") {
+        // Sin respuesta definitiva (red, 5xx sin código): la operación pudo haberse aplicado; no se ofrece «reintentar» a ciegas.
+        const uncertain = (info.status === null || info.status >= 500) && !info.code;
+        setDialogError(uncertain ? { ...info, message: "No se pudo confirmar el resultado de la operación. Revise el estado de la solicitud antes de reintentar: puede haberse aplicado." } : info);
+        if (action === "apply" || action === "reopen" || info.status === 409 || info.status === 502 || info.status === 503 || info.code === "request_not_found") {
           onChanged();
           void load();
         }
@@ -144,6 +156,8 @@ export function RequestDetail({ id, can, onChanged }: Props) {
   if (!detail) return null;
 
   const actions = availableActions(detail, can);
+  actions.withdraw = actions.withdraw && canWithdrawRequest(detail, currentUserId, isAdmin);
+  const approveBlock = actions.approve ? approveBlockReason(detail, currentUserId) : null;
   const expiry = expiryText(detail);
   const copy = action ? ACTION_COPY[action] : null;
   const driftLines = drift ? describeDrift(drift.info.diff) : [];
@@ -154,7 +168,7 @@ export function RequestDetail({ id, can, onChanged }: Props) {
       <h2 id={`bx-detail-title-${detail.id}`} ref={headingRef} tabIndex={-1}>
         {typeLabel(detail.request_type)} · <span className="mono">{detail.subscription_external_id}</span>
       </h2>
-      <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
+      <div aria-live="polite">{notice ? <Notice tone={notice.tone} live>{notice.text}</Notice> : null}</div>
       {loadError ? <Notice tone="error">{loadError}</Notice> : null}
 
       <dl className="bx-dl">
@@ -173,12 +187,12 @@ export function RequestDetail({ id, can, onChanged }: Props) {
 
       {detail.requester_comment ? <><h3>Comentario del solicitante</h3><p className="bx-comment">{detail.requester_comment}</p></> : null}
       {detail.decision_comment ? <><h3>Comentario de la decisión</h3><p className="bx-comment">{detail.decision_comment}</p></> : null}
-      {detail.status === "fallida" ? <Notice tone="error">La aplicación falló. Los cobros creados se compensaron y el calendario original quedó intacto. Un aprobador puede reabrir la solicitud.</Notice> : null}
-      {detail.status === "requiere_conciliacion" ? <Notice tone="error">La aplicación quedó incompleta y requiere conciliación manual antes de reabrir la solicitud.</Notice> : null}
+      {detail.status === "fallida" ? <Notice tone="error">La aplicación falló. Los cobros creados se compensaron y el calendario original quedó intacto. Un aprobador puede reabrir la solicitud.{techLine(detail.error_message)}</Notice> : null}
+      {detail.status === "requiere_conciliacion" ? <Notice tone="error">La aplicación quedó incompleta y requiere conciliación manual antes de reabrir la solicitud.{techLine(detail.error_message)}</Notice> : null}
 
       {actions.approve || actions.reject || actions.withdraw || actions.reopen || actions.apply ? (
         <div className="bx-actions" role="group" aria-label="Acciones de la solicitud">
-          {actions.approve ? <button className="bx-btn bx-btn-primary" onClick={() => openAction("approve")}>Aprobar</button> : null}
+          {actions.approve ? <button className="bx-btn bx-btn-primary" disabled={Boolean(approveBlock)} aria-describedby={approveBlock ? "bx-approve-block" : undefined} onClick={() => openAction("approve")}>Aprobar</button> : null}
           {actions.apply ? <button className="bx-btn bx-btn-primary" onClick={() => openAction("apply")}>Aplicar</button> : null}
           {actions.reject ? <button className="bx-btn bx-btn-danger" onClick={() => openAction("reject")}>Rechazar</button> : null}
           {actions.withdraw ? <button className="bx-btn bx-btn-ghost" onClick={() => openAction("withdraw")}>Retirar</button> : null}
@@ -186,8 +200,11 @@ export function RequestDetail({ id, can, onChanged }: Props) {
         </div>
       ) : null}
 
+      {approveBlock ? <p id="bx-approve-block" className="bx-hint">{approveBlock}</p> : null}
+
       <PlanPreviewView plan={detail.plan_preview} />
 
+      <p className="bx-hint">{CHILE_TZ_NOTE}</p>
       <h3>Línea de tiempo</h3>
       {detail.events.length === 0 ? <p className="muted-copy">Sin eventos registrados.</p> : (
         <ol className="bx-timeline" aria-label="Línea de tiempo de la solicitud">
@@ -197,6 +214,8 @@ export function RequestDetail({ id, can, onChanged }: Props) {
               <li key={e.id}>
                 <span><strong>{eventLabel(e.event_type)}</strong> · {e.actor ?? "sistema"}</span>
                 <span className="mono">{formatDateTime(e.created_at)}</span>
+                {eventNotes(e.event_type, e.detail).map((n, i) => <span key={i} className="bx-hint">{n}</span>)}
+                {eventTechnical(e.detail).map((t) => <span key={t.label} className="bx-hint">{t.label}: <span className="mono">{t.code}</span></span>)}
                 {text ? <p className="bx-comment">{text}</p> : null}
               </li>
             );

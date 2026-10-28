@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError, type BillingErrorInfo } from "./billingErrors";
 import { EMPTY_FORM, validateChangeForm, type ChangeFormValues, type FormErrors } from "./billingForm";
-import { formatClp, PLATFORM_LABELS, REQUEST_TYPES, TYPE_LABELS } from "./billingLabels";
+import { formatClp, PLATFORM_LABELS, REQUEST_TYPES, statusLabel, TYPE_LABELS } from "./billingLabels";
 import { PlanPreviewView } from "./PlanPreviewView";
 import type { BillingRequestDetail, Platform, PreviewResponse, RequestType } from "./types";
 import { Dialog, Notice } from "./ui";
@@ -21,9 +21,10 @@ type Props = {
  * solo con una vista previa vigente se habilita «Enviar solicitud». Editar cualquier campo la invalida.
  */
 export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
-  const [values, setValues] = useState<ChangeFormValues>(() => (prefill
+  const [initial] = useState<ChangeFormValues>(() => (prefill
     ? { ...EMPTY_FORM, requestType: "renew_calendar", platform: prefill.platform, subscription: prefill.subscription }
     : EMPTY_FORM));
+  const [values, setValues] = useState<ChangeFormValues>(initial);
   const [errors, setErrors] = useState<FormErrors>({});
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [busy, setBusy] = useState<"preview" | "submit" | null>(null);
@@ -75,6 +76,7 @@ export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
   }
 
   const disabled = busy !== null;
+  const dirty = JSON.stringify(values) !== JSON.stringify(initial);
   const type = values.requestType;
   const needsAmount = type === "change_amount" || type === "one_off_charge";
   const errProps = (key: keyof FormErrors) => (errors[key] ? { "aria-invalid": true as const, "aria-describedby": `bx-err-${key}` } : {});
@@ -82,7 +84,7 @@ export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
 
   const locked = Boolean(prefill);
   return (
-    <Dialog title={locked ? "Solicitar renovación de calendario" : "Nueva solicitud de cambio de cobro"} onClose={onClose} busy={disabled} wide>
+    <Dialog title={locked ? "Solicitar renovación de calendario" : "Nueva solicitud de cambio de cobro"} onClose={onClose} busy={disabled} dirty={dirty} wide>
       <form className="bx-form" noValidate onSubmit={(e) => { e.preventDefault(); void runPreview(); }}>
         <div className="bx-form-grid">
           {locked ? (
@@ -161,7 +163,7 @@ export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
         {apiError ? (
           <Notice tone="error">
             {apiError.message}
-            {apiError.planErrors?.length ? <ul>{apiError.planErrors.map((e, i) => <li key={i}>{e.message}</li>)}</ul> : null}
+            {apiError.planErrors?.length ? <ul>{apiError.planErrors.map((e, i) => <li key={i}>{e.month ? <><span className="mono">{e.month}</span>: </> : null}{e.message}</li>)}</ul> : null}
           </Notice>
         ) : null}
 
@@ -176,7 +178,7 @@ export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
                 {preview.approvals_required > 1 ? " Requiere doble aprobación." : ""}
                 {" "}Vence a los <span className="mono">{preview.expires_in_days}</span> días.
               </Notice>
-              {preview.open_request ? <Notice tone="warning">Ya existe una solicitud abierta para esta suscripción (estado: {preview.open_request.status}); el envío será rechazado.</Notice> : null}
+              {preview.open_request ? <Notice tone="warning">Ya existe una solicitud abierta para esta suscripción (estado: {statusLabel(preview.open_request.status)}); el envío será rechazado.</Notice> : null}
               <PlanPreviewView plan={preview.plan_preview} />
             </div>
           ) : null}

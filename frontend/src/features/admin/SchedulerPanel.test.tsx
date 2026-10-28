@@ -58,3 +58,32 @@ describe("SchedulerPanel render", () => {
     expect(payku).not.toBeDisabled();
   });
 });
+
+describe("SchedulerPanel: estados y jobs de facturacion", () => {
+  const run = (over: Record<string, unknown>) => ({ id: "x", status: "completed", phase: null, started_at: "2026-03-01T10:00:00Z", finished_at: "2026-03-01T10:01:00Z", records_upserted: 5, channels_processed: ["virtualpos1"], error_message: null, ...over });
+  function mockData(jobs: unknown[], runs: unknown[]) {
+    mocked.mockImplementation(async (path: string) => {
+      if (path.endsWith("/environment")) return { app_env: "x", label: "x", is_production: true, enabled_channels: PROD };
+      if (path.includes("/scheduler/runs")) return { total: runs.length, items: runs };
+      if (path.endsWith("/scheduler/jobs")) return jobs;
+      return [];
+    });
+  }
+  it("estado partial se muestra como 'Parcial' con badge de advertencia", async () => {
+    mockData([], [run({ id: "r1", status: "partial" }), run({ id: "r2", status: "completed" })]);
+    render(<SchedulerPanel canSync canViewRuns canImportTch />);
+    const badge = await screen.findByText("Parcial");
+    expect(badge.className).toContain("badge-orange");
+    expect(screen.getByText("OK").className).toContain("badge-green");
+  });
+  it("el job billing_sweep_applying se lista con su nombre legible y su frecuencia", async () => {
+    mockData([
+      { id: "billing_sweep_applying", name: "Barrido de solicitudes atascadas en 'aplicando'", cron: "5,20,35,50 * * * *", next_run: "2026-03-01T10:05:00Z", last_run: null, status: "scheduled" },
+      { id: "billing_renewal_check", name: "Chequeo de renovación de calendario", cron: "0 3 * * *", next_run: null, last_run: null, status: "scheduled" },
+    ], []);
+    render(<SchedulerPanel canSync canViewRuns canImportTch />);
+    expect(await screen.findByText("Barrido de solicitudes atascadas en 'aplicando'")).toBeTruthy();
+    expect(screen.getByText("Cada 15 min (minutos 5, 20, 35 y 50)")).toBeTruthy();
+    expect(screen.getByText("Diario a las 03:00 (Santiago)")).toBeTruthy();
+  });
+});

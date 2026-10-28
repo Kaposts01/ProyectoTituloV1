@@ -23,7 +23,7 @@ describe("etiquetas de estado", () => {
     expect(expiryText({ status: "aprobada", expires_at: "2026-03-06T12:00:00Z" }, now)).toBeNull();
   });
   it("formatea fechas", () => {
-    expect(formatDateTime("2026-03-05T14:30:00+00:00")).toBe("2026-03-05 14:30");
+    expect(formatDateTime("2026-03-05T14:30:00+00:00")).toBe("2026-03-05 11:30");
     expect(formatDateTime(null)).toBe("—");
   });
 });
@@ -160,8 +160,9 @@ describe("errores de la API", () => {
     expect(describeBillingError(new Error("boom"), "fallback").message).toBe("fallback");
   });
   it("plan_errors lista los errores del plan", () => {
-    const info = describeBillingError(err(422, { code: "plan_errors", errors: [{ code: "x", message: "Mes inválido", month: "2026-05" }] }), "f");
-    expect(info.planErrors?.[0].message).toBe("Mes inválido");
+    const info = describeBillingError(err(422, { code: "plan_errors", errors: [{ code: "invalid_effective_month", message: "Mes inválido del servidor", month: "2026-05" }] }), "f");
+    expect(info.planErrors?.[0].message).toMatch(/mes de vigencia/);
+    expect(info.planErrors?.[0].message).not.toContain("servidor");
   });
 });
 

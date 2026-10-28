@@ -65,6 +65,9 @@ function cronLabel(cron: string): string {
     "0 2 * * *": "Diario a las 02:00 (Santiago)",
     "0 * * * *": "Cada hora",
     "*/30 * * * *": "Cada 30 min",
+    "0 3 * * *": "Diario a las 03:00 (Santiago)",
+    "10 * * * *": "Cada hora (minuto 10)",
+    "5,20,35,50 * * * *": "Cada 15 min (minutos 5, 20, 35 y 50)",
   };
   return map[cron] ?? cron;
 }
@@ -265,8 +268,9 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
   function statusBadge(st: string) {
-    const cls = st === "completed" ? "badge-green" : st === "failed" ? "badge-red" : st === "running" ? "badge-blue" : "badge-gray";
-    const label = st === "completed" ? "OK" : st === "failed" ? "Error" : st === "running" ? "En curso" : st;
+    // `partial`: corrida con errores parciales (p. ej. billing_renewal_check). Advertencia, no error ni éxito.
+    const cls = st === "completed" ? "badge-green" : st === "failed" ? "badge-red" : st === "running" ? "badge-blue" : st === "partial" ? "badge-orange" : "badge-gray";
+    const label = st === "completed" ? "OK" : st === "failed" ? "Error" : st === "running" ? "En curso" : st === "partial" ? "Parcial" : st;
     return <span className={`badge ${cls}`}>{label}</span>;
   }
 

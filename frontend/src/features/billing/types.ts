@@ -29,6 +29,8 @@ export type PlanPreview = {
   manual_review?: Array<{ month: string; target_date: string; days_overdue: number; reason: string }>;
   unchanged?: string[];
   kept_automatic_after_horizon?: Array<{ month: string; charge_id: string; charge_date: string; amount: number }>;
+  /** Meses con un cobro pendiente fechado hoy: no se tocan (riesgo de doble cobro). */
+  kept_due_today?: string[];
   warnings?: PlanIssue[];
   errors?: PlanIssue[];
   summary?: PlanSummary | null;
@@ -112,10 +114,11 @@ export type ApplyResponse = {
   request_status: RequestStatus;
   already_applied: boolean;
   reason: string | null;
-  created: number;
-  cancelled: number;
-  covered_late_months: number;
-  manual_review_months: number;
+  /** Cobros creados (objetos), ids cancelados y meses: el backend devuelve LISTAS, no conteos. */
+  created: Array<Record<string, unknown>>;
+  cancelled: string[];
+  covered_late_months: string[];
+  manual_review_months: string[];
   drift_accepted: boolean;
   plan_summary: PlanSummary | null;
 };

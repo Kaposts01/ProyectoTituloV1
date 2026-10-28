@@ -2279,7 +2279,7 @@ function AppCore() {
     </section>
   ) : null;
   const recoveryView = recoveryOpen ? <RecoveryPanel channel="virtualpos" can={can} /> : null;
-  const billingView = billingOpen ? <BillingInbox can={can} currentUserId={session?.user.id} /> : null;
+  const billingView = billingOpen ? <BillingInbox can={can} currentUserId={session?.user.id} isAdmin={session?.user.roles.some((role) => role.name === "admin") ?? false} /> : null;
 
   const providerDetail = activeSection ? (
     <main className="app-shell detail-page provider-page">

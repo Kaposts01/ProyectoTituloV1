@@ -179,7 +179,7 @@ describe("permisos", () => {
     expect(screen.queryByRole("button", { name: "Retirar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Nueva solicitud" })).toBeNull();
     expect(screen.getByRole("table", { name: "Plan por mes" })).toBeTruthy();
-    expect(screen.getByText("Aviso de prueba")).toBeTruthy();
+    expect(screen.getByText("Aviso del plan no reconocido.")).toBeTruthy();
     expect(screen.getByRole("list", { name: /Línea de tiempo/ })).toBeTruthy();
   });
 
@@ -269,7 +269,7 @@ describe("acciones", () => {
         diff: { create_added: [["2026-05", "2026-05-10", 9000, "S1-202605"]], cancel_removed: [["2026-04", "chg-1", 5000]] },
         new_preview: { ...PLAN, create: [{ month: "2026-05", charge_date: "2026-05-10", amount: 9000, internal_code: "S1-202605" }] },
       }))
-      .mockResolvedValueOnce({ request_id: "r1", status: "ok", request_status: "ejecutada", already_applied: false, created: 1, cancelled: 1, covered_late_months: 0, manual_review_months: 0, drift_accepted: true, plan_summary: null });
+      .mockResolvedValueOnce({ request_id: "r1", status: "ejecutada", request_status: "ejecutada", already_applied: false, created: [{ month: "2026-05" }], cancelled: ["chg-1"], covered_late_months: [], manual_review_months: [], drift_accepted: true, plan_summary: null });
     render(<BillingInbox can={canOf(ADMIN)} />);
     await openDetail();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));

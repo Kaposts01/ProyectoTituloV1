@@ -6,6 +6,7 @@ import {
   closeReasonLabel, daysText, EMPTY_RENEWAL_FILTERS, isOpenRenewal, renewalPriorityLabel, renewalPriorityTone, renewalStatusLabel,
   renewalStatusTone, type RenewalFilters, type RenewalStatusFilter,
 } from "./billingRenewal";
+import { lastPageOffset } from "./billingQuery";
 import { PERM_REQUEST, type Platform, type RenewalPriority, type RenewalTask, type RenewalTaskList } from "./types";
 import { Badge, Notice } from "./ui";
 
@@ -40,6 +41,12 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
     try {
       const result = await api.fetchRenewalTasks(filters, nextOffset, PAGE_SIZE);
       if (mine !== seq.current) return;
+      // Se actuó sobre el último ítem de la última página: la página quedó vacía pero hay datos. Se reposiciona.
+      const back = lastPageOffset(result.total, PAGE_SIZE);
+      if (result.items.length === 0 && result.total > 0 && nextOffset > 0 && back < nextOffset) {
+        setOffset(back);
+        return;
+      }
       setData(result);
     } catch (err) {
       if (mine !== seq.current) return;
@@ -107,7 +114,7 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
       </p>
       {loading && !data ? <p className="muted-copy">Cargando renovaciones…</p> : null}
 
-      {data && items.length === 0 && !error ? (
+      {data && items.length === 0 && total === 0 && !error ? (
         <div className="bx-notice">
           <p style={{ margin: "0 0 8px" }}>{isDefaultFilters(applied) ? "No hay renovaciones pendientes." : "No hay renovaciones con estos filtros."}</p>
           {!isDefaultFilters(applied) ? <button className="bx-btn bx-btn-ghost" onClick={clearFilters}>Limpiar filtros</button> : null}
