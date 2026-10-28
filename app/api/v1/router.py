@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1.routes import (
     admin,
+    billing_changes,
     catalog,
     crm,
     etl,
@@ -29,3 +30,4 @@ api_router.include_router(tch.router, prefix="/tch")
 api_router.include_router(reports.router, prefix="/reports")
 api_router.include_router(scheduler.router, prefix="/scheduler", tags=["Scheduler"])
 api_router.include_router(identity.router, prefix="/core")
+api_router.include_router(billing_changes.router, prefix="/billing")
