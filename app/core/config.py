@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -14,6 +15,7 @@ LEGACY_PRODUCTION_ALIASES = ("production", "prod", "development", "dev", "local"
 VP_PRODUCTION_HOST = "api.virtualpos.cl"
 VP_SANDBOX_HOST = "api.virtualpos-sandbox.com"
 PAYKU_PRODUCTION_HOST = "app.payku.cl"
+TOKU_HOST = "api.trytoku.com"  # mismo host en sandbox y produccion
 PRODUCTION_HOSTS: dict[str, tuple[str, ...]] = {
     "virtualpos_base_url": (VP_PRODUCTION_HOST,),
     "virtualpos2_base_url": (VP_PRODUCTION_HOST,),
@@ -26,6 +28,9 @@ SANDBOX_HOSTS: dict[str, tuple[str, ...]] = {
     "toku_base_url": (),
     "payku_base_url": ("des.payku.cl",),
 }
+
+
+log = logging.getLogger(__name__)
 
 
 def _host(url: str) -> str:
@@ -152,7 +157,22 @@ class Settings(BaseSettings):
             raise ValueError(f"VIRTUALPOS_SANDBOX_BASE_URL apunta a produccion pero APP_ENV es {env}")
         if _host(self.payku_sandbox_base_url) == PAYKU_PRODUCTION_HOST:
             raise ValueError(f"PAYKU_SANDBOX_BASE_URL apunta a produccion pero APP_ENV es {env}")
-        # Toku comparte host con produccion: se distingue solo por las llaves.
+        # Toku comparte host con produccion: se distingue solo por las llaves. El host debe ser EXACTAMENTE
+        # el de Toku (https, sin credenciales en la URL) para que ninguna URL ajena reciba la llave.
+        if self.toku_base_sandbox_url.strip():
+            parsed = urlparse(self.toku_base_sandbox_url.strip())
+            if (
+                parsed.scheme != "https"
+                or (parsed.hostname or "").lower() != TOKU_HOST
+                or parsed.username is not None
+                or parsed.port not in (None, 443)
+            ):
+                raise ValueError(f"TOKU_BASE_SANDBOX_URL debe ser https con el host exacto de Toku ({TOKU_HOST})")
+            log.warning(
+                "Toku comparte host con produccion (%s): el sandbox se distingue solo por llaves "
+                "y no hay aislamiento verificado; las escrituras estan protegidas por guardas duras.",
+                TOKU_HOST,
+            )
         pairs = (
             ("VIRTUALPOS_SANDBOX_API_KEY", self.virtualpos_sandbox_api_key, self.virtualpos_api_key),
             ("VIRTUALPOS_SANDBOX_SECRET_KEY", self.virtualpos_sandbox_secret_key, self.virtualpos_secret_key),

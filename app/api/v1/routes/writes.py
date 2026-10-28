@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
 from app.core.security import require_csrf, require_permissions
+from app.integrations.toku.write_guard import TokuWriteBlockedError
 from app.integrations.virtualpos.client import VirtualPOSAPIError
 from app.models.crm import Charge as CCharge
 from app.models.crm import Payment as CPayment
@@ -657,6 +658,8 @@ async def update_toku_customer(
         client = await update_customer(db, customer_id, changes)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuWriteBlockedError as exc:
+        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
     except TokuCustomerNotFoundError:
         raise HTTPException(status_code=404, detail="Cliente Toku no encontrado") from None
     except HTTPStatusError as exc:
@@ -681,6 +684,8 @@ async def delete_toku_customer(
         client = await delete_customer(db, customer_id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuWriteBlockedError as exc:
+        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
     except TokuCustomerNotFoundError:
         raise HTTPException(status_code=404, detail="Cliente Toku no encontrado") from None
     except HTTPStatusError as exc:
@@ -712,6 +717,8 @@ async def change_toku_subscription_status(
         sub = await change_subscription_status(db, subscription_id, body.status)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuWriteBlockedError as exc:
+        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
     except TokuSubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
     except HTTPStatusError as exc:
@@ -855,6 +862,8 @@ async def delete_toku_subscription(
         sub = await toku_delete_subscription(db, subscription_id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuWriteBlockedError as exc:
+        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
     except TokuSubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
     except HTTPStatusError as exc:
@@ -890,6 +899,8 @@ async def update_toku_invoice(
         record = await toku_update_invoice(db, invoice_id, changes)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuWriteBlockedError as exc:
+        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
     except TokuInvoiceNotFoundError:
         raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
     except HTTPStatusError as exc:
@@ -914,6 +925,8 @@ async def delete_toku_invoice(
         record = await toku_delete_invoice(db, invoice_id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+    except TokuWriteBlockedError as exc:
+        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
     except TokuInvoiceNotFoundError:
         raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
     except HTTPStatusError as exc:

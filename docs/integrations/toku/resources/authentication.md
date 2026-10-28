@@ -72,6 +72,17 @@ Content-Type: application/json
 5. Limpiar después de probar: `DELETE` de invoice → subscription → customer.
 6. Renombrar el environment de Postman `Toku_Sandbox` (el nombre es engañoso) a `Toku Producción`.
 
+### 3.1 "Sandbox" del CRM y guardas de escritura [Confirmado en código]
+
+En el CRM, `APP_ENV=sandbox|qa` usa la **misma URL base** (`api.trytoku.com`) y solo cambia la llave `x-api-key` (variables `TOKU_SANDBOX_*`). **No se ha verificado que esa llave vea datos aislados de producción**; se trata como no aislada. Por eso, fuera de producción:
+
+- Config: `TOKU_BASE_SANDBOX_URL` debe ser `https` con host exacto `api.trytoku.com` (otro host falla al arrancar; el mensaje nombra la variable, no su valor) y se registra una advertencia de que el host se comparte. Sigue vigente que las llaves sandbox no pueden ser iguales a las de producción.
+- `TokuClient` llama a `assert_sandbox_write_allowed` (`app/integrations/toku/write_guard.py`) antes de cada POST/PUT/DELETE, antes de tocar la red. Producción no pasa por esta guarda. Reglas: `TOKU_SANDBOX_WRITES_ENABLED=true` **y** `TOKU_SANDBOX_ALLOW_WRITES_ARMED=1` (variable de proceso); lista blanca de endpoints (lo no contemplado se bloquea); batch/bulk bloqueados; claves de negocio (`external_id`, `product_id`, `invoice_external_id`, `unique_external_id`) con prefijo `TEST-`; invoices con `disable_automatic_payment: true` y checkout con `skip_message_trigger: true`; PUT/DELETE/void/status solo sobre IDs `TEST-` o listados en `TOKU_SANDBOX_ALLOWED_IDS`; tope `TOKU_SANDBOX_MAX_WRITES` (25) por proceso.
+- Los IDs que genera Toku (`cus_`, `sub_`, `in_`, `pm_`) no llevan `TEST-`: para operar sobre ellos hay que agregarlos a `TOKU_SANDBOX_ALLOWED_IDS`.
+- Un bloqueo devuelve HTTP 403 en `/writes/toku/*` y queda en `write_runs` con estado `blocked`.
+- `delete_subscription` aborta (fail-closed) fuera de producción si no puede listar o anular las invoices impagas; las `in_progress` ya se omiten.
+- Las variables de proceso no deben dejarse en `.env`.
+
 ## 4. IPs (allowlist) [Confirmado]
 
 Solo hace falta si nuestro firewall o el del hosting filtra por IP.

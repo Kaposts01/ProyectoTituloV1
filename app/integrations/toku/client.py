@@ -4,6 +4,10 @@ from typing import Any, Self
 import httpx
 
 from app.core.config import settings
+from app.integrations.toku.write_guard import (
+    PROCESS_STATE,
+    assert_sandbox_write_allowed,
+)
 
 
 class TokuClient:
@@ -211,17 +215,25 @@ class TokuClient:
             self._cursors.pop(path, None)
         return response
 
+    def _guard_write(self, method: str, path: str, data: Any) -> None:
+        """Fuera de produccion toda escritura pasa por las guardas duras (antes de tocar la red)."""
+        if not settings.is_production:
+            assert_sandbox_write_allowed(method, path, data, settings, PROCESS_STATE)
+
     async def _post(self, path: str, data: dict[str, Any]) -> Any:
+        self._guard_write("POST", path, data)
         response = await self._client.post(path, json=data)
         response.raise_for_status()
         return response.json()
 
     async def _put(self, path: str, data: dict[str, Any]) -> Any:
+        self._guard_write("PUT", path, data)
         response = await self._client.put(path, json=data)
         response.raise_for_status()
         return response.json()
 
     async def _delete(self, path: str) -> Any:
+        self._guard_write("DELETE", path, None)
         response = await self._client.delete(path)
         response.raise_for_status()
         return response.json()

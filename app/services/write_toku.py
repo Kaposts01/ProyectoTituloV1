@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.toku.client import TokuClient
+from app.integrations.toku.write_guard import TokuWriteBlockedError
 from app.models.crm import Client, Subscription
 from app.models.source_record import SourceRecord
 from app.models.write_run import WriteRun
@@ -43,6 +44,14 @@ def _as_text(value: Any) -> str | None:
 
 def _all_secrets() -> tuple[str, ...]:
     return (settings.toku_api_key,)
+
+
+def _mark_blocked(db: Session, write_run: WriteRun, exc: TokuWriteBlockedError) -> None:
+    """Registra en write_runs una escritura frenada por las guardas duras (nunca llego a la red)."""
+    write_run.status = "blocked"
+    write_run.error_message = f"{exc.code}: {exc.message}"[:500]
+    write_run.finished_at = datetime.now(UTC)
+    db.commit()
 
 
 def _customer_from_response(response: Any) -> dict[str, Any] | None:
@@ -116,6 +125,9 @@ async def update_customer(db: Session, customer_id: str, changes: dict[str, Any]
                 refreshed = _customer_from_response(await provider.get_customer(customer_id))
             except Exception:
                 refreshed = None
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
@@ -172,6 +184,9 @@ async def delete_customer(db: Session, customer_id: str) -> Client:
     try:
         async with TokuClient() as provider:
             await provider.delete_customer(customer_id)
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
@@ -231,6 +246,9 @@ async def change_subscription_status(db: Session, subscription_id: str, status: 
                 refreshed = _subscription_from_response(await provider.get_subscription(subscription_id))
             except Exception:
                 refreshed = None
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
@@ -308,18 +326,30 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
                     try:
                         await provider.void_invoice(inv_id, {"delete_invoice": False})
                         log.info("Toku delete_subscription %s: invoice %s anulada", subscription_id, inv_id)
+                    except TokuWriteBlockedError:
+                        raise
                     except Exception as exc_void:
                         log.warning(
                             "Toku delete_subscription %s: no se pudo anular invoice %s: %s",
                             subscription_id, inv_id, exc_void,
                         )
+                        if not settings.is_production:
+                            raise  # fail-closed: no borrar con invoices impagas sin anular
+            except TokuWriteBlockedError:
+                raise
             except Exception as exc_list:
                 log.warning(
                     "Toku delete_subscription %s: no se pudo obtener invoices impagas: %s",
                     subscription_id, exc_list,
                 )
+                if not settings.is_production:
+                    # Fail-closed fuera de produccion: sin el listado no se sabe si hay cobros pendientes.
+                    raise
 
             await provider.delete_subscription(subscription_id)
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
@@ -383,6 +413,9 @@ async def update_invoice(db: Session, invoice_id: str, changes: dict[str, Any]) 
                 refreshed = await provider.get_invoice(invoice_id)
             except Exception:
                 refreshed = None
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
@@ -443,6 +476,9 @@ async def delete_invoice(db: Session, invoice_id: str) -> SourceRecord:
     try:
         async with TokuClient() as provider:
             await provider.delete_invoice(invoice_id)
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
