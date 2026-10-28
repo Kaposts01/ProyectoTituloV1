@@ -70,6 +70,7 @@ from app.services.write_virtualpos import (
     FixedPlanChargeBlockedError,
     InvalidClientDataError,
     PaymentNotFoundError,
+    PluralCancelForbiddenError,
     ReconciliationRequiredError,
     RetryBlockedError,
     SubscriptionNotFoundError,
@@ -352,6 +353,8 @@ async def cancel_virtualpos_future_charges(
         return await cancel_future_charges(db, subscription_id, dry_run=dry_run)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+    except PluralCancelForbiddenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación de cargos") from None
     except ReconciliationRequiredError:

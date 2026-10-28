@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
+from app.models.billing import VpCalendarMark
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
@@ -499,8 +501,19 @@ async def _find_charge_by_internal_code(provider: Any, subscription_id: str, int
         page += 1
 
 
-async def create_charge(db: Session, subscription_id: str, data: dict[str, Any], platform: str = "virtualpos1") -> Charge:
-    """Create a VirtualPOS charge on an active subscription and persist the response locally."""
+async def create_charge(
+    db: Session,
+    subscription_id: str,
+    data: dict[str, Any],
+    platform: str = "virtualpos1",
+    *,
+    request_id: uuid.UUID | None = None,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> Charge:
+    """Create a VirtualPOS charge on an active subscription and persist the response locally.
+
+    `request_id`/`requested_by_user_id` (opcionales) enlazan el WriteRun con la solicitud de cambio de facturacion.
+    """
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -521,6 +534,8 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
         operation="create_charge",
         status="pending",
         request_payload=sanitize_record(request_data),
+        request_id=request_id,
+        requested_by_user_id=requested_by_user_id,
     )
     db.add(write_run)
     db.commit()
@@ -599,7 +614,13 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     return charge
 
 
-async def cancel_charge(db: Session, charge_id: str) -> Charge:
+async def cancel_charge(
+    db: Session,
+    charge_id: str,
+    *,
+    request_id: uuid.UUID | None = None,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> Charge:
     """Cancel a pending VirtualPOS charge via DELETE /v3/charge/{id}."""
     charge = db.scalar(
         select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
@@ -622,6 +643,8 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
         operation="cancel_charge",
         status="pending",
         request_payload={"charge_id": charge_id},
+        request_id=request_id,
+        requested_by_user_id=requested_by_user_id,
     )
     db.add(write_run)
     db.commit()
@@ -793,6 +816,26 @@ def _resolve_platform(db: Session, subscription_id: str, platform: str | None) -
     return source or "virtualpos1"
 
 
+class PluralCancelForbiddenError(Exception):
+    """DELETE plural (sin `charge_ids`) sobre una suscripcion con calendario modificado (CO-16, hallazgo 1)."""
+
+
+PLURAL_CANCEL_FORBIDDEN_MESSAGE = (
+    "La suscripción tiene el calendario modificado por el CRM: la cancelación plural cancelaría también los cobros "
+    "manuales y los automáticos posteriores al horizonte (red de seguridad). Indique `charge_ids` explícitos."
+)
+
+
+def has_active_calendar_mark(db: Session, platform: str, subscription_id: str) -> bool:
+    return db.scalar(
+        select(VpCalendarMark.id).where(
+            VpCalendarMark.platform == platform,
+            VpCalendarMark.subscription_external_id == subscription_id,
+            VpCalendarMark.is_active.is_(True),
+        )
+    ) is not None
+
+
 async def cancel_future_charges(
     db: Session,
     subscription_id: str,
@@ -800,6 +843,8 @@ async def cancel_future_charges(
     platform: str | None = None,
     charge_ids: list[str] | None = None,
     dry_run: bool = False,
+    request_id: uuid.UUID | None = None,
+    requested_by_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """Cancela cargos FUTUROS `pendiente` de una suscripción sin cancelar la suscripción.
 
@@ -826,6 +871,9 @@ async def cancel_future_charges(
         result["noop"] = not result["would_cancel"]
         return result
 
+    if charge_ids is None and has_active_calendar_mark(db, platform, subscription_id):
+        raise PluralCancelForbiddenError(PLURAL_CANCEL_FORBIDDEN_MESSAGE)
+
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
@@ -836,6 +884,8 @@ async def cancel_future_charges(
         operation="cancel_future_charges",
         status="pending",
         request_payload={"subscription_id": subscription_id, "charge_ids": charge_ids},
+        request_id=request_id,
+        requested_by_user_id=requested_by_user_id,
     )
     db.add(write_run)
     db.commit()
@@ -864,9 +914,10 @@ async def cancel_future_charges(
                     try:
                         await provider.delete_charge(charge_id)
                     except Exception as exc:
-                        if _provider_error_code(exc) != "E-059":
+                        code_hint = _provider_error_code(exc)
+                        if code_hint not in ("E-059", "E-079"):  # E-059 ya no cancelable; E-079 nada pendiente
                             raise
-                        skipped.append({"id": charge_id, "reason": "E-059"})
+                        skipped.append({"id": charge_id, "reason": code_hint})
                         continue
                     cancelled.append({**pending_by_id[charge_id], "status": "cancelado"})
     except Exception as exc:
