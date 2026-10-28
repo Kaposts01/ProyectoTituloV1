@@ -115,3 +115,6 @@ html[data-theme="dark"] {
 }
 
 .bx-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.bx-count { display: inline-block; margin-left: 8px; min-width: 20px; padding: 0 6px; border-radius: 9999px; border: 1px solid var(--bx-warn-text); background: var(--bx-warn-bg); color: var(--bx-warn-text); font-size: 11px; line-height: 18px; text-align: center; }
+.bx-sub { margin-top: 4px; color: var(--text-2); font-size: 12px; }

@@ -2,12 +2,16 @@ import { useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError, type BillingErrorInfo } from "./billingErrors";
 import { EMPTY_FORM, validateChangeForm, type ChangeFormValues, type FormErrors } from "./billingForm";
-import { PLATFORM_LABELS, REQUEST_TYPES, TYPE_LABELS } from "./billingLabels";
+import { formatClp, PLATFORM_LABELS, REQUEST_TYPES, TYPE_LABELS } from "./billingLabels";
 import { PlanPreviewView } from "./PlanPreviewView";
 import type { BillingRequestDetail, Platform, PreviewResponse, RequestType } from "./types";
 import { Dialog, Notice } from "./ui";
 
+/** Datos de una tarea de renovación: tipo, plataforma y suscripción quedan fijos (solo lectura). */
+export type RenewalPrefill = { platform: Platform; subscription: string; scheduledAmount: number | null };
+
 type Props = {
+  prefill?: RenewalPrefill;
   onClose: () => void;
   onCreated: (created: BillingRequestDetail) => void;
 };
@@ -16,8 +20,10 @@ type Props = {
  * Formulario de nueva solicitud. Primero se calcula la vista previa (POST /changes/preview, sin guardar nada);
  * solo con una vista previa vigente se habilita «Enviar solicitud». Editar cualquier campo la invalida.
  */
-export function CreateRequestDialog({ onClose, onCreated }: Props) {
-  const [values, setValues] = useState<ChangeFormValues>(EMPTY_FORM);
+export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
+  const [values, setValues] = useState<ChangeFormValues>(() => (prefill
+    ? { ...EMPTY_FORM, requestType: "renew_calendar", platform: prefill.platform, subscription: prefill.subscription }
+    : EMPTY_FORM));
   const [errors, setErrors] = useState<FormErrors>({});
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [busy, setBusy] = useState<"preview" | "submit" | null>(null);
@@ -74,10 +80,22 @@ export function CreateRequestDialog({ onClose, onCreated }: Props) {
   const errProps = (key: keyof FormErrors) => (errors[key] ? { "aria-invalid": true as const, "aria-describedby": `bx-err-${key}` } : {});
   const errMsg = (key: keyof FormErrors) => (errors[key] ? <span id={`bx-err-${key}`} className="bx-field-error" role="alert">{errors[key]}</span> : null);
 
+  const locked = Boolean(prefill);
   return (
-    <Dialog title="Nueva solicitud de cambio de cobro" onClose={onClose} busy={disabled} wide>
+    <Dialog title={locked ? "Solicitar renovación de calendario" : "Nueva solicitud de cambio de cobro"} onClose={onClose} busy={disabled} wide>
       <form className="bx-form" noValidate onSubmit={(e) => { e.preventDefault(); void runPreview(); }}>
         <div className="bx-form-grid">
+          {locked ? (
+            <>
+              <label>Tipo de cambio
+                <input value={TYPE_LABELS[type]} readOnly />
+              </label>
+              <label>Plataforma
+                <input value={PLATFORM_LABELS[values.platform] ?? values.platform} readOnly />
+              </label>
+            </>
+          ) : (
+            <>
           <label>Tipo de cambio
             <select value={type} disabled={disabled} onChange={(e) => setField("requestType", e.target.value as RequestType)}>
               {REQUEST_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
@@ -88,9 +106,11 @@ export function CreateRequestDialog({ onClose, onCreated }: Props) {
               {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </label>
+            </>
+          )}
           <div className="wide">
             <label>ID de suscripción
-            <input className="mono" value={values.subscription} disabled={disabled} maxLength={255} autoComplete="off" {...errProps("subscription")} onChange={(e) => setField("subscription", e.target.value)} />
+            <input className="mono" value={values.subscription} disabled={disabled} readOnly={locked} maxLength={255} autoComplete="off" {...errProps("subscription")} onChange={(e) => setField("subscription", e.target.value)} />
             </label>
             {errMsg("subscription")}
           </div>
@@ -127,6 +147,9 @@ export function CreateRequestDialog({ onClose, onCreated }: Props) {
             </>
           ) : null}
           {type === "renew_calendar" ? <p className="bx-hint wide">Se recalcula el calendario de cobros del horizonte vigente con el monto actual de la suscripción.</p> : null}
+          {prefill ? (
+            <p className="bx-hint wide">Último monto programado: <span className="mono">{formatClp(prefill.scheduledAmount)}</span> (referencia; no se envía, la renovación usa el monto actual de la suscripción).</p>
+          ) : null}
           <div className="wide">
             <label>Comentario (opcional)
             <textarea value={values.comment} disabled={disabled} maxLength={2000} {...errProps("comment")} onChange={(e) => setField("comment", e.target.value)} />

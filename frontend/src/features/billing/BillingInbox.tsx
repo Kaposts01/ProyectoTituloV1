@@ -6,14 +6,16 @@ import {
   HISTORY_STATUSES, PENDING_STATUSES,
 } from "./billingLabels";
 import { EMPTY_FILTERS, validateFilters, type InboxFilters, type InboxTab } from "./billingQuery";
-import { CreateRequestDialog } from "./CreateRequestDialog";
+import { CreateRequestDialog, type RenewalPrefill } from "./CreateRequestDialog";
+import { RenewalTasksView } from "./RenewalTasksView";
 import { RequestDetail } from "./RequestDetail";
-import { PERM_REQUEST, type BillingList, type BillingRequestDetail, type Platform, type Requester, type RequestStatus, type RequestType } from "./types";
+import { PERM_REQUEST, type BillingList, type BillingRequestDetail, type Platform, type RenewalTask, type Requester, type RequestStatus, type RequestType } from "./types";
 import { Notice, StatusBadge } from "./ui";
 import "./billing.css";
 
 const PAGE_SIZE = 25;
-const TAB_LABELS: Record<InboxTab, string> = { pending: "Pendientes", history: "Historial" };
+type View = InboxTab | "renewals";
+const TAB_LABELS: Record<View, string> = { pending: "Pendientes", history: "Historial", renewals: "Renovaciones" };
 
 type Props = {
   can: (permission: string) => boolean;
@@ -22,7 +24,8 @@ type Props = {
 };
 
 export function BillingInbox({ can, currentUserId }: Props) {
-  const [tab, setTab] = useState<InboxTab>("pending");
+  const [tab, setTab] = useState<View>("pending");
+  const listTab: InboxTab = tab === "renewals" ? "pending" : tab;
   const [draft, setDraft] = useState<InboxFilters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<InboxFilters>(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
@@ -32,6 +35,9 @@ export function BillingInbox({ can, currentUserId }: Props) {
   const [filterError, setFilterError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [prefill, setPrefill] = useState<RenewalPrefill | undefined>(undefined);
+  const [renewalKey, setRenewalKey] = useState(0);
+  const [alertCount, setAlertCount] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const seq = useRef(0);
   const [requesters, setRequesters] = useState<Requester[]>([]);
@@ -53,7 +59,7 @@ export function BillingInbox({ can, currentUserId }: Props) {
     }
   }, []);
 
-  useEffect(() => { void load(tab, applied, offset); }, [load, tab, applied, offset]);
+  useEffect(() => { void load(listTab, applied, offset); }, [load, listTab, applied, offset]);
 
   const loadRequesters = useCallback(async () => {
     setRequestersState("loading");
@@ -68,7 +74,14 @@ export function BillingInbox({ can, currentUserId }: Props) {
 
   useEffect(() => { void loadRequesters(); }, [loadRequesters]);
 
-  function changeTab(next: InboxTab) {
+  // Contador de la pestaña «Renovaciones»: si falla, se omite sin molestar (la sección muestra su propio error).
+  useEffect(() => {
+    let alive = true;
+    api.fetchRenewalAlertCount().then((r) => { if (alive) setAlertCount(r.total); }).catch(() => { if (alive) setAlertCount(0); });
+    return () => { alive = false; };
+  }, [renewalKey]);
+
+  function changeTab(next: View) {
     if (next === tab) return;
     setTab(next);
     setOffset(0);
@@ -94,17 +107,29 @@ export function BillingInbox({ can, currentUserId }: Props) {
   }
 
   const setField = <K extends keyof InboxFilters>(key: K, value: InboxFilters[K]) => setDraft((d) => ({ ...d, [key]: value }));
-  const statusOptions: RequestStatus[] = tab === "pending" ? PENDING_STATUSES : HISTORY_STATUSES;
+  const statusOptions: RequestStatus[] = listTab === "pending" ? PENDING_STATUSES : HISTORY_STATUSES;
   const total = data?.total ?? 0;
   const items = data?.items ?? [];
 
   function onCreated(created: BillingRequestDetail) {
     setCreating(false);
+    setPrefill(undefined);
     setNotice(created.status === "aprobada" ? "Solicitud creada y autoaprobada. Ya puede aplicarse." : "Solicitud creada y pendiente de aprobación.");
-    setTab("pending");
+    if (tab !== "renewals") setTab("pending");
     setOffset(0);
     setSelectedId(created.id);
     void load("pending", applied, 0);
+    setRenewalKey((k) => k + 1);
+  }
+
+  function requestRenewal(task: RenewalTask) {
+    setNotice(null);
+    setPrefill({ platform: task.platform, subscription: task.subscription_external_id, scheduledAmount: task.scheduled_amount });
+    setCreating(true);
+  }
+  function closeDialog() {
+    setCreating(false);
+    setPrefill(undefined);
   }
 
   return (
@@ -114,15 +139,28 @@ export function BillingInbox({ can, currentUserId }: Props) {
           <p className="eyebrow">General</p>
           <h1>Cambios de cobro</h1>
         </div>
-        {can(PERM_REQUEST) ? <button className="bx-btn bx-btn-primary" onClick={() => { setNotice(null); setCreating(true); }}>Nueva solicitud</button> : null}
+        {can(PERM_REQUEST) ? <button className="bx-btn bx-btn-primary" onClick={() => { setNotice(null); setPrefill(undefined); setCreating(true); }}>Nueva solicitud</button> : null}
       </div>
 
       <div className="bx-tabs" role="tablist" aria-label="Vistas de solicitudes">
-        {(Object.keys(TAB_LABELS) as InboxTab[]).map((key) => (
-          <button key={key} role="tab" aria-selected={tab === key} onClick={() => changeTab(key)}>{TAB_LABELS[key]}</button>
+        {(Object.keys(TAB_LABELS) as View[]).map((key) => (
+          <button key={key} role="tab" aria-selected={tab === key} onClick={() => changeTab(key)}>
+            {TAB_LABELS[key]}
+            {key === "renewals" && alertCount > 0 ? (
+              <>
+                <span className="bx-count mono" aria-hidden="true">{alertCount}</span>
+                <span className="bx-sr"> ({alertCount} de prioridad alta o vencidas)</span>
+              </>
+            ) : null}
+          </button>
         ))}
       </div>
 
+      <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
+      {tab === "renewals" ? (
+        <RenewalTasksView can={can} refreshKey={renewalKey} onViewRequest={setSelectedId} onRequestRenewal={requestRenewal} />
+      ) : (
+        <>
       <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de solicitudes">
         <label>Estado
           <select value={draft.status} onChange={(e) => setField("status", e.target.value as RequestStatus | "")}>
@@ -170,23 +208,22 @@ export function BillingInbox({ can, currentUserId }: Props) {
           <button type="button" className="bx-btn bx-btn-ghost" onClick={() => void loadRequesters()}>Reintentar</button>
         </Notice>
       ) : null}
-      <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
       {error ? (
         <Notice tone="error">
           {error}{" "}
-          <button className="bx-btn bx-btn-ghost" onClick={() => void load(tab, applied, offset)}>Reintentar</button>
+          <button className="bx-btn bx-btn-ghost" onClick={() => void load(listTab, applied, offset)}>Reintentar</button>
         </Notice>
       ) : null}
 
       <p className="bx-sr" role="status" aria-live="polite">
-        {loading ? "Cargando solicitudes…" : data ? `${total} solicitudes en ${TAB_LABELS[tab].toLowerCase()}.` : ""}
+        {loading ? "Cargando solicitudes…" : data ? `${total} solicitudes en ${TAB_LABELS[listTab].toLowerCase()}.` : ""}
       </p>
 
       {loading && !data ? <p className="muted-copy">Cargando solicitudes…</p> : null}
       {data && items.length === 0 && !error ? (
         <div className="bx-notice">
-          <p style={{ margin: "0 0 8px" }}>{tab === "pending" ? "No hay solicitudes pendientes con estos filtros." : "No hay solicitudes en el historial con estos filtros."}</p>
-          {can(PERM_REQUEST) && tab === "pending" ? <button className="bx-btn bx-btn-ghost" onClick={() => setCreating(true)}>Crear una solicitud</button> : <button className="bx-btn bx-btn-ghost" onClick={clearFilters}>Limpiar filtros</button>}
+          <p style={{ margin: "0 0 8px" }}>{listTab === "pending" ? "No hay solicitudes pendientes con estos filtros." : "No hay solicitudes en el historial con estos filtros."}</p>
+          {can(PERM_REQUEST) && listTab === "pending" ? <button className="bx-btn bx-btn-ghost" onClick={() => setCreating(true)}>Crear una solicitud</button> : <button className="bx-btn bx-btn-ghost" onClick={clearFilters}>Limpiar filtros</button>}
         </div>
       ) : null}
       {items.length > 0 ? (
@@ -232,8 +269,11 @@ export function BillingInbox({ can, currentUserId }: Props) {
         </div>
       ) : null}
 
-      {selectedId ? <RequestDetail key={selectedId} id={selectedId} can={can} onChanged={() => void load(tab, applied, offset)} /> : null}
-      {creating ? <CreateRequestDialog onClose={() => setCreating(false)} onCreated={onCreated} /> : null}
+        </>
+      )}
+
+      {selectedId ? <RequestDetail key={selectedId} id={selectedId} can={can} onChanged={() => { void load(listTab, applied, offset); setRenewalKey((k) => k + 1); }} /> : null}
+      {creating ? <CreateRequestDialog prefill={prefill} onClose={closeDialog} onCreated={onCreated} /> : null}
     </main>
   );
 }

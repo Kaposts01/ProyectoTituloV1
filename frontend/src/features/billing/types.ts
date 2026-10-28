@@ -155,3 +155,22 @@ export type PolicyAuditEntry = {
   reason: string | null;
 };
 export type PolicyAuditList = { items: PolicyAuditEntry[]; total: number; limit: number; offset: number };
+
+/** Tareas de renovación de calendario (GET /api/v1/billing/renewal-tasks). Sin nombre del socio por decisión de privacidad. */
+export type RenewalStatus = "abierta" | "vencida" | "cerrada" | "no_aplica";
+export type RenewalPriority = "normal" | "alta";
+export type RenewalTask = {
+  id: string;
+  platform: Platform;
+  subscription_external_id: string;
+  status: RenewalStatus;
+  priority: RenewalPriority;
+  last_scheduled_date: string | null;
+  scheduled_amount: number | null;
+  due_date: string | null;
+  days_remaining: number | null;
+  data_stale: boolean;
+  request_id: string | null;
+  close_reason: string | null;
+};
+export type RenewalTaskList = { items: RenewalTask[]; total: number; limit: number; offset: number };

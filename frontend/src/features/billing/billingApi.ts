@@ -1,7 +1,8 @@
 import { getJson, postJson, putJson } from "../../api";
+import { renewalAlertPath, renewalPath, type RenewalFilters } from "./billingRenewal";
 import { listPath, type InboxFilters, type InboxTab } from "./billingQuery";
 import type {
-  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, Policy, PolicyAuditList, PolicyPatch, PreviewResponse, RequesterList,
+  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, Policy, PolicyAuditList, PolicyPatch, PreviewResponse, RenewalTaskList, RequesterList,
 } from "./types";
 
 const BASE = "/api/v1/billing";
@@ -24,3 +25,7 @@ export const fetchRequesters = () => getJson<RequesterList>(`${BASE}/requesters`
 export const fetchPolicy = () => getJson<Policy>(`${BASE}/policy`);
 export const updatePolicy = (patch: PolicyPatch) => putJson<Policy>(`${BASE}/policy`, patch);
 export const fetchPolicyAudit = (limit = 20, offset = 0) => getJson<PolicyAuditList>(`${BASE}/policy/audit?limit=${limit}&offset=${offset}`);
+
+export const fetchRenewalTasks = (filters: RenewalFilters, offset: number, limit: number) =>
+  getJson<RenewalTaskList>(renewalPath(filters, offset, limit));
+export const fetchRenewalAlertCount = () => getJson<RenewalTaskList>(renewalAlertPath());
