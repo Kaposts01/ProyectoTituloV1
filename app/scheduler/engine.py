@@ -61,3 +61,34 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
         logger.info("Job '%s' registrado (04:00 America/Santiago).", JOB_SYNC_RETRY)
     else:
         logger.info("Job '%s' ya registrado en DB, omitiendo.", JOB_SYNC_RETRY)
+
+    # Facturacion gestionada (solo lectura hacia el proveedor). 03:00: despues del sync de las 02:00 (datos frescos
+    # para JB-36) y antes del reintento de las 04:00.
+    from app.scheduler.jobs.billing_jobs import (
+        JOB_BILLING_EXPIRE,
+        JOB_BILLING_RENEWAL,
+        billing_expire_requests,
+        billing_renewal_check,
+    )
+
+    if not scheduler.get_job(JOB_BILLING_RENEWAL):
+        scheduler.add_job(
+            billing_renewal_check,
+            trigger="cron",
+            hour=3,
+            minute=0,
+            id=JOB_BILLING_RENEWAL,
+            name="Chequeo de renovación de calendario",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (03:00 America/Santiago).", JOB_BILLING_RENEWAL)
+    if not scheduler.get_job(JOB_BILLING_EXPIRE):
+        scheduler.add_job(
+            billing_expire_requests,
+            trigger="cron",
+            minute=10,
+            id=JOB_BILLING_EXPIRE,
+            name="Expiración de solicitudes de cambio",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (cada hora, minuto 10).", JOB_BILLING_EXPIRE)

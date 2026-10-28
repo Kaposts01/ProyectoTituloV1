@@ -29,7 +29,9 @@ from app.models.billing import (
     BillingChangeRequestEvent,
     BillingPolicy,
     BillingPolicyAudit,
+    BillingRenewalTask,
 )
+from app.services import billing_renewal as renewal_svc
 from app.services import billing_requests as svc
 from app.services.billing_apply import (
     ApplyFailedError,
@@ -427,6 +429,38 @@ async def apply_change_request(request_id: uuid.UUID, current_user: Approver, db
     except _HANDLED as exc:
         raise _http(exc) from None
     return _apply_json(result, svc.get_request(db, request_id))
+
+
+# ----------------------------- tareas de renovacion -----------------------------
+
+
+def _task_json(t: BillingRenewalTask) -> dict[str, Any]:
+    """Sin datos del socio: solo ids internos de plataforma/suscripción."""
+    return {
+        "id": str(t.id), "platform": t.platform, "subscription_external_id": t.subscription_external_id,
+        "status": t.status, "priority": t.priority, "last_scheduled_date": _iso(t.last_scheduled_date),
+        "scheduled_amount": _num(t.scheduled_amount), "due_date": _iso(t.due_date), "days_remaining": t.days_remaining,
+        "data_stale": t.data_stale, "request_id": str(t.request_id) if t.request_id else None,
+        "close_reason": t.close_reason,
+    }
+
+
+@router.get("/renewal-tasks", tags=TAGS)
+def list_renewal_task_inbox(
+    _user: Viewer,
+    db: Db,
+    status: Annotated[list[Literal["abierta", "vencida", "cerrada", "no_aplica"]] | None, Query()] = None,
+    priority: Literal["normal", "alta"] | None = None,
+    platform: Literal["virtualpos1", "virtualpos2"] | None = None,
+    subscription_id: Annotated[str | None, Query(max_length=255)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    """Tareas 'renovar calendario' del chequeo diario (solo lectura), orden: prioridad alta primero y luego fecha límite."""
+    rows, total = renewal_svc.list_renewal_tasks(db, renewal_svc.TaskFilters(
+        statuses=list(status) if status else None, priority=priority, platform=platform,
+        subscription_external_id=subscription_id, limit=limit, offset=offset))
+    return {"items": [_task_json(t) for t in rows], "total": total, "limit": limit, "offset": offset}
 
 
 # ----------------------------- politica -----------------------------

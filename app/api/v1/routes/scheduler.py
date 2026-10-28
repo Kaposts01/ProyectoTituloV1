@@ -16,8 +16,15 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import get_current_user, get_db, require_permissions
 from app.models.etl_run import EtlRun
+from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.engine import JOB_SYNC_ALL, get_scheduler
+from app.scheduler.jobs.billing_jobs import (
+    BILLING_JOB_IDS,
+    JOB_BILLING_RENEWAL,
+    billing_expire_requests,
+    billing_renewal_check,
+)
 from app.scheduler.jobs.sync_all import channel_is_enabled, sync_all_channels
 
 _VALID_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
@@ -43,6 +50,36 @@ def _serialize_run(run: EtlRun) -> dict:
     }
 
 
+def _cron_of(job) -> str:
+    """Expresión cron aproximada del trigger (minuto hora dom mes dow); '*' donde el campo no está fijado."""
+    try:
+        fields = {f.name: str(f) for f in job.trigger.fields}
+        return " ".join(fields.get(n, "*") for n in ("minute", "hour", "day", "month", "day_of_week"))
+    except Exception:  # noqa: BLE001
+        return "0 2 * * *"
+
+
+def _billing_job_json(db: Session, job) -> dict:
+    """Job de facturación: su última corrida sale de `sync_runs` (source = id del job)."""
+    last = db.scalar(select(SyncRun).where(SyncRun.source == job.id).order_by(desc(SyncRun.started_at)).limit(1))
+    running = last is not None and last.status == "running"
+    next_run = getattr(job, "next_run_time", None)
+    return {
+        "id": job.id,
+        "name": job.name,
+        "cron": _cron_of(job),
+        "next_run": next_run.isoformat() if next_run else None,
+        "last_run": {
+            "id": str(last.id), "status": last.status, "phase": None,
+            "started_at": last.started_at.isoformat() if last.started_at else None,
+            "finished_at": last.finished_at.isoformat() if last.finished_at else None,
+            "channels_processed": None, "records_upserted": last.records_processed, "error_message": last.error_message,
+        } if last else None,
+        "status": "running" if running else "scheduled",
+        "active_run_id": str(last.id) if running else None,
+    }
+
+
 @router.get("/jobs", tags=["Scheduler"])
 def list_jobs(
     _user=Depends(require_permissions("sync_runs.view")),
@@ -52,6 +89,9 @@ def list_jobs(
     sched = get_scheduler()
     result = []
     for job in sched.get_jobs():
+        if job.id in BILLING_JOB_IDS:
+            result.append(_billing_job_json(db, job))
+            continue
         # Último EtlRun completado o fallido para este job
         last_run = db.scalar(
             select(EtlRun)
@@ -67,11 +107,11 @@ def list_jobs(
             .limit(1)
         )
         job_status = "running" if active_run else "scheduled"
-        next_run = job.next_run_time
+        next_run = getattr(job, "next_run_time", None)
         result.append({
             "id": job.id,
             "name": job.name,
-            "cron": "0 2 * * *",
+            "cron": _cron_of(job),
             "next_run": next_run.isoformat() if next_run else None,
             "last_run": _serialize_run(last_run) if last_run else None,
             "status": job_status,
@@ -92,6 +132,17 @@ async def trigger_job(
     sched = get_scheduler()
     if not sched.get_job(job_id):
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' no encontrado.")
+
+    if job_id in BILLING_JOB_IDS:  # solo lectura hacia el proveedor: no depende de canales ni de la sync activa
+        if body.channels is not None:
+            raise HTTPException(status_code=422, detail="Este job no admite selección de canales.")
+        running = db.scalar(select(SyncRun).where(SyncRun.source == job_id, SyncRun.status == "running").limit(1))
+        if running:
+            raise HTTPException(status_code=409, detail=f"El job ya está en ejecución (run_id={running.id}).")
+        billing_run_id = str(uuid.uuid4())
+        job_fn = billing_renewal_check if job_id == JOB_BILLING_RENEWAL else billing_expire_requests
+        background_tasks.add_task(job_fn, billing_run_id)
+        return {"run_id": billing_run_id, "status": "accepted", "skipped_channels": []}
 
     # Validar canales si se pasan
     if body.channels is not None:

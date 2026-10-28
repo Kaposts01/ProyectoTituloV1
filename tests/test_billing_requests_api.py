@@ -567,16 +567,14 @@ def test_events_endpoint_matches_detail(w):
 # ----------------------------- guardas -----------------------------
 
 
-def test_expiry_job_is_not_registered_in_scheduler():
-    """El paso 6 registra el scheduler: aqui `expire_pending_requests` queda sin registrar."""
-    for rel in ("app/services/scheduler.py", "app/api/v1/routes/scheduler.py"):
-        path = ROOT / rel
-        if path.exists():
-            assert "expire_pending_requests" not in path.read_text(encoding="utf-8"), rel
+def test_expiry_is_only_invoked_from_the_billing_job():
+    """AP-10 (paso 6a): `expire_pending_requests` solo se usa desde el job `billing_jobs.py` (registrado en el scheduler)."""
+    allowed = {"billing_requests.py", "billing_jobs.py"}
     for path in (ROOT / "app").rglob("*.py"):
-        if path.name in ("billing_requests.py",):
+        if path.name in allowed:
             continue
         assert "expire_pending_requests" not in path.read_text(encoding="utf-8"), path
+    assert "expire_pending_requests" in (ROOT / "app/scheduler/jobs/billing_jobs.py").read_text(encoding="utf-8")
 
 
 # ----------------------------- solicitantes (filtro de la bandeja) -----------------------------
