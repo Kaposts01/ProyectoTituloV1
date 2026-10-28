@@ -13,7 +13,7 @@ Follow [AGENTS.md](AGENTS.md) for operational rules.
 ### Architecture and current state
 
 - [PROJECT_STATE.md](docs/memory/PROJECT_STATE.md) records the current operational context.
-- [Current sprint](docs/memory/CURRENT_SPRINT.md) records active work.
+- [Plan and status](docs/tasks.md) is the single source of truth for the plan, sprints, backlog, and task status ([Current sprint](docs/memory/CURRENT_SPRINT.md) and [Roadmap](docs/product/roadmap.md) are only pointers to it).
 - [Architecture](docs/architecture/) describes the current documented architecture.
 
 ### Formal decisions
@@ -192,6 +192,7 @@ See [Technical Debt](knowledge/08%20-%20Roadmap/Technical%20Debt.md) for detail.
 
 - [AGENTS.md](AGENTS.md)
 - [Project state](docs/memory/PROJECT_STATE.md)
+- [Plan and status](docs/tasks.md)
 - [Architecture](docs/architecture/)
 - [ADRs](docs/decisions/)
 - [Knowledge Home](knowledge/00%20-%20Home/SynkmetriX.md)

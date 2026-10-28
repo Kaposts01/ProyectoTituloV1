@@ -2,18 +2,21 @@
 
 Documento para quien retome el trabajo (persona o Claude). Léelo completo antes de tocar nada. No contiene secretos: las variables de entorno aparecen solo por nombre.
 
+> **El plan y el estado de cada tarea viven en [`docs/tasks.md`](docs/tasks.md), la fuente única de verdad.** Este documento conserva las reglas de trabajo, la forma de levantar el entorno, los hallazgos, las decisiones y los errores cometidos; las secciones 7 y 8 solo resumen y apuntan allí. Actualizado el 2026-10-28.
+
 ## 1. Estado en una mirada
 
 | Tema | Estado |
 |---|---|
-| Sprints 0 a 3 | Completos en código, subidos al remoto |
-| Sprint 4 | Completo en código. Falta: PK-05 (Payku), verificación visual y cerrar la opción A (solicitud y aprobación) |
+| Plan y estado detallado | [`docs/tasks.md`](docs/tasks.md) (tablero, sprints, backlog, bloqueos) |
+| Sprints 0 a 3 | Completos en código, subidos al remoto. Falta verificación visual (3) y KPI-01/CHART-01 contra VP staging |
+| Sprint 4 | En curso. Completos en código: REC-03 y la Opción A hasta el paso 6b (BILL-01 a BILL-08), más el fix de hora de Chile en `vp_current_amount`. Falta: BILL-09 a BILL-16, PK-05 (Payku), verificación visual y aplicar las migraciones 0037/0038 |
 | Sprints 5 y 6 | Solo planificados (ver sección 8) |
-| Ramas | `sprint-0/onboarding`, `sprint-1/auditoria-datos`, `sprint-2/componentes-kpis`, `sprint-3/graficos-sidebar`, `sprint-4/recuperador-vp`. Cada una contiene a la anterior. Tip de sprint-4: `5278507` |
-| PR | **No hay ningún PR abierto.** `master` local está 1 commit adelante de `origin/master` (el plan de sprints) y no se subió |
-| Pruebas | Suite normal: 542 tests (`pytest -q`, ~12 s, base `crm_test`). Contrato VirtualPOS: 17 pruebas. Frontend: 92 tests (`npm test`). `ruff` limpio |
-| Migraciones | Head `20261021_0036`. No creamos migraciones nuevas |
-| Bloqueado por terceros | Soporte de Payku (sandbox y 5 preguntas), tarjetas de rechazo para pruebas |
+| Ramas | `sprint-0/onboarding`, `sprint-1/auditoria-datos`, `sprint-2/componentes-kpis`, `sprint-3/graficos-sidebar`, `sprint-4/recuperador-vp`. Cada una contiene a la anterior. Tip de sprint-4: `e6202a7` |
+| PR y remoto | **No hay ningún PR abierto.** `sprint-4/recuperador-vp` tiene 11 commits locales sin subir; `master` local está 1 commit adelante de `origin/master` (el plan de sprints) y no se subió. Subir y abrir PR solo cuando el usuario lo pida |
+| Pruebas | Backend: 844 pasan (`pytest -q`, base `crm_test`). Contrato VirtualPOS: 17 pruebas. Frontend: 179 pasan (`npm test`). `ruff` limpio (cierre del 2026-10-28) |
+| Migraciones | Head del código `20261028_0038`. Las nuevas 0037 (permisos y rol `ejecutivo`) y 0038 (solicitudes de cambio de cobro) **aún no están aplicadas** a `crm` ni a `crm_sandbox`: `alembic upgrade head` y `scripts/maintenance/seed_roles.py` en cada ambiente |
+| Bloqueado por terceros | Soporte de Payku (sandbox y preguntas Q-xx), tarjetas de rechazo para pruebas, respuesta de Toku sobre `flow_name` |
 
 ## 2. Reglas de trabajo (leer primero)
 
@@ -43,7 +46,7 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 - Túneles de Cloudflare (`cloudflared tunnel --url http://localhost:5173` y `:5174`): **son públicos y solo los protege el login**. Se dejaron abiertos durante las pruebas; apagarlos al terminar (`Stop-Process -Id <pid>`; buscar con `Get-Process cloudflared`). Las URLs cambian en cada arranque.
 - Tests normales: `PYTHONPATH=. .venv\Scripts\pytest.exe -q`. Frontend: `npx tsc --noEmit`, `npm run lint`, `npm test`, `npm run build`.
 - Suite de contrato contra el sandbox: ver `tests_contract/README.md` (exige `APP_ENV=sandbox`, `CONTRACT_TESTS=1`, `CONTRACT_WRITES=1`, flags de sandbox y los ids `CONTRACT_VP_SUB_FIXED` / `CONTRACT_VP_SUB_VARIABLE`). Genera `reports/contract/virtualpos/drift-*.md` (ignorado por git).
-- Roles en la base: `admin`, `coordinador`, `jefatura`, `soporte` (en `crm`); `admin` y `soporte` en `crm_sandbox`. `ejecutivo` no existe aún. No hay usuarios con rol `soporte`.
+- Roles en el código: `admin`, `coordinador`, `jefatura`, `soporte` y `ejecutivo` (solo lectura; `soporte` y `ejecutivo` tienen `billing_changes.view`). En la base, `ejecutivo` y los permisos de cambios de cobro existirán cuando se apliquen la migración 0037 y el seed de roles (pendiente). No hay usuarios con rol `soporte`.
 
 ## 4. Lo que se hizo, por sprint
 
@@ -119,38 +122,35 @@ Todo el detalle de escenarios está en `docs/designs/facturacion-gestionada-esce
 
 ## 7. Pendientes
 
-### Del usuario o de terceros
-- **Payku**: respuesta del soporte (activar sandbox y las preguntas Q-06, Q-08, Q-11, Q-27, Q-29 de `docs/integrations/payku/VALIDATION-PLAN.md`). Bloquea PK-05 y la validación de Payku.
-- Verificar **KPI-01 contra VirtualPOS staging** (acceso humano).
-- **Revisión visual en navegador** de los Sprints 3 y 4: franja de sandbox, tema oscuro, menú móvil, contraste de los puntos de salud, gráficos, recuperador y descarga real del CSV.
-- Decidir el destino de `docs/designs/reconciliacion-identidad-socios.md` (documento suyo sin versionar).
-- Decisión de negocio de SYNC-GAP-02: ¿un rechazo y un pago posterior de la misma cuota son dos cargos distintos?
-- Tarjetas de prueba de rechazo y cambio de tarjeta para completar V-2, V-3, V-4 (requieren esperar días).
-- Crear el rol `ejecutivo` cuando se decida su matriz; crear usuarios `soporte` en cada ambiente (cada uno tiene su propia base de usuarios).
-- Apagar los túneles de Cloudflare y evaluar un secreto JWT propio para sandbox.
+**La lista viva está en [`docs/tasks.md`](docs/tasks.md)** (backlog en la sección 4, bloqueos y decisiones en la 5). Resumen al 2026-10-28:
 
-### Técnicos, en orden sugerido
-1. **Opción A, solicitud y aprobación** (diseño en el catálogo de escenarios):
-   - Tabla de solicitudes de cambio y configuración de aprobadores editable en el panel admin.
-   - Bandeja de solicitudes con vista previa y auditoría.
-   - Aplicar cambio: crear los 12 cargos nuevos, cancelar los automáticos del horizonte uno por uno, compensar si falla a la mitad y verificar "exactamente un pendiente por mes".
-   - **Prohibir `cancel_future_charges` sin `charge_ids`** (el DELETE plural cancelaría también los manuales y los automáticos fuera del horizonte).
-   - Bloqueo por suscripción (`pg_advisory_xact_lock`) contra solicitudes simultáneas.
-   - Registro propio de los `charge_id` creados por el CRM.
-   - Chequeo diario **de solo lectura** que avisa cuando a una suscripción con calendario modificado le quedan menos de 60 días de horizonte.
-2. Corregir la fecha de "hoy" en `vp_current_amount.py` (usa UTC; debe usar la hora de Chile).
-3. Suite de contrato, lotes 3 y 4: pruebas con tarjeta (V-2 a V-4, rechazos), etiquetas `[CLAIM:VP-Cxx]` en los documentos y script que cruce afirmaciones con pruebas. Añadir pruebas de contrato de la coexistencia de cargos (usar `CT-CO-AUTO`). Replicar el esquema para Toku (cuidado: comparte host con producción).
-4. PK-05 y **Sprint 5** (recuperador general `/general/recuperador` con pestañas VP, Toku, Payku y TCH, solo lectura; REC-04, REC-05, REC-06; Payku necesita un modelo de cargos). **Sprint 6** (ENV-01 completo, BCK-01, OPS-09, VAL-VP-01/VAL-PK-01).
-5. Migrar "Crecimiento real mensual" y "Churn %" a `ChannelChart` (necesita soporte de porcentajes).
-6. Deuda menor: dos filas `VAL-VP-01` distintas en `docs/tasks.md`; `tests/test_health.py` espera `"development"` y depende del `.env`; borrar `crm_materialization.py` y su test cuando se confirme que no afecta; TCH sigue sin trazabilidad en `source_records`; el filtro `chargeable` de Toku también cambia las series históricas.
+### Del usuario o de terceros (familia USR y DEC en tasks.md)
+- Aplicar las migraciones 0037/0038 y el seed de roles en `crm` y `crm_sandbox` (USR-01); crear usuarios `soporte` y `ejecutivo` por ambiente (USR-07).
+- **Payku**: respuesta del soporte (sandbox y preguntas Q-xx de `docs/integrations/payku/VALIDATION-PLAN.md`). Bloquea PK-05 y la validación de Payku (DEC-10).
+- **Toku**: configurar los webhooks (TK-12) y esperar respuesta sobre `flow_name` (DEC-01).
+- Verificar **KPI-01 y CHART-01 contra VirtualPOS staging** (USR-03) y hacer la **revisión visual** de los Sprints 3 y 4, la bandeja de cambios de cobro y Renovaciones, y la descarga real del CSV (USR-02).
+- Decidir el destino de `docs/designs/reconciliacion-identidad-socios.md` (DEC-08) y SYNC-GAP-02 (DEC-04).
+- Tarjetas de prueba de rechazo y cambio de tarjeta para V-2, V-3 y V-4 (DEC-09); apagar los túneles de Cloudflare (USR-06).
 
-## 8. Plan resumido de los sprints que faltan (estimación de IA / equipo)
+### Técnicos
+- **Opción A** (diseño en el catálogo de escenarios): pasos 1 a 6b hechos (BILL-01 a BILL-08). Faltan BILL-09 (allowlist del piloto), BILL-10 (controles de consistencia y cola de reconciliación), BILL-11 (pruebas de contrato P0 en sandbox), BILL-12 (piloto y reversión), BILL-13 (revisión independiente y documentación), BILL-14 (lock por cargo en `retry_charge`), BILL-15 (rechazar renovaciones con comentario) y BILL-16 (reautorización por cambio de categoría).
+- **Toku**: TK-13 (revisar modelo y ETL contra la API real; «suscripción activa» = estado activo y medio de pago `chargeable`), TK-14 (reportes descargados), TK-15 (rechazos de prueba) y VAL-TK-01 (suite de contrato).
+- **Payku**: PK-06 (modelo de cargos) y la parte 1 de VAL-PK-01 (`tests_contract/payku` con guardas) avanzan sin credenciales.
+- Suite de contrato de VirtualPOS, lotes 3 y 4 (CT-01): pruebas con tarjeta, etiquetas `[CLAIM:VP-Cxx]` y script de cruce.
+- Hecho y ya no pendiente: la corrección de la hora de Chile en `vp_current_amount` (BUG-VP-02, 413a740).
+- Deuda menor (detalle en tasks.md sección 6): "Crecimiento real mensual" y "Churn %" sin migrar a `ChannelChart`; `tests/test_health.py` depende del `.env`; borrar `crm_materialization.py` y su test cuando se confirme que no afecta; TCH sin trazabilidad en `source_records`; el filtro `chargeable` de Toku también cambia las series históricas. La doble fila `VAL-VP-01` se unificó.
+
+## 8. Sprints que faltan
+
+Fuente: [`docs/tasks.md`, secciones 2 y 3](docs/tasks.md#2-tablero-resumen). Estimación de IA / equipo:
 
 | Sprint | Alcance | Esfuerzo | Necesita |
 |---|---|---|---|
-| 4 (resto) | Opción A, PK-05 | ~20 h IA | Respuestas de Payku |
-| 5 | Recuperador general (REC-04 a REC-06) | 24 a 32 h / 10 a 13 días | Definir qué es "recuperable" por canal, roles por pestaña, modelo de cargos de Payku |
-| 6 | ENV-01, BCK-01, OPS-09, validaciones | 12 a 16 h / 8 a 10 días | Hosting, RPO/RTO, credenciales de sandbox, quien ejecute las validaciones |
+| 4 (resto) | BILL-09 a BILL-16, PK-05 | Por re-estimar (el cálculo original era ~20 h IA para la Opción A y PK-05) | Respuestas de Payku, migraciones aplicadas, tarjetas de prueba |
+| 5 | Recuperador general (REC-04 a REC-06), `/general/recuperador` con pestañas VP, Toku, Payku y TCH, solo lectura | 24 a 32 h / 10 a 13 días | Definición acordada de «recuperable» (racha de 3 o más rechazos, tarjeta bloqueada o tarjeta vencida), TK-13 y TK-15, modelo de cargos de Payku |
+| 6 | ENV-01, BCK-01, OPS-09, validaciones | 12 a 16 h / 8 a 10 días | Hosting, RPO/RTO, credenciales de sandbox de Toku y Payku, quién ejecuta las validaciones |
+
+La línea transversal «E2E en sandbox por canal» (VirtualPOS, Toku, Payku, TCH) está en tasks.md sección 3.5.
 
 ## 9. Errores cometidos y cómo se corrigieron
 
@@ -178,7 +178,7 @@ Todo el detalle de escenarios está en `docs/designs/facturacion-gestionada-esce
 
 ## 10. Archivos y documentos clave
 
-- Estado y sprints: `docs/memory/CURRENT_SPRINT.md`, `docs/memory/PROJECT_STATE.md`, `docs/tasks.md`.
+- Plan, sprints y estado (fuente única): `docs/tasks.md`. Estado técnico: `docs/memory/PROJECT_STATE.md`. `docs/memory/CURRENT_SPRINT.md`, `docs/product/roadmap.md` y `knowledge/08 - Roadmap/Roadmap.md` son punteros.
 - Opción A y escenarios: `docs/designs/facturacion-gestionada-escenarios.md`.
 - VirtualPOS: `docs/integrations/virtualpos/` (cada afirmación observada en sandbox lleva su `[CLAIM:VP-Cxx]`), `VALIDATION-PLAN.md`, `tests_contract/README.md`.
 - Datos: `docs/data/` (modelos por canal y `sync-idempotency.md`).

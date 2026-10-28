@@ -47,7 +47,7 @@ El archivo [docs/integrations/toku.md](../toku.md) contiene:
 - Comportamiento observado del sync y recursos disponibles
 - Suscripciones eliminadas en el origen: estrategia de stubs `deleted_at_source` (112 suscripciones, 564 invoices PAID)
 - Controles de escritura (`TOKU_WRITES_ENABLED`)
-- Estado de webhooks: HMAC confirmado, receptor pendiente por falta de HTTPS y sandbox
+- Estado de webhooks: HMAC confirmado; receptor implementado (WH-02, `/api/v1/webhooks/toku`, eventos en `stg_toku_webhook_events`); falta configurar los webhooks en Toku y procesar los eventos (TK-12 en [tasks.md](../../tasks.md))
 
 ---
 
@@ -58,5 +58,5 @@ El archivo [docs/integrations/toku.md](../toku.md) contiene:
 | **BLQ-TK-01 / T-A1** | Toku debe configurar el `flow_name` para el Checkout de inscripcion (ENROLLMENT). Sin esto, cualquier `POST /cl/checkout-sessions` con `mode: ENROLLMENT` devuelve `4xx`. | **Bloquea completamente** los flujos de alta y de cambio de tarjeta (link-inscripcion, alta-socio) |
 | **T-A2** | Host real del Checkout de Toku desconocido hasta la primera sesion real. La lista de hosts permitidos de la capa comun no puede completarse antes. | Bloquea la validacion de origen del link en produccion |
 | **T-S1** | Ambiguedad sobre si `start_date`/`end_date` de `GET /transactions` filtra por `transaction_date` o `initialization_date`. | Afecta la ventana del job diario de seguimiento |
-| **Webhooks** | No hay sandbox documentado. La primera prueba usa HTTPS temporal. El tiempo de espera del proveedor y el tratamiento de respuestas `2xx != 200` son TBD. | Receptor de webhooks aun no implementado |
+| **Webhooks** | No hay sandbox documentado. La primera prueba usa HTTPS temporal. El tiempo de espera del proveedor y el tratamiento de respuestas `2xx != 200` son TBD. | Receptor implementado (WH-02); falta configurar webhooks y procesarlos (TK-12) |
 | **Suscripciones eliminadas** | El sync solo recupera suscripciones activas. Las 112 suscripciones eliminadas generan stubs `deleted_at_source`; sus campos (monto, fecha, cliente) quedan en NULL por no estar disponibles. | Impacto en reportes de recaudacion por suscripcion |

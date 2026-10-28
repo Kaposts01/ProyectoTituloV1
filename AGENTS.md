@@ -9,8 +9,8 @@ SynkmetriX is a CRM that centralizes donor, member, and subscription information
 Use this order of priority:
 
 1. `AGENTS.md` for operational rules.
-2. `docs/memory/PROJECT_STATE.md` for current state.
-3. `docs/memory/CURRENT_SPRINT.md` for active work.
+2. `docs/memory/PROJECT_STATE.md` for current technical state.
+3. `docs/tasks.md` as the single source of truth for the plan, sprints, backlog, and task status (`docs/memory/CURRENT_SPRINT.md` and `docs/product/roadmap.md` are only pointers to it).
 4. `docs/architecture/` for current architecture.
 5. `docs/data/centralized-model.md` for the conceptual centralized model.
 6. `docs/integrations/` for provider contracts and behavior.
@@ -21,7 +21,7 @@ Do not treat prior plans, proposals, or obsolete diagrams as current architectur
 
 ## 3. Mandatory context
 
-Before a significant task, read `docs/memory/PROJECT_STATE.md` and `docs/memory/CURRENT_SPRINT.md`. Read only additional context relevant to the task:
+Before a significant task, read `docs/memory/PROJECT_STATE.md` and the active sprint section of `docs/tasks.md`. Read only additional context relevant to the task:
 
 - Architecture: `docs/architecture/`.
 - Data: `docs/data/centralized-model.md` and the affected entity note.
@@ -78,7 +78,7 @@ After changes: run relevant tests and static checks, review the diff, check for 
 ## 9. Memory
 
 - `PROJECT_STATE.md` represents real current state.
-- `CURRENT_SPRINT.md` represents active work.
+- `docs/tasks.md` is the single source of truth for the plan, sprints, and task status; `CURRENT_SPRINT.md` is only a pointer to it.
 - `BLOCKERS.md` records conditions that prevent or constrain progress.
 - `LESSONS_LEARNED.md` records reusable learning.
 

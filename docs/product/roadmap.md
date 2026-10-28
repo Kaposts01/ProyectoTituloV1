@@ -1,23 +1,10 @@
 # Roadmap
 
-## Fase actual: fundamentos documentales
+> **La fuente de verdad del plan y del estado es [docs/tasks.md](../tasks.md).** Este archivo ya no mantiene un plan propio.
 
-**Status: In progress**
+- Sprints 0 a 6 y línea de pruebas E2E por canal: [tablero resumen](../tasks.md#2-tablero-resumen) y [sprints](../tasks.md#3-sprints).
+- Backlog por área, incluidas las ideas de largo plazo (contrato de liquidaciones y taxonomía común, gobierno de datos personales, lecturas del frontend desde el Core, analítica predictiva): [backlog, sección 4](../tasks.md#4-backlog-por-área) (familia HOR).
+- Dependencias y bloqueos conocidos (Payku, historial de VirtualPOS, identidad entre plataformas): [bloqueos y decisiones abiertas](../tasks.md#5-bloqueos-y-decisiones-abiertas).
+- Deuda técnica: [Technical Debt](../../knowledge/08%20-%20Roadmap/Technical%20Debt.md).
 
-Establecer una arquitectura documental y un modelo conceptual suficientemente solidos antes de comenzar la implementacion tecnica.
-
-## Siguientes fases propuestas
-
-1. Aprobar modelo Core conceptual, limites de staging y criterios de trazabilidad.
-2. Definir estrategia de identidad centralizada, incluyendo revision manual y conflictos.
-3. Acordar contrato de reportes y liquidaciones.
-4. Planificar implementacion tecnica por incrementos y migraciones.
-5. Evaluar analitica predictiva solo con datos trazables y suficientes.
-
-## Dependencias conocidas
-
-- Payku tiene limitaciones para recuperar parte del historial de transacciones.
-- VirtualPOS puede tener historial incompleto de cargos para algunas suscripciones.
-- La identidad entre plataformas permanece `TBD`.
-
-El historial operativo permanece en [tasks.md](../tasks.md).
+La antigua «fase de fundamentos documentales» quedó superada: el CRM es operativo (ver [PROJECT_STATE](../memory/PROJECT_STATE.md)).
