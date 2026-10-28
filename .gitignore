@@ -47,3 +47,7 @@ uvicorn_err.log
 
 # Informes de la suite de contrato (drift doc vs proveedor)
 reports/contract/
+
+# Reportes descargados de los proveedores (traen datos personales de socios)
+*.xlsx
+*.xls
