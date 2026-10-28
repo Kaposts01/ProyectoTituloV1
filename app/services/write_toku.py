@@ -306,8 +306,13 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
 
     try:
         async with TokuClient() as provider:
+            delete_op = ("DELETE", f"/subscriptions/{subscription_id}", None)
+            # Fuera de produccion (no-op en produccion): validar el DELETE ANTES de listar o anular nada.
+            provider.precheck_writes([delete_op])
+
             # Anular invoices impagas antes del DELETE para evitar cobros huérfanos (RISK-TK-01).
             # Solo se anulan las que no están in_progress; las in_progress se omiten con advertencia.
+            to_void: list[str] = []
             try:
                 invoices_resp = await provider.list_subscription_invoices(
                     subscription_id, general_statuses=["unpaid", "partially_paid"]
@@ -323,20 +328,7 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
                             subscription_id, inv_id,
                         )
                         continue
-                    try:
-                        await provider.void_invoice(inv_id, {"delete_invoice": False})
-                        log.info("Toku delete_subscription %s: invoice %s anulada", subscription_id, inv_id)
-                    except TokuWriteBlockedError:
-                        raise
-                    except Exception as exc_void:
-                        log.warning(
-                            "Toku delete_subscription %s: no se pudo anular invoice %s: %s",
-                            subscription_id, inv_id, exc_void,
-                        )
-                        if not settings.is_production:
-                            raise  # fail-closed: no borrar con invoices impagas sin anular
-            except TokuWriteBlockedError:
-                raise
+                    to_void.append(inv_id)
             except Exception as exc_list:
                 log.warning(
                     "Toku delete_subscription %s: no se pudo obtener invoices impagas: %s",
@@ -345,6 +337,25 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
                 if not settings.is_production:
                     # Fail-closed fuera de produccion: sin el listado no se sabe si hay cobros pendientes.
                     raise
+
+            # Los voids son IRREVERSIBLES: fuera de produccion se validan TODOS (voids + DELETE, incluido el
+            # cupo restante) antes de anular ninguno; si algo no seria permitido se aborta sin tocar la red.
+            void_ops = [("POST", f"/invoices/{i}/void", {"delete_invoice": False}) for i in to_void]
+            provider.precheck_writes([*void_ops, delete_op])
+
+            for inv_id in to_void:
+                try:
+                    await provider.void_invoice(inv_id, {"delete_invoice": False})
+                    log.info("Toku delete_subscription %s: invoice %s anulada", subscription_id, inv_id)
+                except TokuWriteBlockedError:
+                    raise
+                except Exception as exc_void:
+                    log.warning(
+                        "Toku delete_subscription %s: no se pudo anular invoice %s: %s",
+                        subscription_id, inv_id, exc_void,
+                    )
+                    if not settings.is_production:
+                        raise  # fail-closed: no borrar con invoices impagas sin anular
 
             await provider.delete_subscription(subscription_id)
     except TokuWriteBlockedError as exc:

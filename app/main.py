@@ -14,7 +14,7 @@ from app.api.v1.routes import (
     webhooks_toku,
     webhooks_virtualpos,
 )
-from app.core.config import settings
+from app.core.config import settings, warn_unguarded_dev_writes
 from app.scheduler.engine import get_scheduler, register_jobs
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,7 @@ def scheduler_should_start() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    warn_unguarded_dev_writes(settings)
     _cleanup_zombie_runs()
     if not scheduler_should_start():
         logger.info("Scheduler deshabilitado en ambiente %s.", settings.env_mode)

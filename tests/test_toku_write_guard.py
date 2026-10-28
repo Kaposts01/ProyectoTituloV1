@@ -160,7 +160,10 @@ def test_subscription_customer_must_be_test_or_allowlisted() -> None:
 
 
 def test_invoice_requires_prefix_and_disable_automatic_payment() -> None:
-    base = {"product_id": "TEST-SUB-1", "invoice_external_id": "TEST-INV-1", "disable_automatic_payment": True}
+    base = {
+        "product_id": "TEST-SUB-1", "invoice_external_id": "TEST-INV-1",
+        "disable_automatic_payment": True, "customer": "TEST-C1",
+    }
     ok("POST", "/invoices", base)
     assert blocked_code("POST", "/invoices", {**base, "disable_automatic_payment": False}) == "FLAG_REQUIRED"
     no_flag = {k: v for k, v in base.items() if k != "disable_automatic_payment"}
@@ -168,6 +171,7 @@ def test_invoice_requires_prefix_and_disable_automatic_payment() -> None:
     assert blocked_code("POST", "/invoices", {**base, "invoice_external_id": "CUOTA-1"}) == "PREFIX_REQUIRED"
     assert blocked_code("POST", "/invoices", {k: v for k, v in base.items() if k != "invoice_external_id"}) == "FIELD_MISSING"
     assert blocked_code("POST", "/invoices", {**base, "customer": "cus_real"}) == "ID_NOT_ALLOWED"
+    assert blocked_code("POST", "/invoices", {k: v for k, v in base.items() if k != "customer"}) == "FIELD_MISSING"
 
 
 def test_checkout_requires_prefix_flag_and_test_refs() -> None:
@@ -291,6 +295,7 @@ class FakeHttp:
 
     forbid = False
     calls: ClassVar[list[tuple[str, str]]] = []
+    invoices: ClassVar[list[dict]] = []
 
     def __init__(self, **_: object) -> None:
         pass
@@ -302,7 +307,7 @@ class FakeHttp:
         if FakeHttp.forbid:
             raise AssertionError(f"Se intento tocar la red: {method} (no deberia ocurrir)")
         FakeHttp.calls.append((method, path))
-        payload = {"invoices": []} if path.startswith("/invoices") and method == "GET" else {"id": "x"}
+        payload = {"invoices": list(FakeHttp.invoices)} if path.startswith("/invoices") and method == "GET" else {"id": "x"}
         return httpx.Response(200, json=payload, request=httpx.Request(method, "https://fake.invalid" + path))
 
     async def get(self, path: str, **kw: object) -> httpx.Response:
@@ -322,6 +327,7 @@ class FakeHttp:
 def fake_http(monkeypatch: pytest.MonkeyPatch):
     FakeHttp.forbid = False
     FakeHttp.calls = []
+    FakeHttp.invoices = []
     monkeypatch.setattr(toku_client.httpx, "AsyncClient", FakeHttp)
     monkeypatch.setattr(toku_client, "PROCESS_STATE", WriteGuardState(env=dict(ARMED)))
     yield FakeHttp
@@ -519,6 +525,7 @@ def test_routes_map_guard_block_to_403(monkeypatch, fn_name: str, args: tuple) -
         asyncio.run(getattr(writes_routes, fn_name)(*args, None))
     assert e.value.status_code == 403
     assert "NOT_ARMED" in e.value.detail
+    assert "falta el interruptor" not in e.value.detail  # el mensaje completo queda solo en write_runs
 
 
 def test_module_exports_and_defaults() -> None:

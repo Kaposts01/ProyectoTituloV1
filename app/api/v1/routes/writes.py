@@ -98,6 +98,12 @@ _VP_ERRORS = (HTTPStatusError, VirtualPOSAPIError)
 router = APIRouter()
 
 
+def _toku_blocked_detail(exc: TokuWriteBlockedError) -> str:
+    """Texto fijo para el cliente: solo el codigo estable. El mensaje completo (con nombres de variables
+    internas) queda unicamente en el write_run `blocked`."""
+    return f"Escritura Toku bloqueada por las guardas de ambiente ({exc.code})."
+
+
 class VirtualPOSClientUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -670,7 +676,7 @@ async def update_toku_customer(
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
+        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
     except TokuCustomerNotFoundError:
         raise HTTPException(status_code=404, detail="Cliente Toku no encontrado") from None
     except HTTPStatusError as exc:
@@ -696,7 +702,7 @@ async def delete_toku_customer(
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
+        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
     except TokuCustomerNotFoundError:
         raise HTTPException(status_code=404, detail="Cliente Toku no encontrado") from None
     except HTTPStatusError as exc:
@@ -729,7 +735,7 @@ async def change_toku_subscription_status(
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
+        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
     except TokuSubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
     except HTTPStatusError as exc:
@@ -874,7 +880,7 @@ async def delete_toku_subscription(
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
+        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
     except TokuSubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
     except HTTPStatusError as exc:
@@ -911,7 +917,7 @@ async def update_toku_invoice(
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
+        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
     except TokuInvoiceNotFoundError:
         raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
     except HTTPStatusError as exc:
@@ -937,7 +943,7 @@ async def delete_toku_invoice(
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=f"Escritura Toku bloqueada ({exc.code}): {exc.message}") from None
+        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
     except TokuInvoiceNotFoundError:
         raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
     except HTTPStatusError as exc:

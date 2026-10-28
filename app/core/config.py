@@ -211,6 +211,32 @@ class Settings(BaseSettings):
             self.virtualpos_allow_charge_on_fixed_plan = False
 
 
+_DEV_ALIASES = ("development", "dev", "local")
+_dev_alias_warning_emitted = False
+
+
+def warn_unguarded_dev_writes(cfg: "Settings") -> None:
+    """AVISO INFORMATIVO (no cambia ningun comportamiento), una sola vez por proceso.
+
+    Con APP_ENV=development/dev/local `is_production` es True (alias historicos): las variables
+    TOKU_SANDBOX_* se ignoran y las guardas de escritura de Toku NO corren, asi que una maquina de
+    desarrollo con llaves reales y TOKU_WRITES_ENABLED=true escribe en Toku sin guarda. El mensaje solo
+    nombra variables, nunca valores. Se invoca en el arranque de la app (lifespan); solo cubre Toku
+    porque no existe un patron analogo para otros proveedores.
+    """
+    global _dev_alias_warning_emitted
+    if _dev_alias_warning_emitted:
+        return
+    if cfg.app_env.strip().lower() in _DEV_ALIASES and cfg.toku_writes_enabled:
+        _dev_alias_warning_emitted = True
+        log.warning(
+            "APP_ENV es un alias de produccion (development/dev/local) y TOKU_WRITES_ENABLED esta activo: "
+            "las variables TOKU_SANDBOX_* se ignoran y las guardas de escritura de Toku NO se aplican; "
+            "las escrituras iran a Toku con las llaves TOKU_* configuradas. Use APP_ENV=sandbox o qa para "
+            "probar con guardas, o desactive TOKU_WRITES_ENABLED."
+        )
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

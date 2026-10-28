@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.integrations.toku.write_guard import (
     PROCESS_STATE,
     assert_sandbox_write_allowed,
+    check_sandbox_writes_allowed,
 )
 
 
@@ -219,6 +220,12 @@ class TokuClient:
         """Fuera de produccion toda escritura pasa por las guardas duras (antes de tocar la red)."""
         if not settings.is_production:
             assert_sandbox_write_allowed(method, path, data, settings, PROCESS_STATE)
+
+    def precheck_writes(self, operations: list[tuple[str, str, Any]]) -> None:
+        """Valida (sin contar contra el cupo ni tocar la red) que TODAS las escrituras `(metodo, ruta, body)`
+        pasarian las guardas. Produccion: no-op (comportamiento sin cambios)."""
+        if not settings.is_production:
+            check_sandbox_writes_allowed(operations, settings, PROCESS_STATE)
 
     async def _post(self, path: str, data: dict[str, Any]) -> Any:
         self._guard_write("POST", path, data)
