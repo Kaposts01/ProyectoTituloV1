@@ -1,6 +1,6 @@
 # Extracción de vistas de `AppCore.tsx` (UX-04)
 
-Estado: en curso (2026-10-29). Objetivo: sacar el estado y el JSX de cada pantalla de `frontend/src/AppCore.tsx` a módulos en `frontend/src/features/*` **sin cambiar comportamiento ni apariencia** (mismas rutas, textos, peticiones y estado visible). No se unifican vistas, no se renombra el menú, no se toca la navegación (eso es UX-05) y no se cambian estilos.
+Estado: extracción completada (2026-10-29): `AppCore.tsx` pasó de 3.666 a 700 líneas. Objetivo: sacar el estado y el JSX de cada pantalla de `frontend/src/AppCore.tsx` a módulos en `frontend/src/features/*` **sin cambiar comportamiento ni apariencia** (mismas rutas, textos, peticiones y estado visible). No se unifican vistas, no se renombra el menú, no se toca la navegación (eso es UX-05) y no se cambian estilos.
 
 ## 1. Mapa de `AppCore.tsx` (antes de empezar: 3.666 líneas)
 
@@ -54,23 +54,55 @@ De la más aislada a la más acoplada. Cada paso: (a) test de caracterización c
 
 | # | Extracción | Destino | Riesgo | Estado |
 |---|---|---|---|---|
-| 1 | TCH: hook de estado y efecto + `TchContent` | `features/tch/` | Bajo | pendiente |
-| 2 | Clientes y suscripciones consolidados (tablas + hook de lista) | `features/dashboard/` | Medio | pendiente |
-| 3 | Dashboard general (KPIs, gráficos, tarjetas de canal) y panel ETL | `features/dashboard/` | Medio | pendiente |
-| 4 | Dashboard de canal (hook) | `features/dashboard/` | Bajo | pendiente |
-| 5 | Fichas VirtualPOS (5) y ficha Toku/Payku | `features/virtualpos/`, `features/provider/` | Medio | pendiente |
-| 6 | Listas de staging (controles de filtro + tabla) | `features/provider/` | Alto | pendiente |
-| 7 | Diálogos de escritura VirtualPOS + hook | `features/virtualpos/` | Alto | pendiente |
-| 8 | Diálogos de proveedor (editar, eliminar, estado Toku) + hook | `features/provider/` | Medio | pendiente |
+| 1 | TCH: `useTch` + `renderTchContent` | `features/tch/` | Bajo | hecho (`d4ffac3`) |
+| 2 | Dashboard general, clientes y suscripciones consolidados, panel ETL: `useGeneralDashboard`, `useEtl`, `GeneralDashboardView` y paneles | `features/dashboard/` | Medio | hecho (`56d6ad0`) |
+| 3 | Dashboard de canal: `useChannelDashboard` | `features/dashboard/` | Bajo | hecho (`1ae3f49`) |
+| 4 | Fichas de detalle (5 de VirtualPOS + ficha Toku/Payku) | `features/virtualpos/`, `features/provider/` | Medio | hecho (`a99ef50`) |
+| 5 | Lista de registros de staging: `useStagingRecords` + `StagingRecordsList` | `features/provider/` | Alto | hecho (`e7246fa`) |
+| 6 | Estado de las fichas abiertas y sus `open*`: `useRecordDetails` | `features/shared/` | Medio | hecho (`9aa3f21`) |
+| 7 | Escrituras y diálogos: `useVirtualPosWrites` + `VirtualPosWriteDialogs`, `useProviderWrites` + `ProviderWriteDialogs` | `features/virtualpos/`, `features/provider/` | Alto | hecho (`0e86573`) |
 
 La navegación (`navigate`, `show*`, `applyRoute`, efectos de URL), la sesión y el tema **se quedan en AppCore** a propósito: moverlas es UX-05.
 
 ## 3. Pruebas de caracterización
 
-Se renderiza `<AppCore />` completo con `fetch` simulado (`frontend/src/test/appHarness.tsx`) y datos sintéticos, y se verifican textos, columnas y la petición que dispara cada vista. Las pruebas no conocen la estructura interna, así que valen igual antes y después de mover el código.
+Se renderiza `<AppCore />` completo con `fetch` simulado por tabla de rutas (`frontend/src/test/appHarness.tsx`), sesión y datos sintéticos (`frontend/src/test/fixtures.ts`), y se verifican textos, columnas, la petición que dispara cada vista (ruta y parámetros) y el marcado del área de contenido mediante snapshots normalizados (`contentHtml()`). Las pruebas no conocen la estructura interna, así que valen igual antes y después de mover el código: cada extracción se hizo con la prueba del paso anterior en verde y los snapshots sin tocar.
 
-(Se completa al terminar cada paso.)
+| Archivo | Pruebas | Cubre |
+|---|---|---|
+| `tch.characterization.test.tsx` | 12 | resumen, listas, fichas de cliente y de cargo TCH, filtros, paginación, error |
+| `general.characterization.test.tsx` | 18 | resumen general, clientes y suscripciones consolidados, Sync completo, persistencia al navegar |
+| `staging.characterization.test.tsx` | 24 | listas de VirtualPOS/Toku/Payku (parámetros, columnas, acciones, filtros, orden, cuenta, «Ver más», URL) y dashboard de canal |
+| `records.characterization.test.tsx` | 13 | fichas de cliente, plan, suscripción, cargo, transacción y registro Toku/Payku |
+| `writes.characterization.test.tsx` | 22 | diálogos y manejadores de escritura (cuerpo enviado, validaciones, actualización de filas y fichas, errores) |
+| `navigation.characterization.test.tsx` | 14 | sesión, tema, redirecciones por permiso, ruta antigua de cambios de cobro, popstate, menú |
+| **Total** | **103** | 33 snapshots del marcado |
 
-## 4. Resultado y pendientes
+Estabilidad: 20 corridas seguidas de `src/test` y 10 de la suite completa sin fallos (tras fijar `asyncUtilTimeout` y esperar el fin de carga de las listas antes de comparar snapshots).
 
-(Se completa al terminar.)
+Vacíos conocidos: el JSX de la ficha de suscripción TCH no se puede caracterizar porque hoy lanza un error al abrirla (hallazgo 1); los paneles que ya eran componentes (admin, perfil, recuperador, cambios de cobro) solo se verifican a nivel de ruta.
+
+## 4. Resultado
+
+- `AppCore.tsx`: **3.666 → 700 líneas**. Lo que queda es a propósito: sesión, tema, `navigate`/permisos de ruta/`show*`/`applyRoute`/efectos de URL (navegación, UX-05), el selector de qué vista pintar y la composición con `Sidebar`.
+- Módulos nuevos: `features/tch/{useTch,TchContent}`, `features/dashboard/{useGeneralDashboard,useEtl,useChannelDashboard,GeneralDashboardView,GeneralSummaryContent,GeneralClientsPanel,GeneralSubscriptionsPanel,EtlPanel}`, `features/provider/{useStagingRecords,StagingRecordsList,ProviderRecordDetailView,useProviderWrites,ProviderWriteDialogs}`, `features/shared/useRecordDetails`, `features/virtualpos/{ClientDetailView,PlanDetailView,SubscriptionDetailView,ChargeDetailView,PaymentDetailView,useVirtualPosWrites,VirtualPosWriteDialogs}`.
+- Regla que se siguió: el JSX pasa a componentes de presentación y el estado a **hooks con nombre llamados desde AppCore**; así cada estado conserva su vida útil (modo, año, filtros y ficha abierta sobreviven a la navegación como antes). El estado compartido real (lista de registros y fichas abiertas, que las escrituras actualizan) está en `useStagingRecords` y `useRecordDetails`, y las escrituras los reciben por contexto.
+- Cambios no funcionales deliberados: los setters que ahora llegan por parámetro a un hook (`setError`, `setLoading`) se agregaron a las dependencias de sus efectos (son estables, no cambian cuándo corren); `renderTchContent` se invoca como función (ver hallazgo 1).
+
+### Fuera de esta tanda
+
+- Navegación (`navigate`, `show*`, `applyRoute`, efectos de URL, `canAccessRoute`): se queda en AppCore por mandato (UX-05).
+- `useVirtualPosWrites` (653 líneas) mantiene los ocho manejadores tal cual; partirlo por recurso (cliente, plan, suscripción, cargo) es posible pero no aporta a UX-05 a UX-11 y exigiría tocar la limpieza de avisos (hallazgo 3).
+- `ChannelDashboardView` se sigue montando en línea desde AppCore (ya era un componente).
+
+## 5. Hallazgos de comportamiento (conservados, sin corregir)
+
+Cada uno está fijado por una prueba de caracterización marcada como HALLAZGO o RAREZA; al corregirlo hay que actualizar esa prueba.
+
+1. **La ficha de suscripción TCH no se puede abrir.** `showTchSuscripcion` pinta un detalle provisional `{ numero_ficha }` sin `transacciones` antes de que llegue la respuesta, y el JSX hace `transacciones.map(...)`: el render de AppCore lanza `TypeError`. (Las fichas de cliente y de cargo TCH sí funcionan porque su detalle provisional es tolerante.) Por eso `renderTchContent` se invoca como función y no como elemento: así el fallo sigue propagándose a AppCore igual que antes, en lugar de quedar atrapado por `ContentErrorBoundary`. Al corregir el bug, pasar a elemento.
+2. **Tras «↻ Sincronizar» en un dashboard de canal la vista queda en «Cargando mini dashboard...»**: `syncChannel` pone `channelLoading` en `true` y nunca lo devuelve a `false` (los datos sí llegan).
+3. **Los avisos «Cambios guardados correctamente.» y «Cliente creado correctamente.» nunca se ven**: el efecto que limpia los avisos del formulario de cliente depende de `[editingClient?.id, creatingClient]` y se dispara al cerrar el diálogo, justo después de fijar el aviso. (Los avisos de plan, suscripción y cargo sí se ven.)
+4. **El dashboard de canal no muestra el error de carga**: el mensaje queda en `error`, que esa vista no pinta, y la pantalla se queda en «Cargando mini dashboard...».
+5. **Un enlace profundo carga datos que no se muestran**: al abrir directamente `/central/clientes` (o cualquier ruta que no sea el resumen) la vista aún es «summary» durante el primer render, así que se piden `staging/summary` y `staging/dashboard/general` antes de aplicar la ruta.
+6. **Acciones con distinto reinicio de errores según dónde se disparen**: «Cancelar» una suscripción desde la ficha de cliente reinicia el error del diálogo, desde la lista o la ficha de suscripción no; «Eliminar» un registro reinicia el error desde la ficha pero no desde la lista. Se conservaron las diferencias con callbacks separados.
+7. **`loading` compartido**: el indicador «Cargando» de la lista de registros también lo apaga el efecto del resumen de staging (`setLoading(false)`), así que puede mostrar «N registros» antes de que termine la carga de la lista en curso.
