@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { apiDetailIs, deleteJson, friendlyError, postJson, putJson } from "../../api";
+import { apiErrorCodeIs, deleteJson, friendlyError, postJson, putJson } from "../../api";
 import type { RecordDetailsState } from "../shared/useRecordDetails";
 import type { StagingRecord, StagingResponse } from "../shared/types";
 import { documentType, normalizeRut, refreshCsrfToken, text } from "../shared/utils";
@@ -120,7 +120,7 @@ export function useVirtualPosWrites(ctx: {
       setClientSaveNotice("Cambios guardados correctamente.");
     } catch (saveError) {
       const message = friendlyError(saveError, "No se pudo guardar el cliente.");
-      if (apiDetailIs(saveError, "Invalid RUT")) {
+      if (apiErrorCodeIs(saveError, "invalid_rut")) {
         setClientFieldErrors({ social_id: "El RUT no es válido." });
         setClientFormError("Revisa los campos marcados en rojo.");
       } else {
@@ -214,7 +214,7 @@ export function useVirtualPosWrites(ctx: {
       setClientSaveNotice("Cliente creado correctamente.");
     } catch (createError) {
       const message = friendlyError(createError, "No se pudo crear el cliente.");
-      if (apiDetailIs(createError, "Invalid RUT")) {
+      if (apiErrorCodeIs(createError, "invalid_rut")) {
         setClientFieldErrors({ social_id: "El RUT no es válido." });
         setClientFormError("Revisa los campos marcados en rojo.");
       } else {

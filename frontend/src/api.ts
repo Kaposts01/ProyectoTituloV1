@@ -1,5 +1,5 @@
 /** HTTP utilities compartidas por todos los módulos del frontend. */
-import { translateApiDetail, validationMessage } from "./i18n/apiErrors";
+import { apiErrorText, translateApiDetail, validationMessage } from "./i18n/apiErrors";
 import { noteServerDate } from "./serverClock";
 
 export let csrfToken = "";
@@ -9,9 +9,12 @@ export function setCsrfToken(token: string): void {
 }
 
 /**
- * Mensaje de un error de la API para el usuario. El `detail` en inglés que el backend ya conoce se traduce
- * (i18n/apiErrors.ts); el que no está en el catálogo se muestra tal cual (casi siempre es español redactado por el
- * backend). Un `detail` estructurado {code, message} no se muestra: se usa el texto genérico del estado HTTP.
+ * Mensaje de un error de la API para el usuario. Orden de búsqueda (ver docs/engineering/api-errors-ui.md):
+ *  1. `detail` {code, message}: texto del catálogo por `code` (i18n/apiErrors.ts); si el código no está, el `message`
+ *     del backend (texto fijo en español); si tampoco hay, `null` y se usa el texto genérico del estado HTTP.
+ *  2. `detail` texto: el `detail` en inglés que el backend aún envía se traduce; el que no está en el catálogo se
+ *     muestra tal cual (casi siempre es español redactado por el backend).
+ *  3. `detail` lista (422 de FastAPI): campo y motivo traducidos.
  */
 function extractErrorDetail(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -22,6 +25,12 @@ function extractErrorDetail(data: unknown): string | null {
       .map((item) => (typeof item === "object" && item !== null ? validationMessage(item as Record<string, unknown>) : String(item)))
       .filter(Boolean)
       .join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    const { code, message } = detail as Record<string, unknown>;
+    const catalogText = typeof code === "string" ? apiErrorText(code) : null;
+    if (catalogText) return catalogText;
+    if (typeof message === "string" && message.trim()) return message.trim();
   }
   return null;
 }
@@ -65,9 +74,9 @@ export class ApiError extends Error {
   }
 }
 
-/** ¿El error trae exactamente este `detail` crudo del backend? (el mensaje mostrado ya está traducido, no sirve para comparar). */
-export function apiDetailIs(error: unknown, detail: string): boolean {
-  return error instanceof ApiError && error.detail === detail;
+/** ¿El error es de la API y trae este `detail.code` estable? (el mensaje mostrado ya está traducido, no sirve para comparar). */
+export function apiErrorCodeIs(error: unknown, code: string): boolean {
+  return error instanceof ApiError && error.code === code;
 }
 
 async function checkResponse(response: Response): Promise<void> {

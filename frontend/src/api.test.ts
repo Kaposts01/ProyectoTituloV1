@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiDetailIs, friendlyError, getJson, postJson } from "./api";
+import { ApiError, apiErrorCodeIs, friendlyError, getJson, postJson } from "./api";
 
 function respond(status: number, body: unknown) {
   return {
@@ -38,9 +38,8 @@ describe("errores de la API en español (paso 11)", () => {
   ])("el detalle %i «%s» se muestra traducido", async (status, detail, expected) => {
     const error = await failure(status, { detail });
     expect(error.message).toBe(expected);
-    // El detalle crudo se conserva para quien decida por él (p. ej. «Invalid RUT» marca el campo).
+    // El detalle crudo se conserva para quien lo necesite.
     expect(error.detail).toBe(detail);
-    expect(apiDetailIs(error, detail)).toBe(true);
   });
 
   it("un detalle con datos variables se traduce por patrón", async () => {
@@ -57,12 +56,38 @@ describe("errores de la API en español (paso 11)", () => {
     expect((await failure(404, null)).message).toBe("El recurso solicitado no fue encontrado.");
   });
 
-  it("un detalle estructurado {code, message} expone el código y no muestra el mensaje crudo", async () => {
-    const error = await failure(409, { detail: { code: "subscription_busy", message: "raw english message" } });
-    expect(error.code).toBe("subscription_busy");
-    expect(error.message).toBe("La operación entra en conflicto con el estado actual. Actualiza e inténtalo de nuevo.");
-    expect(error.message).not.toContain("raw english");
-    expect(error.detail).toEqual({ code: "subscription_busy", message: "raw english message" });
+  it("un detalle {code, message} con código conocido muestra el texto del catálogo, no el message del servidor", async () => {
+    const error = await failure(422, { detail: { code: "invalid_rut", message: "texto del servidor distinto" } });
+    expect(error.message).toBe("El RUT no es válido.");
+    expect(error.code).toBe("invalid_rut");
+    expect(error.status).toBe(422);
+    expect(error.detail).toEqual({ code: "invalid_rut", message: "texto del servidor distinto" });
+    expect(apiErrorCodeIs(error, "invalid_rut")).toBe(true);
+    expect(apiErrorCodeIs(error, "invalid_session")).toBe(false);
+  });
+
+  it("un código conocido de bajas (cancellationError) también se traduce por catálogo", async () => {
+    const error = await failure(409, { detail: { code: "open_request_exists", message: "x" } });
+    expect(error.message).toBe("Ya existe una solicitud de baja abierta para esta suscripción. Resuélvala o retírela antes de crear otra.");
+  });
+
+  it("un código desconocido con message muestra el message (ya viene en español)", async () => {
+    const error = await failure(409, { detail: { code: "codigo_nuevo_del_backend", message: "Mensaje fijo en español." } });
+    expect(error.message).toBe("Mensaje fijo en español.");
+    expect(error.code).toBe("codigo_nuevo_del_backend");
+  });
+
+  it("un código desconocido sin message (o con message vacío o no texto) usa el texto genérico del estado HTTP", async () => {
+    expect((await failure(409, { detail: { code: "codigo_nuevo_del_backend" } })).message).toBe("La operación entra en conflicto con el estado actual. Actualiza e inténtalo de nuevo.");
+    expect((await failure(503, { detail: { code: "codigo_nuevo_del_backend", message: "   " } })).message).toBe("El servicio no está disponible temporalmente. Inténtalo más tarde.");
+    expect((await failure(500, { detail: { code: "codigo_nuevo_del_backend", message: 5 } })).message).toBe("Error interno del servidor. Inténtalo de nuevo en unos momentos.");
+    expect((await failure(404, { detail: {} })).message).toBe("El recurso solicitado no fue encontrado.");
+  });
+
+  it("apiErrorCodeIs solo acepta un ApiError con ese código (un detail string no tiene código)", async () => {
+    expect(apiErrorCodeIs(new Error("x"), "invalid_rut")).toBe(false);
+    expect(apiErrorCodeIs(null, "invalid_rut")).toBe(false);
+    expect(apiErrorCodeIs(await failure(400, { detail: "Invalid RUT" }), "invalid_rut")).toBe(false);
   });
 
   it("errores de validación (422): campo en español y motivo traducido por tipo", async () => {

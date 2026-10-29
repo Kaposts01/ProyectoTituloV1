@@ -28,7 +28,7 @@ export type Call = { method: string; path: string; query: URLSearchParams; url: 
 export type Reply = unknown | { __status: number; body: unknown };
 export type Handler = [method: string, match: string | RegExp, reply: Reply | ((call: Call) => Reply | Promise<Reply>)];
 
-export const failWith = (status: number, detail: string): Reply => ({ __status: status, body: { detail } });
+export const failWith = (status: number, detail: string | Record<string, unknown>): Reply => ({ __status: status, body: { detail } });
 
 export function session(permissions: string[] = ALL_PERMISSIONS, roles: string[] = ["admin"]) {
   return {

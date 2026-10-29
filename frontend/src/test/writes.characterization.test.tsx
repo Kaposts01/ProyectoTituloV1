@@ -86,8 +86,8 @@ describe("Clientes VirtualPOS: editar", () => {
     expect(app.find("PUT", "/api/v1")).toHaveLength(0);
   });
 
-  it("si el servidor rechaza muestra el mensaje y «Invalid RUT» se traduce al campo", async () => {
-    mountApp("/virtualpos/clientes", [records([vpClient(1)]), ["PUT", "/api/v1/writes/virtualpos/clients/cli-1", failWith(400, "Invalid RUT")]]);
+  it("si el servidor rechaza muestra el mensaje y el código invalid_rut marca el campo", async () => {
+    mountApp("/virtualpos/clientes", [records([vpClient(1)]), ["PUT", "/api/v1/writes/virtualpos/clients/cli-1", failWith(422, { code: "invalid_rut", message: "El RUT no es válido." })]]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
     const f = form("Editar cliente VirtualPOS");

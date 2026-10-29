@@ -13,6 +13,15 @@ const PATTERNS: Array<[RegExp, (m: RegExpExecArray) => string]> = [
   [/^Expected boolean-like value for field '([^']+)'$/, (m) => `El campo ${m[1]} debe ser verdadero o falso.`],
 ];
 
+/**
+ * Texto en español de un código de error del backend (`detail.code`), o `null` si no se conoce. Orden: dominio
+ * `apiError` (errores de escritura, staging, seguridad y programador) y luego `cancellationError` (bajas).
+ * Los códigos de cambios de cobro (billing) los traduce `features/billing/billingErrors.ts`, que tiene su propia tabla.
+ */
+export function apiErrorText(code: string): string | null {
+  return tryLabel("apiError", code) ?? tryLabel("cancellationError", code) ?? null;
+}
+
 /** Traducción de un `detail` en inglés conocido, o `null` si no se conoce (se mostrará tal cual). */
 export function translateApiDetail(detail: string): string | null {
   const exact = tryLabel("apiDetail", detail);
