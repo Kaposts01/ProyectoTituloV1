@@ -16,6 +16,7 @@ import re
 import sys
 import unicodedata
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 from sqlalchemy import and_, case, func, or_, select, true
 
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.models.etl_run import EtlRun
 from app.models.tch import (
     ORIGEN_CARGO,
@@ -39,6 +40,7 @@ from app.models.tch import (
     TchTipoMandato,
     TchTransaccion,
 )
+from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import tch_report_registry as report_registry
 from app.services.core_tch_etl import normalize_tch_currency
 from app.services.payload_sanitization import sanitize_payload
@@ -1271,6 +1273,166 @@ def _process_file(filepath: Path, db) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Conciliacion contra el control oficial (TCH-PAR-07)
+# ---------------------------------------------------------------------------
+
+DEFAULT_TOLERANCE_MONTH = 0.005  # 0,5 % por mes
+DEFAULT_TOLERANCE_TOTAL = 0.001  # 0,1 % sobre el total
+
+
+@dataclass
+class MonthReconciliation:
+    periodo: str
+    db_aceptadas: int
+    db_rechazadas: int
+    control_aceptadas: int
+    control_rechazadas: int
+    excluded: bool = False
+    ok: bool = True
+
+
+@dataclass
+class Reconciliation:
+    months: list[MonthReconciliation] = field(default_factory=list)
+    total_db: int = 0
+    total_control: int = 0
+    total_ok: bool = True
+    tolerance_month: float = DEFAULT_TOLERANCE_MONTH
+    tolerance_total: float = DEFAULT_TOLERANCE_TOTAL
+
+    @property
+    def failed_months(self) -> list[str]:
+        return [m.periodo for m in self.months if not m.ok]
+
+    @property
+    def ok(self) -> bool:
+        return not self.failed_months and self.total_ok
+
+
+def _relative_gap(db_value: int, control_value: int) -> float:
+    return abs(db_value - control_value) / max(control_value, 1)
+
+
+def reconcile(
+    db,
+    tolerance_month: float = DEFAULT_TOLERANCE_MONTH,
+    tolerance_total: float = DEFAULT_TOLERANCE_TOTAL,
+    months: list[str] | None = None,
+    exclude_months: set[str] | frozenset[str] | tuple[str, ...] = (),
+) -> Reconciliation:
+    """Compara intentos aceptados y rechazados por mes de ``tch_transacciones`` con ``tch_recaudacion_mensual``.
+
+    Solo cuenta ACEPTADA y RECHAZADA (como el control). Un mes falla si aceptadas o rechazadas se desvian mas de
+    ``tolerance_month`` del control; el total (meses no excluidos) falla si se desvia mas de ``tolerance_total``.
+    Los meses en ``exclude_months`` (p. ej. un ano sin detalle en la fuente) se informan pero no cuentan.
+    """
+    controls = {
+        row.periodo: row
+        for row in db.scalars(select(TchRecaudacionMensual).order_by(TchRecaudacionMensual.periodo))
+        if months is None or row.periodo in months
+    }
+    counts: dict[tuple[str, str], int] = {
+        (periodo, estado): cantidad
+        for periodo, estado, cantidad in db.execute(
+            select(TchTransaccion.periodo, TchTransaccion.estado, func.count())
+            .where(TchTransaccion.estado.in_(("ACEPTADA", "RECHAZADA")), TchTransaccion.periodo.in_(list(controls)))
+            .group_by(TchTransaccion.periodo, TchTransaccion.estado)
+        )
+    }
+    result = Reconciliation(tolerance_month=tolerance_month, tolerance_total=tolerance_total)
+    excluded = set(exclude_months)
+    for periodo, control in controls.items():
+        item = MonthReconciliation(
+            periodo=periodo,
+            db_aceptadas=counts.get((periodo, "ACEPTADA"), 0),
+            db_rechazadas=counts.get((periodo, "RECHAZADA"), 0),
+            control_aceptadas=control.aceptadas_cantidad,
+            control_rechazadas=control.rechazadas_cantidad,
+            excluded=periodo in excluded,
+        )
+        if not item.excluded:
+            item.ok = (
+                _relative_gap(item.db_aceptadas, item.control_aceptadas) <= tolerance_month
+                and _relative_gap(item.db_rechazadas, item.control_rechazadas) <= tolerance_month
+            )
+            result.total_db += item.db_aceptadas + item.db_rechazadas
+            result.total_control += item.control_aceptadas + item.control_rechazadas
+        result.months.append(item)
+    result.total_ok = _relative_gap(result.total_db, result.total_control) <= tolerance_total
+    return result
+
+
+def format_reconciliation(result: Reconciliation) -> str:
+    """Texto para la consola: solo periodos, conteos y diferencias (nada personal)."""
+    lines = [f"{'mes':<8} {'acep BD':>9} {'acep ctl':>9} {'rech BD':>9} {'rech ctl':>9}  estado"]
+    for m in result.months:
+        estado = "excluido" if m.excluded else ("ok" if m.ok else "FALLA")
+        lines.append(
+            f"{m.periodo:<8} {m.db_aceptadas:>9} {m.control_aceptadas:>9} {m.db_rechazadas:>9} {m.control_rechazadas:>9}  {estado}"
+        )
+    gap = _relative_gap(result.total_db, result.total_control) * 100
+    lines.append(
+        f"TOTAL BD={result.total_db} control={result.total_control} diferencia={gap:.3f} % "
+        f"(umbral total {result.tolerance_total * 100:.2f} %, por mes {result.tolerance_month * 100:.2f} %) -> "
+        + ("ok" if result.total_ok else "FALLA")
+    )
+    if result.failed_months:
+        lines.append("Meses que no cuadran: " + ", ".join(result.failed_months))
+    return "\n".join(lines)
+
+
+@dataclass
+class ReloadOutcome:
+    committed: bool
+    reconciliation: Reconciliation
+    total: int
+    fichas_vigentes: int = 0
+    archivos: int = 0
+
+
+def reload_full(
+    db,
+    archivos: list[Path],
+    *,
+    apply: bool,
+    tolerance_month: float = DEFAULT_TOLERANCE_MONTH,
+    tolerance_total: float = DEFAULT_TOLERANCE_TOTAL,
+    exclude_months: set[str] | frozenset[str] | tuple[str, ...] = (),
+) -> ReloadOutcome:
+    """Reconstruye ``tch_*`` desde todos los reportes en UNA transaccion: todo o nada.
+
+    Se concilia contra el control oficial antes de confirmar. Con ``apply=False`` (dry-run) siempre se hace ROLLBACK.
+    Con ``apply=True`` solo se hace COMMIT si la conciliacion cuadra; si no, ROLLBACK y la base queda intacta.
+    Cualquier excepcion se propaga despues de revertir.
+    """
+    total = 0
+    ultimo: dict = {}
+    try:
+        _clear_tch_data(db)
+        for archivo in archivos:
+            sha = report_registry.file_sha256(archivo)
+            t = _process_file(archivo, db)
+            report_registry.register(db, sha, archivo.name, archivo.stat().st_size)
+            ultimo = t
+            total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
+            log.info(f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
+        if ultimo:
+            bajas = _apply_implicit_bajas(db, ultimo["fichas"])
+            log.info(f"Bajas implicitas (ausentes de {ultimo['archivo']}): {bajas}")
+        result = reconcile(db, tolerance_month, tolerance_total, exclude_months=exclude_months)
+        vigentes = db.scalar(select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "VIGENTE")) or 0
+        committed = apply and result.ok
+        if committed:
+            db.commit()
+        else:
+            db.rollback()
+        return ReloadOutcome(committed, result, total, fichas_vigentes=vigentes, archivos=len(archivos))
+    except Exception:
+        db.rollback()
+        raise
+
+
+# ---------------------------------------------------------------------------
 # Registro en etl_runs
 # ---------------------------------------------------------------------------
 
@@ -1282,7 +1444,9 @@ def _start_run(db) -> EtlRun:
     return run
 
 
-def _finish_run(db, run: EtlRun, total: int, error: str | None = None) -> None:
+def _finish_run(db, run: EtlRun, total: int, error: str | None = None, phase: str | None = None) -> None:
+    if phase:
+        run.phase = phase
     run.status = "failed" if error else "completed"
     run.finished_at = datetime.now(timezone.utc)
     run.records_upserted = total
@@ -1328,23 +1492,52 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
 # Punto de entrada
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="ETL para reportes Excel TCH → tablas tch_*")
+def _list_reports(folder: Path) -> list[Path]:
+    return sorted(
+        [f for f in folder.iterdir() if f.suffix.upper() == ".XLSX" and f.is_file() and not f.name.startswith("~$")],
+        key=_report_sort_key,
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="ETL para reportes Excel TCH -> tablas tch_*")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--folder", help="Carpeta con archivos .xlsx (procesa todos)")
     group.add_argument("--file", help="Archivo .xlsx individual")
     parser.add_argument("--mode", choices=["full", "incremental"], default="incremental")
-    args = parser.parse_args()
+    parser.add_argument("--dry-run", action="store_true", help="(modo full, por defecto) reconstruye y hace ROLLBACK")
+    parser.add_argument("--apply", action="store_true", help="(modo full) confirma la recarga si la conciliacion cuadra")
+    parser.add_argument("--confirm-database", help="Nombre exacto de la base; obligatorio con --apply")
+    parser.add_argument("--tolerance-month", type=float, default=DEFAULT_TOLERANCE_MONTH, help="Desvio maximo por mes (0.005 = 0,5 %%)")
+    parser.add_argument("--tolerance-total", type=float, default=DEFAULT_TOLERANCE_TOTAL, help="Desvio maximo total (0.001 = 0,1 %%)")
+    parser.add_argument("--exclude-months", default="", help="Meses YYYY-MM, separados por coma, que no cuentan en la conciliacion")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _build_parser().parse_args(argv)
+
+    full = args.mode == "full"
+    if (args.apply or args.dry_run or args.confirm_database) and not full:
+        log.error("--apply, --dry-run y --confirm-database solo aplican a --mode full")
+        sys.exit(2)
+    if args.apply and args.dry_run:
+        log.error("--apply y --dry-run son excluyentes")
+        sys.exit(2)
+    database_name = engine.url.database
+    if args.apply and args.confirm_database != database_name:
+        log.error("--apply exige --confirm-database con el nombre exacto de la base destino (%s)", database_name)
+        sys.exit(2)
+    if full and not args.folder:
+        log.error("--mode full requiere --folder")
+        sys.exit(2)
 
     if args.folder:
         folder = Path(args.folder)
         if not folder.is_dir():
             log.error(f"Carpeta no encontrada: {folder}")
             sys.exit(1)
-        archivos = sorted(
-            [f for f in folder.iterdir() if f.suffix.upper() == ".XLSX" and f.is_file() and not f.name.startswith("~$")],
-            key=_report_sort_key,
-        )
+        archivos = _list_reports(folder)
         if not archivos:
             log.error(f"No se encontraron archivos .xlsx en {folder}")
             sys.exit(1)
@@ -1361,44 +1554,67 @@ def main() -> None:
         log.info(f"Modo incremental: {f.name}")
 
     db = SessionLocal()
-    run = _start_run(db)
+    try:
+        run = start_exclusive_run(db, channels_processed=["tch"], phase="tch_full_reload" if full else "tch_load")
+    except ActiveRunError as exc:
+        log.error("%s", exc)
+        db.close()
+        sys.exit(2)
     log.info(f"EtlRun iniciado: {run.id}")
+    run_id = run.id
 
     total = 0
-    ultimo: dict = {}
     try:
-        if args.mode == "full":
-            _clear_tch_data(db)
-            log.info("Proyección TCH anterior eliminada para reconstrucción histórica")
+        if full:
+            exclude = {m.strip() for m in args.exclude_months.split(",") if m.strip()}
+            log.info("Recarga completa de la base '%s' (%s)", database_name, "APPLY" if args.apply else "dry-run: se hara ROLLBACK")
+            outcome = reload_full(
+                db,
+                archivos,
+                apply=args.apply,
+                tolerance_month=args.tolerance_month,
+                tolerance_total=args.tolerance_total,
+                exclude_months=exclude,
+            )
+            total = outcome.total
+            print(format_reconciliation(outcome.reconciliation))
+            print(f"Fichas VIGENTES resultantes: {outcome.fichas_vigentes}")
+            run = db.get(EtlRun, run_id)
+            if outcome.committed:
+                _finish_run(db, run, total, phase="tch_full_reload")
+                log.info("Recarga CONFIRMADA. Total procesados: %s", total)
+            elif not args.apply:
+                _finish_run(db, run, total, phase="tch_full_dryrun")
+                log.info("Dry-run terminado: nada se confirmo (ROLLBACK). Conciliacion %s", "OK" if outcome.reconciliation.ok else "CON DIFERENCIAS")
+            else:
+                msg = "Conciliacion fuera de umbral; ROLLBACK, la base quedo intacta. Meses: " + ", ".join(outcome.reconciliation.failed_months or ["(total)"])
+                _finish_run(db, run, total, error=msg[:2000], phase="tch_full_reload")
+                log.error(msg)
+                sys.exit(3)
+            return
+
         for archivo in archivos:
             sha = report_registry.file_sha256(archivo)
             ultimo_cargado = _last_closed_period(db)
-            if args.mode == "incremental" and report_registry.is_registered(db, sha):
+            if report_registry.is_registered(db, sha):
                 raise ReportAlreadyLoadedError("Este reporte ya fue cargado (mismo contenido, sha256 registrado).")
-            if args.mode == "incremental" and _has_legacy_dedupe_keys(db):
+            if _has_legacy_dedupe_keys(db):
                 raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
             t = _process_file(archivo, db)
             report_registry.register(db, sha, archivo.name, archivo.stat().st_size)
-            if args.mode == "incremental" and _is_latest_report(ultimo_cargado, _report_period(archivo)):
+            if _is_latest_report(ultimo_cargado, _report_period(archivo)):
                 bajas = _apply_implicit_bajas(db, t["fichas"])
                 log.info(f"  Bajas implicitas (ausentes del reporte): {bajas}")
-            ultimo = t
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
-            log.info(
-                f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} "
-                f"trans={t['trans']} err={t['err']}"
-            )
-
-        if args.mode == "full" and ultimo:
-            bajas = _apply_implicit_bajas(db, ultimo["fichas"])
-            log.info(f"Bajas implicitas (ausentes de {ultimo['archivo']}): {bajas}")
-
-        _finish_run(db, run, total)
+            log.info(f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
+        _finish_run(db, db.get(EtlRun, run_id), total)
         log.info(f"ETL completado. Total procesados: {total}")
+    except SystemExit:
+        raise
     except Exception as exc:
         db.rollback()
         safe_error = _safe_error_message(exc)
-        _finish_run(db, run, total, error=safe_error)
+        _finish_run(db, db.get(EtlRun, run_id), total, error=safe_error)
         log.error("ETL fallido: %s", safe_error)
         sys.exit(1)
     finally:
