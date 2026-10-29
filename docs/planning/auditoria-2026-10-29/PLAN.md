@@ -109,3 +109,6 @@ Reiniciar backend 8000; revisar `.env` (nombres de variables); definir `TOKU_REP
 - Un agente de VirtualPOS vio direcciones en texto libre al perfilar un CSV (no copiadas).
 - Un agente de TCH imprimió una vez en consola una fila de datos de un socio (no escrita en repo ni documentos; intermedios regenerados).
 Corrección: los agentes de paridad deben leer encabezados con una función que nunca imprima filas.
+- Ola 2A: un script de depuración del agente de backend se conectó por error a la base real `crm` (tomó el `.env`). Solo hizo SELECT y un INSERT que falló porque las tablas nuevas no existen allí, todo dentro de una transacción con rollback; no quedó nada escrito y el script se borró. Corrección: todo script de agente debe fijar `APP_ENV` y la base de pruebas ANTES de importar `settings` (regla 3 del handoff) y fallar cerrado si la base no termina en `_test` o `sandbox`.
+- Ola 2A: el mismo agente usó `git stash` y `git stash pop`, que incluyeron brevemente cambios sin commitear del agente de frontend (restaurados). Corrección: ningún agente usa `git stash` con otros agentes activos.
+- Deuda: algunos tests dependen del orden de ejecución (`test_sync_core_etl` falla en ciertas combinaciones de archivos; con la suite completa pasa). Anterior a la Ola 2A.
