@@ -5,7 +5,8 @@ Idempotent: safe to re-run.
 
 tk_invoices  → CoreCharge  (linked to CoreSubscription)
 tk_payments  → CorePayment (linked to CoreCharge, subscription via charge)
-tk_transactions are card-tokenization/method events and are not materialized here.
+tk_transactions are not materialized as entities; the FAILED ones only feed
+core_charges.latest_rejection_* (see toku_rejection_projection.py).
 """
 
 import logging
@@ -31,6 +32,7 @@ from app.models.toku_channel import (
     TokuSubscription,
 )
 from app.services.core_materialization import materialize_core_clients
+from app.services.toku_rejection_projection import project_toku_rejections
 
 log = logging.getLogger(__name__)
 
@@ -373,6 +375,10 @@ def run_toku_core_etl(db: Session) -> dict[str, int]:
     payments = _materialize_payments(db)
     log.info("Toku Core ETL — pagos insertados: %d", payments)
 
+    log.info("Toku Core ETL — proyectando último rechazo a los cargos")
+    rejections = project_toku_rejections(db)
+    log.info("Toku Core ETL — cargos con rechazo proyectado: %d", rejections["charges_updated"])
+
     db.commit()
     return {
         "clients_created": clients_created,
@@ -381,4 +387,5 @@ def run_toku_core_etl(db: Session) -> dict[str, int]:
         "stub_subscriptions_created": stubs,
         "charges_upserted": charges,
         "payments_inserted_or_linked": payments,
+        "charges_rejection_projected": rejections["charges_updated"],
     }
