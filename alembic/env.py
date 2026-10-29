@@ -1,9 +1,12 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import make_url
 
 from alembic import context
 from app.core.config import settings
+from app.db.migration_guard import check_downgrade_allowed, is_downgrade_command
 from app.db.session import Base
 from app.models.auth import Permission, Role, User  # noqa: F401
 from app.models.billing import (  # noqa: F401
@@ -85,6 +88,14 @@ from app.models.write_run import WriteRun  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# Guarda anti-downgrade accidental (incidente 2026-10-28; ver app/db/migration_guard.py).
+# Se evalua antes de abrir cualquier conexion. `_proxy` es la EnvironmentContext activa (alembic 1.19.1).
+check_downgrade_allowed(
+    make_url(settings.database_url).database or "",
+    is_downgrade_command(getattr(getattr(context, "_proxy", None), "context_opts", None)),
+    os.environ,
+)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
