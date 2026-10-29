@@ -38,6 +38,19 @@ Restricciones: una sola sesión de pytest a la vez (todas recrean `crm_test`); n
 
 **Ola 4: tiempo real, gestión y vista unificada.** Resumen diario y SSE (SYNC-D-04, RT-11/12), reconciliación dirigida (RT-06), webhooks Toku (RT-03 a RT-08), cascada de baja (MGT-03 a MGT-17), menú y dashboard unificados con KPIs de la jefatura (UX-00 a UX-16).
 
+### 4.1 Exportación de datos desde cada vista (pedido del 2026-10-29)
+
+Cada vista (Clientes/Socios, Suscripciones, Cobros, Pagos y las del recuperador) debe tener un botón «Exportar» que descargue los datos de esa vista. Base ya existente: `app/api/v1/routes/recovery.py` (`_csv_response`, `_csv_safe`, `_audit_export`, permiso `virtualpos.recovery.export`). Ojo: `/central/clientes` y `/central/suscripciones` paginan en memoria (`staging.py`), y TCH tiene 1,47 M de cobros, así que la exportación debe ir en streaming y no armarse en memoria.
+
+| ID | Tarea | Esfuerzo | Notas |
+|---|---|---|---|
+| EXP-01 | Servicio común de exportación (`app/services/exporter.py`): CSV en streaming, UTF-8 con BOM, anti-inyección de fórmulas, columnas con datos personales gobernadas por permiso, auditoría en `write_runs` (sin contenido) | M | Extrae y generaliza lo de `recovery.py` sin cambiar su comportamiento |
+| EXP-02 | Permisos de exportación por entidad (`*.export`) y rol que los recibe | S | Migración de permisos; la aplica el usuario (D22) |
+| EXP-03 | Endpoints `GET .../export` para clientes, suscripciones, cobros y pagos, respetando filtros y búsqueda activos, con opción «todo» | M | Consultas en SQL con cursor, no en memoria |
+| EXP-04 | Botón «Exportar» en cada vista, que indica filtros aplicados y cantidad de filas | M | Depende de las vistas; se parte con las actuales y migra con la vista unificada (UX-08, UX-09, UX-10) |
+| EXP-05 | Tests: formulas, datos personales, permisos, auditoría, volumen (TCH) | M | Datos sintéticos |
+| EXP-06 | Exportaciones grandes en segundo plano si superan N filas | M | Solo si el streaming no basta |
+
 ## 5. Decisiones que necesita del usuario (con recomendación)
 
 | # | Decisión | Recomendación |
