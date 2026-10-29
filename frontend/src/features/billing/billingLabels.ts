@@ -124,6 +124,7 @@ export const EVENT_LABELS: Record<string, string> = {
   expirada: "Expirada",
   aplicando: "Aplicación iniciada",
   ejecutada: "Ejecutada",
+  aplicada: "Cambio aplicado",
   fallida: "Aplicación fallida",
   reintentada: "Reabierta",
   requiere_conciliacion: "Requiere conciliación",

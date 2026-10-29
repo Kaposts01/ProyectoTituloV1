@@ -251,7 +251,7 @@ function AppCore() {
     if (!session) return;
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("crm-theme", theme);
-  }, [theme]);
+  }, [theme, session]);
 
   const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
 
