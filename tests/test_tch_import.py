@@ -41,9 +41,13 @@ def _admin_client(monkeypatch) -> tuple[TestClient, str]:
     username = f"tch-admin-{uuid.uuid4().hex[:12]}"
     db = SessionLocal()
     try:
-        seed_permissions(db)
+        # Aislamiento: el rol `admin` no puede darse por creado por otro test (corrido solo, no existe).
         admin = db.scalar(select(Role).where(Role.name == "admin"))
-        assert admin is not None
+        if admin is None:
+            admin = Role(name="admin")
+            db.add(admin)
+            db.flush()
+        seed_permissions(db)  # con el rol ya creado, le asigna todos los permisos
         db.add(User(username=username, password_hash=hash_password("correct-password"), roles=[admin]))
         db.commit()
     finally:
