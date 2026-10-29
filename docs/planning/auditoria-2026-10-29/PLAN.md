@@ -59,6 +59,29 @@ Restricciones: una sola sesión de pytest a la vez (todas recrean `crm_test`); n
 | D15 | Alertas: canal y destinatarios | Correo a jefatura |
 | D16 | URL de VirtualPOS 2 igual a la de la cuenta 1 | Confirmar |
 
+### 5.1 Decisiones resueltas por el usuario (bandeja, 2026-10-29)
+
+| # | Resolución | Consecuencia |
+|---|---|---|
+| D1 | Menú azul marino como la captura (no la recomendada) | Actualizar `DESIGN.md` (sidebar, tokens, contrastes) antes de UX-05; pasa por /design-consultation |
+| D2 | Fuera del dashboard por ahora; el usuario tiene las bases y las entregará | Diseñar tabla de metas y carga simple cuando las entregue |
+| D3 | Tabla única `payment_rejection_details` | Migración (RJ-12), la aplica el usuario |
+| D4 | Materializar los FAILED de Toku como `core_payments` (no la recomendada) | Tarea nueva RJ-15: backfill con cuidado en KPIs (cobrabilidad, rechazos); la Ola 1A solo actualizó `core_charges` |
+| D5 | Autorizadas 4 lecturas GET en producción (3 VirtualPOS, 1 Payku) | Ejecutadas con tope; informe `prod_reads_glosa` |
+| D6 | Importador de reportes PAT de VirtualPOS | RJ-04 / VP-PAR-02 |
+| D7 | Historial de estados en `_upsert_centralized` | SYNC-D-01/02/03; migración, la aplica el usuario |
+| D8 | Túnel nombrado con dominio fijo (solo `/api/v1/webhooks/*`) como puente hasta migrar a hosting | Crítica: no se expone nada sin una confirmación adicional en el momento; depende de SYNC-D-01/02, RT-04 y RT-08 |
+| D9 | SSE con polling de respaldo | RT-11/12 |
+| D10 | Caliente cada 3 h (07:00-22:00); fría el domingo de madrugada | SYNC-O-09 |
+| D11 | Lock advisory ya; worker separado como destino | SYNC-O-11 y SYNC-O-12 |
+| D12 | Jefatura solicita; admin o jefatura aprueban; Toku con PAUSED/`end_date`; ejecutivo solo lee | MGT-07, MGT-16 |
+| D13 | Clave (ficha, período, cuota) con el último estado | TCH-PAR-03/04/07; la recarga la ejecuta el usuario |
+| D14 | Donaciones puntuales de Payku fuera por ahora | PK-PAR-09 diferida |
+| D15 | Alertas por correo a esteban.b@techo.org | SYNC-D-08; requiere configurar envío (secretos solo en `.env`) |
+| D16 | VirtualPOS 2 usa el mismo host que la cuenta 1 | Se conserva el respaldo de URL |
+| D17 | Texto del `-11` según el reporte del portal («Excede límite de reintentos de rechazo») | Cambiar catálogo y el test que lo fija (próxima tanda) |
+| D18 | `docs/Reportes_*/` al `.gitignore` | Hecho |
+
 ## 6. Acciones del usuario (no delegables)
 Reiniciar backend 8000; revisar `.env` (nombres de variables); definir `TOKU_REPORT_HASH_PEPPER`; exportar reporte de Deudas e Intentos de Toku; reexportar la cartera TCH de 2023; aplicar migraciones y recargas en `crm` con respaldo previo; correr `seed_roles.py`.
 

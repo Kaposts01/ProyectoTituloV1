@@ -51,3 +51,6 @@ reports/contract/
 # Reportes descargados de los proveedores (traen datos personales de socios)
 *.xlsx
 *.xls
+
+# Reportes descargados de los portales (contienen datos personales)
+docs/Reportes_*/
