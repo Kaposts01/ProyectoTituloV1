@@ -16,6 +16,8 @@ _scheduler: AsyncIOScheduler | None = None
 
 JOB_SYNC_ALL = "sync_all_channels"
 JOB_SYNC_RETRY = "retry_failed_channels"
+JOB_WEBHOOK_PROCESSOR = "webhook_processor"
+JOB_TARGETED_RECONCILE = "reconcile_targeted"
 
 
 def get_scheduler() -> AsyncIOScheduler:
@@ -105,3 +107,18 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
         )
         logger.info("Job '%s' registrado (cada 15 min: :05/:20/:35/:50).", JOB_BILLING_SWEEP)
+
+    # RT-05: procesador de la cola de webhooks (cada minuto). Detras de WEBHOOK_PROCESSOR_ENABLED (apagada por defecto);
+    # la exclusion entre workers la da FOR UPDATE SKIP LOCKED dentro del procesador.
+    from app.scheduler.jobs.webhook_jobs import process_webhook_queue
+
+    if not scheduler.get_job(JOB_WEBHOOK_PROCESSOR):
+        scheduler.add_job(
+            process_webhook_queue,
+            trigger="interval",
+            minutes=1,
+            id=JOB_WEBHOOK_PROCESSOR,
+            name="Procesador de webhooks",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (cada minuto; detras de WEBHOOK_PROCESSOR_ENABLED).", JOB_WEBHOOK_PROCESSOR)

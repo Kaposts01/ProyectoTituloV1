@@ -342,8 +342,9 @@ def test_jobs_registered_with_expected_schedule():
     assert "hour='3'" in renewal and "minute='0'" in renewal
     assert "minute='10'" in str(jobs["billing_expire_requests"].trigger)
     assert str(jobs["billing_renewal_check"].trigger.timezone) == "America/Santiago"
-    sched_engine.register_jobs(sched)  # idempotente
-    assert len(sched.get_jobs()) == 5
+    n_jobs = len(sched.get_jobs())
+    sched_engine.register_jobs(sched)  # idempotente: no agrega ni duplica jobs
+    assert len(sched.get_jobs()) == n_jobs
 
 
 @pytest.mark.parametrize(("env_mode", "flag", "starts"), [("sandbox", False, False), ("sandbox", True, True), ("production", False, True)])

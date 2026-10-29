@@ -515,8 +515,9 @@ def test_8c_sweep_job_is_registered_every_15_minutes():
     jobs = {j.id: j for j in sched.get_jobs()}
     assert "minute='5,20,35,50'" in str(jobs["billing_sweep_applying"].trigger)
     assert "minute='10'" in str(jobs["billing_expire_requests"].trigger)
+    n_jobs = len(sched.get_jobs())
     sched_engine.register_jobs(sched)
-    assert len(sched.get_jobs()) == 5
+    assert len(sched.get_jobs()) == n_jobs
 
 
 def _stuck_request(w, minutes=120):
