@@ -33,34 +33,68 @@ from app.db.session import Base
 
 PLATFORMS = ("virtualpos1", "virtualpos2")
 REQUEST_TYPES = ("change_amount", "change_date", "renew_calendar", "one_off_charge")
+# Estados de una solicitud de cambio de cobro. El VALOR guardado en la base es español (D38, no se migra); el NOMBRE
+# de la constante va en inglés.
+STATUS_PENDING = "pendiente"
+STATUS_APPROVED = "aprobada"
+STATUS_APPLYING = "aplicando"
+STATUS_EXECUTED = "ejecutada"
+STATUS_REJECTED = "rechazada"
+STATUS_EXPIRED = "expirada"
+STATUS_WITHDRAWN = "retirada"
+STATUS_FAILED = "fallida"
+STATUS_NEEDS_RECONCILIATION = "requiere_conciliacion"
+STATUS_NOT_EXECUTABLE = "no_ejecutable"
 REQUEST_STATUSES = (
-    "pendiente",
-    "aprobada",
-    "aplicando",
-    "ejecutada",
-    "rechazada",
-    "expirada",
-    "retirada",
-    "fallida",
-    "requiere_conciliacion",
-    "no_ejecutable",
+    STATUS_PENDING,
+    STATUS_APPROVED,
+    STATUS_APPLYING,
+    STATUS_EXECUTED,
+    STATUS_REJECTED,
+    STATUS_EXPIRED,
+    STATUS_WITHDRAWN,
+    STATUS_FAILED,
+    STATUS_NEEDS_RECONCILIATION,
+    STATUS_NOT_EXECUTABLE,
 )
+# Tipos de evento del historial de una solicitud (valores guardados en español; nombres de constante en inglés).
+EVENT_CREATED = "creada"
+EVENT_APPROVED = "aprobada"
+EVENT_AUTO_APPROVED = "autoaprobada"
+EVENT_REJECTED = "rechazada"
+EVENT_WITHDRAWN = "retirada"
+EVENT_EXPIRED = "expirada"
+EVENT_APPLYING = "aplicando"
+EVENT_APPLIED = "aplicada"
+EVENT_FAILED = "fallida"
+EVENT_NEEDS_RECONCILIATION = "requiere_conciliacion"
+EVENT_NOT_EXECUTABLE = "no_ejecutable"
+EVENT_RETRIED = "reintentada"
 EVENT_TYPES = (
-    "creada",
-    "aprobada",
-    "autoaprobada",
-    "rechazada",
-    "retirada",
-    "expirada",
-    "aplicando",
-    "aplicada",
-    "fallida",
-    "requiere_conciliacion",
-    "no_ejecutable",
-    "reintentada",
+    EVENT_CREATED,
+    EVENT_APPROVED,
+    EVENT_AUTO_APPROVED,
+    EVENT_REJECTED,
+    EVENT_WITHDRAWN,
+    EVENT_EXPIRED,
+    EVENT_APPLYING,
+    EVENT_APPLIED,
+    EVENT_FAILED,
+    EVENT_NEEDS_RECONCILIATION,
+    EVENT_NOT_EXECUTABLE,
+    EVENT_RETRIED,
 )
-MANAGED_CHARGE_STATUSES = ("creado", "cancelado", "compensado", "requiere_conciliacion")
-TASK_STATUSES = ("abierta", "vencida", "cerrada", "no_aplica")
+# Estados de un cobro gestionado por una solicitud y de una tarea de renovacion (valores guardados en español).
+MANAGED_CREATED = "creado"
+MANAGED_CANCELLED = "cancelado"
+MANAGED_COMPENSATED = "compensado"
+MANAGED_NEEDS_RECONCILIATION = "requiere_conciliacion"
+MANAGED_CHARGE_STATUSES = (MANAGED_CREATED, MANAGED_CANCELLED, MANAGED_COMPENSATED, MANAGED_NEEDS_RECONCILIATION)
+TASK_OPEN = "abierta"
+TASK_OVERDUE = "vencida"
+TASK_CLOSED = "cerrada"
+TASK_NOT_APPLICABLE = "no_aplica"
+TASK_STATUSES = (TASK_OPEN, TASK_OVERDUE, TASK_CLOSED, TASK_NOT_APPLICABLE)
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -119,7 +153,7 @@ class BillingChangeRequest(Base):
     request_type: Mapped[str] = mapped_column(String(30), nullable=False)
     platform: Mapped[str] = mapped_column(String(20), nullable=False)
     subscription_external_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pendiente", server_default="pendiente")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default=STATUS_PENDING, server_default=STATUS_PENDING)
     requested_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     new_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     previous_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
@@ -258,7 +292,7 @@ class VpManagedCharge(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("billing_change_requests.id"))
     write_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("write_runs.id"))
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="creado", server_default="creado")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default=MANAGED_CREATED, server_default=MANAGED_CREATED)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
@@ -315,7 +349,7 @@ class BillingRenewalTask(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     platform: Mapped[str] = mapped_column(String(20), nullable=False)
     subscription_external_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="abierta", server_default="abierta")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=TASK_OPEN, server_default=TASK_OPEN)
     priority: Mapped[str] = mapped_column(String(10), nullable=False, default="normal", server_default="normal")
     last_scheduled_date: Mapped[date] = mapped_column(Date, nullable=False)
     scheduled_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))

@@ -47,14 +47,23 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.billing import BillingChangeRequest, BillingRenewalTask, VpCalendarMark
+from app.models.billing import (
+    STATUS_EXECUTED,
+    TASK_CLOSED,
+    TASK_NOT_APPLICABLE,
+    TASK_OPEN,
+    TASK_OVERDUE,
+    BillingChangeRequest,
+    BillingRenewalTask,
+    VpCalendarMark,
+)
 from app.models.sync_run import SyncRun
 from app.services import billing_apply as ba
 from app.services import billing_requests as br
 
 log = logging.getLogger(__name__)
 
-OPEN_TASK_STATUSES = ("abierta", "vencida")
+OPEN_TASK_STATUSES = (TASK_OPEN, TASK_OVERDUE)
 HIGH_PRIORITY_DAYS = 15  # JB-27 (propuesta): faltan menos de 15 dias -> prioridad alta
 STALE_AFTER_HOURS = 48  # JB-36: ultimo sync con mas de 48 h
 BATCH_SIZE = 200
@@ -126,7 +135,7 @@ def _close(task: BillingRenewalTask, status: str, reason: str, now_utc: datetime
 
 
 def _priority(status: str, days: int) -> str:
-    return "alta" if status == "vencida" or days < HIGH_PRIORITY_DAYS else "normal"
+    return "alta" if status == TASK_OVERDUE or days < HIGH_PRIORITY_DAYS else "normal"
 
 
 def _executed_request(db: Session, *ids: uuid.UUID | None) -> BillingChangeRequest | None:
@@ -134,7 +143,7 @@ def _executed_request(db: Session, *ids: uuid.UUID | None) -> BillingChangeReque
         if rid is None:
             continue
         req = db.get(BillingChangeRequest, rid)
-        if req is not None and req.status == "ejecutada":
+        if req is not None and req.status == STATUS_EXECUTED:
             return req
     return None
 
@@ -159,7 +168,7 @@ def _process_mark(db: Session, mark: VpCalendarMark, *, today: date, now_utc: da
     if not ba.is_active_status(state[0]):  # JB-35 (mayusculas/idioma: ACTIVA / activa / active)
         if task is not None:
             shown = (state[0] or "").strip().upper() or "desconocido"
-            _close(task, "no_aplica", f"La suscripción ya no está ACTIVA (estado: {shown}).", now_utc)
+            _close(task, TASK_NOT_APPLICABLE, f"La suscripción ya no está ACTIVA (estado: {shown}).", now_utc)
             out.not_applicable += 1
         return out
 
@@ -169,7 +178,7 @@ def _process_mark(db: Session, mark: VpCalendarMark, *, today: date, now_utc: da
         if extended or (task.request_id is not None and executed is not None and executed.id == task.request_id):
             reason = ("Renovación ejecutada: el calendario se extendió." if executed is not None
                       else "El calendario se extendió (sin solicitud de renovación asociada).")
-            _close(task, "cerrada", reason, now_utc, executed.id if executed is not None else None)
+            _close(task, TASK_CLOSED, reason, now_utc, executed.id if executed is not None else None)
             out.closed += 1
             db.flush()  # libera el indice unico parcial antes de evaluar una tarea nueva
             task = None
@@ -178,7 +187,7 @@ def _process_mark(db: Session, mark: VpCalendarMark, *, today: date, now_utc: da
     if task is None and days > threshold:  # JB-26: N+1 no abre
         return out
 
-    new_status = "vencida" if today > mark.last_scheduled_date else "abierta"
+    new_status = TASK_OVERDUE if today > mark.last_scheduled_date else TASK_OPEN
     linked = _open_renewal_request(db, platform, sub)
     desired: dict[str, Any] = {
         "status": new_status, "priority": _priority(new_status, days), "last_scheduled_date": mark.last_scheduled_date,
@@ -190,12 +199,12 @@ def _process_mark(db: Session, mark: VpCalendarMark, *, today: date, now_utc: da
         db.add(BillingRenewalTask(platform=platform, subscription_external_id=sub, **desired))
         db.flush()
         out.opened += 1
-        if new_status == "vencida":
+        if new_status == TASK_OVERDUE:
             out.overdue += 1
     else:
         changed = [k for k, v in desired.items() if getattr(task, k) != v]
         if changed:
-            if "status" in changed and new_status == "vencida":
+            if "status" in changed and new_status == TASK_OVERDUE:
                 out.overdue += 1
             for k in changed:
                 setattr(task, k, desired[k])
@@ -207,7 +216,7 @@ def _process_mark(db: Session, mark: VpCalendarMark, *, today: date, now_utc: da
 
 def _process_orphan_task(db: Session, task: BillingRenewalTask, now_utc: datetime) -> RenewalCheckResult:
     """Tarea abierta cuya marca ya no existe o esta inactiva: no corresponde renovacion (JB-28/JB-35)."""
-    _close(task, "no_aplica", "La suscripción ya no tiene un calendario modificado activo.", now_utc)
+    _close(task, TASK_NOT_APPLICABLE, "La suscripción ya no tiene un calendario modificado activo.", now_utc)
     return RenewalCheckResult(not_applicable=1)
 
 

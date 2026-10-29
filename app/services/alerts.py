@@ -34,7 +34,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.billing import BillingChangeRequest
+from app.models.billing import (
+    STATUS_APPLYING,
+    STATUS_NEEDS_RECONCILIATION,
+    BillingChangeRequest,
+)
 from app.models.cancellation import SubscriptionCancellationRequest
 from app.models.source_record import SourceRecord
 from app.models.webhook_event import WebhookEvent
@@ -155,7 +159,7 @@ def _stuck_billing(db: Session, now: datetime) -> list[Condition]:
     cutoff = now - STUCK_APPLYING_AFTER
     rows = db.execute(
         select(model.status, func.count()).where(
-            (model.status == "requiere_conciliacion") | ((model.status == "aplicando") & (model.updated_at < cutoff))
+            (model.status == STATUS_NEEDS_RECONCILIATION) | ((model.status == STATUS_APPLYING) & (model.updated_at < cutoff))
         ).group_by(model.status).order_by(model.status)
     ).all()
     if not rows:

@@ -15,6 +15,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
 from app.models.billing import (
+    MANAGED_CANCELLED,
+    MANAGED_CREATED,
+    MANAGED_NEEDS_RECONCILIATION,
+    STATUS_APPLYING,
+    STATUS_APPROVED,
+    STATUS_NEEDS_RECONCILIATION,
+    STATUS_PENDING,
     BillingChangeRequest,
     BillingChangeRequestEvent,
     VpCalendarMark,
@@ -871,8 +878,8 @@ def has_active_calendar_mark(db: Session, platform: str, subscription_id: str) -
     ) is not None
 
 
-LIVE_MANAGED_STATUSES = ("creado", "requiere_conciliacion")
-OPEN_REQUEST_STATUSES = ("pendiente", "aprobada", "aplicando", "requiere_conciliacion")
+LIVE_MANAGED_STATUSES = (MANAGED_CREATED, MANAGED_NEEDS_RECONCILIATION)
+OPEN_REQUEST_STATUSES = (STATUS_PENDING, STATUS_APPROVED, STATUS_APPLYING, STATUS_NEEDS_RECONCILIATION)
 
 
 def has_live_managed_charges(
@@ -910,7 +917,7 @@ BILLING_FLOW_CONFLICT_MESSAGE = (
 )
 
 
-CLOSING_BLOCKING_REQUEST_STATUSES = ("aplicando", "requiere_conciliacion")
+CLOSING_BLOCKING_REQUEST_STATUSES = (STATUS_APPLYING, STATUS_NEEDS_RECONCILIATION)
 CLOSING_BLOCKING_MANAGED_STATUSES = ("requiere_conciliacion",)
 CLOSING_CONFLICT_MESSAGE = (
     "La suscripción tiene una solicitud de cambio de cobro aplicándose o pendiente de conciliación, o cobros del CRM "
@@ -1375,7 +1382,7 @@ def _close_open_change_requests(
         .where(
             BillingChangeRequest.platform == platform,
             BillingChangeRequest.subscription_external_id == subscription_id,
-            BillingChangeRequest.status.in_(("pendiente", "aprobada")),
+            BillingChangeRequest.status.in_((STATUS_PENDING, STATUS_APPROVED)),
         )
         .values(status="no_ejecutable", error_message="SUBSCRIPTION_CANCELLED", updated_at=func.now())
         .returning(BillingChangeRequest.id)
@@ -1593,10 +1600,10 @@ async def _cancel_subscription_locked(
             for managed in db.scalars(select(VpManagedCharge).where(
                 VpManagedCharge.platform == platform,
                 VpManagedCharge.subscription_external_id == subscription_id,
-                VpManagedCharge.status == "creado",
+                VpManagedCharge.status == MANAGED_CREATED,
             )):
                 if managed.charge_id not in live:
-                    managed.status = "cancelado"
+                    managed.status = MANAGED_CANCELLED
                     managed.cancelled_at = datetime.now(UTC)
         if not sub.canceled_at:
             sub.canceled_at = datetime.now(UTC).isoformat(timespec="seconds")

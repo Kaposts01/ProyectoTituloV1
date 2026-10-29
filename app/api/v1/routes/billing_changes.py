@@ -30,6 +30,7 @@ from app.core.security import require_csrf, require_permissions
 from app.integrations.virtualpos.client import VirtualPOSAPIError
 from app.models.auth import User
 from app.models.billing import (
+    STATUS_FAILED,
     BillingChangeRequest,
     BillingChangeRequestEvent,
     BillingPolicy,
@@ -210,7 +211,7 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(502, _detail(
             "apply_failed", "No se pudo aplicar el cambio en VirtualPOS. Se compensaron los cobros creados y el calendario "
                             "original quedó intacto. La solicitud quedó 'fallida'; un aprobador puede reabrirla.",
-            request_status="fallida", compensated=len(exc.compensated)))
+            request_status=STATUS_FAILED, compensated=len(exc.compensated)))
     if isinstance(exc, ReconciliationRequiredError):
         raise HTTPException(503, _detail(
             "reconciliation_required", "La aplicación quedó incompleta y requiere conciliación manual. "

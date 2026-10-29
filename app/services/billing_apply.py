@@ -40,6 +40,19 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.billing import (
+    EVENT_APPLIED,
+    EVENT_APPLYING,
+    EVENT_FAILED,
+    EVENT_NEEDS_RECONCILIATION,
+    MANAGED_CANCELLED,
+    MANAGED_COMPENSATED,
+    MANAGED_CREATED,
+    MANAGED_NEEDS_RECONCILIATION,
+    STATUS_APPLYING,
+    STATUS_APPROVED,
+    STATUS_EXECUTED,
+    STATUS_FAILED,
+    STATUS_NEEDS_RECONCILIATION,
     BillingChangeRequest,
     BillingChangeRequestEvent,
     VpCalendarMark,
@@ -70,7 +83,7 @@ from app.services.write_virtualpos import (
 
 log = logging.getLogger(__name__)
 
-ALIVE_MANAGED = ("creado", "requiere_conciliacion")
+ALIVE_MANAGED = (MANAGED_CREATED, MANAGED_NEEDS_RECONCILIATION)
 ACTIVE_STATUSES = frozenset({"activa", "activo", "active"})
 _REQUEST_TYPE_TO_PLAN = {
     "change_amount": "change_amount", "change_date": "change_date",
@@ -262,7 +275,7 @@ def is_subscription_blocked(db: Session, platform: str, subscription_id: str, *,
     q = select(VpManagedCharge.id).where(
         VpManagedCharge.platform == platform,
         VpManagedCharge.subscription_external_id == subscription_id,
-        VpManagedCharge.status == "requiere_conciliacion",
+        VpManagedCharge.status == MANAGED_NEEDS_RECONCILIATION,
     )
     if exclude_request is not None:
         q = q.where(VpManagedCharge.request_id.is_distinct_from(exclude_request))
@@ -534,8 +547,8 @@ def _claim_request(db: Session, request_id: uuid.UUID) -> bool:
     """Transicion ATOMICA aprobada -> aplicando (AP-14): solo una llamada concurrente obtiene True."""
     result = db.execute(
         update(BillingChangeRequest)
-        .where(BillingChangeRequest.id == request_id, BillingChangeRequest.status == "aprobada")
-        .values(status="aplicando", updated_at=func.now())
+        .where(BillingChangeRequest.id == request_id, BillingChangeRequest.status == STATUS_APPROVED)
+        .values(status=STATUS_APPLYING, updated_at=func.now())
         .execution_options(synchronize_session=False)
     )
     return result.rowcount == 1
@@ -553,7 +566,7 @@ def _subscription_state(db: Session, platform: str, sub: str) -> tuple[str | Non
 def _not_executable(db: Session, req: BillingChangeRequest, actor: uuid.UUID | None, reason: str, detail: dict[str, Any] | None = None) -> ApplyResult:
     updated = db.execute(
         update(BillingChangeRequest)
-        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == "aprobada")
+        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == STATUS_APPROVED)
         .values(status="no_ejecutable", error_message=reason[:2000], updated_at=func.now())
         .execution_options(synchronize_session=False)
     ).rowcount
@@ -566,7 +579,7 @@ def _not_executable(db: Session, req: BillingChangeRequest, actor: uuid.UUID | N
 # ----------------------------- registro propio -----------------------------
 
 
-def _upsert_managed(ctx: _Ctx, charge_id: str, action: PlanAction, status: str = "creado") -> None:
+def _upsert_managed(ctx: _Ctx, charge_id: str, action: PlanAction, status: str = MANAGED_CREATED) -> None:
     db = ctx.db
     row = db.scalar(select(VpManagedCharge).where(VpManagedCharge.platform == ctx.platform, VpManagedCharge.charge_id == charge_id))
     if row is None:
@@ -589,7 +602,7 @@ def _mark_managed(ctx: _Ctx, charge_id: str, status: str) -> None:
     if row is None:
         return
     row.status = status
-    if status in ("cancelado", "compensado"):
+    if status in (MANAGED_CANCELLED, MANAGED_COMPENSATED):
         row.cancelled_at = datetime.now(UTC)
     ctx.db.commit()
 
@@ -667,7 +680,7 @@ async def _compensate(ctx: _Ctx, charge_ids: list[str]) -> list[str]:
     status = {wv._as_text(i.get("id")): norm_state(i.get("status")) for i in items}
     left = [cid for cid in charge_ids if status.get(cid) not in CANCELLED_STATES]
     for cid in charge_ids:
-        _mark_managed(ctx, cid, "requiere_conciliacion" if cid in left else "compensado")
+        _mark_managed(ctx, cid, MANAGED_NEEDS_RECONCILIATION if cid in left else MANAGED_COMPENSATED)
     return left
 
 
@@ -705,9 +718,9 @@ def _reconciliation(ctx: _Ctx, message: str, detail: dict[str, Any], cause: Base
     # Cobros creados que siguen vivos quedan marcados: bloquean la suscripcion (RA-09).
     for cid in ctx.created_ids:
         row = ctx.db.scalar(select(VpManagedCharge).where(VpManagedCharge.platform == ctx.platform, VpManagedCharge.charge_id == cid))
-        if row is not None and row.status == "creado":
-            row.status = "requiere_conciliacion"
-    _set_request(ctx, "requiere_conciliacion", "requiere_conciliacion",
+        if row is not None and row.status == MANAGED_CREATED:
+            row.status = MANAGED_NEEDS_RECONCILIATION
+    _set_request(ctx, STATUS_NEEDS_RECONCILIATION, EVENT_NEEDS_RECONCILIATION,
                  error_label(cause) if cause is not None else "ReconciliationRequired", detail, cause)
     _finish_run(ctx, "reconciliation_required", message, detail)
     ctx.db.commit()
@@ -757,7 +770,7 @@ async def _handle_create_failure(ctx: _Ctx, action: PlanAction, k: int, exc: Bas
         why = "no se pudo releer el estado del proveedor" if uncertain else "falló la compensación"
         return _reconciliation(ctx, f"Falló el cobro {k} ({action.month}) y {why}; revisar duplicados. {_err(exc)}", base, exc)
     msg = f"No se creó el cobro {k} ({action.month}); se compensaron {len(to_compensate)} y no se canceló ningún cobro anterior. {_err(exc)}"
-    _set_request(ctx, "fallida", "fallida", error_label(exc), base, exc)
+    _set_request(ctx, STATUS_FAILED, EVENT_FAILED, error_label(exc), base, exc)
     _finish_run(ctx, "failed", msg, base)
     ctx.db.commit()
     return ApplyFailedError(ctx.req.id, exc, base["compensated"])
@@ -772,7 +785,7 @@ async def _cancel_all(ctx: _Ctx, plan: PlanResult) -> tuple[list[str], list[str]
         assert cid is not None
         outcome = await _cancel_one(ctx, cid)
         if outcome in ("cancelled", "already_cancelled", "noop"):
-            _mark_managed(ctx, cid, "cancelado")
+            _mark_managed(ctx, cid, MANAGED_CANCELLED)
             if outcome != "noop":
                 cancelled.append(cid)
         elif outcome == "covered":  # RA-11: el antiguo ya no es cancelable -> cancelar el manual nuevo del mes
@@ -788,7 +801,7 @@ async def _cancel_all(ctx: _Ctx, plan: PlanResult) -> tuple[list[str], list[str]
                              "riesgo de doble cobro.",
                         {"month": action.month, "old_charge_id": cid, "new_charge_id": new_id, "cancelled_before": cancelled},
                         ctx.last_error)
-                _mark_managed(ctx, new_id, "cancelado")
+                _mark_managed(ctx, new_id, MANAGED_CANCELLED)
         else:
             raise _reconciliation(
                 ctx, f"No se pudo cancelar el cobro antiguo {cid} ({action.month}) tras crear los nuevos: hay doble pendiente temporal. "
@@ -879,11 +892,11 @@ async def _execute(ctx: _Ctx, inp: PlanInput, plan: PlanResult, drift: dict[str,
     detail = {"created": ctx.created_ids, "cancelled": cancelled, "covered_late_months": covered_late,
               "manual_review_months": [m.month for m in plan.manual_review], "calendar_mark": mark,
               "write_run_id": str(ctx.run.id) if ctx.run else None}
-    _set_request(ctx, "ejecutada", "aplicada", None, detail)
+    _set_request(ctx, STATUS_EXECUTED, EVENT_APPLIED, None, detail)
     _finish_run(ctx, "completed", None, detail)
     ctx.db.commit()
     return ApplyResult(
-        request_id=ctx.req.id, status="ejecutada", created=[{"charge_id": c} for c in ctx.created_ids], cancelled=cancelled,
+        request_id=ctx.req.id, status=STATUS_EXECUTED, created=[{"charge_id": c} for c in ctx.created_ids], cancelled=cancelled,
         covered_late_months=covered_late, manual_review_months=[m.month for m in plan.manual_review],
         write_run_id=ctx.run.id if ctx.run else None, plan=plan, drift_accepted=drift,
     )
@@ -913,9 +926,9 @@ async def apply_change_request(
     req = db.get(BillingChangeRequest, request_id)
     if req is None:
         raise RequestNotFoundError(str(request_id))
-    if req.status == "ejecutada":
-        return ApplyResult(request_id=req.id, status="ejecutada", already_applied=True, write_run_id=req.write_run_id)
-    if req.status != "aprobada":
+    if req.status == STATUS_EXECUTED:
+        return ApplyResult(request_id=req.id, status=STATUS_EXECUTED, already_applied=True, write_run_id=req.write_run_id)
+    if req.status != STATUS_APPROVED:
         raise InvalidRequestStateError(req.status)
 
     # Banderas: ANTES de cambiar de estado (la solicitud sigue `aprobada`, sin llamadas al proveedor).
@@ -926,9 +939,9 @@ async def apply_change_request(
 
     with subscription_lock(db, platform, sub) as lock_conn:
         db.refresh(req)
-        if req.status == "ejecutada":
-            return ApplyResult(request_id=req.id, status="ejecutada", already_applied=True, write_run_id=req.write_run_id)
-        if req.status != "aprobada":
+        if req.status == STATUS_EXECUTED:
+            return ApplyResult(request_id=req.id, status=STATUS_EXECUTED, already_applied=True, write_run_id=req.write_run_id)
+        if req.status != STATUS_APPROVED:
             raise InvalidRequestStateError(req.status)
         if is_subscription_blocked(db, platform, sub, exclude_request=req.id):
             raise SubscriptionBlockedError(f"La suscripción {sub} tiene cobros en conciliación pendiente (RA-09).")
@@ -966,7 +979,7 @@ async def apply_change_request(
         req.write_run_id = run.id
         if drift is not None:
             req.plan_preview = new_preview
-        _event(db, req.id, "aplicando", actor_user_id, {"write_run_id": str(run.id), "drift_accepted": drift})
+        _event(db, req.id, EVENT_APPLYING, actor_user_id, {"write_run_id": str(run.id), "drift_accepted": drift})
         db.commit()
 
         ctx = _Ctx(db=db, req=req, platform=platform, sub=sub, actor=actor_user_id, run=run, lock_conn=lock_conn)
@@ -1006,7 +1019,7 @@ def sweep_stuck_applying(
     cutoff = (now or datetime.now(UTC)) - timedelta(minutes=older_than_minutes)
     stuck = list(db.execute(select(BillingChangeRequest.id, BillingChangeRequest.platform,
                                    BillingChangeRequest.subscription_external_id).where(
-        BillingChangeRequest.status == "aplicando", BillingChangeRequest.updated_at < cutoff)))
+        BillingChangeRequest.status == STATUS_APPLYING, BillingChangeRequest.updated_at < cutoff)))
     swept: list[uuid.UUID] = []
     for req_id, platform, sub in stuck:
         try:
@@ -1014,18 +1027,18 @@ def sweep_stuck_applying(
                 msg = f"Solicitud en 'aplicando' sin actividad por más de {older_than_minutes} min: requiere conciliación."
                 changed = db.execute(
                     update(BillingChangeRequest)
-                    .where(BillingChangeRequest.id == req_id, BillingChangeRequest.status == "aplicando",
+                    .where(BillingChangeRequest.id == req_id, BillingChangeRequest.status == STATUS_APPLYING,
                            BillingChangeRequest.updated_at < cutoff)
-                    .values(status="requiere_conciliacion", error_message="StuckApplying", updated_at=func.now())
+                    .values(status=STATUS_NEEDS_RECONCILIATION, error_message="StuckApplying", updated_at=func.now())
                     .execution_options(synchronize_session=False)).rowcount
                 if changed != 1:
                     db.rollback()
                     continue
                 db.execute(update(VpManagedCharge).where(
-                    VpManagedCharge.request_id == req_id, VpManagedCharge.status == "creado").values(status="requiere_conciliacion"))
+                    VpManagedCharge.request_id == req_id, VpManagedCharge.status == MANAGED_CREATED).values(status=MANAGED_NEEDS_RECONCILIATION))
                 db.execute(update(WriteRun).where(WriteRun.request_id == req_id, WriteRun.status == "pending").values(
                     status="reconciliation_required", error_message=msg, finished_at=datetime.now(UTC)))
-                _event(db, req_id, "requiere_conciliacion", None, {"reason": "stuck_applying", "older_than_minutes": older_than_minutes})
+                _event(db, req_id, EVENT_NEEDS_RECONCILIATION, None, {"reason": "stuck_applying", "older_than_minutes": older_than_minutes})
                 db.commit()
                 swept.append(req_id)
         except SubscriptionBusyError:

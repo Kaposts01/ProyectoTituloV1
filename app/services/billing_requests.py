@@ -35,8 +35,21 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.auth import Role, User
 from app.models.billing import (
+    EVENT_APPROVED,
+    EVENT_AUTO_APPROVED,
+    EVENT_EXPIRED,
+    EVENT_REJECTED,
+    EVENT_WITHDRAWN,
     PLATFORMS,
     REQUEST_TYPES,
+    STATUS_APPLYING,
+    STATUS_APPROVED,
+    STATUS_EXPIRED,
+    STATUS_FAILED,
+    STATUS_NEEDS_RECONCILIATION,
+    STATUS_PENDING,
+    STATUS_REJECTED,
+    STATUS_WITHDRAWN,
     BillingChangeRequest,
     BillingChangeRequestEvent,
     BillingPolicy,
@@ -61,8 +74,8 @@ PERM_VIEW = "virtualpos.billing_changes.view"
 PERM_POLICY = "virtualpos.billing_policy.manage"
 ADMIN_ROLE = "admin"
 
-OPEN_STATUSES = ("pendiente", "aprobada", "aplicando", "requiere_conciliacion")
-REOPENABLE_STATUSES = ("fallida", "requiere_conciliacion")
+OPEN_STATUSES = (STATUS_PENDING, STATUS_APPROVED, STATUS_APPLYING, STATUS_NEEDS_RECONCILIATION)
+REOPENABLE_STATUSES = (STATUS_FAILED, STATUS_NEEDS_RECONCILIATION)
 _MONTH_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
 
 POLICY_FIELDS = (
@@ -509,7 +522,7 @@ async def prepare_request(db: Session, params: RequestParams, *, now: datetime |
     }
     req = BillingChangeRequest(
         id=uuid.uuid4(), request_type=p.request_type, platform=p.platform, subscription_external_id=p.subscription_external_id,
-        status="pendiente", new_amount=Decimal(amount), new_charge_day=p.new_charge_day, new_charge_date=p.new_charge_date,
+        status=STATUS_PENDING, new_amount=Decimal(amount), new_charge_day=p.new_charge_day, new_charge_date=p.new_charge_date,
         horizon_months=p.horizon_months or int(policy.horizon_months), horizon_start_month=horizon_start,
         plan_preview={}, rules_snapshot=snapshot, requester_comment=(p.requester_comment or "").strip() or None,
         approvals_required=1, approvals_count=0, self_approved=False,
@@ -577,7 +590,7 @@ async def create_request(
         req.self_approved = True
         final = req.approvals_count >= req.approvals_required
         if final:
-            req.status = "aprobada"
+            req.status = STATUS_APPROVED
             req.approved_by_user_id = actor.id
             req.decided_at = created
         _event(db, req.id, "autoaprobada", actor.id, {
@@ -610,7 +623,7 @@ def _approver_ids(db: Session, request_id: uuid.UUID) -> set[uuid.UUID]:
         BillingChangeRequestEvent.request_id == request_id, BillingChangeRequestEvent.event_type == "reintentada"))
     q = select(BillingChangeRequestEvent.actor_user_id).where(
         BillingChangeRequestEvent.request_id == request_id,
-        BillingChangeRequestEvent.event_type.in_(("aprobada", "autoaprobada")))
+        BillingChangeRequestEvent.event_type.in_((EVENT_APPROVED, EVENT_AUTO_APPROVED)))
     if last_reopen is not None:
         q = q.where(BillingChangeRequestEvent.created_at > last_reopen)
     return {a for a in db.scalars(q) if a is not None}
@@ -637,9 +650,9 @@ def approve(db: Session, request_id: uuid.UUID, actor: User, comment: str | None
     text = _clean_comment(comment, required=False)
     when = _utc(now)
     req = _lock_request(db, request_id)
-    if req.status != "pendiente":
+    if req.status != STATUS_PENDING:
         db.rollback()
-        raise RequestStateConflictError(req.status, ("pendiente",))
+        raise RequestStateConflictError(req.status, (STATUS_PENDING,))
     if req.expires_at is not None and req.expires_at <= when:  # AP-10: aprobar una vencida => expirada
         _expire_one(db, req, when)
         db.commit()
@@ -658,17 +671,17 @@ def approve(db: Session, request_id: uuid.UUID, actor: User, comment: str | None
     values: dict[str, Any] = {
         "approvals_count": new_count, "self_approved": bool(req.self_approved) or is_self, "updated_at": func.now()}
     if final:
-        values.update(status="aprobada", approved_by_user_id=actor.id, decided_at=when)
+        values.update(status=STATUS_APPROVED, approved_by_user_id=actor.id, decided_at=when)
     updated = db.execute(
         update(BillingChangeRequest)
-        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == "pendiente",
+        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == STATUS_PENDING,
                BillingChangeRequest.approvals_count == req.approvals_count)  # AP-14: UPDATE condicional
         .values(**values).execution_options(synchronize_session=False)
     ).rowcount
     if updated != 1:
         db.rollback()
-        raise RequestStateConflictError(_current_status(db, request_id), ("pendiente",))
-    _event(db, req.id, "autoaprobada" if is_self else "aprobada", actor.id, {
+        raise RequestStateConflictError(_current_status(db, request_id), (STATUS_PENDING,))
+    _event(db, req.id, EVENT_AUTO_APPROVED if is_self else EVENT_APPROVED, actor.id, {
         "approvals_count": new_count, "approvals_required": int(req.approvals_required), "final": final,
         "self_approved": is_self, "comment": text})
     db.commit()
@@ -684,20 +697,20 @@ def reject(db: Session, request_id: uuid.UUID, actor: User, comment: str | None,
     """Rechaza una solicitud `pendiente`. Comentario obligatorio (AP-11; el CHECK de BD tambien lo exige)."""
     text = _clean_comment(comment, required=True)
     req = _lock_request(db, request_id)
-    if req.status != "pendiente":
+    if req.status != STATUS_PENDING:
         db.rollback()
-        raise RequestStateConflictError(req.status, ("pendiente",))
+        raise RequestStateConflictError(req.status, (STATUS_PENDING,))
     _require_approver(db, actor, req.id, "reject")
     updated = db.execute(
         update(BillingChangeRequest)
-        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == "pendiente")
-        .values(status="rechazada", decision_comment=text, decided_at=_utc(now), updated_at=func.now())
+        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == STATUS_PENDING)
+        .values(status=STATUS_REJECTED, decision_comment=text, decided_at=_utc(now), updated_at=func.now())
         .execution_options(synchronize_session=False)
     ).rowcount
     if updated != 1:
         db.rollback()
-        raise RequestStateConflictError(_current_status(db, request_id), ("pendiente",))
-    _event(db, req.id, "rechazada", actor.id, {"comment": text})
+        raise RequestStateConflictError(_current_status(db, request_id), (STATUS_PENDING,))
+    _event(db, req.id, EVENT_REJECTED, actor.id, {"comment": text})
     db.commit()
     db.refresh(req)
     return req
@@ -711,19 +724,19 @@ def withdraw(db: Session, request_id: uuid.UUID, actor: User, comment: str | Non
     if actor.id != req.requested_by_user_id and not any(r.name == ADMIN_ROLE for r in actor.roles):
         db.rollback()
         raise NotAllowedError("Solo el solicitante o un administrador puede retirar la solicitud.")
-    if req.status != "pendiente":
+    if req.status != STATUS_PENDING:
         db.rollback()
-        raise RequestStateConflictError(req.status, ("pendiente",))
+        raise RequestStateConflictError(req.status, (STATUS_PENDING,))
     updated = db.execute(
         update(BillingChangeRequest)
-        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == "pendiente")
-        .values(status="retirada", decided_at=_utc(now), updated_at=func.now())
+        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == STATUS_PENDING)
+        .values(status=STATUS_WITHDRAWN, decided_at=_utc(now), updated_at=func.now())
         .execution_options(synchronize_session=False)
     ).rowcount
     if updated != 1:
         db.rollback()
-        raise RequestStateConflictError(_current_status(db, request_id), ("pendiente",))
-    _event(db, req.id, "retirada", actor.id, {"comment": text})
+        raise RequestStateConflictError(_current_status(db, request_id), (STATUS_PENDING,))
+    _event(db, req.id, EVENT_WITHDRAWN, actor.id, {"comment": text})
     db.commit()
     db.refresh(req)
     return req
@@ -755,11 +768,11 @@ def reopen(db: Session, request_id: uuid.UUID, actor: User, comment: str | None,
     variation = summary.get("variation_pct")
     required = required_approvals(policy, subscriptions=1, variation_pct=float(variation) if variation is not None else None)
     when = _utc(now)
-    new_status = "aprobada" if required == 1 else "pendiente"
+    new_status = STATUS_APPROVED if required == 1 else STATUS_PENDING
     values: dict[str, Any] = {
         "status": new_status, "error_message": None, "approvals_count": 0, "approvals_required": required,
-        "decided_at": when if new_status == "aprobada" else None, "updated_at": func.now()}
-    if new_status == "pendiente":
+        "decided_at": when if new_status == STATUS_APPROVED else None, "updated_at": func.now()}
+    if new_status == STATUS_PENDING:
         values["expires_at"] = when + timedelta(days=int(policy.request_expiry_days))
     try:
         with db.begin_nested():  # el indice unico de "una abierta por suscripcion" puede rechazar el UPDATE
@@ -786,10 +799,10 @@ def reopen(db: Session, request_id: uuid.UUID, actor: User, comment: str | None,
 
 def _expire_one(db: Session, req: BillingChangeRequest, when: datetime) -> None:
     db.execute(update(BillingChangeRequest)
-               .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == "pendiente")
-               .values(status="expirada", decided_at=when, updated_at=func.now())
+               .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == STATUS_PENDING)
+               .values(status=STATUS_EXPIRED, decided_at=when, updated_at=func.now())
                .execution_options(synchronize_session=False))
-    _event(db, req.id, "expirada", None, {"expires_at": req.expires_at.isoformat() if req.expires_at else None})
+    _event(db, req.id, EVENT_EXPIRED, None, {"expires_at": req.expires_at.isoformat() if req.expires_at else None})
 
 
 def expire_pending_requests(db: Session, now: datetime | None = None) -> list[uuid.UUID]:
@@ -801,14 +814,14 @@ def expire_pending_requests(db: Session, now: datetime | None = None) -> list[uu
     when = _utc(now)
     rows = db.execute(
         update(BillingChangeRequest)
-        .where(BillingChangeRequest.status == "pendiente", BillingChangeRequest.expires_at.is_not(None),
+        .where(BillingChangeRequest.status == STATUS_PENDING, BillingChangeRequest.expires_at.is_not(None),
                BillingChangeRequest.expires_at <= when)
-        .values(status="expirada", decided_at=when, updated_at=func.now())
+        .values(status=STATUS_EXPIRED, decided_at=when, updated_at=func.now())
         .returning(BillingChangeRequest.id, BillingChangeRequest.expires_at)
         .execution_options(synchronize_session=False)
     ).all()
     for rid, expires_at in rows:
-        _event(db, rid, "expirada", None, {"expires_at": expires_at.isoformat() if expires_at else None})
+        _event(db, rid, EVENT_EXPIRED, None, {"expires_at": expires_at.isoformat() if expires_at else None})
     db.commit()
     return [r[0] for r in rows]
 
