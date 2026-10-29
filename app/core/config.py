@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     toku_writes_enabled: bool = False
     toku_webhook_secret: str = ""
     toku_report_hash_pepper: str = ""  # HMAC de `ID Producto` de los reportes (TK-18); vacio = importador cerrado
+    vp_report_hash_pepper: str = ""  # HMAC del codigo de vendedor de los reportes PAT de VirtualPOS; vacio = no se guarda el hash
     toku_base_sandbox_url: str = ""
     toku_sandbox_api_key: str = ""
     toku_sandbox_account_key: str = ""
