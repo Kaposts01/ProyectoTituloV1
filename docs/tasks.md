@@ -242,9 +242,18 @@ Objetivo: demostrar que cada canal funciona de punta a punta en un ambiente aisl
 - **Objetivo:** paridad de cantidad, calidad y tipo de datos con los reportes descargados de los 4 canales; historial de cambios de estado y glosas de rechazo; sincronización diaria rápida y casi en tiempo real; baja y cambio de monto desde el CRM; vista unificada con los KPIs de la jefatura.
 - **Hecho:** SYNC-D-09 / VP-PAR-01 / PK-PAR-01 (commit `b6a590c`): errores de configuración no se reintentan, run `partial`/`failed`, estado `degraded`/`failing` en `/sync-runs/health`; backend 1204 pasan, `ruff` limpio. Pendiente del usuario: reiniciar el backend 8000 y completar el `.env`.
 - **Hecho (SYNC-D-01 a SYNC-D-04, backend):** tablas `status_change_events` y `rejection_reason_catalog` (migración `20261029_0042`, solo tablas nuevas, **sin aplicar en `crm`**: la aplica el usuario), enganche de eventos en `_upsert_centralized`, modo y comando baseline (`scripts/maintenance/consolidate_baseline.py`, lo ejecuta el usuario) y endpoint `GET /api/v1/changes/daily`; detalle y contrato JSON en [`data/status-history.md`](data/status-history.md). Falta el frontend (tarjeta «Qué cambió ayer»).
-- **En curso:** Ola 1A (glosa de rechazo: RJ-02, RJ-03, RJ-05, RJ-01).
-- **Pendiente:** Olas 1B a 4 del PLAN.
-- **Bloqueos:** decisiones D1 a D16 del PLAN; migraciones y recargas en `crm` (las ejecuta el usuario); `TOKU_REPORT_HASH_PEPPER`; reexportación de la cartera TCH 2023.
+- **Hecho, olas verificadas (al cierre del 2026-10-29: backend 1602 pasan y 1 se omite; frontend 633 pasan; `ruff` limpio; build y lint sin errores):**
+  - Ola 1A, glosa de rechazo: RJ-02, RJ-03, RJ-05, RJ-01 (`eb3b380` a `91b4b94`) y D17 (`0a53818`).
+  - Ola 1B, ETL de TCH: TCH-PAR-01, 02, 05, 06, 15, 18 (`2a2a098` a `9f1a42a`). Los datos ya cargados NO cambian hasta una recarga completa que ejecuta el usuario.
+  - Ola 1C, sync: SYNC-O-11 (lock atómico), SYNC-O-04, SYNC-O-03, SYNC-O-16 / PK-PAR-02 / TK-PAR-08 (ETL Core dentro del sync, apagado por defecto, D26), SYNC-O-01, PK-PAR-03, VP-PAR-10, VP-PAR-08 / PK-PAR-08.
+  - Ola 2A, historial de estados: SYNC-D-01 a SYNC-D-04, migración `0042`.
+  - Ola 2B, rechazos: RJ-12 (migración `0043`), RJ-06 (captura VirtualPOS, bandera apagada), RJ-15 (FAILED de Toku como `core_payments`, bandera apagada).
+  - Ola 2C, exportación y capturas: EXP-01, 02, 03, 05 (migración `0044`, permiso `export.pii`) y D21 (usuario temporal solo en sandbox).
+  - Ola 2F / 2G / 3B / 4B, frontend: UX-00 a UX-03 (tokens, KpiCard v2, ChannelChart), UX-04 (`AppCore.tsx` de 3.666 a 700 líneas), EXP-04 (botón Exportar) y corrección de 4 fallos de interfaz.
+  - Ola 3A, bajas: MGT-01, MGT-03, MGT-04, MGT-05, MGT-06.
+- **En curso:** Ola 4A, importador de reportes PAT de VirtualPOS (VP-PAR-02, RJ-04, migración `0045`).
+- **Pendiente:** TK-19 y TK-PAR (importador de Toku), TCH-PAR-03/04/07 (D13, recarga), SYNC-O-02/05/06 y SYNC-O-09 (ventanas y niveles), SYNC-D-08 (alertas por correo), RT (webhooks de Toku, SSE), MGT-07 en adelante, UX-05 en adelante (menú y vistas unificadas).
+- **Bloqueos:** migraciones `0042` a `0045` y recargas en `crm` (las ejecuta el usuario, con respaldo); `TOKU_REPORT_HASH_PEPPER`; reexportación de la cartera TCH 2023; fichas D27 a D30 de la bandeja (colores del contenido, permisos de escritura, menú unificado y baja de Toku).
 
 ## 4. Backlog por área
 
