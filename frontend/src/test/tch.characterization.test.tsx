@@ -123,7 +123,7 @@ describe("TCH: suscripciones (/tch/suscripciones)", () => {
     expect(screen.getByRole("button", { name: "1001" })).toBeTruthy();
     expect(screen.getByText("$10.000")).toBeTruthy();
     expect(screen.getByText("2025-03-10")).toBeTruthy();
-    expect(screen.getByText("ELIMINADA").className).toContain("status-attention");
+    expect(screen.getByText("Eliminada").className).toContain("status-attention");
     expect(screen.getByText("1 / 3 (120 total)")).toBeTruthy();
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
@@ -166,7 +166,7 @@ describe("TCH: suscripciones (/tch/suscripciones)", () => {
     expect(screen.getByText("Historial")).toBeTruthy();
     expect(screen.getByRole("button", { name: "2025-03" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "2025-04" })).toBeTruthy();
-    expect(screen.getByText("RECHAZADA").className).toContain("status-attention");
+    expect(screen.getByText("Rechazada").className).toContain("status-attention");
     expect(app.find("GET", "/api/v1/tch/suscripciones/1001").length).toBeGreaterThan(0);
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
@@ -200,7 +200,7 @@ describe("TCH: transacciones (/tch/transacciones)", () => {
     expect(app.find("GET", "/api/v1/tch/transacciones")[0].query.get("limit")).toBe("100");
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Ficha", "Período", "Entidad", "Monto", "Fecha cargo", "Cuota", "Estado"]);
     expect(screen.getByText("3/12")).toBeTruthy();
-    expect(screen.getByText("RECHAZADA").className).toContain("status-attention");
+    expect(screen.getByText("Rechazada").className).toContain("status-attention");
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.change(screen.getByLabelText("Filtrar por período"), { target: { value: "2025-03" } });
