@@ -7,12 +7,13 @@ import type { GeneralState } from "./useGeneralDashboard";
 import type { useEtl } from "./useEtl";
 
 /** Dashboard general: cabecera, selector de modo/año y, según `generalView`, resumen, clientes o suscripciones. */
-export function GeneralDashboardView({ general, etl, error, setError, onReport }: {
+export function GeneralDashboardView({ general, etl, error, setError, onReport, can }: {
   general: GeneralState;
   etl: ReturnType<typeof useEtl>;
   error: string | null;
   setError: (message: string | null) => void;
   onReport: (scope: string) => void;
+  can?: (permission: string) => boolean;
 }) {
   const { generalData, generalView, generalRefreshing, summaryRefreshing, generalMode, setGeneralMode, generalYear, setGeneralYear } = general;
   return (
@@ -61,9 +62,9 @@ export function GeneralDashboardView({ general, etl, error, setError, onReport }
       </section>
       {error ? <p className="error-message">{error}</p> : null}
       {generalView === "subscriptions" ? (
-        <GeneralSubscriptionsPanel general={general} />
+        <GeneralSubscriptionsPanel general={general} can={can} />
       ) : generalView === "clients" ? (
-        <GeneralClientsPanel general={general} setError={setError} />
+        <GeneralClientsPanel general={general} setError={setError} can={can} />
       ) : generalData ? (
         <GeneralSummaryContent general={general} generalData={generalData} />
       ) : (

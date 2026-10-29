@@ -582,7 +582,7 @@ function AppCore() {
     />
   ) : null;
 
-  const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} />;
+  const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} can={can} />;
 
   const tchContent = renderTchContent({ tch, showTch, showTchSuscripcion, onReport: setReportScope });
 

@@ -121,6 +121,40 @@ export async function downloadFile(path: string, filename: string): Promise<void
   URL.revokeObjectURL(url);
 }
 
+/** Nombre de archivo del header `Content-Disposition` (filename*= o filename=), o null si no viene. */
+export function filenameFromDisposition(header: string | null | undefined): string | null {
+  if (!header) return null;
+  const star = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^"|"$/g, "")) || null;
+    } catch {
+      /* cae al filename simple */
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(header);
+  const value = plain ? (plain[2] ?? plain[1]).trim() : "";
+  return value || null;
+}
+
+/** GET de un archivo con las credenciales de sesión; devuelve el blob y el nombre del `Content-Disposition`. */
+export async function getBlob(path: string, signal?: AbortSignal): Promise<{ blob: Blob; filename: string | null }> {
+  const response = await fetch(path, { credentials: "include", signal });
+  await checkResponse(response);
+  const blob = await response.blob();
+  return { blob, filename: filenameFromDisposition(response.headers?.get?.("content-disposition")) };
+}
+
+/** Guarda un blob en disco con el nombre dado (enlace temporal; no navega la página). */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function putJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "PUT",

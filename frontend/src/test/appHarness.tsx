@@ -87,6 +87,16 @@ export function mountApp(path: string, handlers: Handler[] = [], options: { perm
     const entry = table.find(([m, match]) => m === method && (typeof match === "string" ? match === parsed.pathname : match.test(parsed.pathname)));
     if (!entry) return response(404, { detail: `sin simular: ${method} ${parsed.pathname}` });
     const reply = await (typeof entry[2] === "function" ? (entry[2] as (c: Call) => Reply | Promise<Reply>)(call) : entry[2]);
+    if (reply && typeof reply === "object" && "__file" in reply) {
+      // Descarga (CSV): cuerpo de texto y, si se indica, el header Content-Disposition.
+      const file = (reply as { __file: { text: string; disposition?: string } }).__file;
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (key: string) => (key.toLowerCase() === "content-disposition" ? file.disposition ?? null : key.toLowerCase() === "content-type" ? "text/csv; charset=utf-8" : null) },
+        blob: async () => new Blob([file.text], { type: "text/csv" }),
+      };
+    }
     if (reply && typeof reply === "object" && "__status" in reply) {
       const failure = reply as { __status: number; body: unknown };
       return response(failure.__status, failure.body);

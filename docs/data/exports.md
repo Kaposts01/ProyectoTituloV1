@@ -86,3 +86,23 @@ Cada descarga escribe una fila en `write_runs` al terminar (o cortarse) el strea
 ## Pruebas
 
 `tests/test_exporter.py` (servicio), `tests/test_export_endpoints.py` (endpoints, PII, permisos por canal, filtros, paginación, auditoría), `tests/test_export_streaming.py` (cursor del lado del servidor, reparto de paginación, 50.000 filas sintéticas con tope de tiempo y memoria) y `tests/test_export_permissions.py` (permiso `export.pii`, migración 0044 y permisos fantasma).
+
+## Botón «Exportar» en el frontend (EXP-04)
+
+Componente `frontend/src/features/shared/ExportButton.tsx` (mapeo en `exportMapping.ts`, mensajes de error y umbral en `exportSupport.ts`). Una sola interacción en todas las listas: menú con «Esta vista (con filtros)» (envía `offset`/`limit` de la página mostrada, máximo 1.000) y «Todo el listado (con los filtros activos, sin paginación)» (`all=true`). Antes de descargar consulta `/count` y muestra «N filas» y si el archivo llevará datos personales (`include_pii`); si «todo el listado» supera 200.000 filas muestra un aviso dentro de la página y el botón pasa a «Descargar de todos modos» (nunca `window.confirm`). La descarga usa `fetch` con cookie de sesión (`getBlob` en `api.ts`) y guarda el archivo con el nombre del `Content-Disposition`.
+
+Errores: 403 «Tu rol no puede exportar este recurso.»; 401 sesión expirada; 409 conflicto temporal; 422 filtros no válidos; 5xx fallo del servidor. La interfaz no se bloquea (solo el propio botón mientras descarga). Accesible: `aria-haspopup`/`aria-expanded`, `role="menu"`, flechas y Escape, foco a la confirmación y de vuelta al botón, `role="status"`/`alert` para los avisos.
+
+| Vista | Entidad | Canal | Filtros que se envían |
+|---|---|---|---|
+| Clientes consolidados | `clientes` | todos los permitidos | `filter_field` + `query` |
+| Suscripciones consolidadas | `suscripciones` | todos los permitidos | `filter_field` + `query` |
+| VirtualPOS clientes / suscripciones / cargos / transacciones | `clientes` / `suscripciones` / `cobros` / `pagos` | `virtualpos`, `virtualpos1` o `virtualpos2` según el selector «VP 1 / VP 2» | filtros por columna: texto -> `filter_field`+`query`; estado -> `status`; montos -> `amount_min`/`amount_max`; fechas -> `date_from`/`date_to` |
+| Toku clientes / suscripciones / deudas / transacciones | `clientes` / `suscripciones` / `cobros` / `pagos` | `toku` | campo + búsqueda; el estado va como `status` |
+| Payku clientes / suscripciones / transacciones | `clientes` / `suscripciones` / `pagos` | `payku` | ídem |
+| TCH clientes / suscripciones / transacciones | `clientes` / `suscripciones` / `cobros` | `tch` | nombre -> `filter_field=name`+`query`; estado -> `status`; período `AAAA-MM` -> `date_from`/`date_to` del mes completo |
+
+Sin botón: planes de VirtualPOS y Payku y métodos de pago de Toku (no existen en el contrato), fichas de detalle y paneles de resumen. El orden de la pantalla no se envía (el backend ordena por canal e identificador).
+
+Filtros que el contrato no puede expresar (búsqueda por RUT en cobros y pagos, campos de monto o fecha como texto, estado secundario, una segunda búsqueda de texto de VirtualPOS, montos en clientes) no se envían: el botón los lista en un aviso antes de confirmar y el archivo sale sin ellos. El botón se oculta solo si el usuario no tiene el permiso de vista de la tabla «Permisos» para ese canal y entidad. El permiso `export.pii` solo sirve de pista (texto del menú); el backend decide.
+
