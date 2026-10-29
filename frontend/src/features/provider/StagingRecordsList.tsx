@@ -319,7 +319,7 @@ export function StagingRecordsList({
                           record.subscription_id ? (
                             <button
                               className="record-link"
-                              aria-label={`Ver ficha de subscripción ${record.subscription_id}`}
+                              aria-label={`Ver ficha de suscripción ${record.subscription_id}`}
                               onClick={() => void openVirtualPosSubscription({ external_id: record.subscription_id! })}
                             >
                               {record.subscription_id}
@@ -391,7 +391,7 @@ export function StagingRecordsList({
                           column.key === "RUT cliente" ? (
                           <button
                             className="record-link"
-                            aria-label={`Ver ficha de subscripción ${column.value(record)}`}
+                            aria-label={`Ver ficha de suscripción ${column.value(record)}`}
                             onClick={() =>
                               void openVirtualPosSubscription(record)
                             }

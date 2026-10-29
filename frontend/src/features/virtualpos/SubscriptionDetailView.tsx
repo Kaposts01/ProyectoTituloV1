@@ -40,7 +40,7 @@ export function SubscriptionDetailView({
     >
       Volver al listado VirtualPOS
     </button>
-    <p className="eyebrow">VIRTUALPOS / SUBSCRIPCIÓN</p>
+    <p className="eyebrow">VIRTUALPOS / SUSCRIPCIÓN</p>
     <h2>
       {text(
         subscriptionDetail.subscription.payload.plan_name,
@@ -65,7 +65,7 @@ export function SubscriptionDetailView({
     ) : null}
     {chargeSaveNotice ? <p className="save-notice">{chargeSaveNotice}</p> : null}
     <section className="panel">
-      <p className="eyebrow">FICHA DE LA SUBSCRIPCIÓN</p>
+      <p className="eyebrow">FICHA DE LA SUSCRIPCIÓN</p>
       <dl className="field-list">
         {virtualPosSubscriptionFields.map((field) => (
           <div key={field}>
@@ -111,11 +111,11 @@ export function SubscriptionDetailView({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">CARGOS</p>
-          <h3>Asociados a la subscripción</h3>
+          <h3>Asociados a la suscripción</h3>
         </div>
         <span>{subscriptionDetail.charge_total} total</span>
       </div>
-      <VirtualPosDetailTable records={subscriptionDetail.charges} empty="Sin cargos asociados a la subscripción." columns={[
+      <VirtualPosDetailTable records={subscriptionDetail.charges} empty="Sin cargos asociados a la suscripción." columns={[
         { label: "Fecha de cargo", kind: "date", value: (record) => text(record.payload.charge_date, "") },
         { label: "ID Cargo", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosCharge(record)}>{text(record.payload.id, record.external_id)}</button> },
         { label: "Estado", value: (record) => label("status", record.payload.status) },
@@ -131,7 +131,7 @@ export function SubscriptionDetailView({
         </div>
         <span>{subscriptionDetail.payment_total} total</span>
       </div>
-      <p className="field-hint">VirtualPOS no entrega un identificador de subscripción en las transacciones, por lo que esta tabla no las asigna individualmente.</p>
+      <p className="field-hint">VirtualPOS no entrega un identificador de suscripción en las transacciones, por lo que esta tabla no las asigna individualmente.</p>
       <VirtualPosDetailTable records={subscriptionDetail.payments} empty="Sin transacciones disponibles para este cliente." columns={[
         { label: "Fecha autorización", kind: "date", value: (record) => text(nested(record.payload, "order", "authorized_at"), "") },
         { label: "ID Transacción", value: (record) => record.external_id, render: (record) => <button className="record-link" onClick={() => void openVirtualPosPayment(record)}>{record.external_id}</button> },

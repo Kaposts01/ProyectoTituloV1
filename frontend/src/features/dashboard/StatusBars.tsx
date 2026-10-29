@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { normalizeStatus, statusKindColor } from "../../statusColors";
 import { label } from "../../i18n/label";
-import { statusResourceLabels } from "../shared/constants";
 import { groupStatuses, statusBarResources, type StatusRow } from "./statusBarRows";
 
 export function StatusBars({
@@ -32,7 +31,7 @@ export function StatusBars({
         return (
           <div key={resource} className="status-bar-row">
             <div className="status-bar-header">
-              <span>{statusResourceLabels[resource] ?? resource}</span>
+              <span>{label("resourcePlural", resource)}</span>
               <b className="mono">{total}</b>
             </div>
             <div className="status-bar-track">

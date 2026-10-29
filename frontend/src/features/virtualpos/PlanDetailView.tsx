@@ -47,7 +47,7 @@ export function PlanDetailView({
     <section className="panel client-subscriptions">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">SUBSCRIPCIONES VIRTUALPOS</p>
+          <p className="eyebrow">SUSCRIPCIONES VIRTUALPOS</p>
           <h3>Asociadas al plan</h3>
         </div>
         <span>{planDetail.subscription_total} total</span>

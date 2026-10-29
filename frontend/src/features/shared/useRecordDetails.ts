@@ -102,7 +102,7 @@ export function useRecordDetails(ctx: {
         ),
       );
     } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha de la subscripción."));
+      setError(friendlyError(err, "No se pudo cargar la ficha de la suscripción."));
     } finally {
       setDetailLoading(false);
     }

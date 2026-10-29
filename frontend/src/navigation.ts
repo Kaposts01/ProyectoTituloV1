@@ -10,7 +10,7 @@ export const providerGroups: { name: string; sections: ProviderSection[] }[] = [
     sections: [
       { source: "virtualpos", resource: "client", label: "Clientes" },
       { source: "virtualpos", resource: "plan", label: "Planes" },
-      { source: "virtualpos", resource: "subscription", label: "Subscripciones" },
+      { source: "virtualpos", resource: "subscription", label: "Suscripciones" },
       { source: "virtualpos", resource: "charge", label: "Cargos" },
       { source: "virtualpos", resource: "payment", label: "Transacciones" },
     ],
@@ -19,7 +19,7 @@ export const providerGroups: { name: string; sections: ProviderSection[] }[] = [
     name: "Toku",
     sections: [
       { source: "toku", resource: "customer", label: "Clientes" },
-      { source: "toku", resource: "subscription", label: "Subscripciones" },
+      { source: "toku", resource: "subscription", label: "Suscripciones" },
       { source: "toku", resource: "payment_method", label: "Métodos de pago" },
       { source: "toku", resource: "invoice", label: "Deudas" },
       { source: "toku", resource: "transaction", label: "Transacciones" },

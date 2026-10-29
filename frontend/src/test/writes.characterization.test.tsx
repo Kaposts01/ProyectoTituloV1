@@ -180,7 +180,7 @@ describe("Planes y suscripciones VirtualPOS: crear", () => {
       ["POST", "/api/v1/writes/virtualpos/subscriptions", (call: Call) => created("subscription", "sub-9", call.body as Record<string, unknown>)],
     ]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de subscripción 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de suscripción 11111111-1" });
     fireEvent.click(screen.getByRole("button", { name: "+ Nueva suscripción" }));
     const f = form("Crear suscripción VirtualPOS");
     fireEvent.submit(f);
@@ -208,13 +208,13 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     ]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar Sub" }));
-    const d = dialog("Cancelar subscripción VirtualPOS");
+    const d = dialog("Cancelar suscripción VirtualPOS");
     expect(within(d).getByText("¿Estás seguro de cancelar esta suscripción?")).toBeTruthy();
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/subscriptions/sub-1")).toHaveLength(1));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Cancelar subscripción VirtualPOS" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Cancelar suscripción VirtualPOS" })).toBeNull());
     expect(screen.getByText("Cancelada")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Cancelar Sub" })).toBeNull();
   });
@@ -223,11 +223,11 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     mountApp("/virtualpos/suscripciones", [records([vpSubscription(1)]), ["DELETE", "/api/v1/writes/virtualpos/subscriptions/sub-1", failWith(502, "proveedor caído")]]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar Sub" }));
-    const d = dialog("Cancelar subscripción VirtualPOS");
+    const d = dialog("Cancelar suscripción VirtualPOS");
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar cancelación" }));
     expect(await within(d).findByText("proveedor caído")).toBeTruthy();
     fireEvent.click(within(d).getByRole("button", { name: "Volver" }));
-    expect(screen.queryByRole("dialog", { name: "Cancelar subscripción VirtualPOS" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Cancelar suscripción VirtualPOS" })).toBeNull();
   });
 
   it("lista: «+ Cargo» valida fecha pasada y monto y envía POST a /subscriptions/{id}/charges", async () => {
@@ -266,7 +266,7 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     ]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar Sub" }));
-    fireEvent.click(within(dialog("Cancelar subscripción VirtualPOS")).getByRole("button", { name: "Confirmar cancelación" }));
+    fireEvent.click(within(dialog("Cancelar suscripción VirtualPOS")).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/subscriptions/sub-1")).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Cancelar Sub" })).toBeNull());
     expect(screen.getByText("Cancelada")).toBeTruthy();

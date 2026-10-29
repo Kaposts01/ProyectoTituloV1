@@ -144,7 +144,7 @@ export function Sidebar({
           autoComplete="off"
         />
       </div>
-      <nav className="sidebar-nav" aria-label="Navegacion principal">
+      <nav className="sidebar-nav" aria-label="Navegación principal">
         {groups.map((group) => (
           <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
             {group.label ? <div className="sidebar-section-label">{group.label}</div> : null}

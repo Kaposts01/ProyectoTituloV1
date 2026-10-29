@@ -135,7 +135,7 @@ export function normalizeRut(value: string): string | null {
 }
 
 export function fieldLabel(field: string): string {
-  return fieldLabels[field] ?? tryLabel("field", field) ?? `Campo (${field})`;
+  return tryLabel("field", field) ?? `Campo (${field})`;
 }
 
 export function providerRecordHeading(record: StagingRecord): string {
@@ -163,11 +163,7 @@ export function renewalText(value: unknown): string {
 }
 
 export function cardTypeText(value: unknown): string {
-  const normalized = String(value).toUpperCase();
-  if (normalized === "TC") return "Tarjeta Credito";
-  if (normalized === "TD") return "Tarjeta Debito";
-  if (["TP", "TPE", "PREPAGO"].includes(normalized)) return "Tarjeta Prepago";
-  return text(value);
+  return label("cardType", value);
 }
 
 export function isActiveSubscription(record: StagingRecord): boolean {
@@ -224,85 +220,5 @@ export function title(source: string): string {
 }
 
 export function resourceTitle(resource: string): string {
-  const titles: Record<string, string> = {
-    client: "Cliente",
-    customer: "Cliente",
-    plan: "Plan",
-    subscription: "Suscripción",
-    charge: "Cargo",
-    payment: "Pago",
-    payment_method: "Método de pago",
-    invoice: "Deuda",
-    transaction: "Transacción",
-  };
-  return titles[resource] ?? resource;
+  return label("resource", resource);
 }
-
-const fieldLabels: Record<string, string> = {
-  id: "ID",
-  uuid: "UUID",
-  status: "Estado",
-  type: "Tipo",
-  name: "Nombre",
-  first_name: "Nombre",
-  last_name: "Apellido",
-  description: "Descripcion",
-  email: "Correo electronico",
-  mail: "Correo electronico",
-  phone: "Telefono",
-  phone_number: "Telefono",
-  government_id: "RUT",
-  social_id_type: "Tipo documento",
-  social_id: "RUT documento",
-  birth_date: "Fecha nacimiento",
-  gender_id: "Genero",
-  is_active: "Activo",
-  amount: "Monto",
-  activation_amount: "Monto activacion",
-  currency: "Moneda",
-  trial_days: "Dias de prueba",
-  num_charges: "Cantidad de cargos",
-  frequency_type: "Frecuencia",
-  return_url: "URL retorno",
-  suscription_url: "URL subscripcion",
-  fixed_amount_day_charge: "Dia cobro monto fijo",
-  automatic_renewal: "Renovacion automatica",
-  show_in_terminal: "Visible en terminal",
-  created: "Creado",
-  created_at: "Fecha creacion",
-  updated: "Actualizado",
-  updated_at: "Fecha actualizacion",
-  shipping_address: "Direccion de envio",
-  plan_id: "ID plan",
-  plan_name: "Nombre plan",
-  suscription_date: "Fecha subscripcion",
-  canceled_at: "Fecha cancelacion",
-  renewal: "Renovacion",
-  channel: "Canal",
-  secondary_status: "Estado secundario",
-  last_paid_date: "Último cobro",
-  customer: "Cliente",
-  customer_id: "ID cliente",
-  service_id: "ID servicio",
-  subscription: "Subscripcion",
-  subscription_id: "ID subscripcion",
-  subscription_ids: "IDs subscripciones",
-  payment_method: "Metodo de pago",
-  bank_name: "Banco",
-  card_type: "Tipo tarjeta",
-  is_paid: "Pagado",
-  due_date: "Fecha limite",
-  anchor: "Fecha inicio",
-  end_date: "Fecha cancelacion",
-  transaction_date: "Fecha transaccion",
-  subscriptions: "Subscripciones",
-  start: "Fecha inicio",
-  end: "Fecha termino",
-  rut: "RUT",
-  address: "Direccion",
-  city: "Ciudad",
-  region: "Region",
-  country: "Pais",
-  postal_code: "Codigo postal",
-  private_note: "Nota privada",
-};

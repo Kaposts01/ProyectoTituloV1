@@ -92,7 +92,7 @@ GUARDED_VIEWS.push(
     name: "ficha de suscripción VirtualPOS (renovación T)",
     path: "/virtualpos/suscripciones/sub-1",
     handlers: [list([]), vpDetail("subscriptions", "sub-1", { subscription: vpSubscription(1), payment_method: null, charges: [vpCharge(1, "pendiente")], charge_total: 1, payments: [], payment_total: 0 })],
-    ready: () => screen.findByText("FICHA DE LA SUBSCRIPCIÓN"),
+    ready: () => screen.findByText("FICHA DE LA SUSCRIPCIÓN"),
   },
   { name: "lista de clientes VirtualPOS", path: "/virtualpos/clientes", handlers: [list([vpClient(1)])], ready: () => screen.findByRole("button", { name: "Editar" }) },
   { name: "lista de clientes Payku", path: "/payku/clientes", handlers: [list([paykuClient(1)])], ready: () => screen.findByRole("button", { name: "Eliminar" }) },

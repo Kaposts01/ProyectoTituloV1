@@ -65,7 +65,7 @@ export function ChargeDetailView({
       <dl className="field-list">
         <div><dt>Cliente</dt><dd>{chargeDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(chargeDetail.client!)}>{vpClientRecordName(chargeDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
         <div><dt>RUT cliente</dt><dd>{chargeDetail.client ? text(chargeDetail.client.payload.social_id) : "—"}</dd></div>
-        <div><dt>Subscripción</dt><dd>{chargeDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(chargeDetail.subscription!)}>{chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id}</button> : "Sin subscripción relacionada"}</dd></div>
+        <div><dt>Suscripción</dt><dd>{chargeDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(chargeDetail.subscription!)}>{chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id}</button> : "Sin suscripción relacionada"}</dd></div>
         <div><dt>Transacción</dt><dd>{chargeDetail.payment ? <button className="record-link" onClick={() => void openVirtualPosPayment(chargeDetail.payment!)}>{chargeDetail.payment.external_id}</button> : "Sin transacción relacionada"}</dd></div>
       </dl>
     </section>

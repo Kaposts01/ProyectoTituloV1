@@ -282,7 +282,7 @@ export function VirtualPosWriteDialogs({ writes, vp2Enabled }: { writes: Virtual
     ) : null}
     {cancelingSubscription ? (
     <div className="edit-dialog-backdrop" role="presentation">
-      <section className="edit-dialog" role="dialog" aria-modal="true" aria-label="Cancelar subscripción VirtualPOS">
+      <section className="edit-dialog" role="dialog" aria-modal="true" aria-label="Cancelar suscripción VirtualPOS">
         <div className="edit-dialog-heading">
           <div>
             <p className="eyebrow">VIRTUALPOS / CANCELACIÓN</p>

@@ -1,3 +1,4 @@
+import { es } from "../../i18n/es";
 import { text, nested } from "../shared/utils";
 import type { ClientEditField, FilterOption, StagingRecord } from "../shared/types";
 
@@ -6,21 +7,12 @@ export const virtualPosClientFields = [
   "phone_number", "social_id_type", "social_id", "birth_date",
   "gender_id", "private_note", "created", "updated",
 ];
-export const virtualPosClientFieldLabels: Record<string, string> = {
-  uuid: "UUID", status: "Estado", type: "Tipo", first_name: "Nombre",
-  last_name: "Apellido", email: "Correo electronico", phone_number: "Telefono",
-  social_id_type: "Tipo documento", social_id: "RUT documento",
-  birth_date: "Fecha nacimiento", gender_id: "Genero",
-  private_note: "Nota privada", created: "Creado", updated: "Actualizado",
-};
+export const virtualPosClientFieldLabels: Record<string, string> = Object.fromEntries(
+  virtualPosClientFields.map((field) => [field, es.field[field as keyof typeof es.field]]),
+);
 export const virtualPosDocumentTypes: Record<string, string> = { "1": "RUT", "2": "DNI" };
-export const recurringFieldLabels: Record<string, string> = {
-  amount: "Monto", anchor: "Fecha inicio", status: "Estado",
-  due_day: "Dia de cobro", end_date: "Fecha termino",
-  interval: "Intervalo", frequency: "Frecuencia",
-  creation_lead_days: "Dias de anticipacion",
-  max_active_invoices: "Maximo de facturas activas",
-};
+/** Rótulos del bloque «recurrente» de Toku; la fuente única es `es.recurringField` (i18n). */
+export const recurringFieldLabels: Record<string, string> = { ...es.recurringField };
 export const virtualPosPlanFields = [
   "id", "name", "description", "is_active", "amount", "activation_amount",
   "currency", "trial_days", "num_charges", "frequency_type", "return_url",
@@ -127,7 +119,7 @@ export const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
     client: [{ value: "uuid", label: "UUID" }, { value: "social_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Correo electrónico" }, { value: "phone_number", label: "Teléfono" }, { value: "status", label: "Estado" }],
     plan: [{ value: "id", label: "ID" }, { value: "name", label: "Nombre" }, { value: "amount", label: "Monto" }, { value: "automatic_renewal", label: "Renovación" }, { value: "is_active", label: "Estado" }, { value: "show_in_terminal", label: "Activo en POS" }],
     subscription: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "secondary_status", label: "Estado sec." }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "suscription_date", label: "F. Inicio" }, { value: "canceled_at", label: "F. Cancelación" }],
-    charge: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscription_id", label: "ID subscripción" }, { value: "amount", label: "Monto" }, { value: "charge_date", label: "Fecha de cargo" }],
+    charge: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscription_id", label: "ID suscripción" }, { value: "amount", label: "Monto" }, { value: "charge_date", label: "Fecha de cargo" }],
     payment: [{ value: "uuid", label: "UUID" }, { value: "status", label: "Estado" }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "authorized_at", label: "F. Pago" }],
   },
   toku: {
@@ -141,7 +133,7 @@ export const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
     client: [{ value: "id", label: "ID" }, { value: "rut", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Correo electrónico" }, { value: "phone", label: "Teléfono" }],
     plan: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "name", label: "Nombre" }],
     subscription: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "rut", label: "RUT" }, { value: "start", label: "F. Inicio" }, { value: "end", label: "F. Cancelación" }],
-    transaction: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscriptions", label: "ID subscripciones" }, { value: "amount", label: "Monto" }, { value: "created_at", label: "F. Pago" }],
+    transaction: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscriptions", label: "ID suscripciones" }, { value: "amount", label: "Monto" }, { value: "created_at", label: "F. Pago" }],
   },
 };
 

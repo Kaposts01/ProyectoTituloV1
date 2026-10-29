@@ -1,16 +1,17 @@
 import { CHART_PRIMARY } from "../../chartColors";
+import { es } from "../../i18n/es";
 
 export const virtualPosMetrics = [
   { resource: "client", label: "Clientes", tone: "blue" },
   { resource: "plan", label: "Planes", tone: "violet" },
-  { resource: "subscription", label: "Subscripciones Activas", tone: "gold", amount: true },
-  { resource: "subscription_cobrable", label: "Subscripciones Cobrables", tone: "teal", amount: true },
+  { resource: "subscription", label: "Suscripciones Activas", tone: "gold", amount: true },
+  { resource: "subscription_cobrable", label: "Suscripciones Cobrables", tone: "teal", amount: true },
   { resource: "charge", label: "Cargos Pagados", tone: "orange", amount: true },
   { resource: "payment", label: "Transacciones Pagadas", tone: "green", amount: true },
 ];
 export const tokuMetrics = [
   { resource: "customer", label: "Clientes", tone: "blue" },
-  { resource: "subscription", label: "Subscripciones activas", tone: "violet", amount: true },
+  { resource: "subscription", label: "Suscripciones activas", tone: "violet", amount: true },
   { resource: "payment_method", label: "Métodos de pago cobrables", tone: "gold" },
   { resource: "invoice", label: "Deudas pagadas", tone: "orange", amount: true },
   { resource: "transaction", label: "Transacciones pagadas", tone: "green", amount: true },
@@ -26,17 +27,8 @@ export const statusResourceOrder: Record<string, string[]> = {
   toku: ["customer", "subscription", "payment_method", "invoice", "transaction"],
   payku: ["client", "subscription", "plan", "transaction"],
 };
-export const statusResourceLabels: Record<string, string> = {
-  client: "Clientes",
-  customer: "Clientes",
-  subscription: "Subscripciones",
-  charge: "Cargos",
-  payment: "Transacciones",
-  transaction: "Transacciones",
-  plan: "Planes",
-  payment_method: "Métodos de pago",
-  invoice: "Deudas",
-};
+/** Recursos en plural; la fuente única es `es.resourcePlural` (i18n). */
+export const statusResourceLabels: Record<string, string> = { ...es.resourcePlural };
 export const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 export const METRIC_COLORS: Record<string, string> = {
   blue: "#4a90c4",

@@ -31,7 +31,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(screen.getByRole("heading", { name: "Clientes" })).toBeTruthy();
     expect(screen.getByText("Payloads saneados almacenados localmente")).toBeTruthy();
     expect(screen.getByText("2 registros")).toBeTruthy();
-    expect(headers().slice(0, 7)).toEqual(["RUT", "Nombre", "Correo electrónico", "Telefono", "Plataforma", "Estado", "Acciones"]);
+    expect(headers().slice(0, 7)).toEqual(["RUT", "Nombre", "Correo electrónico", "Teléfono", "Plataforma", "Estado", "Acciones"]);
     expect(screen.getByText("Persona1 Sintética")).toBeTruthy();
     expect(screen.getAllByText("VP 1").length).toBeGreaterThan(1);
     expect(screen.getAllByRole("button", { name: "Editar" })).toHaveLength(2);
@@ -124,7 +124,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     mountApp("/virtualpos/planes", [recordsHandler(page([vpPlan(1)]))]);
     await appReady();
     expect(await screen.findByRole("button", { name: "Ver ficha de plan Plan Sintético 1" })).toBeTruthy();
-    expect(headers().slice(0, 9)).toEqual(["Nombre", "Monto", "Subscripciones", "Activas", "Cobrables", "Renovacion", "Estado", "Activo en POS", "Plataforma"]);
+    expect(headers().slice(0, 9)).toEqual(["Nombre", "Monto", "Suscripciones", "Activas", "Cobrables", "Renovación", "Estado", "Activo en POS", "Plataforma"]);
     expect(screen.getByRole("button", { name: "+ Nuevo plan" })).toBeTruthy();
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
@@ -134,8 +134,8 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     const list = [vpSubscription(1), vpSubscription(2, { status: "CANCELADA" }, { secondary_status: "inactiva" })];
     mountApp("/virtualpos/suscripciones", [recordsHandler(page(list))]);
     await appReady();
-    expect(await screen.findByRole("button", { name: "Ver ficha de subscripción 11111111-1" })).toBeTruthy();
-    expect(headers().slice(0, 9)).toEqual(["RUT cliente", "Estado", "Estado sec.", "Monto", "F. Inicio", "F. Cancelacion", "Último cobro", "Plataforma", "Acciones"]);
+    expect(await screen.findByRole("button", { name: "Ver ficha de suscripción 11111111-1" })).toBeTruthy();
+    expect(headers().slice(0, 9)).toEqual(["RUT cliente", "Estado", "Estado sec.", "Monto", "F. Inicio", "F. Cancelación", "Último cobro", "Plataforma", "Acciones"]);
     expect(screen.getAllByRole("button", { name: "Cancelar Sub" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "+ Cargo" })).toHaveLength(1);
     expect(screen.getByText("Cobrable").className).toContain("badge-green");
@@ -149,7 +149,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
   it("suscripciones: los filtros de monto y fecha usan amount_min/date_from", async () => {
     const app = mountApp("/virtualpos/suscripciones", [recordsHandler(page([vpSubscription(1)]))]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de subscripción 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de suscripción 11111111-1" });
     fireEvent.change(screen.getByLabelText("Monto mínimo"), { target: { value: "5000" } });
     await waitFor(() => expect(lastRecordsCall(app).query.get("amount_min")).toBe("5000"));
     fireEvent.change(screen.getByLabelText("F. Inicio desde"), { target: { value: "2025-01-01" } });
@@ -160,8 +160,8 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     const list = [vpCharge(1, "pendiente"), vpCharge(2, "rechazado"), vpCharge(3, "pagado")];
     mountApp("/virtualpos/cargos", [recordsHandler(page(list))]);
     await appReady();
-    expect((await screen.findAllByRole("button", { name: "Ver ficha de subscripción sub-1" }))).toHaveLength(3);
-    expect(headers().slice(0, 8)).toEqual(["ID subscripción", "Cliente", "RUT cliente", "Fecha de cargo", "Estado", "Monto", "Plataforma", "Acciones"]);
+    expect((await screen.findAllByRole("button", { name: "Ver ficha de suscripción sub-1" }))).toHaveLength(3);
+    expect(headers().slice(0, 8)).toEqual(["ID suscripción", "Cliente", "RUT cliente", "Fecha de cargo", "Estado", "Monto", "Plataforma", "Acciones"]);
     expect(screen.getAllByRole("button", { name: "Cancelar" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Reintentar" })).toHaveLength(1);
     await listSettled();
@@ -171,7 +171,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
   it("cargos: sin el permiso de reintento no se ofrece «Reintentar»", async () => {
     mountApp("/virtualpos/cargos", [recordsHandler(page([vpCharge(2, "rechazado")]))], { permissions: ["dashboard.view", "virtualpos.charges.view"] });
     await appReady();
-    await screen.findAllByRole("button", { name: "Ver ficha de subscripción sub-1" });
+    await screen.findAllByRole("button", { name: "Ver ficha de suscripción sub-1" });
     expect(screen.queryByRole("button", { name: "Reintentar" })).toBeNull();
   });
 
@@ -190,7 +190,7 @@ describe("Listas Toku y Payku", () => {
     expect(await screen.findByRole("button", { name: "Ver ficha de cliente 22222221-2" })).toBeTruthy();
     expect(screen.getByText("TOKU / STAGING")).toBeTruthy();
     expect(screen.getByText("Filtrar registros")).toBeTruthy();
-    expect(headers()).toEqual(["RUT", "Nombre", "Correo electrónico", "Telefono", "Acciones"]);
+    expect(headers()).toEqual(["RUT", "Nombre", "Correo electrónico", "Teléfono", "Acciones"]);
     expect(lastRecordsCall(app).query.get("source")).toBe("toku");
     expect(lastRecordsCall(app).query.has("filter_field")).toBe(false);
     await listSettled();
@@ -245,12 +245,12 @@ describe("Listas Toku y Payku", () => {
     await appReady();
     expect(await screen.findByRole("button", { name: /Ver ficha de Clientes pcl-1/ })).toBeTruthy();
     expect(screen.getByText("PAYKU / STAGING")).toBeTruthy();
-    expect(headers()).toEqual(["ID", "RUT", "Nombre", "Correo electrónico", "Telefono", "Acciones"]);
+    expect(headers()).toEqual(["ID", "RUT", "Nombre", "Correo electrónico", "Teléfono", "Acciones"]);
     resetApp();
     mountApp("/payku/suscripciones", [recordsHandler(page([paykuSubscription(1)]))]);
     await appReady();
     expect(await screen.findByRole("button", { name: /Ver ficha de Suscripciones psu-1/ })).toBeTruthy();
-    expect(headers()).toEqual(["ID", "Estado", "Estado sec.", "Último cobro", "RUT", "F. Inicio", "F. Cancelacion", "Acciones"]);
+    expect(headers()).toEqual(["ID", "Estado", "Estado sec.", "Último cobro", "RUT", "F. Inicio", "F. Cancelación", "Acciones"]);
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });

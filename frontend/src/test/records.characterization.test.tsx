@@ -54,7 +54,7 @@ describe("Ficha de cliente VirtualPOS (/virtualpos/clientes/{id})", () => {
     await screen.findByText("FICHA DEL CLIENTE");
     fireEvent.click(screen.getByRole("button", { name: "sub-1" }));
     await waitFor(() => expect(window.location.pathname).toBe("/virtualpos/suscripciones/sub-1"));
-    expect(await screen.findByText("FICHA DE LA SUBSCRIPCIÓN")).toBeTruthy();
+    expect(await screen.findByText("FICHA DE LA SUSCRIPCIÓN")).toBeTruthy();
     expect(app.exact("GET", "/api/v1/staging/virtualpos/subscriptions/sub-1")).toHaveLength(1);
     fireEvent.click(screen.getByText("Volver al listado VirtualPOS"));
     await waitFor(() => expect(window.location.pathname).toBe("/virtualpos/suscripciones"));
@@ -93,9 +93,9 @@ describe("Ficha de suscripción VirtualPOS (/virtualpos/suscripciones/{id})", ()
   it("muestra ficha, método de pago sin datos de tarjeta, cargos con acciones por estado y transacciones", async () => {
     const app = mountApp("/virtualpos/suscripciones/sub-1", [listHandler, ["GET", "/api/v1/staging/virtualpos/subscriptions/sub-1", subscriptionDetail]]);
     await appReady();
-    expect(await screen.findByText("FICHA DE LA SUBSCRIPCIÓN")).toBeTruthy();
+    expect(await screen.findByText("FICHA DE LA SUSCRIPCIÓN")).toBeTruthy();
     expect(app.exact("GET", "/api/v1/staging/virtualpos/subscriptions/sub-1")).toHaveLength(1);
-    expect(screen.getByText("VIRTUALPOS / SUBSCRIPCIÓN")).toBeTruthy();
+    expect(screen.getByText("VIRTUALPOS / SUSCRIPCIÓN")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancelar Sub" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "+ Nuevo cargo" })).toBeTruthy();
     expect(screen.getByText("MÉTODO DE PAGO")).toBeTruthy();
@@ -103,7 +103,7 @@ describe("Ficha de suscripción VirtualPOS (/virtualpos/suscripciones/{id})", ()
     expect(screen.getByRole("button", { name: "Plan Sintético 1" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Cancelar" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Reintentar" })).toHaveLength(1);
-    expect(screen.getByText(/VirtualPOS no entrega un identificador de subscripción/)).toBeTruthy();
+    expect(screen.getByText(/VirtualPOS no entrega un identificador de suscripción/)).toBeTruthy();
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
@@ -111,7 +111,7 @@ describe("Ficha de suscripción VirtualPOS (/virtualpos/suscripciones/{id})", ()
   it("una suscripción cancelada no ofrece «Cancelar Sub» ni «+ Nuevo cargo»", async () => {
     mountApp("/virtualpos/suscripciones/sub-1", [listHandler, ["GET", "/api/v1/staging/virtualpos/subscriptions/sub-1", { ...subscriptionDetail, subscription: vpSubscription(1, { status: "CANCELADA" }) }]]);
     await appReady();
-    await screen.findByText("FICHA DE LA SUBSCRIPCIÓN");
+    await screen.findByText("FICHA DE LA SUSCRIPCIÓN");
     expect(screen.queryByRole("button", { name: "Cancelar Sub" })).toBeNull();
     expect(screen.queryByRole("button", { name: "+ Nuevo cargo" })).toBeNull();
   });
