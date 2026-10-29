@@ -1,3 +1,5 @@
+import { useDirectCancel } from "../cancellations/directCancel";
+import { DirectCancelNote } from "../cancellations/DirectCancelNote";
 import { label } from "../../i18n/label";
 import { deleteEndpoint, providerEditFields } from "../virtualpos/constants";
 import { resourceTitle, text, title } from "../shared/utils";
@@ -22,6 +24,7 @@ export function ProviderWriteDialogs({ writes }: { writes: ProviderWritesState }
     confirmProviderDelete,
     changeTokuSubscriptionStatus,
   } = writes;
+  const { isAdmin } = useDirectCancel();
   const isTokuWritable = editingProviderRecord?.source === "toku" && editingProviderRecord?.resourceType === "customer";
   const isPaykuWritable = editingProviderRecord?.source === "payku" && editingProviderRecord?.resourceType === "client";
   const isProviderWritable = isTokuWritable || isPaykuWritable;
@@ -54,10 +57,11 @@ export function ProviderWriteDialogs({ writes }: { writes: ProviderWritesState }
                 <option value="">Seleccionar...</option>
                 <option value="ACTIVE">Activa — Activar</option>
                 <option value="PAUSED">Pausada — Pausar</option>
-                <option value="CANCELLED">Cancelada — Cancelar</option>
+                {isAdmin ? <option value="CANCELLED">Cancelada — Cancelar</option> : null}
               </select>
             </label>
           </div>
+          {!isAdmin ? <p className="edit-dialog-note"><DirectCancelNote /></p> : null}
           {tokuSubStatusError ? <p className="error-message form-error">{tokuSubStatusError}</p> : null}
           <div className="edit-dialog-actions">
             <button type="submit" className="save-button" disabled={savingTokuSubStatus}>

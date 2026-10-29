@@ -24,7 +24,7 @@ describe("agrupación del menú de un solo nivel (D29)", () => {
     expect(shape).toEqual([
       [null, ["Resumen"]],
       ["Cartera", ["Socios", "Suscripciones"]],
-      ["Operación", ["Recuperador", "Cambios de cobro"]],
+      ["Operación", ["Recuperador", "Cambios de cobro", "Bajas"]],
       ["Sistema", ["Sincronización", "Administración", "Reportes"]],
     ]);
   });
@@ -56,6 +56,7 @@ describe("agrupación del menú de un solo nivel (D29)", () => {
     expect(path("subscriptions")).toBe("/central/suscripciones");
     expect(path("recovery")).toBe("/virtualpos/recuperador-socios");
     expect(path("billing")).toBe("/general/cambios-de-cobro");
+    expect(path("cancellations")).toBe("/general/bajas");
     expect(path("sync")).toBe("/admin/sincronizaciones");
     expect(path("admin")).toBe("/admin/usuarios");
     expect(path("report")).toBe("/central/reporte-automatico");
@@ -76,6 +77,9 @@ describe("permisos del menú", () => {
   it("Operación y Sistema dependen de cada permiso; un grupo sin ítems visibles desaparece", () => {
     expect(visibleMenu(canOnly("virtualpos.recovery.view")).map((g) => [g.label, g.items.map((i) => i.label)])).toEqual([["Operación", ["Recuperador"]]]);
     expect(visibleMenu(canOnly("virtualpos.billing_changes.view")).flatMap((g) => g.items.map((i) => i.label))).toEqual(["Cambios de cobro"]);
+    expect(visibleMenu(canOnly("subscriptions.cancellation.view")).map((g) => [g.label, g.items.map((i) => i.label)])).toEqual([["Operación", ["Bajas"]]]);
+    // Solicitar o aprobar sin poder leer no abre la pantalla: el ítem depende solo del permiso de lectura.
+    expect(visibleMenu(canOnly("subscriptions.cancellation.request", "subscriptions.cancellation.approve"))).toEqual([]);
     expect(visibleMenu(canOnly("sync.run")).flatMap((g) => g.items.map((i) => i.label))).toEqual(["Sincronización"]);
     expect(visibleMenu(canOnly("sync_runs.view")).flatMap((g) => g.items.map((i) => i.label))).toEqual(["Sincronización"]);
     expect(visibleMenu(canOnly("roles.manage")).flatMap((g) => g.items.map((i) => i.label))).toEqual(["Administración"]);

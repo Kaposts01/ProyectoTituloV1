@@ -1,3 +1,5 @@
+import { useDirectCancel } from "../cancellations/directCancel";
+import { DirectCancelNote } from "../cancellations/DirectCancelNote";
 import { text, documentType } from "../shared/utils";
 import {
   virtualPosClientEditFields, virtualPosPlanCreateFields, planDefaultValues, virtualPosSubscriptionCreateFields,
@@ -7,6 +9,7 @@ import type { VirtualPosWritesState } from "./useVirtualPosWrites";
 
 /** Diálogos de escritura de VirtualPOS: cliente, plan, suscripción, cancelaciones, reintento y cargo nuevo. */
 export function VirtualPosWriteDialogs({ writes, vp2Enabled }: { writes: VirtualPosWritesState; vp2Enabled: boolean }) {
+  const { isAdmin } = useDirectCancel();
   const {
     editingClient,
     setEditingClient,
@@ -294,11 +297,12 @@ export function VirtualPosWriteDialogs({ writes, vp2Enabled }: { writes: Virtual
           Esta acción cancelará la suscripción en VirtualPOS (DELETE /v3/suscription/…). Los cargos futuros se detendrán y no se puede deshacer.
         </p>
         {cancelSubscriptionError && <p className="edit-dialog-error">{cancelSubscriptionError}</p>}
+        {!isAdmin ? <p className="edit-dialog-note"><DirectCancelNote /></p> : null}
         <div className="edit-dialog-actions">
           <button
             type="button"
             className="cancel-subscription-button"
-            disabled={savingCancelSubscription}
+            disabled={savingCancelSubscription || !isAdmin}
             onClick={() => void cancelVirtualPOSSubscription()}
           >
             {savingCancelSubscription ? "Cancelando..." : "Confirmar cancelación"}

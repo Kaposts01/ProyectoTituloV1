@@ -1,3 +1,5 @@
+import { useDirectCancel } from "../cancellations/directCancel";
+import { DirectCancelNote } from "../cancellations/DirectCancelNote";
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosSubscriptionDetail } from "../shared/types";
 import { label, labelOr } from "../../i18n/label";
@@ -32,6 +34,7 @@ export function SubscriptionDetailView({
   can: (permission: string) => boolean;
   chargeSaveNotice: string | null;
 }) {
+  const { isAdmin } = useDirectCancel();
   return (
   <main className="app-shell detail-page">
     <button
@@ -49,12 +52,14 @@ export function SubscriptionDetailView({
     </h2>
     {isActiveSubscription(subscriptionDetail.subscription) ? (
       <div className="client-detail-actions">
-        <button
-          className="cancel-subscription-button"
-          onClick={() => onCancelSubscription(subscriptionDetail.subscription)}
-        >
-          Cancelar Sub
-        </button>
+        {isAdmin ? (
+          <button
+            className="cancel-subscription-button"
+            onClick={() => onCancelSubscription(subscriptionDetail.subscription)}
+          >
+            Cancelar Sub
+          </button>
+        ) : <DirectCancelNote />}
         <button
           className="create-charge-button"
           onClick={() => onNewCharge(subscriptionDetail.subscription)}

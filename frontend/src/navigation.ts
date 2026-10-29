@@ -1,5 +1,6 @@
 /** Grupos de proveedor, secciones y helpers de permisos de navegación. */
 
+import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
 import type { ProviderSection, ProviderSource, TchRouteView } from "./routes";
 
 export type { ProviderSection, ProviderSource };
@@ -83,6 +84,7 @@ export const menuGroups: MenuGroup[] = [
     items: [
       { id: "recovery", label: "Recuperador", action: { kind: "recovery" }, allowed: (can) => can("virtualpos.recovery.view") },
       { id: "billing", label: "Cambios de cobro", action: { kind: "billing" }, allowed: (can) => can("virtualpos.billing_changes.view") },
+      { id: "cancellations", label: "Bajas", action: { kind: "cancellations" }, allowed: (can) => can(PERM_CANCELLATION_VIEW) },
     ],
   },
   {

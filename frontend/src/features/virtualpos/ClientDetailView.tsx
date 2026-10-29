@@ -1,3 +1,5 @@
+import { useDirectCancel } from "../cancellations/directCancel";
+import { DirectCancelNote } from "../cancellations/DirectCancelNote";
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosClientDetail } from "../shared/types";
 import { label, labelOr } from "../../i18n/label";
@@ -24,6 +26,7 @@ export function ClientDetailView({
   onEdit: (record: StagingRecord) => void;
   onCancelSubscription: (record: StagingRecord) => void;
 }) {
+  const { isAdmin } = useDirectCancel();
   return (
   <main className="app-shell detail-page">
     <button className="back-button" onClick={() => showResourceList("virtualpos", "client")}>
@@ -76,7 +79,7 @@ export function ClientDetailView({
         { label: "Último cobro", kind: "date", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "" },
         { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
         { label: "F. Inicio", kind: "date", value: (record) => text(record.payload.suscription_date, "") },
-        { label: "Acción", filterable: false, value: () => "", render: (record) => isActiveSubscription(record) ? <button className="cancel-subscription-button" onClick={() => onCancelSubscription(record)}>Cancelar</button> : null },
+        { label: "Acción", filterable: false, value: () => "", render: (record) => isActiveSubscription(record) ? (isAdmin ? <button className="cancel-subscription-button" onClick={() => onCancelSubscription(record)}>Cancelar</button> : <DirectCancelNote compact />) : null },
       ]} />
     </section>
     <section className="panel">

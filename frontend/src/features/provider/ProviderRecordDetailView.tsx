@@ -1,3 +1,5 @@
+import { useDirectCancel } from "../cancellations/directCancel";
+import { DirectCancelNote } from "../cancellations/DirectCancelNote";
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, ProviderRecordDetail } from "../shared/types";
 import { fieldValue } from "../shared/display";
@@ -22,6 +24,7 @@ export function ProviderRecordDetailView({
   onManageTokuSubscription: (record: StagingRecord) => void;
   onDeleteRecord: (record: StagingRecord, source: string, resourceType: string) => void;
 }) {
+  const { isAdmin } = useDirectCancel();
   return (
   <main className="app-shell detail-page">
     <button
@@ -52,7 +55,9 @@ export function ProviderRecordDetailView({
           Gestionar estado
         </button>
       ) : null}
-      {(deletableResources[providerRecordDetail.record.source] ?? []).includes(providerRecordDetail.record.resource_type) ? (
+      {!isAdmin && providerRecordDetail.record.resource_type === "subscription" ? <DirectCancelNote /> : null}
+      {(deletableResources[providerRecordDetail.record.source] ?? []).includes(providerRecordDetail.record.resource_type)
+        && (isAdmin || providerRecordDetail.record.resource_type !== "subscription") ? (
         <button
           className="delete-button"
           onClick={() => onDeleteRecord(providerRecordDetail.record, providerRecordDetail.record.source, providerRecordDetail.record.resource_type)}
@@ -154,7 +159,9 @@ export function ProviderRecordDetailView({
                           Editar
                         </button>
                       ) : null}
-                      {(deletableResources[item.source] ?? []).includes(group.resource_type) && !(item.source === "toku" && group.resource_type === "subscription") ? (
+                      {!isAdmin && group.resource_type === "subscription" ? <DirectCancelNote compact /> : null}
+                      {(deletableResources[item.source] ?? []).includes(group.resource_type) && !(item.source === "toku" && group.resource_type === "subscription")
+                        && (isAdmin || group.resource_type !== "subscription") ? (
                         <button
                           className="delete-button"
                           onClick={() => onDeleteRecord(item, item.source, group.resource_type)}

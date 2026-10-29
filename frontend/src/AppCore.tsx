@@ -17,6 +17,7 @@ import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { RecoveryPanel } from "./features/recovery/RecoveryPanel";
 import { BillingInbox } from "./features/billing/BillingInbox";
 import { CancellationsInbox } from "./features/cancellations/CancellationsInbox";
+import { DirectCancelContext } from "./features/cancellations/directCancel";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
 import { AdminPanel } from "./features/admin/AdminPanel";
 import { useEnabledChannels } from "./features/shared/environment";
@@ -686,7 +687,11 @@ function AppCore() {
   if (session === undefined) return <main className="app-shell"><p className="muted-copy">Verificando sesión...</p></main>;
   if (session === null) return <LoginScreen onLogin={setSession} />;
 
+  // Botones directos de baja: solo admin (el backend lo exige); el resto pide la baja en «Bajas».
+  const directCancelAccess = { isAdmin: session.user.roles.some((role) => role.name === "admin"), canOpenCancellations: can(PERM_CANCELLATION_VIEW) };
+
   return (
+    <DirectCancelContext.Provider value={directCancelAccess}>
     <div className="app-layout">
       <button
         ref={burgerRef}
@@ -751,6 +756,7 @@ function AppCore() {
       <ProviderWriteDialogs writes={providerWrites} />
       {reportScope ? <ReportDialog scope={reportScope} onClose={() => setReportScope(null)} /> : null}
     </div>
+    </DirectCancelContext.Provider>
   );
 }
 

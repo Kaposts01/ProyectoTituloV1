@@ -1,3 +1,5 @@
+import { useDirectCancel } from "../cancellations/directCancel";
+import { DirectCancelNote } from "../cancellations/DirectCancelNote";
 import { label, labelOr } from "../../i18n/label";
 import type { ProviderSection, ProviderSource } from "../../routes";
 import type { StagingRecord, TableColumn } from "../shared/types";
@@ -61,6 +63,7 @@ export function StagingRecordsList({
   onEditRecord: (record: StagingRecord, source: string, resourceType: string) => void;
   onDeleteRecord: (record: StagingRecord, source: string, resourceType: string) => void;
 }) {
+  const { isAdmin } = useDirectCancel();
   const {
     records,
     setRecordsOffset,
@@ -297,12 +300,14 @@ export function StagingRecordsList({
                         column.key === "Acciones" ? (
                           isActiveSubscription(record) ? (
                             <div className="table-actions-group">
-                              <button
-                                className="cancel-subscription-button cancel-subscription-button-table"
-                                onClick={() => onCancelSubscription(record)}
-                              >
-                                Cancelar Sub
-                              </button>
+                              {isAdmin ? (
+                                <button
+                                  className="cancel-subscription-button cancel-subscription-button-table"
+                                  onClick={() => onCancelSubscription(record)}
+                                >
+                                  Cancelar Sub
+                                </button>
+                              ) : <DirectCancelNote compact />}
                               <button
                                 className="create-charge-button create-charge-button-table"
                                 onClick={() => onNewCharge(record)}
@@ -451,12 +456,14 @@ export function StagingRecordsList({
                                 Editar
                               </button>
                             ) : null}
-                            <button
-                              className="delete-button delete-button-table"
-                              onClick={() => onDeleteRecord(record, activeSection.source, activeSection.resource)}
-                            >
-                              Eliminar
-                            </button>
+                            {!isAdmin && activeSection.resource === "subscription" ? <DirectCancelNote compact /> : (
+                              <button
+                                className="delete-button delete-button-table"
+                                onClick={() => onDeleteRecord(record, activeSection.source, activeSection.resource)}
+                              >
+                                Eliminar
+                              </button>
+                            )}
                           </div>
                         ) : column.key === "Estado sec." && record.resource_type === "subscription" ? (
                           <span className={`badge badge-${record.secondary_status === "cobrable" ? "green" : record.secondary_status === "incobrable" ? "orange" : record.secondary_status === "inactiva" ? "gray" : "blue"}`}>{labelOr("secondaryStatus", record.secondary_status, "—")}</span>
