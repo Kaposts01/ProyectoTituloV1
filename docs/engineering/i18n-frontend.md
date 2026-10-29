@@ -41,3 +41,18 @@ Fuera de `label`: nombres propios y datos libres (nombre de rol, de plan, de cli
 | 3 | Tildes y «Suscripción»: `fieldLabel`, `virtualPosClientFieldLabels`, `recurringFieldLabels`, `statusResourceLabels`, `resourceTitle` y `cardTypeText` salen ahora de `es.ts` (se eliminaron las tablas duplicadas; sus llamadores no cambian). Rótulos de columnas, filtros, fichas, métricas, menú y diálogos con tilde («Teléfono», «Renovación», «F. Cancelación», «Fecha límite», «Navegación principal»…) y «Suscripción/Suscripciones» en lugar de «Subscripción/Subscripciones». `cardTypeText` ahora dice «Tarjeta de crédito/débito/prepago». Las CLAVES de columna (`key`) no cambian. Guardián de ortografía: `i18n/spelling.guard.test.ts`. | hecho |
 | 11 | Errores de red y de la API (`api.ts`): el `detail` en inglés que el backend ya emite (71 textos exactos, más 4 patrones con datos variables) se traduce con el dominio `apiDetail` y `i18n/apiErrors.ts`; los errores de validación de pydantic (422) se muestran por su `type` («Monto: es obligatorio») con el campo en español; `ApiError.code` expone el `detail.code` de los detalles estructurados y `apiDetailIs()` reemplaza la comparación del texto mostrado (antes `message === "Invalid RUT"`); 409 y 502 tienen texto genérico; `LoginScreen` y `AutomaticReport` dejan de mostrar el texto del servidor / `statusText` en inglés; una respuesta que no es JSON se ve en español. **Decisión de alcance:** un `detail` que NO está en el catálogo se muestra tal cual (el backend casi siempre lo redacta en español: «Suscripción no encontrada»), en vez de ocultarlo tras un texto genérico, que habría empeorado los mensajes útiles; los casos nuevos en inglés se agregan al catálogo. Pendiente de decisión del usuario si prefiere ocultar todo `detail` no catalogado. | hecho |
 | 12 | Permisos: se confirmó que las descripciones del backend (`PERMISSIONS` en `app/services/rbac.py`) están TODAS en español y un test las vigila (lee el archivo del backend, sin tocarlo); `PermCheckboxes` muestra «Permiso (código)» si una descripción llega vacía; test de `groupPermissions` (nombres de grupo en español y orden). No hizo falta un dominio `permission`. | hecho |
+
+## 5. Balance (pasos de texto 0 a 12)
+
+Hechos los 13 pasos (0, 1, 10, 4, 5, 6, 8, 7, 9, 2, 3, 11, 12), un commit cada uno. Pendientes: pasos 13 a 19 (renombrar identificadores), en espera de las decisiones D32 a D36 del usuario; no se tocó ningún identificador.
+
+### Valores crudos que no se pudieron mapear sin conocer su significado (el usuario los define)
+
+- `payment_type_code` de VirtualPOS (p. ej. `VN`): dominio `paymentType` vacío; se ve «Desconocido (VN)».
+- `gateway` de Toku: dominio `gateway` vacío; se ve «Desconocido (valor)».
+- Claves de campo de payloads sin rótulo: se ven «Campo (clave)».
+- Marcas de tarjeta, tipos de medio de pago y estados fuera del catálogo: «Desconocido (valor)».
+- Los detalles de abonos (`deposits`) se muestran como JSON con claves en inglés.
+- Expresiones cron sin traducción en el programador se muestran tal cual.
+- `detail` del backend que no está en el catálogo se muestra tal cual (paso 11).
+- `error_message` de una corrida recibe el mismo trato que `msg` (rótulo «Texto del proveedor»).
