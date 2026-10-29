@@ -210,6 +210,7 @@ def _patch_orchestrator(monkeypatch, *, needs: bool, failures: list[str] | None 
     monkeypatch.setattr(sync_all, "sync_payku", ok)
     monkeypatch.setattr(sync_all, "consolidate_to_centralized", consolidate)
     monkeypatch.setattr(sync_all, "reconcile_charge_recoveries", lambda *_a, **_k: None)
+    monkeypatch.setattr(sync_all, "_CORE_ETL_RUNNERS", {})  # el ETL Core se prueba en test_sync_core_etl.py
     monkeypatch.setattr(registry, "consolidation_snapshot", lambda _db: {"sha256s": ["x"], "latest_load_at": None})
     monkeypatch.setattr(registry, "needs_consolidation", lambda _db, _snap: needs)
     monkeypatch.setattr(registry, "mark_consolidated", lambda _db, _snap: events.append(("mark",)))

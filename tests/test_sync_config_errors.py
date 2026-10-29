@@ -119,6 +119,7 @@ def _patch_sync_all(monkeypatch, store, *, vp2_error):
     monkeypatch.setattr(sync_all, "skip_disabled_channel", lambda _c: False)
     monkeypatch.setattr(sync_all, "consolidate_to_centralized", lambda *_a, **_k: 0)
     monkeypatch.setattr(sync_all, "reconcile_charge_recoveries", lambda *_a, **_k: None)
+    monkeypatch.setattr(sync_all, "_CORE_ETL_RUNNERS", {})  # el ETL Core se prueba en test_sync_core_etl.py
 
     async def vp(_db, platform, _cb=None, **_k):
         if platform == "virtualpos2":

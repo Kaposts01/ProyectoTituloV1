@@ -13,16 +13,23 @@ from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
+from app.services import core_etl_mark
 from app.services import tch_report_registry as tch_registry
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_recovery import reconcile_charge_recoveries
+from app.services.core_payku_etl import run_payku_core_etl
+from app.services.core_toku_etl import run_toku_core_etl
+from app.services.core_vp_etl import run_vp_core_etl
 from app.services.payku_sync import sync_payku
+from app.services.sync_metrics import RunMetrics
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
 
 logger = logging.getLogger(__name__)
 
 _VIRTUALPOS_PLATFORMS = ("virtualpos1", "virtualpos2")
+# SYNC-O-16: ETL Core por canal (el mismo que /etl/core/{provider}); TCH no entra (se alimenta de reportes).
+_CORE_ETL_RUNNERS = {"virtualpos": run_vp_core_etl, "toku": run_toku_core_etl, "payku": run_payku_core_etl}
 _ALL_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
 
 
@@ -129,6 +136,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     channels_done: list[str] = []
     channels_failed: list[str] = []
     config_failed: list[str] = []
+    metrics = RunMetrics(run_id)
     vp_synced: dict[str, uuid.UUID] = {}  # cuenta VP -> id de su SyncRun (para reconciliar tras la consolidacion final)
 
     try:
@@ -246,6 +254,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         if tch_skipped:
             logger.info("Consolidación TCH omitida: sin reporte Excel nuevo desde la última consolidación exitosa.")
             event_bus.emit(run_id, {"type": "phase_skipped", "phase": "consolidating_tch", "reason": "sin_carga_nueva"})
+            metrics.note("tch_consolidation", "omitida: sin reporte Excel nuevo desde la ultima consolidacion")
 
         phase = "consolidating"
         _update_run(db_run_id, phase=phase)
@@ -293,6 +302,37 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             finally:
                 db.close()
 
+        # — ETL Core (SYNC-O-16) —: tras consolidar, solo de los canales que sincronizaron y consolidaron bien.
+        core_failures: list[str] = []
+        if settings.sync_core_etl_enabled and not consolidation_error:
+            core_targets: list[str] = []
+            if any(platform in channels_done for platform in _VIRTUALPOS_PLATFORMS):
+                core_targets.append("virtualpos")
+            for channel in ("toku", "payku"):
+                if channel in channels_done and not any(f.startswith(f"{channel}.") for f in consolidation_failures):
+                    core_targets.append(channel)
+            core_targets = [c for c in core_targets if c in _CORE_ETL_RUNNERS]
+            if core_targets:
+                _update_run(db_run_id, phase="core_etl")
+                event_bus.emit(run_id, {"type": "phase_start", "phase": "core_etl"})
+            for channel in core_targets:
+                db = SessionLocal()
+                try:
+                    with metrics.timed("core_etl", channel) as info:
+                        result = _CORE_ETL_RUNNERS[channel](db)
+                        core_etl_mark.record(db, channel, result)
+                        db.commit()
+                        info["records"] = sum(v for v in result.values() if isinstance(v, int))
+                    logger.info("ETL Core %s completado: %s", channel, result)
+                except Exception:
+                    db.rollback()
+                    logger.exception("Error en ETL Core %s", channel)
+                    core_failures.append(channel)
+                    metrics.add("core_etl", channel, error=True)
+                    event_bus.emit(run_id, {"type": "error", "phase": "core_etl", "msg": f"Error en ETL Core {channel}"})
+                finally:
+                    db.close()
+
         duration_s = int((datetime.now(timezone.utc) - started).total_seconds())
         failed_parts = []
         if channels_failed:
@@ -305,14 +345,25 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             failed_parts.append(f"Consolidacion con error: {', '.join(consolidation_failures)}")
         if consolidation_error:
             failed_parts.append("Consolidacion fallida")
+        if core_failures:
+            failed_parts.append(f"ETL Core con error: {', '.join(core_failures)}")
         failed_msg = "; ".join(failed_parts) or None
         # Nunca 'completed' si algo fallo: 'partial' si hubo exito en algun canal, 'failed' si ninguno.
-        if not (channels_failed or consolidation_failures or consolidation_error):
+        if not (channels_failed or consolidation_failures or consolidation_error or core_failures):
             final_status = "completed"
         elif channels_done:
             final_status = "partial"
         else:
             final_status = "failed"
+        db = SessionLocal()
+        try:
+            metrics.persist(db)
+            db.commit()
+        except Exception:
+            logger.exception("No se pudieron guardar las metricas del run")
+            db.rollback()
+        finally:
+            db.close()
         _update_run(
             db_run_id,
             status=final_status,

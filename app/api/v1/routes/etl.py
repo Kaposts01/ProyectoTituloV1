@@ -18,6 +18,7 @@ from app.scheduler.run_lock import (
     start_exclusive_run,
     start_exclusive_runs,
 )
+from app.services import core_etl_mark
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.client_match_detector import detect_matches
 from app.services.core_payku_etl import run_payku_core_etl
@@ -216,6 +217,9 @@ def _run_core_etl_background(run_id: uuid.UUID, provider: str) -> None:
     try:
         result = fn(db)
         db.commit()
+        if provider != "tch":  # marca de frescura del ETL Core (la lee /sync-runs/health)
+            core_etl_mark.record(db, provider, result)
+            db.commit()
         total = sum(result.values())
         _update_run(
             run_id,

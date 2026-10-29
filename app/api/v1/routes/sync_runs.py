@@ -2,13 +2,15 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.security import require_permissions
 from app.db.session import SessionLocal
+from app.models.core import CoreCharge
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
+from app.services import core_etl_mark
 
 router = APIRouter()
 
@@ -145,13 +147,39 @@ def _source_health(db: Session, source: str, now: datetime) -> dict[str, object]
     }
 
 
+# SYNC-O-16: el ETL Core de estos canales corre tras cada sync; si queda mas de 24 h detras, el canal esta degradado.
+_CORE_CHANNELS = ("virtualpos", "toku", "payku")
+_CORE_LAG_DEGRADED_AFTER = timedelta(hours=24)
+
+
+def _core_lag_hours(db: Session, channel: str, sources: tuple[str, ...]) -> float | None:
+    """Horas que el ETL Core va detras del ultimo sync EXITOSO del canal (None si no hay con que comparar).
+
+    Ultimo ETL Core = su marca (`core_etl_mark`); sin marca, el `updated_at` mas reciente de `core_charges` de
+    ese canal (cubre el estado previo a la marca: p. ej. Core de Toku que no se actualiza desde hace dias).
+    """
+    last_sync = db.scalar(
+        select(func.max(SyncRun.finished_at)).where(SyncRun.source.in_(sources), SyncRun.status == "completed")
+    )
+    core_last = core_etl_mark.last_finished_at(db, channel) or db.scalar(
+        select(func.max(CoreCharge.updated_at)).where(CoreCharge.source.in_(sources))
+    )
+    if last_sync is None or core_last is None:
+        return None
+    if last_sync.tzinfo is None:
+        last_sync = last_sync.replace(tzinfo=timezone.utc)
+    if core_last.tzinfo is None:
+        core_last = core_last.replace(tzinfo=timezone.utc)
+    return round(max(0.0, (last_sync - core_last).total_seconds() / 3600), 1)
+
+
 def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for channel, sources in _CHANNEL_SOURCES.items():
         parts = [_source_health(db, src, now) for src in (sources or (channel,))]
         worst = max(parts, key=lambda p: (_SEVERITY[p["level"]], _STATUS_SEVERITY[p["status"]]))  # type: ignore[index]
         finished_at = worst["finished_at"]
-        result.append({
+        item: dict[str, object] = {
             "channel": channel,
             "level": worst["level"],
             "last_finished_at": finished_at.isoformat() if finished_at else None,  # type: ignore[union-attr]
@@ -159,7 +187,16 @@ def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
             "status": worst["status"],
             "consecutive_failures": worst["consecutive_failures"],
             "days_without_success": worst["days_without_success"],
-        })
+        }
+        if channel in _CORE_CHANNELS:
+            lag = _core_lag_hours(db, channel, sources)
+            if lag is not None:
+                item["core_lag_hours"] = lag
+                if lag > _CORE_LAG_DEGRADED_AFTER.total_seconds() / 3600 and item["status"] == "ok":
+                    item["status"] = "degraded"
+                    if _SEVERITY[str(item["level"])] < _SEVERITY["warn"]:
+                        item["level"] = "warn"
+        result.append(item)
     return result
 
 
