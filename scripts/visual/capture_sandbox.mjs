@@ -261,6 +261,8 @@ const SCREENS = [
   { name: "dashboard-toku", label: "Dashboard Toku", path: "/toku/resumen" },
   { name: "dashboard-payku", label: "Dashboard Payku", path: "/payku/resumen" },
   { name: "dashboard-tch", label: "Dashboard TCH", path: "/tch/resumen" },
+  { name: "clientes-general", label: "Clientes consolidados (boton Exportar)", path: "/central/clientes" },
+  { name: "suscripciones-general", label: "Suscripciones consolidadas (boton Exportar)", path: "/central/suscripciones" },
   { name: "recuperador-vp", label: "Recuperador VirtualPOS", path: "/virtualpos/recuperador-socios" },
   { name: "cambios-pendientes", label: "Cambios de cobro: Pendientes", path: "/general/cambios-de-cobro", steps: async (p) => { await openPendingTab(p); await p.locator("table.bx-table").waitFor({ timeout: 20000 }); } },
   { name: "cambios-historial", label: "Cambios de cobro: Historial", path: "/general/cambios-de-cobro", steps: async (p) => { await p.getByRole("tab", { name: /^Historial/ }).click(); await p.locator("table.bx-table").waitFor({ timeout: 20000 }); } },
