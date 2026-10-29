@@ -7,7 +7,7 @@ import type {
   TchTransaccionDetail, TchTransaccionesResp,
 } from "../shared/types";
 
-export type TchViewName = "summary" | "clientes" | "suscripciones" | "transacciones" | "cliente-detalle" | "suscripcion-detalle" | "transaccion-detalle";
+export type TchViewName = "summary" | "clientes" | "suscripciones" | "transacciones" | "client-detail" | "subscription-detail" | "transaction-detail";
 
 /**
  * Estado y carga de las vistas TCH. Se llama desde AppCore (no desde la vista) para que el estado
@@ -17,35 +17,35 @@ export function useTch(session: AuthSession | null | undefined) {
   const [tchView, setTchView] = useState<TchViewName | null>(null);
   const [tchRefreshing, setTchRefreshing] = useState(false);
   const [tchSummary, setTchSummary] = useState<TchSummary | null>(null);
-  const [tchSuscripciones, setTchSuscripciones] = useState<TchSuscripcionesResp | null>(null);
-  const [tchTransacciones, setTchTransacciones] = useState<TchTransaccionesResp | null>(null);
-  const [tchClientes, setTchClientes] = useState<TchClientesResp | null>(null);
+  const [tchSubscriptions, setTchSubscriptions] = useState<TchSuscripcionesResp | null>(null);
+  const [tchTransactions, setTchTransactions] = useState<TchTransaccionesResp | null>(null);
+  const [tchClients, setTchClients] = useState<TchClientesResp | null>(null);
   const [tchLoading, setTchLoading] = useState(false);
   const [tchError, setTchError] = useState<string | null>(null);
-  const [tchSusPage, setTchSusPage] = useState(1);
-  const [tchTransPage, setTchTransPage] = useState(1);
-  const [tchSusFiltroEstado, setTchSusFiltroEstado] = useState("");
-  const [tchClienteFiltro, setTchClienteFiltro] = useState("");
-  const [tchClientesPage, setTchClientesPage] = useState(1);
-  const [tchTransFiltroPeriodo, setTchTransFiltroPeriodo] = useState("");
+  const [tchSubscriptionPage, setTchSubscriptionPage] = useState(1);
+  const [tchTransactionPage, setTchTransactionPage] = useState(1);
+  const [tchSubscriptionStatusFilter, setTchSubscriptionStatusFilter] = useState("");
+  const [tchClientFilter, setTchClientFilter] = useState("");
+  const [tchClientPage, setTchClientPage] = useState(1);
+  const [tchTransactionPeriodFilter, setTchTransactionPeriodFilter] = useState("");
   const [tchMode, setTchMode] = useState<"count" | "amount">("count");
   const [tchYear, setTchYear] = useState<number | null>(null);
-  const [tchSuscripcionDetail, setTchSuscripcionDetail] = useState<TchSuscripcionDetail | null>(null);
-  const [tchTransaccionDetail, setTchTransaccionDetail] = useState<TchTransaccionDetail | null>(null);
-  const [tchClienteDetail, setTchClienteDetail] = useState<TchClienteDetail | null>(null);
+  const [tchSubscriptionDetail, setTchSubscriptionDetail] = useState<TchSuscripcionDetail | null>(null);
+  const [tchTransactionDetail, setTchTransactionDetail] = useState<TchTransaccionDetail | null>(null);
+  const [tchClientDetail, setTchClientDetail] = useState<TchClienteDetail | null>(null);
 
-  function showTchTransaccion(id: string) {
-    setTchClienteDetail(null);
-    setTchSuscripcionDetail(null);
-    setTchTransaccionDetail({ id } as TchTransaccionDetail);
-    setTchView("transaccion-detalle");
+  function showTchTransaction(id: string) {
+    setTchClientDetail(null);
+    setTchSubscriptionDetail(null);
+    setTchTransactionDetail({ id } as TchTransaccionDetail);
+    setTchView("transaction-detail");
   }
 
-  function showTchCliente(rut: string) {
-    setTchSuscripcionDetail(null);
-    setTchTransaccionDetail(null);
-    setTchClienteDetail({ rut, suscripciones: [] } as unknown as TchClienteDetail);
-    setTchView("cliente-detalle");
+  function showTchClient(rut: string) {
+    setTchSubscriptionDetail(null);
+    setTchTransactionDetail(null);
+    setTchClientDetail({ rut, suscripciones: [] } as unknown as TchClienteDetail);
+    setTchView("client-detail");
   }
 
   useEffect(() => {
@@ -74,49 +74,49 @@ export function useTch(session: AuthSession | null | undefined) {
         .finally(() => { if (mounted) { setTchLoading(false); setTchRefreshing(false); } });
     } else if (tchView === "clientes") {
       setTchLoading(true);
-      const params = new URLSearchParams({ limit: "50", page: String(tchClientesPage) });
-      if (tchClienteFiltro) params.set("nombre", tchClienteFiltro);
+      const params = new URLSearchParams({ limit: "50", page: String(tchClientPage) });
+      if (tchClientFilter) params.set("nombre", tchClientFilter);
       getJson<TchClientesResp>(`/api/v1/tch/clientes?${params}`)
-        .then((d) => { if (mounted) setTchClientes(d); })
+        .then((d) => { if (mounted) setTchClients(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar los clientes TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     } else if (tchView === "suscripciones") {
       setTchLoading(true);
-      const params = new URLSearchParams({ limit: "50", page: String(tchSusPage) });
-      if (tchSusFiltroEstado) params.set("estado", tchSusFiltroEstado);
+      const params = new URLSearchParams({ limit: "50", page: String(tchSubscriptionPage) });
+      if (tchSubscriptionStatusFilter) params.set("estado", tchSubscriptionStatusFilter);
       getJson<TchSuscripcionesResp>(`/api/v1/tch/suscripciones?${params}`)
-        .then((d) => { if (mounted) setTchSuscripciones(d); })
+        .then((d) => { if (mounted) setTchSubscriptions(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar las suscripciones TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     } else if (tchView === "transacciones") {
       setTchLoading(true);
-      const params = new URLSearchParams({ limit: "100", page: String(tchTransPage) });
-      if (tchTransFiltroPeriodo) params.set("periodo", tchTransFiltroPeriodo);
+      const params = new URLSearchParams({ limit: "100", page: String(tchTransactionPage) });
+      if (tchTransactionPeriodFilter) params.set("periodo", tchTransactionPeriodFilter);
       getJson<TchTransaccionesResp>(`/api/v1/tch/transacciones?${params}`)
-        .then((d) => { if (mounted) setTchTransacciones(d); })
+        .then((d) => { if (mounted) setTchTransactions(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar las transacciones TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
-    } else if (tchView === "suscripcion-detalle" && tchSuscripcionDetail) {
+    } else if (tchView === "subscription-detail" && tchSubscriptionDetail) {
       setTchLoading(true);
-      getJson<TchSuscripcionDetail>(`/api/v1/tch/suscripciones/${tchSuscripcionDetail.numero_ficha}`)
-        .then((d) => { if (mounted) setTchSuscripcionDetail(d); })
+      getJson<TchSuscripcionDetail>(`/api/v1/tch/suscripciones/${tchSubscriptionDetail.numero_ficha}`)
+        .then((d) => { if (mounted) setTchSubscriptionDetail(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
-    } else if (tchView === "transaccion-detalle" && tchTransaccionDetail) {
+    } else if (tchView === "transaction-detail" && tchTransactionDetail) {
       setTchLoading(true);
-      getJson<TchTransaccionDetail>(`/api/v1/tch/transacciones/${tchTransaccionDetail.id}`)
-        .then((d) => { if (mounted) setTchTransaccionDetail(d); })
+      getJson<TchTransaccionDetail>(`/api/v1/tch/transacciones/${tchTransactionDetail.id}`)
+        .then((d) => { if (mounted) setTchTransactionDetail(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
-    } else if (tchView === "cliente-detalle" && tchClienteDetail) {
+    } else if (tchView === "client-detail" && tchClientDetail) {
       setTchLoading(true);
-      getJson<TchClienteDetail>(`/api/v1/tch/clientes/${encodeURIComponent(tchClienteDetail.rut)}`)
-        .then((d) => { if (mounted) setTchClienteDetail(d); })
+      getJson<TchClienteDetail>(`/api/v1/tch/clientes/${encodeURIComponent(tchClientDetail.rut)}`)
+        .then((d) => { if (mounted) setTchClientDetail(d); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar la ficha del cliente TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
     }
     return () => { mounted = false; };
-  }, [session, tchView, tchClientesPage, tchClienteFiltro, tchSusPage, tchSusFiltroEstado, tchTransPage, tchTransFiltroPeriodo, tchSuscripcionDetail?.numero_ficha, tchTransaccionDetail?.id, tchClienteDetail?.rut]);
+  }, [session, tchView, tchClientPage, tchClientFilter, tchSubscriptionPage, tchSubscriptionStatusFilter, tchTransactionPage, tchTransactionPeriodFilter, tchSubscriptionDetail?.numero_ficha, tchTransactionDetail?.id, tchClientDetail?.rut]);
 
   return {
     tchView,
@@ -125,40 +125,40 @@ export function useTch(session: AuthSession | null | undefined) {
     setTchRefreshing,
     tchSummary,
     setTchSummary,
-    tchSuscripciones,
-    setTchSuscripciones,
-    tchTransacciones,
-    setTchTransacciones,
-    tchClientes,
-    setTchClientes,
+    tchSubscriptions,
+    setTchSubscriptions,
+    tchTransactions,
+    setTchTransactions,
+    tchClients,
+    setTchClients,
     tchLoading,
     setTchLoading,
     tchError,
     setTchError,
-    tchSusPage,
-    setTchSusPage,
-    tchTransPage,
-    setTchTransPage,
-    tchSusFiltroEstado,
-    setTchSusFiltroEstado,
-    tchClienteFiltro,
-    setTchClienteFiltro,
-    tchClientesPage,
-    setTchClientesPage,
-    tchTransFiltroPeriodo,
-    setTchTransFiltroPeriodo,
+    tchSubscriptionPage,
+    setTchSubscriptionPage,
+    tchTransactionPage,
+    setTchTransactionPage,
+    tchSubscriptionStatusFilter,
+    setTchSubscriptionStatusFilter,
+    tchClientFilter,
+    setTchClientFilter,
+    tchClientPage,
+    setTchClientPage,
+    tchTransactionPeriodFilter,
+    setTchTransactionPeriodFilter,
     tchMode,
     setTchMode,
     tchYear,
     setTchYear,
-    tchSuscripcionDetail,
-    setTchSuscripcionDetail,
-    tchTransaccionDetail,
-    setTchTransaccionDetail,
-    tchClienteDetail,
-    setTchClienteDetail,
-    showTchTransaccion,
-    showTchCliente,
+    tchSubscriptionDetail,
+    setTchSubscriptionDetail,
+    tchTransactionDetail,
+    setTchTransactionDetail,
+    tchClientDetail,
+    setTchClientDetail,
+    showTchTransaction,
+    showTchClient,
   };
 }
 export type TchState = ReturnType<typeof useTch>;

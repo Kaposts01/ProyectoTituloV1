@@ -112,7 +112,7 @@ function AppCore() {
     setVpPlatform((p) => (p === "virtualpos2" ? "virtualpos1" : p));
   }, [vp2Enabled]);
   const tch = useTch(session);
-  const { tchView, setTchView, setTchSuscripcionDetail, setTchTransaccionDetail, setTchClienteDetail } = tch;
+  const { tchView, setTchView, setTchSubscriptionDetail, setTchTransactionDetail, setTchClientDetail } = tch;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const burgerRef = useRef<HTMLButtonElement>(null);
   const channelHealth = useChannelHealth(Boolean(session));
@@ -256,23 +256,23 @@ function AppCore() {
     setRecoveryOpen(false);
     setBillingOpen(false);
     setError(null);
-    setTchSuscripcionDetail(null);
-    setTchTransaccionDetail(null);
-    setTchClienteDetail(null);
+    setTchSubscriptionDetail(null);
+    setTchTransactionDetail(null);
+    setTchClientDetail(null);
     setTchView(view);
     setDetailOpen(true);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "tch", view });
   }
 
-  function showTchSuscripcion(numeroFicha: number, updateUrl = true) {
+  function showTchSubscription(numeroFicha: number, updateUrl = true) {
     if (updateUrl) {
       navigate({ kind: "tchSubscription", numeroFicha });
       return;
     }
     showTch("suscripciones", false);
-    setTchSuscripcionDetail({ numero_ficha: numeroFicha, transacciones: [] } as unknown as TchSuscripcionDetail);
-    setTchView("suscripcion-detalle");
+    setTchSubscriptionDetail({ numero_ficha: numeroFicha, transacciones: [] } as unknown as TchSuscripcionDetail);
+    setTchView("subscription-detail");
   }
 
 
@@ -438,7 +438,7 @@ function AppCore() {
     } else if (route.kind === "tch") {
       showTch(route.view, false);
     } else if (route.kind === "tchSubscription") {
-      showTchSuscripcion(route.numeroFicha, false);
+      showTchSubscription(route.numeroFicha, false);
     } else if (route.kind === "admin") {
       showAdmin(route.view, false);
     } else {
@@ -593,7 +593,7 @@ function AppCore() {
 
   const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} can={can} />;
 
-  const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSuscripcion={showTchSuscripcion} onReport={setReportScope} can={can} /> : null;
+  const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSubscription={showTchSubscription} onReport={setReportScope} can={can} /> : null;
 
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
