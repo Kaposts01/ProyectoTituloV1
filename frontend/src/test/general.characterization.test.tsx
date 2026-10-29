@@ -274,8 +274,8 @@ describe("Suscripciones consolidadas (/central/suscripciones)", () => {
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["ID", "Cliente", "RUT", "Plataforma", "Estado", "Estado secundario", "Último cobro", "Inicio", "Término", "Monto"]);
     expect(screen.getByText("CLP $10.000")).toBeTruthy();
     expect(screen.getByText("2025-03-05")).toBeTruthy();
-    expect(screen.getByText("cobrable").className).toContain("badge-green");
-    expect(screen.getByText("inactiva").className).toContain("badge-gray");
+    expect(screen.getByText("Cobrable").className).toContain("badge-green");
+    expect(screen.getByText("Inactiva").className).toContain("badge-gray");
     expect(screen.getByText("1-2 de 250")).toBeTruthy();
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();

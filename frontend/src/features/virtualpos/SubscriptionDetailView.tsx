@@ -1,5 +1,7 @@
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosSubscriptionDetail } from "../shared/types";
+import { label, labelOr } from "../../i18n/label";
+import { fieldValue } from "../shared/display";
 import { text, nested, objectEntries, fieldLabel, renewalText, cardTypeText, isActiveSubscription, isPendingCharge, isRejectedCharge } from "../shared/utils";
 import { virtualPosSubscriptionFields } from "./constants";
 import { VirtualPosDetailTable } from "./VirtualPosDetailTable";
@@ -70,7 +72,7 @@ export function SubscriptionDetailView({
             <dt>{fieldLabel(field)}</dt>
             <dd>
               {field === "secondary_status"
-                ? <span className={`badge badge-${subscriptionDetail.subscription.secondary_status === "cobrable" ? "green" : subscriptionDetail.subscription.secondary_status === "incobrable" ? "orange" : subscriptionDetail.subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{subscriptionDetail.subscription.secondary_status ?? "—"}</span>
+                ? <span className={`badge badge-${subscriptionDetail.subscription.secondary_status === "cobrable" ? "green" : subscriptionDetail.subscription.secondary_status === "incobrable" ? "orange" : subscriptionDetail.subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{labelOr("secondaryStatus", subscriptionDetail.subscription.secondary_status, "—")}</span>
                 : field === "last_paid_date"
                   ? (subscriptionDetail.subscription.last_paid_date ? String(subscriptionDetail.subscription.last_paid_date).slice(0, 10) : "—")
                 : field === "id"
@@ -82,7 +84,7 @@ export function SubscriptionDetailView({
                   ? <button className="record-link" onClick={() => void openVirtualPosPlan({ external_id: String(subscriptionDetail.subscription.payload.plan_id) })}>{text(subscriptionDetail.subscription.payload[field])}</button>
                   : field === "renewal"
                     ? renewalText(subscriptionDetail.subscription.payload[field])
-                    : text(subscriptionDetail.subscription.payload[field])}
+                    : fieldValue(field, subscriptionDetail.subscription.payload[field])}
             </dd>
           </div>
         ))}
@@ -116,7 +118,7 @@ export function SubscriptionDetailView({
       <VirtualPosDetailTable records={subscriptionDetail.charges} empty="Sin cargos asociados a la subscripción." columns={[
         { label: "Fecha de cargo", kind: "date", value: (record) => text(record.payload.charge_date, "") },
         { label: "ID Cargo", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosCharge(record)}>{text(record.payload.id, record.external_id)}</button> },
-        { label: "Estado", value: (record) => text(record.payload.status) },
+        { label: "Estado", value: (record) => label("status", record.payload.status) },
         { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
         { label: "Acción", filterable: false, value: () => "", render: (record) => isPendingCharge(record) && can("virtualpos.charges.cancel") ? <button className="cancel-charge-button" onClick={() => onCancelCharge(record)}>Cancelar</button> : isRejectedCharge(record) && can("virtualpos.charges.retry") ? <button className="retry-charge-button" onClick={() => onRetryCharge(record)}>Reintentar</button> : null },
       ]} />
@@ -133,7 +135,7 @@ export function SubscriptionDetailView({
       <VirtualPosDetailTable records={subscriptionDetail.payments} empty="Sin transacciones disponibles para este cliente." columns={[
         { label: "Fecha autorización", kind: "date", value: (record) => text(nested(record.payload, "order", "authorized_at"), "") },
         { label: "ID Transacción", value: (record) => record.external_id, render: (record) => <button className="record-link" onClick={() => void openVirtualPosPayment(record)}>{record.external_id}</button> },
-        { label: "Estado", value: (record) => text(nested(record.payload, "order", "status")) },
+        { label: "Estado", value: (record) => label("status", nested(record.payload, "order", "status")) },
         { label: "Monto", kind: "amount", value: (record) => text(nested(record.payload, "order", "amount"), "0") },
       ]} />
     </section>

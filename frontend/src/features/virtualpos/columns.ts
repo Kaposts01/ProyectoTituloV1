@@ -1,3 +1,4 @@
+import { label, labelOr } from "../../i18n/label";
 import { text, dateOnly, clp, nested, cardTypeText, record } from "../shared/utils";
 import type { StagingRecord, TableColumn } from "../shared/types";
 
@@ -36,7 +37,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
       { label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
       { label: "Telefono", value: (rec) => text(rec.payload.phone_number) },
       plataforma,
-      { label: "Estado", value: (rec) => text(rec.payload.status) },
+      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { label: "Acciones", value: () => "Editar" },
     ];
   if (resource === "plan")
@@ -54,8 +55,8 @@ export function virtualPosColumns(resource: string): TableColumn[] {
   if (resource === "subscription")
     return [
       { label: "RUT cliente", value: clientRut },
-      { label: "Estado", value: (rec) => text(rec.payload.status) },
-      { label: "Estado sec.", value: (rec) => rec.secondary_status ?? "—" },
+      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
       { label: "Monto", value: (rec) => clp(rec.payload.amount) },
       { label: "F. Inicio", value: (rec) => text(rec.payload.suscription_date) },
       { label: "F. Cancelacion", value: (rec) => text(rec.payload.canceled_at) },
@@ -69,7 +70,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
       { label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
       { label: "RUT cliente", value: (rec) => rec.client_social_id ?? "Sin dato" },
       { label: "Fecha de cargo", value: (rec) => text(rec.payload.charge_date) },
-      { label: "Estado", value: (rec) => text(rec.payload.status) },
+      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { label: "Monto", value: (rec) => clp(rec.payload.amount) },
       plataforma,
       { label: "Acciones", value: () => "Eliminar" },
@@ -79,7 +80,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
     { label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
     { label: "F. Pago", value: (rec) => text(nested(rec.payload, "order", "authorized_at")) },
     { label: "Monto", value: (rec) => clp(nested(rec.payload, "order", "amount")) },
-    { label: "Estado", value: (rec) => text(nested(rec.payload, "order", "status")) },
+    { label: "Estado", value: (rec) => label("status", nested(rec.payload, "order", "status")) },
     plataforma,
     { label: "Acciones", value: () => "Eliminar" },
   ];
@@ -99,8 +100,8 @@ export function tokuColumns(resource: string): TableColumn[] {
       { label: "RUT cliente", value: (rec) => text(rec.client_rut) },
       { label: "Cliente", value: (rec) => text(rec.client_name) },
       { label: "Monto", value: (rec) => clp(rec.payload.amount) },
-      { label: "Estado", value: (rec) => text(rec.payload.status ?? nested(rec.payload, "recurring", "status")) },
-      { label: "Estado sec.", value: (rec) => rec.secondary_status ?? "—" },
+      { label: "Estado", value: (rec) => label("status", rec.payload.status ?? nested(rec.payload, "recurring", "status")) },
+      { label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
       { label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
       { label: "F. Inicio", value: (rec) => dateOnly(rec.payload.anchor ?? nested(rec.payload, "recurring", "anchor")) },
       { label: "F. Cancelacion", value: (rec) => dateOnly(rec.payload.end_date ?? nested(rec.payload, "recurring", "end_date")) },
@@ -116,7 +117,7 @@ export function tokuColumns(resource: string): TableColumn[] {
     };
     return [
       { label: "ID", value: (item) => text(method(item).id ?? item.payload.id, item.external_id) },
-      { label: "Estado", value: (item) => text(method(item).status ?? item.payload.status) },
+      { label: "Estado", value: (item) => label("status", method(item).status ?? item.payload.status) },
       { label: "F. Creacion", value: (item) => dateOnly(method(item).created_at ?? item.payload.created_at) },
       { label: "Cliente", value: (item) => text(customer(item).name ?? customer(item).id ?? item.payload.customer_id ?? item.payload.customer) },
       { label: "Marca", value: (item) => text(card(item).card_brand ?? method(item).card_brand) },
@@ -133,7 +134,7 @@ export function tokuColumns(resource: string): TableColumn[] {
       { label: "Cliente", value: (rec) => text(rec.client_name) },
       { label: "Monto", value: (rec) => clp(rec.payload.amount) },
       { label: "Pagado", value: (rec) => paid(rec.payload.is_paid) },
-      { label: "Estado", value: (rec) => text(rec.payload.status) },
+      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { label: "Fecha limite", value: (rec) => dateOnly(rec.payload.due_date) },
       { label: "Acciones", value: () => "Acciones" },
     ];
@@ -150,28 +151,28 @@ export function tokuRelatedColumns(resource: string): TableColumn[] {
     return [
       { label: "Nombre", value: (item) => text(item.payload.name) },
       { label: "RUT", value: (item) => text(item.payload.government_id) },
-      { label: "Estado", value: (item) => text(item.payload.status) },
+      { label: "Estado", value: (item) => label("status", item.payload.status) },
     ];
   if (resource === "payment_method")
     return [
-      { label: "Estado", value: (item) => text(nested(item.payload, "payment_method", "status") ?? item.payload.status) },
+      { label: "Estado", value: (item) => label("status", nested(item.payload, "payment_method", "status") ?? item.payload.status) },
       { label: "Fecha creación", value: (item) => dateOnly(nested(item.payload, "payment_method", "created_at") ?? item.payload.created_at) },
     ];
   if (resource === "invoice")
     return [
-      { label: "Estado", value: (item) => text(item.payload.status) },
+      { label: "Estado", value: (item) => label("status", item.payload.status) },
       { label: "Fecha", value: (item) => dateOnly(item.payload.due_date ?? item.payload.created_at) },
       { label: "Monto", value: (item) => clp(item.payload.amount) },
     ];
   if (resource === "transaction")
     return [
-      { label: "Estado", value: (item) => text(nested(item.payload, "transaction", "status") ?? item.payload.status) },
+      { label: "Estado", value: (item) => label("status", nested(item.payload, "transaction", "status") ?? item.payload.status) },
       { label: "Fecha", value: (item) => dateOnly(nested(item.payload, "transaction", "transaction_date") ?? item.payload.transaction_date) },
       { label: "Monto", value: (item) => clp(nested(item.payload, "transaction", "amount") ?? item.payload.amount) },
     ];
   return [
     { label: "Nombre", value: (item) => text(item.payload.name, text(nested(item.payload, "client", "name"))) },
-    { label: "Estado", value: (item) => text(item.payload.status) },
+    { label: "Estado", value: (item) => label("status", item.payload.status) },
     { label: "Monto", value: (item) => clp(item.payload.amount) },
   ];
 }
@@ -189,7 +190,7 @@ export function paykuColumns(resource: string): TableColumn[] {
   if (resource === "plan")
     return [
       { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-      { label: "Estado", value: (rec) => text(rec.payload.status) },
+      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { label: "Nombre", value: (rec) => text(rec.payload.name) },
       { label: "Subscripciones activas", value: (rec) => (rec.active_subscriptions ?? 0).toLocaleString("es-CL") },
       { label: "Subscripciones cobrables", value: (rec) => (rec.collectible_subscriptions ?? 0).toLocaleString("es-CL") },
@@ -197,8 +198,8 @@ export function paykuColumns(resource: string): TableColumn[] {
   if (resource === "subscription")
     return [
       { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-      { label: "Estado", value: (rec) => text(rec.payload.status) },
-      { label: "Estado sec.", value: (rec) => rec.secondary_status ?? "—" },
+      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
       { label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
       { label: "RUT", value: (rec) => text(nested(rec.payload, "client", "rut")) },
       { label: "F. Inicio", value: (rec) => text(rec.payload.start) },
@@ -207,7 +208,7 @@ export function paykuColumns(resource: string): TableColumn[] {
     ];
   return [
     { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-    { label: "Estado", value: (rec) => text(rec.payload.status) },
+    { label: "Estado", value: (rec) => label("status", rec.payload.status) },
     { label: "ID subscripciones", value: (rec) => text(rec.payload.subscriptions) },
     { label: "Monto", value: (rec) => clp(rec.payload.amount) },
     { label: "F. Pago", value: (rec) => text(rec.payload.created_at) },

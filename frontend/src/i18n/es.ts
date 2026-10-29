@@ -317,6 +317,11 @@ export const es = {
     "bank account": "Cuenta bancaria",
     mandate: "Mandato",
   },
+  /**
+   * Código de tipo de pago de VirtualPOS (`payment_type_code`, p. ej. VN). Vacío a propósito: el significado
+   * de cada código lo define el usuario; mientras tanto se muestra «Desconocido (código)».
+   */
+  paymentType: {} as Record<string, string>,
   /** Gravedad de una alerta operativa. */
   severity: {
     alta: "Alta",

@@ -1,3 +1,4 @@
+import { label } from "../../i18n/label";
 import { deleteEndpoint, providerEditFields } from "../virtualpos/constants";
 import { resourceTitle, text, title } from "../shared/utils";
 import type { ProviderWritesState } from "./useProviderWrites";
@@ -44,7 +45,7 @@ export function ProviderWriteDialogs({ writes }: { writes: ProviderWritesState }
           </div>
           <p className="edit-dialog-note">
             Se enviará POST <code>/subscriptions/{text(managingTokuSub.payload.id, managingTokuSub.external_id)}/status</code> a Toku.
-            Estado actual: <strong>{text(managingTokuSub.payload.status)}</strong>
+            Estado actual: <strong>{label("status", managingTokuSub.payload.status)}</strong>
           </p>
           <div className="edit-form-grid">
             <label>

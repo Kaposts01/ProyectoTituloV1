@@ -1,5 +1,6 @@
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosChargeDetail } from "../shared/types";
+import { fieldValue } from "../shared/display";
 import { text, fieldLabel, isPendingCharge, isRejectedCharge } from "../shared/utils";
 import { vpClientRecordName } from "./columns";
 
@@ -54,7 +55,7 @@ export function ChargeDetailView({
         {Object.entries(chargeDetail.charge.payload).map(([field, value]) => (
           <div key={field}>
             <dt>{fieldLabel(field)}</dt>
-            <dd>{text(value)}</dd>
+            <dd>{fieldValue(field, value)}</dd>
           </div>
         ))}
       </dl>

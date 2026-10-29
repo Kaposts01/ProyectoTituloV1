@@ -1,5 +1,7 @@
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosClientDetail } from "../shared/types";
+import { label, labelOr } from "../../i18n/label";
+import { fieldValue } from "../shared/display";
 import { text, nested, isActiveSubscription } from "../shared/utils";
 import { virtualPosClientFields, virtualPosClientFieldLabels, virtualPosDocumentTypes } from "./constants";
 import { VirtualPosDetailTable } from "./VirtualPosDetailTable";
@@ -51,7 +53,7 @@ export function ClientDetailView({
                   )
                 : field === "social_id_type"
                   ? (virtualPosDocumentTypes[text(clientDetail.client.payload[field], "")] ?? text(clientDetail.client.payload[field]))
-                : text(clientDetail.client.payload[field])}
+                : fieldValue(field, clientDetail.client.payload[field])}
             </dd>
           </div>
         ))}
@@ -67,8 +69,8 @@ export function ClientDetailView({
       </div>
       <VirtualPosDetailTable records={clientDetail.subscriptions} empty="Sin suscripciones asociadas por RUT." columns={[
         { label: "ID suscripción", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
-        { label: "Estado", value: (record) => text(record.payload.status) },
-        { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
+        { label: "Estado", value: (record) => label("status", record.payload.status) },
+        { label: "Estado sec.", value: (record) => labelOr("secondaryStatus", record.secondary_status, "—") },
         { label: "Último cobro", kind: "date", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "" },
         { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
         { label: "F. Inicio", kind: "date", value: (record) => text(record.payload.suscription_date, "") },
@@ -87,7 +89,7 @@ export function ClientDetailView({
         { label: "Fecha", kind: "date", value: (record) => text(record.payload.charge_date, "") },
         { label: "ID Cargo", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosCharge(record)}>{text(record.payload.id, record.external_id)}</button> },
         { label: "Plan", value: (record) => record.plan_name ?? "", render: (record) => record.subscription_id ? <button className="record-link" onClick={() => void openVirtualPosSubscription({ external_id: record.subscription_id! })}>{record.plan_name ?? "Sin plan"}</button> : "Sin plan" },
-        { label: "Estado", value: (record) => text(record.payload.status) },
+        { label: "Estado", value: (record) => label("status", record.payload.status) },
         { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
       ]} />
     </section>
@@ -102,10 +104,10 @@ export function ClientDetailView({
       <VirtualPosDetailTable records={clientDetail.payments} empty="Sin transacciones procesadas para este cliente." columns={[
         { label: "Fecha autorización", kind: "date", value: (record) => text(nested(record.payload, "order", "authorized_at"), "") },
         { label: "ID Transacción", value: (record) => record.external_id, render: (record) => <button className="record-link" onClick={() => void openVirtualPosPayment(record)}>{record.external_id}</button> },
-        { label: "Estado", value: (record) => text(nested(record.payload, "order", "status")) },
+        { label: "Estado", value: (record) => label("status", nested(record.payload, "order", "status")) },
         { label: "Monto bruto", kind: "amount", value: (record) => text(nested(record.payload, "order", "amount"), "0") },
         { label: "Abono neto", kind: "amount", value: (record) => { const order = record.payload.order as Record<string, unknown> | undefined; const deposit = Array.isArray(order?.deposits) ? order.deposits[0] as Record<string, unknown> : undefined; return text(deposit?.payout_amount, "0"); } },
-        { label: "Tipo", value: (record) => text(nested(record.payload, "order", "payment_type_code"), "") },
+        { label: "Tipo", value: (record) => labelOr("paymentType", nested(record.payload, "order", "payment_type_code"), "") },
       ]} />
     </section>
   </main>

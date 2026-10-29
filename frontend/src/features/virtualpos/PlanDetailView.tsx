@@ -1,5 +1,6 @@
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosPlanDetail } from "../shared/types";
+import { label } from "../../i18n/label";
 import { text, fieldLabel, externalUrl } from "../shared/utils";
 import { virtualPosPlanFields } from "./constants";
 import { virtualPosClientName } from "./columns";
@@ -54,7 +55,7 @@ export function PlanDetailView({
         { label: "ID suscripción", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
         { label: "Nombre cliente", value: virtualPosClientName },
         { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
-        { label: "Estado", value: (record) => text(record.payload.status) },
+        { label: "Estado", value: (record) => label("status", record.payload.status) },
       ]} />
     </section>
   </main>

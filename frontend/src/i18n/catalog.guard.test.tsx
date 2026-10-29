@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelDashboardView } from "../features/dashboard/ChannelDashboardView";
 import type { ChannelDashboard } from "../features/shared/types";
 import { appReady, listSettled, mountApp, resetApp, type Handler } from "../test/appHarness";
-import { page, paykuClient, tokuCustomer, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "../test/fixtures";
+import { page, paykuClient, paykuSubscription, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "../test/fixtures";
 import { es } from "./es";
 import { label, resetUnknownWarnings } from "./label";
 
@@ -107,6 +107,43 @@ GUARDED_VIEWS.push(
     ready: async () => {
       fireEvent.click(await screen.findByRole("button", { name: "22222221-2" }));
       return screen.findByText("TCH / CLIENTE");
+    },
+  },
+);
+
+const tokuSubRecord = { record: tokuSubscription(1), related: [] };
+
+// Paso 5: estados en listas y fichas de VirtualPOS, Toku y Payku.
+GUARDED_VIEWS.push(
+  { name: "lista de suscripciones Toku (ACTIVE)", path: "/toku/suscripciones", handlers: [list([tokuSubscription(1)])], ready: () => screen.findByRole("button", { name: /Ver ficha de/ }) },
+  { name: "lista de suscripciones Payku (active)", path: "/payku/suscripciones", handlers: [list([paykuSubscription(1)])], ready: () => screen.findByRole("button", { name: /Ver ficha de/ }) },
+  { name: "lista de suscripciones VirtualPOS", path: "/virtualpos/suscripciones", handlers: [list([vpSubscription(1)])], ready: () => screen.findByText("Cancelar Sub") },
+  { name: "lista de cargos VirtualPOS", path: "/virtualpos/cargos", handlers: [list([vpCharge(1, "pendiente"), vpCharge(2, "rechazado")])], ready: () => screen.findByText("Reintentar") },
+  {
+    name: "diálogo «Gestionar estado» de una suscripción Toku",
+    path: "/toku/suscripciones/tsu-1",
+    handlers: [list([]), ["GET", "/api/v1/staging/toku/subscription/tsu-1", tokuSubRecord]],
+    ready: async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Gestionar estado" }));
+      return screen.findByRole("form", { name: "Gestionar estado suscripción Toku" });
+    },
+  },
+  {
+    name: "suscripciones consolidadas con estado crudo",
+    path: "/central/suscripciones",
+    handlers: [["GET", "/api/v1/staging/dashboard/general/subscriptions", { total: 1, offset: 0, limit: 100, items: [{ id: "s-1", client: "Cliente Uno", rut: "11111111-1", platform: "Toku", status: "ACTIVE", secondary_status: "cobrable", last_paid_date: null, started_at: "2025-01-01", ended_at: null, amount: "1000", currency: "CLP" }] }]],
+    ready: () => screen.findByText("Cliente Uno"),
+  },
+  {
+    name: "ficha general de cliente con estados crudos",
+    path: "/central/clientes",
+    handlers: [
+      ["GET", "/api/v1/staging/dashboard/general/clients", { total: 1, offset: 0, limit: 100, items: [{ rut: "11111111-1", name: "Cliente Uno", origins: ["Toku"], active_origins: ["Toku"] }] }],
+      ["GET", /^\/api\/v1\/staging\/dashboard\/general\/clients\/[^/]+$/, { rut: "11111111-1", clients: [], subscriptions: [{ portal: "Toku", id_subscription: "1", external_id: "tsu-1", status: "CANCELLED" }], charges: [{ portal: "VirtualPOS", id_cargo: "2", external_id: "c-1", status: "PAID", amount: "1000" }], transactions: [] }],
+    ],
+    ready: async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "11111111-1" }));
+      return screen.findByText(/Ficha general/);
     },
   },
 );

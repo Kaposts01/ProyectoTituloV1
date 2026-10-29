@@ -1,5 +1,6 @@
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, ProviderRecordDetail } from "../shared/types";
+import { fieldValue } from "../shared/display";
 import { text, objectEntries, fieldLabel, providerRecordHeading, title, resourceTitle } from "../shared/utils";
 import { recurringFieldLabels, providerEditFields, deletableResources } from "../virtualpos/constants";
 import { tokuRelatedColumns } from "../virtualpos/columns";
@@ -77,14 +78,14 @@ export function ProviderRecordDetailView({
                         ? `Recurrencia ${recurringFieldLabels[subField] ?? fieldLabel(subField)}`
                         : `${fieldLabel(field)} — ${fieldLabel(subField)}`}
                     </dt>
-                    <dd>{text(subValue)}</dd>
+                    <dd>{fieldValue(subField, subValue)}</dd>
                   </div>
                 ));
               }
               return [
                 <div key={field}>
                   <dt>{fieldLabel(field)}</dt>
-                  <dd>{text(value)}</dd>
+                  <dd>{fieldValue(field, value)}</dd>
                 </div>,
               ];
             },

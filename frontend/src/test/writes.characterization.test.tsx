@@ -215,7 +215,7 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/subscriptions/sub-1")).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Cancelar subscripción VirtualPOS" })).toBeNull());
-    expect(screen.getByText("CANCELADA")).toBeTruthy();
+    expect(screen.getByText("Cancelada")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Cancelar Sub" })).toBeNull();
   });
 
@@ -269,7 +269,7 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     fireEvent.click(within(dialog("Cancelar subscripción VirtualPOS")).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/subscriptions/sub-1")).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Cancelar Sub" })).toBeNull());
-    expect(screen.getByText("CANCELADA")).toBeTruthy();
+    expect(screen.getByText("Cancelada")).toBeTruthy();
   });
 });
 
@@ -288,7 +288,7 @@ describe("Cargos VirtualPOS: cancelar y reintentar", () => {
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/charges/chg-1")).toHaveLength(1));
     expect(await screen.findByText("Cargo chg-1 cancelado.")).toBeTruthy();
-    expect(screen.getByText("cancelado")).toBeTruthy();
+    expect(screen.getByText("Cancelado")).toBeTruthy();
   });
 
   it("reintentar: confirma, envía POST …/retry y deja el cargo en «procesando» si volvió «rechazado»", async () => {
@@ -304,7 +304,7 @@ describe("Cargos VirtualPOS: cancelar y reintentar", () => {
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar reintento" }));
     await waitFor(() => expect(app.find("POST", "/api/v1/writes/virtualpos/charges/chg-2/retry")).toHaveLength(1));
     expect(await screen.findByText("Cargo chg-2 reintentado.")).toBeTruthy();
-    expect(screen.getByText("procesando")).toBeTruthy();
+    expect(screen.getByText("Procesando")).toBeTruthy();
   });
 
   it("reintentar: si falla muestra el error en el diálogo", async () => {
@@ -416,7 +416,7 @@ describe("Toku y Payku: editar, eliminar y cambiar estado", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Eliminar" }));
     fireEvent.click(within(dialog("Eliminar Suscripción")).getByRole("button", { name: "Confirmar eliminación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/payku/subscriptions/psu-1")).toHaveLength(1));
-    expect(await screen.findByText("cancelled")).toBeTruthy();
+    expect(await screen.findByText("Cancelada")).toBeTruthy();
   });
 
   it("registro de otro recurso (Toku factura): editar es solo visual y el guardado está deshabilitado", async () => {

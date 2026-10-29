@@ -1,3 +1,4 @@
+import { label, labelOr } from "../../i18n/label";
 import type { ProviderSection, ProviderSource } from "../../routes";
 import type { StagingRecord, TableColumn } from "../shared/types";
 import { RECORDS_PAGE_SIZE, isActiveSubscription, isPendingCharge, isRejectedCharge, title } from "../shared/utils";
@@ -145,7 +146,7 @@ export function StagingRecordsList({
           >
             <option value="">Todos los estados</option>
             {availableStatuses.map((status) => (
-              <option key={status} value={status}>{status}</option>
+              <option key={status} value={status}>{label(filterField === "secondary_status" ? "secondaryStatus" : "status", status)}</option>
             ))}
           </select>
         ) : (
@@ -458,7 +459,7 @@ export function StagingRecordsList({
                             </button>
                           </div>
                         ) : column.label === "Estado sec." && record.resource_type === "subscription" ? (
-                          <span className={`badge badge-${record.secondary_status === "cobrable" ? "green" : record.secondary_status === "incobrable" ? "orange" : record.secondary_status === "inactiva" ? "gray" : "blue"}`}>{record.secondary_status ?? "—"}</span>
+                          <span className={`badge badge-${record.secondary_status === "cobrable" ? "green" : record.secondary_status === "incobrable" ? "orange" : record.secondary_status === "inactiva" ? "gray" : "blue"}`}>{labelOr("secondaryStatus", record.secondary_status, "—")}</span>
                         ) : (
                           column.value(record)
                         )}

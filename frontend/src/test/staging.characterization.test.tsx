@@ -138,8 +138,8 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     expect(headers().slice(0, 9)).toEqual(["RUT cliente", "Estado", "Estado sec.", "Monto", "F. Inicio", "F. Cancelacion", "Último cobro", "Plataforma", "Acciones"]);
     expect(screen.getAllByRole("button", { name: "Cancelar Sub" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "+ Cargo" })).toHaveLength(1);
-    expect(screen.getByText("cobrable").className).toContain("badge-green");
-    expect(screen.getByText("inactiva").className).toContain("badge-gray");
+    expect(screen.getByText("Cobrable").className).toContain("badge-green");
+    expect(screen.getByText("Inactiva").className).toContain("badge-gray");
     expect(screen.getByRole("button", { name: "+ Nueva suscripción" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Monto mínimo"), { target: { value: "5000" } });
     await listSettled();
@@ -215,7 +215,8 @@ describe("Listas Toku y Payku", () => {
     await appReady();
     await screen.findByRole("button", { name: /Ver ficha de/ });
     fireEvent.change(screen.getByLabelText("Campo"), { target: { value: "status" } });
-    expect(await screen.findByRole("option", { name: "CANCELLED" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Cancelada" })).toBeTruthy();
+    expect((screen.getByRole("option", { name: "Cancelada" }) as HTMLOptionElement).value).toBe("CANCELLED");
     const valuesCall = app.exact("GET", "/api/v1/staging/records/filter-values").at(-1)!;
     expect([valuesCall.query.get("source"), valuesCall.query.get("resource_type"), valuesCall.query.get("filter_field")]).toEqual(["toku", "subscription", "status"]);
     fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "CANCELLED" } });
