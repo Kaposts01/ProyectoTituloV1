@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { getJson } from "../../api";
 import {
-  ChurnMensualChart,
-  CrecimientoMensualChart,
+  MonthlyChurnChart,
+  MonthlyGrowthChart,
   type MonthlyStatusEntry,
 } from "../../MonthlyStatusChart";
 import { OperationalAlerts } from "./OperationalAlerts";
@@ -214,7 +214,7 @@ export function ChannelDashboardView({
         {data.activation_monthly?.length ? (
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
-            <CrecimientoMensualChart activaciones={data.activation_monthly} caidas={aggregateChurn(data.churn_monthly ?? [])} year={year} mode={mode} />
+            <MonthlyGrowthChart activations={data.activation_monthly} cancellations={aggregateChurn(data.churn_monthly ?? [])} year={year} mode={mode} />
           </article>
         ) : null}
         {isVirtualPos && data.churn_rate_monthly?.length ? (
@@ -227,13 +227,13 @@ export function ChannelDashboardView({
                 <button className={churnSource === "vp2" ? "active" : ""} onClick={() => setChurnSource("vp2")}>VirtualPOS 2</button>
               </div>
             </div>
-            <ChurnMensualChart data={churnSource === "vp1" ? (data.churn_rate_monthly_vp1 ?? []) : churnSource === "vp2" ? (data.churn_rate_monthly_vp2 ?? []) : data.churn_rate_monthly} year={year} />
+            <MonthlyChurnChart data={churnSource === "vp1" ? (data.churn_rate_monthly_vp1 ?? []) : churnSource === "vp2" ? (data.churn_rate_monthly_vp2 ?? []) : data.churn_rate_monthly} year={year} />
           </article>
         ) : null}
         {!isVirtualPos && data.churn_rate_monthly?.length ? (
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
-            <ChurnMensualChart data={data.churn_rate_monthly} year={year} />
+            <MonthlyChurnChart data={data.churn_rate_monthly} year={year} />
           </article>
         ) : null}
       </section>

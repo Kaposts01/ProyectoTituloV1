@@ -1,5 +1,5 @@
 import { label } from "../../i18n/label";
-import { ActivacionCaidaChart, ChannelKpiChart, IngresosMensualesChart, MonthlyStatusChart } from "../../MonthlyStatusChart";
+import { ActivationsVsChurnChart, ChannelKpiChart, MonthlyRevenueChart, MonthlyStatusChart } from "../../MonthlyStatusChart";
 import type { ChannelRow, MonthlyEntry } from "../../MonthlyStatusChart";
 import { defaultYear } from "../shared/utils";
 import type { GeneralDashboard } from "../shared/types";
@@ -51,11 +51,11 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
       <section className="extended-charts">
         <article className="panel" style={{ gridColumn: "1 / -1" }}>
           <div className="panel-heading"><div><p className="eyebrow">INGRESOS</p><h3>Recaudación mensual por canal</h3></div></div>
-          <IngresosMensualesChart data={generalData.transactions_effective_monthly} year={generalYear} />
+          <MonthlyRevenueChart data={generalData.transactions_effective_monthly} year={generalYear} />
         </article>
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas y bajas por mes</h3></div></div>
-          <ActivacionCaidaChart activaciones={generalData.activations_monthly} caidas={cancellationsAsEntries} year={generalYear} mode={generalMode} />
+          <ActivationsVsChurnChart activations={generalData.activations_monthly} cancellations={cancellationsAsEntries} year={generalYear} mode={generalMode} />
         </article>
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">CANALES</p><h3>Comparativa por canal</h3></div></div>

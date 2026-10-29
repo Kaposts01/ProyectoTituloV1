@@ -96,18 +96,18 @@ export function MonthlySimpleChart({
   )
 }
 
-export function ActivacionCaidaChart({
-  activaciones,
-  caidas,
+export function ActivationsVsChurnChart({
+  activations,
+  cancellations,
   year,
   mode,
 }: {
-  activaciones: MonthlyStatusEntry[]
-  caidas: MonthlyEntry[]
+  activations: MonthlyStatusEntry[]
+  cancellations: MonthlyEntry[]
   year: number | null
   mode: 'count' | 'amount'
 }) {
-  const filtAct = (year != null ? activaciones.filter(d => d.year === year) : activaciones)
+  const filtAct = (year != null ? activations.filter(d => d.year === year) : activations)
     .filter(d => String(d.status ?? '').toUpperCase() !== 'SUSCRIPCION_FALLIDA')
   const actByKey = new Map<string, number>()
   for (const entry of filtAct) {
@@ -115,7 +115,7 @@ export function ActivacionCaidaChart({
     actByKey.set(key, (actByKey.get(key) ?? 0) + (mode === 'amount' ? entry.amount : entry.count))
   }
 
-  const filtChurn = year != null ? caidas.filter(d => d.year === year) : caidas
+  const filtChurn = year != null ? cancellations.filter(d => d.year === year) : cancellations
   const churnByKey = new Map<string, number>()
   for (const entry of filtChurn) {
     const key = `${entry.year}-${String(entry.month).padStart(2, '0')}`
@@ -127,8 +127,8 @@ export function ActivacionCaidaChart({
     const [yr, mo] = key.split('-').map(Number)
     return {
       label: monthLabel(mo, yr),
-      activaciones: actByKey.get(key) ?? 0,
-      caidas: churnByKey.get(key) ?? 0,
+      activations: actByKey.get(key) ?? 0,
+      cancellations: churnByKey.get(key) ?? 0,
     }
   })
   if (!rows.length) return <p className="empty-chart">Sin datos para este período.</p>
@@ -141,25 +141,25 @@ export function ActivacionCaidaChart({
         <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <Tooltip formatter={(v: unknown) => fmtVal(v, mode)} />
         <Legend wrapperStyle={{ fontSize: 10 }} />
-        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="activaciones" name="Activaciones" fill="var(--series-1)" radius={[4, 4, 0, 0]} barSize={20} />
-        <Line type="linear" dataKey="caidas" name="Caídas" stroke="var(--status-rejected)" strokeWidth={2} dot={{ fill: 'var(--status-rejected)', r: 3 }} />
+        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="activations" name="Activaciones" fill="var(--series-1)" radius={[4, 4, 0, 0]} barSize={20} />
+        <Line type="linear" dataKey="cancellations" name="Caídas" stroke="var(--status-rejected)" strokeWidth={2} dot={{ fill: 'var(--status-rejected)', r: 3 }} />
       </ComposedChart>
     </ResponsiveContainer>
   )
 }
 
-export function CrecimientoMensualChart({
-  activaciones,
-  caidas,
+export function MonthlyGrowthChart({
+  activations,
+  cancellations,
   year,
   mode,
 }: {
-  activaciones: MonthlyStatusEntry[]
-  caidas: MonthlyEntry[]
+  activations: MonthlyStatusEntry[]
+  cancellations: MonthlyEntry[]
   year: number | null
   mode: 'count' | 'amount'
 }) {
-  const filtAct = (year != null ? activaciones.filter(d => d.year === year) : activaciones)
+  const filtAct = (year != null ? activations.filter(d => d.year === year) : activations)
     .filter(d => String(d.status ?? '').toUpperCase() !== 'SUSCRIPCION_FALLIDA')
   const actByKey = new Map<string, number>()
   for (const entry of filtAct) {
@@ -167,7 +167,7 @@ export function CrecimientoMensualChart({
     actByKey.set(key, (actByKey.get(key) ?? 0) + (mode === 'amount' ? entry.amount : entry.count))
   }
 
-  const filtChurn = year != null ? caidas.filter(d => d.year === year) : caidas
+  const filtChurn = year != null ? cancellations.filter(d => d.year === year) : cancellations
   const churnByKey = new Map<string, number>()
   for (const entry of filtChurn) {
     const key = `${entry.year}-${String(entry.month).padStart(2, '0')}`
@@ -199,7 +199,7 @@ export function CrecimientoMensualChart({
   )
 }
 
-export function ChurnMensualChart({
+export function MonthlyChurnChart({
   data,
   year,
 }: {
@@ -227,7 +227,7 @@ export function ChurnMensualChart({
 const _PAID_KW = ['pagad', 'aceptad', 'accepted', 'paid', 'success', 'cobrad', 'aprobad']
 const _isPaid = (s: string) => _PAID_KW.some(k => s.toLowerCase().includes(k))
 
-export function TransaccionesSuscripcionesChart({
+export function TransactionsVsSubscriptionsChart({
   payments,
   activeSubs,
   cobrableSubs,
@@ -263,15 +263,15 @@ export function TransaccionesSuscripcionesChart({
     const [yr, mo] = key.split('-').map(Number)
     return {
       label: monthLabel(mo, yr),
-      transacciones: payByKey.get(key) ?? 0,
-      activas: activeByKey.get(key) ?? 0,
-      cobrables: cobrableByKey.get(key) ?? 0,
+      transactions: payByKey.get(key) ?? 0,
+      active: activeByKey.get(key) ?? 0,
+      collectable: cobrableByKey.get(key) ?? 0,
     }
   })
   if (!rows.length) return <p className="empty-chart">Sin datos para este período.</p>
   const subscriptionAxisMax = Math.max(
     1,
-    Math.ceil(Math.max(...rows.map(row => Math.max(row.activas, row.cobrables))) / 1000) * 1000,
+    Math.ceil(Math.max(...rows.map(row => Math.max(row.active, row.collectable))) / 1000) * 1000,
   )
 
   return (
@@ -294,9 +294,9 @@ export function TransaccionesSuscripcionesChart({
           name === 'Transacciones pagadas' ? fmtVal(v, mode) : Number(v).toLocaleString('es-CL')
         } />
         <Legend wrapperStyle={{ fontSize: 10 }} />
-        <Bar maxBarSize={MAX_BAR_SIZE} yAxisId="tx" dataKey="transacciones" name="Transacciones pagadas" fill="var(--series-1)" radius={[4, 4, 0, 0]} barSize={20} />
-        <Line yAxisId="subs" type="linear" dataKey="activas" name="Subs activas" stroke="var(--series-2)" strokeWidth={2} dot={{ fill: 'var(--series-2)', r: 3 }} />
-        <Line yAxisId="subs" type="linear" dataKey="cobrables" name="Subs cobrables" stroke="var(--series-4)" strokeWidth={2} dot={{ fill: 'var(--series-4)', r: 3 }} strokeDasharray="5 5" />
+        <Bar maxBarSize={MAX_BAR_SIZE} yAxisId="tx" dataKey="transactions" name="Transacciones pagadas" fill="var(--series-1)" radius={[4, 4, 0, 0]} barSize={20} />
+        <Line yAxisId="subs" type="linear" dataKey="active" name="Subs activas" stroke="var(--series-2)" strokeWidth={2} dot={{ fill: 'var(--series-2)', r: 3 }} />
+        <Line yAxisId="subs" type="linear" dataKey="collectable" name="Subs cobrables" stroke="var(--series-4)" strokeWidth={2} dot={{ fill: 'var(--series-4)', r: 3 }} strokeDasharray="5 5" />
       </ComposedChart>
     </ResponsiveContainer>
   )
@@ -307,9 +307,9 @@ export type ChannelRow = { source: string; clients: number; active_subscriptions
 export function ChannelKpiChart({ channels, mode }: { channels: ChannelRow[]; mode: 'count' | 'amount' }) {
   const rows = channels.map(c => ({
     name: c.source,
-    suscripciones: c.active_subscriptions,
-    aceptadas: mode === 'amount' ? c.amount : c.accepted,
-    clientes: c.clients,
+    subscriptions: c.active_subscriptions,
+    accepted: mode === 'amount' ? c.amount : c.accepted,
+    clients: c.clients,
   }))
   if (!rows.length) return <p className="empty-chart">Sin datos por canal.</p>
   const COLOR = ['var(--series-1)', 'var(--series-2)', 'var(--series-4)', 'var(--series-3)']
@@ -321,7 +321,7 @@ export function ChannelKpiChart({ channels, mode }: { channels: ChannelRow[]; mo
           tickFormatter={(v: number) => mode === 'amount' ? `$${(v / 1000).toFixed(0)}k` : v.toLocaleString('es-CL')} />
         <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} width={72} />
         <Tooltip formatter={(v: unknown) => mode === 'amount' ? `$${Number(v).toLocaleString('es-CL')}` : Number(v).toLocaleString('es-CL')} />
-        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="aceptadas" name={mode === 'amount' ? 'Recaudación' : 'Transacciones aceptadas'} radius={[0, 4, 4, 0]}>
+        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="accepted" name={mode === 'amount' ? 'Recaudación' : 'Transacciones aceptadas'} radius={[0, 4, 4, 0]}>
           {rows.map((_, i) => <Cell key={i} fill={COLOR[i % COLOR.length]} />)}
         </Bar>
       </BarChart>
@@ -329,7 +329,7 @@ export function ChannelKpiChart({ channels, mode }: { channels: ChannelRow[]; mo
   )
 }
 
-export function IngresosMensualesChart({ data, year }: { data: MonthlyStatusEntry[]; year: number | null }) {
+export function MonthlyRevenueChart({ data, year }: { data: MonthlyStatusEntry[]; year: number | null }) {
   const filtered = year != null ? data.filter(d => d.year === year) : data
   const channels = [...new Set(filtered.map(e => String(e.status ?? '')))]
   const byKey = new Map<string, Record<string, unknown>>()

@@ -2,7 +2,7 @@ import { label, labelOr } from "../../i18n/label";
 import { ChannelChart } from "../../components/ChannelChart";
 import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
 import { KpiCard } from "../../components/KpiCard";
-import { CrecimientoMensualChart, ChurnMensualChart } from "../../MonthlyStatusChart";
+import { MonthlyGrowthChart, MonthlyChurnChart } from "../../MonthlyStatusChart";
 import { Metric } from "../dashboard/Metric";
 import { OperationalAlerts } from "../dashboard/OperationalAlerts";
 import { activationVsChurnChart, statusStackedChart, tchSourceNote } from "../dashboard/channelCharts";
@@ -142,9 +142,9 @@ export function TchContent({ tch, showTch, showTchSuscripcion, onReport, can }: 
             <>
               <article className="panel">
                 <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
-                <CrecimientoMensualChart
-                  activaciones={tchSummary.activaciones_mensuales}
-                  caidas={aggregateChurn(tchSummary.bajas_mensuales)}
+                <MonthlyGrowthChart
+                  activations={tchSummary.activaciones_mensuales}
+                  cancellations={aggregateChurn(tchSummary.bajas_mensuales)}
                   year={tchYear}
                   mode={tchMode}
                 />
@@ -154,7 +154,7 @@ export function TchContent({ tch, showTch, showTchSuscripcion, onReport, can }: 
           {tchSummary.churn_rate_monthly.length ? (
             <article className="panel">
               <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
-              <ChurnMensualChart data={tchSummary.churn_rate_monthly} year={tchYear} />
+              <MonthlyChurnChart data={tchSummary.churn_rate_monthly} year={tchYear} />
             </article>
           ) : null}
         </section>

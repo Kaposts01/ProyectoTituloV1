@@ -3,7 +3,7 @@ import { cloneElement, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChannelChart } from "./components/ChannelChart";
 import {
-  ActivacionCaidaChart, IngresosMensualesChart, MonthlyStatusChart, MonthlySimpleChart, TransaccionesSuscripcionesChart,
+  ActivationsVsChurnChart, MonthlyRevenueChart, MonthlyStatusChart, MonthlySimpleChart, TransactionsVsSubscriptionsChart,
 } from "./MonthlyStatusChart";
 
 type Props = Record<string, unknown>;
@@ -106,22 +106,22 @@ describe("componentes antiguos (dashboard general)", () => {
     expect(seen.CartesianGrid[0].stroke).toBe("var(--border-subtle)");
   });
 
-  it("ActivacionCaidaChart: línea linear, barra acotada, eje sin decimales en conteo", () => {
-    render(<ActivacionCaidaChart activaciones={entries} caidas={simple} year={null} mode="count" />);
+  it("ActivationsVsChurnChart: línea linear, barra acotada, eje sin decimales en conteo", () => {
+    render(<ActivationsVsChurnChart activations={entries} cancellations={simple} year={null} mode="count" />);
     expect(seen.Line.every((l) => l.type === "linear")).toBe(true);
     expect(seen.Bar[0].maxBarSize).toBeGreaterThan(0);
     expect(seen.YAxis[0].allowDecimals).toBe(false);
   });
 
-  it("TransaccionesSuscripcionesChart: líneas linear y ejes sin decimales", () => {
-    render(<TransaccionesSuscripcionesChart payments={entries} activeSubs={simple} cobrableSubs={simple} year={null} mode="count" />);
+  it("TransactionsVsSubscriptionsChart: líneas linear y ejes sin decimales", () => {
+    render(<TransactionsVsSubscriptionsChart payments={entries} activeSubs={simple} cobrableSubs={simple} year={null} mode="count" />);
     expect(seen.Line.length).toBe(2);
     expect(seen.Line.every((l) => l.type === "linear")).toBe(true);
     expect(seen.YAxis.every((y) => y.allowDecimals === false)).toBe(true);
   });
 
-  it("IngresosMensualesChart: áreas linear y rejilla tokenizada", () => {
-    render(<IngresosMensualesChart data={[{ year: 2026, month: 1, status: "Toku", count: 1, amount: 5000 }]} year={null} />);
+  it("MonthlyRevenueChart: áreas linear y rejilla tokenizada", () => {
+    render(<MonthlyRevenueChart data={[{ year: 2026, month: 1, status: "Toku", count: 1, amount: 5000 }]} year={null} />);
     expect(seen.Area.every((a) => a.type === "linear")).toBe(true);
     expect(seen.CartesianGrid[0].stroke).toBe("var(--border-subtle)");
   });
