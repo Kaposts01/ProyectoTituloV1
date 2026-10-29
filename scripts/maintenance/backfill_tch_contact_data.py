@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
-from app.models.tch import TchCliente, TchSuscripcion
+from app.models.tch import TchClient, TchSubscription
 
 
 def _value(payload: dict, leaf: str) -> str | None:
@@ -33,18 +33,18 @@ def _amount(payload: dict) -> str | None:
 def main() -> None:
     db = SessionLocal()
     try:
-        clients = {client.rut: client for client in db.scalars(select(TchCliente)).all()}
+        clients = {client.rut: client for client in db.scalars(select(TchClient)).all()}
         updated_clients = 0
         updated_subscriptions = 0
-        subscriptions = db.scalars(select(TchSuscripcion).order_by(TchSuscripcion.updated_at.desc())).all()
+        subscriptions = db.scalars(select(TchSubscription).order_by(TchSubscription.updated_at.desc())).all()
         for subscription in subscriptions:
             payload = subscription.raw_payload or {}
             equivalent = _amount(payload)
-            if equivalent and not subscription.equivalente_pesos:
-                subscription.equivalente_pesos = equivalent
+            if equivalent and not subscription.peso_equivalent:
+                subscription.peso_equivalent = equivalent
                 updated_subscriptions += 1
 
-            client = clients.get(subscription.cliente_rut or "")
+            client = clients.get(subscription.client_rut or "")
             if client is None:
                 continue
             address = " ".join(
@@ -58,11 +58,11 @@ def main() -> None:
                 if value
             ) or None
             fields = {
-                "telefono": _value(payload, "telefono"),
+                "phone": _value(payload, "telefono"),
                 "email": _value(payload, "email"),
-                "direccion": address,
-                "comuna": _value(payload, "comuna"),
-                "ciudad": _value(payload, "ciudad"),
+                "address": address,
+                "district": _value(payload, "comuna"),
+                "city": _value(payload, "ciudad"),
             }
             changed = False
             for field, value in fields.items():

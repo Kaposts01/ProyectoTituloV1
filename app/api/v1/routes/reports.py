@@ -16,7 +16,7 @@ from app.core.security import get_current_user
 from app.db.session import SessionLocal
 from app.models.auth import User
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
-from app.models.tch import TchSuscripcion, TchTransaccion
+from app.models.tch import TchSubscription, TchTransaction
 from app.services.charge_stats import chile_today, is_future_charge
 from app.services.rbac import permission_codes, source_permission
 
@@ -128,13 +128,13 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
         for event_date, count, amount in db.execute(cancellation_query):
             add("cancellations", event_date, "Bajas", count, amount)
     if scope in {"general", "tch"}:
-        for transaction in db.scalars(select(TchTransaccion).where(func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_value, end_value))):
-            add("transactions", transaction.fecha_cargo, _status(transaction.estado), 1, transaction.monto)
-            add("charges", transaction.fecha_cargo, _status(transaction.estado), 1, transaction.monto)
-        for subscription in db.scalars(select(TchSuscripcion).where(func.substring(TchSuscripcion.fecha_activacion, 1, 10).between(start_value, end_value))):
-            add("activations", subscription.fecha_activacion, "Altas", 1, subscription.equivalente_pesos or subscription.monto)
-        for subscription in db.scalars(select(TchSuscripcion).where(func.substring(TchSuscripcion.fecha_eliminacion, 1, 10).between(start_value, end_value))):
-            add("cancellations", subscription.fecha_eliminacion, "Bajas", 1, subscription.equivalente_pesos or subscription.monto)
+        for transaction in db.scalars(select(TchTransaction).where(func.substring(TchTransaction.charge_date, 1, 10).between(start_value, end_value))):
+            add("transactions", transaction.charge_date, _status(transaction.status), 1, transaction.amount)
+            add("charges", transaction.charge_date, _status(transaction.status), 1, transaction.amount)
+        for subscription in db.scalars(select(TchSubscription).where(func.substring(TchSubscription.activation_date, 1, 10).between(start_value, end_value))):
+            add("activations", subscription.activation_date, "Altas", 1, subscription.peso_equivalent or subscription.amount)
+        for subscription in db.scalars(select(TchSubscription).where(func.substring(TchSubscription.deletion_date, 1, 10).between(start_value, end_value))):
+            add("cancellations", subscription.deletion_date, "Bajas", 1, subscription.peso_equivalent or subscription.amount)
 
     return {
         kind: [
@@ -580,7 +580,7 @@ def _auto_period_data(db: Session, dfrom: date, dto: date) -> dict[str, Any]:
     start_iso = dfrom.isoformat()
     end_iso = dto.isoformat()
     numeric_charge = case((Charge.amount.op("~")(r"^\d+(\.\d+)?$"), cast(Charge.amount, Numeric)), else_=0)
-    numeric_tch = case((TchTransaccion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaccion.monto, Numeric)), else_=0)
+    numeric_tch = case((TchTransaction.amount.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaction.amount, Numeric)), else_=0)
 
     # Payku statuses that are never real active subscriptions.
     # "register": payment method setup never completed.
@@ -732,52 +732,52 @@ def _auto_period_data(db: Session, dfrom: date, dto: date) -> dict[str, Any]:
         .group_by(Charge.source)
     ).all())
 
-    tch_new = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_activacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_activacion, 1, 10).between(start_iso, end_iso),
+    tch_new = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.activation_date.isnot(None),
+        func.substring(TchSubscription.activation_date, 1, 10).between(start_iso, end_iso),
     )) or 0
-    tch_can = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_eliminacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_eliminacion, 1, 10).between(start_iso, end_iso),
+    tch_can = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.deletion_date.isnot(None),
+        func.substring(TchSubscription.deletion_date, 1, 10).between(start_iso, end_iso),
     )) or 0
-    tch_act_start = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_activacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_activacion, 1, 10) < start_iso,
-        or_(TchSuscripcion.fecha_eliminacion.is_(None), func.substring(TchSuscripcion.fecha_eliminacion, 1, 10) >= start_iso),
+    tch_act_start = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.activation_date.isnot(None),
+        func.substring(TchSubscription.activation_date, 1, 10) < start_iso,
+        or_(TchSubscription.deletion_date.is_(None), func.substring(TchSubscription.deletion_date, 1, 10) >= start_iso),
     )) or 0
-    tch_act_end = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_activacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_activacion, 1, 10) <= end_iso,
-        or_(TchSuscripcion.fecha_eliminacion.is_(None), func.substring(TchSuscripcion.fecha_eliminacion, 1, 10) > end_iso),
+    tch_act_end = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.activation_date.isnot(None),
+        func.substring(TchSubscription.activation_date, 1, 10) <= end_iso,
+        or_(TchSubscription.deletion_date.is_(None), func.substring(TchSubscription.deletion_date, 1, 10) > end_iso),
     )) or 0
     tch_rev_row = db.execute(
         select(func.count(), func.coalesce(func.sum(numeric_tch), 0))
-        .select_from(TchTransaccion)
+        .select_from(TchTransaction)
         .where(
-            TchTransaccion.fecha_cargo.isnot(None),
-            func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
-            func.upper(TchTransaccion.estado) == "ACEPTADA",
+            TchTransaction.charge_date.isnot(None),
+            func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
+            func.upper(TchTransaction.status) == "ACEPTADA",
         )
     ).one()
     tch_rev_count, tch_rev_amount = int(tch_rev_row[0] or 0), float(tch_rev_row[1] or 0)
-    tch_rejected = db.scalar(select(func.count()).select_from(TchTransaccion).where(
-        TchTransaccion.fecha_cargo.isnot(None),
-        func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
-        func.upper(TchTransaccion.estado) == "RECHAZADA",
+    tch_rejected = db.scalar(select(func.count()).select_from(TchTransaction).where(
+        TchTransaction.charge_date.isnot(None),
+        func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
+        func.upper(TchTransaction.status) == "RECHAZADA",
     )) or 0
-    tch_total = db.scalar(select(func.count()).select_from(TchTransaccion).where(
-        TchTransaccion.fecha_cargo.isnot(None),
-        func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
+    tch_total = db.scalar(select(func.count()).select_from(TchTransaction).where(
+        TchTransaction.charge_date.isnot(None),
+        func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
     )) or 0
     tch_reasons = db.execute(
-        select(TchTransaccion.razon_rechazo, func.count())
+        select(TchTransaction.rejection_reason, func.count())
         .where(
-            TchTransaccion.fecha_cargo.isnot(None),
-            func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
-            func.upper(TchTransaccion.estado) == "RECHAZADA",
-            TchTransaccion.razon_rechazo.isnot(None),
+            TchTransaction.charge_date.isnot(None),
+            func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
+            func.upper(TchTransaction.status) == "RECHAZADA",
+            TchTransaction.rejection_reason.isnot(None),
         )
-        .group_by(TchTransaccion.razon_rechazo)
+        .group_by(TchTransaction.rejection_reason)
         .order_by(func.count().desc())
         .limit(15)
     ).all()

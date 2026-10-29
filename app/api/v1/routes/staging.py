@@ -22,10 +22,10 @@ from app.models.payku_channel import PaykuTransaction as PkTx
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.models.tch import (
-    TchCliente,
-    TchRecaudacionMensual,
-    TchSuscripcion,
-    TchTransaccion,
+    TchClient,
+    TchMonthlyCollection,
+    TchSubscription,
+    TchTransaction,
 )
 from app.services import rejected_month
 from app.services.channel_consolidation import consolidate_to_centralized
@@ -145,8 +145,8 @@ def _charge_stat_rows(
     ]
     if tch_controls:
         for control in tch_controls:
-            rows.append({"channel": "TCH", "date": control.periodo, "status": "ACEPTADA", "count": int(control.aceptadas_cantidad)})
-            rows.append({"channel": "TCH", "date": control.periodo, "status": "RECHAZADA", "count": int(control.rechazadas_cantidad)})
+            rows.append({"channel": "TCH", "date": control.period, "status": "ACEPTADA", "count": int(control.accepted_count)})
+            rows.append({"channel": "TCH", "date": control.period, "status": "RECHAZADA", "count": int(control.rejected_count)})
     else:
         rows.extend(
             {"channel": "TCH", "date": period, "status": status, "count": int(count)}
@@ -207,7 +207,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         else_=0,
     )
     tch_amount = case(
-        (TchTransaccion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaccion.monto, Numeric)),
+        (TchTransaction.amount.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaction.amount, Numeric)),
         else_=0,
     )
     subscription_amount = case(
@@ -215,12 +215,12 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         else_=0,
     )
     tch_subscription_amount = case(
-        (TchSuscripcion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchSuscripcion.monto, Numeric)),
+        (TchSubscription.amount.op("~")(r"^\d+(\.\d+)?$"), cast(TchSubscription.amount, Numeric)),
         else_=0,
     )
     payment_period = func.substring(CPayment.payment_date, 1, 7)
     subscription_period = func.substring(CSub.suscription_date, 1, 7)
-    tch_subscription_period = func.substring(TchSuscripcion.fecha_activacion, 1, 7)
+    tch_subscription_period = func.substring(TchSubscription.activation_date, 1, 7)
 
     chargeable_subscription_ids = {
         subscription_id
@@ -255,11 +255,11 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
             )
         ) or 0,
         "tch": db.scalar(
-            select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "VIGENTE")
+            select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")
         ) or 0,
     }
     tch_equivalente_vigente = case(
-        (TchSuscripcion.equivalente_pesos.op("~")(r"^\d+(\.\d+)?$"), cast(TchSuscripcion.equivalente_pesos, Numeric)),
+        (TchSubscription.peso_equivalent.op("~")(r"^\d+(\.\d+)?$"), cast(TchSubscription.peso_equivalent, Numeric)),
         else_=0,
     )
     sub_amounts = {
@@ -281,15 +281,15 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         ) or 0),
         "tch": float(db.scalar(
             select(func.coalesce(func.sum(tch_equivalente_vigente), 0))
-            .select_from(TchSuscripcion)
-            .where(TchSuscripcion.estado == "VIGENTE")
+            .select_from(TchSubscription)
+            .where(TchSubscription.status == "VIGENTE")
         ) or 0),
     }
     clients = {
         "virtualpos": db.scalar(select(func.count()).select_from(CClient).where(CClient.source.in_(_VP_SRCS))) or 0,
         "toku": db.scalar(select(func.count()).select_from(CClient).where(CClient.source == "toku")) or 0,
         "payku": db.scalar(select(func.count()).select_from(CClient).where(CClient.source == "payku")) or 0,
-        "tch": db.scalar(select(func.count()).select_from(TchCliente)) or 0,
+        "tch": db.scalar(select(func.count()).select_from(TchClient)) or 0,
     }
     totals: Counter[str] = Counter()
     amounts: defaultdict[str, float] = defaultdict(float)
@@ -304,18 +304,18 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         .where(CPayment.source.in_((*_VP_SRCS, "toku", "payku")))
         .group_by(CPayment.source, CPayment.status)
     ).all()
-    tch_controls = db.scalars(select(TchRecaudacionMensual)).all()
+    tch_controls = db.scalars(select(TchMonthlyCollection)).all()
     tch_rows = (
         [
-            ("ACEPTADA", control.aceptadas_cantidad, control.aceptadas_monto)
+            ("ACEPTADA", control.accepted_count, control.accepted_amount)
             for control in tch_controls
         ] + [
-            ("RECHAZADA", control.rechazadas_cantidad, control.rechazadas_monto)
+            ("RECHAZADA", control.rejected_count, control.rejected_amount)
             for control in tch_controls
         ]
         if tch_controls
         else db.execute(
-            select(TchTransaccion.estado, func.count(), func.coalesce(func.sum(tch_amount), 0)).group_by(TchTransaccion.estado)
+            select(TchTransaction.status, func.count(), func.coalesce(func.sum(tch_amount), 0)).group_by(TchTransaction.status)
         ).all()
     )
     for source, status, count, total_amount in online_rows:
@@ -339,17 +339,17 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     ).all()
     tch_months = (
         [
-            (control.periodo, "ACEPTADA", control.aceptadas_cantidad, control.aceptadas_monto)
+            (control.period, "ACEPTADA", control.accepted_count, control.accepted_amount)
             for control in tch_controls
         ] + [
-            (control.periodo, "RECHAZADA", control.rechazadas_cantidad, control.rechazadas_monto)
+            (control.period, "RECHAZADA", control.rejected_count, control.rejected_amount)
             for control in tch_controls
         ]
         if tch_controls
         else db.execute(
-            select(TchTransaccion.periodo, TchTransaccion.estado, func.count(), func.coalesce(func.sum(tch_amount), 0))
-            .where(TchTransaccion.periodo.op("~")(r"^\d{4}-\d{2}$"))
-            .group_by(TchTransaccion.periodo, TchTransaccion.estado)
+            select(TchTransaction.period, TchTransaction.status, func.count(), func.coalesce(func.sum(tch_amount), 0))
+            .where(TchTransaction.period.op("~")(r"^\d{4}-\d{2}$"))
+            .group_by(TchTransaction.period, TchTransaction.status)
         ).all()
     )
     for _source, period, status, count, total_amount in online_months:
@@ -375,7 +375,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     ).all()
     tch_activations = db.execute(
         select(tch_subscription_period, func.count(), func.coalesce(func.sum(tch_subscription_amount), 0))
-        .where(TchSuscripcion.fecha_activacion.op("~")(r"^\d{4}-\d{2}"))
+        .where(TchSubscription.activation_date.op("~")(r"^\d{4}-\d{2}"))
         .group_by(tch_subscription_period)
     ).all()
     for source, period, count, total_amount in online_activations:
@@ -392,7 +392,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
             bucket["amount"] += _amount(total_amount)
 
     cancellation_period_col = func.substring(CSub.canceled_at, 1, 7)
-    tch_cancellation_period_col = func.substring(TchSuscripcion.fecha_eliminacion, 1, 7)
+    tch_cancellation_period_col = func.substring(TchSubscription.deletion_date, 1, 7)
     cancellation_months: defaultdict[tuple[int, int, str], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
     online_cancellations = db.execute(
         select(CSub.source, cancellation_period_col, func.count(), func.coalesce(func.sum(subscription_amount), 0))
@@ -401,7 +401,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     ).all()
     tch_cancellations = db.execute(
         select(tch_cancellation_period_col, func.count(), func.coalesce(func.sum(tch_equivalente_vigente), 0))
-        .where(TchSuscripcion.fecha_eliminacion.op("~")(r"^\d{4}-\d{2}"))
+        .where(TchSubscription.deletion_date.op("~")(r"^\d{4}-\d{2}"))
         .group_by(tch_cancellation_period_col)
     ).all()
     for source, period, count, total_amount in online_cancellations:
@@ -446,12 +446,12 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
 
     if tch_controls:
         for control in tch_controls:
-            month = _month(control.periodo)
+            month = _month(control.period)
             if month:
-                charge_months[(*month, "TCH", "pagada")]["count"] += control.aceptadas_cantidad
-                charge_months[(*month, "TCH", "pagada")]["amount"] += _amount(control.aceptadas_monto)
-                charge_months[(*month, "TCH", "rechazada")]["count"] += control.rechazadas_cantidad
-                charge_months[(*month, "TCH", "rechazada")]["amount"] += _amount(control.rechazadas_monto)
+                charge_months[(*month, "TCH", "pagada")]["count"] += control.accepted_count
+                charge_months[(*month, "TCH", "pagada")]["amount"] += _amount(control.accepted_amount)
+                charge_months[(*month, "TCH", "rechazada")]["count"] += control.rejected_count
+                charge_months[(*month, "TCH", "rechazada")]["amount"] += _amount(control.rejected_amount)
     else:
         for period, raw_status, count, total_amount in tch_months:
             month = _month(period)
@@ -474,12 +474,12 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
 
     if tch_controls:
         for control in tch_controls:
-            month = _month(control.periodo)
+            month = _month(control.period)
             if month:
-                payment_months[(*month, "TCH", "pagada")]["count"] += control.aceptadas_cantidad
-                payment_months[(*month, "TCH", "pagada")]["amount"] += _amount(control.aceptadas_monto)
-                payment_months[(*month, "TCH", "rechazada")]["count"] += control.rechazadas_cantidad
-                payment_months[(*month, "TCH", "rechazada")]["amount"] += _amount(control.rechazadas_monto)
+                payment_months[(*month, "TCH", "pagada")]["count"] += control.accepted_count
+                payment_months[(*month, "TCH", "pagada")]["amount"] += _amount(control.accepted_amount)
+                payment_months[(*month, "TCH", "rechazada")]["count"] += control.rejected_count
+                payment_months[(*month, "TCH", "rechazada")]["amount"] += _amount(control.rejected_amount)
     else:
         for period, raw_status, count, total_amount in tch_months:
             outcome = _general_transaction_status(raw_status)
@@ -640,23 +640,23 @@ def _general_clients(
                 item["phones"].add(client.phone_number)
             item["origins"].add(_portal(client.source))
             client_keys[(client.source, client.external_id)] = key
-    for client in db.scalars(select(TchCliente)):
+    for client in db.scalars(select(TchClient)):
         key = _rut_key(client.rut)
         if key:
             item = grouped.setdefault(key, {"rut": client.rut, "name": "", "last_name": "", "origins": set(), "active_origins": set(), "emails": set(), "phones": set()})
-            item["name"] = item["name"] or (client.nombre or "")
-            item["last_name"] = item["last_name"] or (client.apellido or "")
+            item["name"] = item["name"] or (client.name or "")
+            item["last_name"] = item["last_name"] or (client.last_name or "")
             if client.email:
                 item["emails"].add(client.email)
-            if client.telefono:
-                item["phones"].add(client.telefono)
+            if client.phone:
+                item["phones"].add(client.phone)
             item["origins"].add("TCH")
     for subscription in db.scalars(select(CSub)):
         key = _rut_key(subscription.client_social_id) or client_keys.get((subscription.source, subscription.client_external_id or ""))
         if key in grouped and str(subscription.status or "").lower() in {"activa", "active"}:
             grouped[key]["active_origins"].add(_portal(subscription.source))
-    for subscription in db.scalars(select(TchSuscripcion).where(TchSuscripcion.estado == "VIGENTE")):
-        key = _rut_key(subscription.cliente_rut)
+    for subscription in db.scalars(select(TchSubscription).where(TchSubscription.status == "VIGENTE")):
+        key = _rut_key(subscription.client_rut)
         if key in grouped:
             grouped[key]["active_origins"].add("TCH")
     needle = (query or "").strip().lower()
@@ -710,8 +710,8 @@ def _general_subscriptions(
     query: str | None = None,
     filter_field: Literal["all", "id", "rut", "client", "platform", "status"] = "all",
 ) -> list[dict[str, Any]]:
-    def is_excluded(subscription: CSub | TchSuscripcion) -> bool:
-        status = str(subscription.status if isinstance(subscription, CSub) else subscription.estado).upper()
+    def is_excluded(subscription: CSub | TchSubscription) -> bool:
+        status = str(subscription.status).upper()
         if isinstance(subscription, CSub):
             return (
                 (subscription.source.startswith("virtualpos") and status == "SUSCRIPCION_FALLIDA")
@@ -761,14 +761,14 @@ def _general_subscriptions(
     # TCH agrupa por numero_ficha
     tch_rows = db.execute(
         select(
-            TchTransaccion.numero_ficha,
-            func.max(TchTransaccion.fecha_cargo).label("last_date"),
+            TchTransaction.file_number,
+            func.max(TchTransaction.charge_date).label("last_date"),
         )
-        .where(func.lower(TchTransaccion.estado).in_(_PAID_STATUSES_GEN))
-        .group_by(TchTransaccion.numero_ficha)
+        .where(func.lower(TchTransaction.status).in_(_PAID_STATUSES_GEN))
+        .group_by(TchTransaction.file_number)
     ).all()
     tch_last_paid: dict[int, str] = {
-        r.numero_ficha: r.last_date
+        r.file_number: r.last_date
         for r in tch_rows
         if r.last_date
     }
@@ -781,8 +781,8 @@ def _general_subscriptions(
         for client in db.scalars(select(CClient))
     }
     tch_client_data = {
-        _rut_key(client.rut): " ".join(part for part in (client.nombre, client.apellido) if part)
-        for client in db.scalars(select(TchCliente))
+        _rut_key(client.rut): " ".join(part for part in (client.name, client.last_name) if part)
+        for client in db.scalars(select(TchClient))
     }
 
     items = []
@@ -810,20 +810,20 @@ def _general_subscriptions(
             "secondary_status": _secondary_status(status, last_paid),
         })
 
-    for subscription in db.scalars(select(TchSuscripcion)):
+    for subscription in db.scalars(select(TchSubscription)):
         if is_excluded(subscription):
             continue
-        last_paid = tch_last_paid.get(subscription.numero_ficha)
-        status = subscription.estado
+        last_paid = tch_last_paid.get(subscription.file_number)
+        status = subscription.status
         items.append({
-            "id": str(subscription.numero_ficha),
+            "id": str(subscription.file_number),
             "platform": "TCH",
-            "rut": subscription.cliente_rut or "",
-            "client": tch_client_data.get(_rut_key(subscription.cliente_rut), ""),
+            "rut": subscription.client_rut or "",
+            "client": tch_client_data.get(_rut_key(subscription.client_rut), ""),
             "status": status,
-            "started_at": subscription.fecha_activacion,
-            "ended_at": subscription.fecha_eliminacion or subscription.fecha_rechazo,
-            "amount": subscription.equivalente_pesos or subscription.monto,
+            "started_at": subscription.activation_date,
+            "ended_at": subscription.deletion_date or subscription.rejection_date,
+            "amount": subscription.peso_equivalent or subscription.amount,
             "currency": "CLP",
             "last_paid_date": last_paid,
             "secondary_status": _secondary_status(status, last_paid),
@@ -848,19 +848,19 @@ def _general_subscriptions(
 def _general_client_detail(db: Session, rut: str) -> dict[str, Any]:
     key = _rut_key(rut)
     clients = [item for item in db.scalars(select(CClient)) if _rut_key(item.social_id) == key]
-    tch_clients = [item for item in db.scalars(select(TchCliente)) if _rut_key(item.rut) == key]
+    tch_clients = [item for item in db.scalars(select(TchClient)) if _rut_key(item.rut) == key]
     client_ids = {(item.source, item.external_id) for item in clients}
     subscriptions = [item for item in db.scalars(select(CSub)) if _rut_key(item.client_social_id) == key or (item.source, item.client_external_id) in client_ids]
-    tch_subscriptions = [item for item in db.scalars(select(TchSuscripcion)) if _rut_key(item.cliente_rut) == key]
+    tch_subscriptions = [item for item in db.scalars(select(TchSubscription)) if _rut_key(item.client_rut) == key]
     subscription_ids = {(item.source, item.external_id) for item in subscriptions}
     charge_filters = [and_(CCharge.source == source, CCharge.client_external_id == external_id) for source, external_id in client_ids]
     charge_filters += [and_(CCharge.source == source, CCharge.subscription_external_id == external_id) for source, external_id in subscription_ids]
     payment_filters = [and_(CPayment.source == source, CPayment.client_external_id == external_id) for source, external_id in client_ids]
     charges = db.scalars(select(CCharge).where(or_(*charge_filters))).all() if charge_filters else []
     payments = db.scalars(select(CPayment).where(or_(*payment_filters))).all() if payment_filters else []
-    fichas = [item.numero_ficha for item in tch_subscriptions]
-    tch_transactions = db.scalars(select(TchTransaccion).where(TchTransaccion.numero_ficha.in_(fichas))).all() if fichas else []
-    return {"rut": rut, "clients": [{"portal": _portal(item.source), "id_cliente": str(item.id), "external_id": item.external_id} for item in clients] + [{"portal": "TCH", "id_cliente": str(item.id), "external_id": item.rut} for item in tch_clients], "subscriptions": [{"portal": _portal(item.source), "id_subscription": str(item.id), "external_id": item.external_id, "status": item.status} for item in subscriptions] + [{"portal": "TCH", "id_subscription": str(item.id), "external_id": str(item.numero_ficha), "status": item.estado} for item in tch_subscriptions], "charges": [{"portal": _portal(item.source), "id_cargo": str(item.id), "external_id": item.external_id, "status": item.status, "amount": item.amount} for item in charges], "transactions": [{"portal": _portal(item.source), "id_transaccion": str(item.id), "external_id": item.external_id, "status": item.status, "amount": item.amount} for item in payments] + [{"portal": "TCH", "id_transaccion": str(item.id), "external_id": str(item.numero_ficha), "status": item.estado, "amount": item.monto} for item in tch_transactions]}
+    fichas = [item.file_number for item in tch_subscriptions]
+    tch_transactions = db.scalars(select(TchTransaction).where(TchTransaction.file_number.in_(fichas))).all() if fichas else []
+    return {"rut": rut, "clients": [{"portal": _portal(item.source), "id_cliente": str(item.id), "external_id": item.external_id} for item in clients] + [{"portal": "TCH", "id_cliente": str(item.id), "external_id": item.rut} for item in tch_clients], "subscriptions": [{"portal": _portal(item.source), "id_subscription": str(item.id), "external_id": item.external_id, "status": item.status} for item in subscriptions] + [{"portal": "TCH", "id_subscription": str(item.id), "external_id": str(item.file_number), "status": item.status} for item in tch_subscriptions], "charges": [{"portal": _portal(item.source), "id_cargo": str(item.id), "external_id": item.external_id, "status": item.status, "amount": item.amount} for item in charges], "transactions": [{"portal": _portal(item.source), "id_transaccion": str(item.id), "external_id": item.external_id, "status": item.status, "amount": item.amount} for item in payments] + [{"portal": "TCH", "id_transaccion": str(item.id), "external_id": str(item.file_number), "status": item.status, "amount": item.amount} for item in tch_transactions]}
 
 
 def _staging_filter(source: str, resource_type: str, filter_field: str, query: str):

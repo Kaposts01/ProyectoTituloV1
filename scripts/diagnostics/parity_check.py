@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.crm import Charge, Payment
-from app.models.tch import TchRecaudacionMensual, TchTransaccion
+from app.models.tch import TchMonthlyCollection, TchTransaction
 from app.services.charge_stats import chile_today
 
 CHANNELS = ("virtualpos", "toku", "payku", "tch")
@@ -81,23 +81,23 @@ def _crm_rows(
 def _tch_rows(db: Session, today_month: str | None, from_month: str | None, to_month: str | None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     transactions = (
-        select(TchTransaccion.periodo, TchTransaccion.estado, func.count(), func.coalesce(func.sum(_amount(TchTransaccion.monto)), 0))
-        .where(TchTransaccion.periodo.op("~")(r"^\d{4}-\d{2}$"), *_in_range(TchTransaccion.periodo, from_month, to_month))
-        .group_by(TchTransaccion.periodo, TchTransaccion.estado)
+        select(TchTransaction.period, TchTransaction.status, func.count(), func.coalesce(func.sum(_amount(TchTransaction.amount)), 0))
+        .where(TchTransaction.period.op("~")(r"^\d{4}-\d{2}$"), *_in_range(TchTransaction.period, from_month, to_month))
+        .group_by(TchTransaction.period, TchTransaction.status)
     )
-    controls = select(TchRecaudacionMensual).where(*_in_range(TchRecaudacionMensual.periodo, from_month, to_month))
+    controls = select(TchMonthlyCollection).where(*_in_range(TchMonthlyCollection.period, from_month, to_month))
     if today_month is not None:
-        transactions = transactions.where(TchTransaccion.periodo <= today_month)
-        controls = controls.where(TchRecaudacionMensual.periodo <= today_month)
+        transactions = transactions.where(TchTransaction.period <= today_month)
+        controls = controls.where(TchMonthlyCollection.period <= today_month)
     for period, status, count, amount in db.execute(transactions):
         rows.append({"channel": "tch", "entity": "transaction", "month": period, "status": status or "(sin estado)",
                      "count": int(count), "amount": float(amount)})
     for control in db.scalars(controls):
         for status, count, amount in (
-            ("ACEPTADA", control.aceptadas_cantidad, control.aceptadas_monto),
-            ("RECHAZADA", control.rechazadas_cantidad, control.rechazadas_monto),
+            ("ACEPTADA", control.accepted_count, control.accepted_amount),
+            ("RECHAZADA", control.rejected_count, control.rejected_amount),
         ):
-            rows.append({"channel": "tch", "entity": "control_mensual", "month": control.periodo, "status": status,
+            rows.append({"channel": "tch", "entity": "control_mensual", "month": control.period, "status": status,
                          "count": int(count), "amount": float(amount) if re.match(_NUMERIC, str(amount)) else 0.0})
     return rows
 

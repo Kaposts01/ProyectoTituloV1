@@ -59,14 +59,14 @@ from app.models.stg_toku_webhook_event import StgTokuWebhookEvent  # noqa: F401
 from app.models.stg_vpos_webhook_event import StgVposWebhookEvent  # noqa: F401
 from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.tch import (  # noqa: F401
-    TchBanco,
-    TchCentroCosto,
-    TchCliente,
-    TchOrigen,
-    TchRecaudacionMensual,
-    TchSuscripcion,
-    TchTipoMandato,
-    TchTransaccion,
+    TchBank,
+    TchClient,
+    TchCostCenter,
+    TchMandateType,
+    TchMonthlyCollection,
+    TchOrigin,
+    TchSubscription,
+    TchTransaction,
 )
 from app.models.toku_channel import (  # noqa: F401
     TokuCustomer,

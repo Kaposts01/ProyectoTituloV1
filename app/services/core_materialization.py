@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.core import CoreClient, ExternalIdentity
 from app.models.payku_channel import PaykuClient
-from app.models.tch import TchCliente
+from app.models.tch import TchClient
 from app.models.toku_channel import TokuCustomer
 from app.models.vp import VpClient
 
@@ -54,7 +54,7 @@ def materialize_core_clients(db: Session, sources: list[str] | None = None) -> i
     if "payku" in requested:
         records.extend(("payku", row.external_id) for row in db.scalars(select(PaykuClient)))
     if "tch" in requested:
-        records.extend(("tch", row.rut) for row in db.scalars(select(TchCliente)))
+        records.extend(("tch", row.rut) for row in db.scalars(select(TchClient)))
 
     created = sum(_materialize_identity(db, source, external_id) for source, external_id in records)
     db.commit()

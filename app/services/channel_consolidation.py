@@ -26,7 +26,7 @@ from app.models.payku_channel import (
     PaykuTransaction,
 )
 from app.models.source_record import SourceRecord
-from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
+from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.models.toku_channel import (
     TokuCustomer,
     TokuInvoice,
@@ -550,18 +550,18 @@ def _consolidate_payku_transactions(db: Session, scope: Scope | None = None) -> 
 
 def _consolidate_tch_clients(db: Session) -> int:
     rows = []
-    for t in db.scalars(select(TchCliente)).all():
+    for t in db.scalars(select(TchClient)).all():
         rows.append({
             "source": "tch",
             "external_id": t.rut,
-            "first_name": t.nombre,
-            "last_name": t.apellido,
+            "first_name": t.name,
+            "last_name": t.last_name,
             "email": None,
             "phone_number": None,
             "status": "active",
             "social_id": t.rut,
             "gender_id": None,
-            "birth_date": t.fecha_nacimiento,
+            "birth_date": t.birth_date,
             "provider_created_at": None,
             "private_note": None,
             "cards": [],
@@ -572,19 +572,19 @@ def _consolidate_tch_clients(db: Session) -> int:
 
 def _consolidate_tch_subscriptions(db: Session) -> int:
     rows = []
-    for t in db.scalars(select(TchSuscripcion)).all():
+    for t in db.scalars(select(TchSubscription)).all():
         rows.append({
             "source": "tch",
-            "external_id": _s(t.numero_ficha),
+            "external_id": _s(t.file_number),
             "client_external_id": None,
-            "client_social_id": t.cliente_rut,
+            "client_social_id": t.client_rut,
             "plan_external_id": None,
             "service_id": None,
-            "status": t.estado,
+            "status": t.status,
             "automatic_renewal": None,
-            "suscription_date": t.fecha_activacion,
-            "canceled_at": t.fecha_eliminacion,
-            "amount": t.monto,
+            "suscription_date": t.activation_date,
+            "canceled_at": t.deletion_date,
+            "amount": t.amount,
             "currency": _resolve_tch_currency(t),
             "raw_payload": t.raw_payload,
         })
@@ -603,7 +603,7 @@ def _consolidate_tch_transactions(db: Session) -> int:
     offset = 0
     while True:
         batch = db.scalars(
-            select(TchTransaccion).order_by(TchTransaccion.id).offset(offset).limit(_CHUNK)
+            select(TchTransaction).order_by(TchTransaction.id).offset(offset).limit(_CHUNK)
         ).all()
         if not batch:
             break
@@ -612,15 +612,15 @@ def _consolidate_tch_transactions(db: Session) -> int:
             rows.append({
                 "source": "tch",
                 "external_id": t.dedupe_key or _s(t.id),
-                "subscription_external_id": _s(t.numero_ficha),
+                "subscription_external_id": _s(t.file_number),
                 "client_external_id": None,
-                "amount": t.monto,
+                "amount": t.amount,
                 "currency": "CLP",
-                "status": t.estado,
-                "charge_date": t.fecha_cargo,
+                "status": t.status,
+                "charge_date": t.charge_date,
                 "raw_payload": t.raw_payload,
-                REASON_CODE_KEY: t.codigo_respuesta,  # glosa para el catalogo (SYNC-D-02); no es columna
-                REASON_TEXT_KEY: t.razon_rechazo,
+                REASON_CODE_KEY: t.response_code,  # glosa para el catalogo (SYNC-D-02); no es columna
+                REASON_TEXT_KEY: t.rejection_reason,
             })
         total += _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "transaction"))
         offset += _CHUNK

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.models.crm import Charge as CCharge
 from app.models.crm import Subscription as CSub
-from app.models.tch import TchRecaudacionMensual, TchSuscripcion, TchTransaccion
+from app.models.tch import TchMonthlyCollection, TchSubscription, TchTransaction
 from app.services import rejected_month
 from app.services.charge_stats import (
     charge_outcome,
@@ -172,11 +172,11 @@ def _subscription_histograms(
         ) or 0
 
     if "tch" in channels:
-        valid_signup = TchSuscripcion.fecha_activacion.op("~")(_DATE10)
-        valid_cancellation = TchSuscripcion.fecha_eliminacion.op("~")(_DATE10)
-        is_cancelled = func.lower(func.trim(TchSuscripcion.estado)).in_(tuple(_TCH_CANCELLATION_STATES))
-        signup_month = func.substring(TchSuscripcion.fecha_activacion, 1, 7)
-        cancellation_month = func.substring(TchSuscripcion.fecha_eliminacion, 1, 7)
+        valid_signup = TchSubscription.activation_date.op("~")(_DATE10)
+        valid_cancellation = TchSubscription.deletion_date.op("~")(_DATE10)
+        is_cancelled = func.lower(func.trim(TchSubscription.status)).in_(tuple(_TCH_CANCELLATION_STATES))
+        signup_month = func.substring(TchSubscription.activation_date, 1, 7)
+        cancellation_month = func.substring(TchSubscription.deletion_date, 1, 7)
         for month, n in db.execute(
             select(signup_month, func.count()).where(valid_signup).group_by(signup_month)
         ):
@@ -185,21 +185,21 @@ def _subscription_histograms(
             select(cancellation_month, func.count())
             .where(
                 is_cancelled, valid_cancellation, valid_signup,
-                func.substring(TchSuscripcion.fecha_eliminacion, 1, 10)
-                >= func.substring(TchSuscripcion.fecha_activacion, 1, 10),
+                func.substring(TchSubscription.deletion_date, 1, 10)
+                >= func.substring(TchSubscription.activation_date, 1, 10),
             )
             .group_by(cancellation_month)
         ):
             cancellations["tch"][month] += n
         quality["altas_sin_fecha"] += db.scalar(
-            select(func.count()).select_from(TchSuscripcion).where(_invalid(valid_signup))
+            select(func.count()).select_from(TchSubscription).where(_invalid(valid_signup))
         ) or 0
         quality["bajas_sin_fecha"] += db.scalar(
-            select(func.count()).select_from(TchSuscripcion).where(
+            select(func.count()).select_from(TchSubscription).where(
                 is_cancelled,
                 or_(_invalid(valid_cancellation), _invalid(valid_signup),
-                    func.substring(TchSuscripcion.fecha_eliminacion, 1, 10)
-                    < func.substring(TchSuscripcion.fecha_activacion, 1, 10)),
+                    func.substring(TchSubscription.deletion_date, 1, 10)
+                    < func.substring(TchSubscription.activation_date, 1, 10)),
             )
         ) or 0
     return signups, cancellations, quality
@@ -250,26 +250,26 @@ def _charge_cells(
 
     if "tch" in channels:
         controls = db.scalars(
-            select(TchRecaudacionMensual).where(TchRecaudacionMensual.periodo.between(first, last))
+            select(TchMonthlyCollection).where(TchMonthlyCollection.period.between(first, last))
         ).all()
-        has_controls = db.scalar(select(func.count()).select_from(TchRecaudacionMensual)) or 0
+        has_controls = db.scalar(select(func.count()).select_from(TchMonthlyCollection)) or 0
         if has_controls:
             for control in controls:
-                cell = cells["tch"][control.periodo]
-                cell["paid_n"] += control.aceptadas_cantidad
-                cell["paid_amt"] += _parse_tch_amount(control.aceptadas_monto)
-                cell["rej_n"] += control.rechazadas_cantidad
-                cell["rej_amt"] += _parse_tch_amount(control.rechazadas_monto)
-                cell["stat_rows"].append({"date": control.periodo, "status": "aceptada", "count": control.aceptadas_cantidad})
-                cell["stat_rows"].append({"date": control.periodo, "status": "rechazada", "count": control.rechazadas_cantidad})
+                cell = cells["tch"][control.period]
+                cell["paid_n"] += control.accepted_count
+                cell["paid_amt"] += _parse_tch_amount(control.accepted_amount)
+                cell["rej_n"] += control.rejected_count
+                cell["rej_amt"] += _parse_tch_amount(control.rejected_amount)
+                cell["stat_rows"].append({"date": control.period, "status": "aceptada", "count": control.accepted_count})
+                cell["stat_rows"].append({"date": control.period, "status": "rechazada", "count": control.rejected_count})
         else:
             for period, estado, n, amount in db.execute(
                 select(
-                    TchTransaccion.periodo, TchTransaccion.estado, func.count(),
-                    func.coalesce(func.sum(_amount_col(TchTransaccion.monto)), 0),
+                    TchTransaction.period, TchTransaction.status, func.count(),
+                    func.coalesce(func.sum(_amount_col(TchTransaction.amount)), 0),
                 )
-                .where(TchTransaccion.periodo.op("~")(r"^\d{4}-\d{2}$"), TchTransaccion.periodo.between(first, last))
-                .group_by(TchTransaccion.periodo, TchTransaccion.estado)
+                .where(TchTransaction.period.op("~")(r"^\d{4}-\d{2}$"), TchTransaction.period.between(first, last))
+                .group_by(TchTransaction.period, TchTransaction.status)
             ):
                 outcome = charge_outcome(estado)
                 if outcome not in ("paid", "rejected"):
@@ -348,15 +348,15 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
         if active_rows:
             out["payku"] = (round(sum(last_success.values()), 0), len(ruts) or len(last_success))
     if "tch" in channels:
-        equivalent = _amount_col(TchSuscripcion.equivalente_pesos)
+        equivalent = _amount_col(TchSubscription.peso_equivalent)
         mrr = float(db.scalar(
-            select(func.coalesce(func.sum(equivalent), 0)).where(TchSuscripcion.estado == "VIGENTE")
+            select(func.coalesce(func.sum(equivalent), 0)).where(TchSubscription.status == "VIGENTE")
         ) or 0)
         clients = db.scalar(
-            select(func.count(TchSuscripcion.cliente_rut.distinct()))
-            .where(TchSuscripcion.estado == "VIGENTE", TchSuscripcion.cliente_rut.isnot(None))
+            select(func.count(TchSubscription.client_rut.distinct()))
+            .where(TchSubscription.status == "VIGENTE", TchSubscription.client_rut.isnot(None))
         ) or 0
-        if db.scalar(select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "VIGENTE")):
+        if db.scalar(select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")):
             out["tch"] = (round(mrr, 0), clients)
     return out
 

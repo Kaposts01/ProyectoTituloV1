@@ -31,14 +31,14 @@ from app.models.etl_run import EtlRun
 from app.models.tch import (
     ORIGIN_CHARGE,
     ORIGIN_HISTORY,
-    TchBanco,
-    TchCentroCosto,
-    TchCliente,
-    TchOrigen,
-    TchRecaudacionMensual,
-    TchSuscripcion,
-    TchTipoMandato,
-    TchTransaccion,
+    TchBank,
+    TchClient,
+    TchCostCenter,
+    TchMandateType,
+    TchMonthlyCollection,
+    TchOrigin,
+    TchSubscription,
+    TchTransaction,
 )
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import tch_report_registry as report_registry
@@ -457,7 +457,7 @@ def _mandate_status(raw_value: Any, sheet_default: str) -> str:
     return _MANDATE_STATES.get(str(raw_value).strip().upper(), sheet_default)
 
 
-def _transform_subscriptions(df: pd.DataFrame, estado: str) -> list[dict]:
+def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
     """
     ``estado`` es el valor por defecto segun la hoja; manda la columna ESTADO del reporte.
 
@@ -556,13 +556,13 @@ def _transform_subscriptions(df: pd.DataFrame, estado: str) -> list[dict]:
             for k, v in row.items()
             if "titular" not in str(k).lower()
         })
-        moneda = normalize_tch_currency(_col_val(row, col_currency))
-        raw["moneda_vigente"] = moneda  # tambien en el payload: filas cargadas antes de la columna `moneda`
+        currency = normalize_tch_currency(_col_val(row, col_currency))
+        raw["moneda_vigente"] = currency  # tambien en el payload: filas cargadas antes de la columna `moneda`
 
-        personalidad = _norm_personalidad(_col_val(row, col_personality))
+        personality = _norm_personalidad(_col_val(row, col_personality))
         rut_titular = _norm_rut(_col_val(row, col_holder_rut)) if col_holder_rut else None
         # Solo un indicador: el RUT y el nombre del titular (un tercero) no se guardan.
-        titular_distinto = (rut_titular != rut) if (rut_titular and rut) else None
+        different_holder = (rut_titular != rut) if (rut_titular and rut) else None
 
         subscription_row = {
             "numero_ficha": file_number,
@@ -579,20 +579,20 @@ def _transform_subscriptions(df: pd.DataFrame, estado: str) -> list[dict]:
             "reajuste": _norm_str(_col_val(row, col_adjustment), 10),
             "firma": _norm_str(_col_val(row, col_signature), 10),
             "monto": _norm_amount(_col_val(row, col_amount)),
-            "moneda": moneda,
+            "moneda": currency,
             "equivalente_pesos": _norm_amount(_col_val(row, col_peso_equivalent)),
             "fecha_activacion": _norm_date(_col_val(row, col_activation_date)),
             "fecha_entrega_banco": _norm_date(_col_val(row, col_bank_delivery_date)),
             "fecha_rechazo": _norm_date(_col_val(row, col_rejection_date)),
             "fecha_eliminacion": _norm_date(_col_val(row, col_deletion_date)),
             "razon_baja": _norm_str(_col_val(row, col_reason), 500),
-            "estado": _mandate_status(_col_val(row, col_status), estado),
+            "estado": _mandate_status(_col_val(row, col_status), status),
             "estrategia": _norm_str(_col_val(row, col_strategy), 150),
             "lugar_captacion": _norm_str(_col_val(row, col_place), 150),
             "folio": _norm_str(_col_val(row, col_folio), 50),
             "referencia": _norm_str(_col_val(row, col_reference), 30),
-            "personalidad": personalidad,
-            "titular_distinto": titular_distinto,
+            "personalidad": personality,
+            "titular_distinto": different_holder,
             "fecha_primer_cobro": _norm_date(_col_val(row, col_first_charge_date)),
             "monto_primer_cobro": _norm_amount(_col_val(row, col_first_charge_amount)),
             "cuotas_cobradas": _norm_count(_col_val(row, col_installments_charged)),
@@ -613,7 +613,7 @@ def _transform_subscriptions(df: pd.DataFrame, estado: str) -> list[dict]:
                 "apellido": _norm_str(_col_val(row, col_last_name), 150),
                 "fecha_nacimiento": _norm_date(_col_val(row, col_birth_date)),
                 "profesion": _norm_str(_col_val(row, col_profession), 100),
-                "tipo_persona": personalidad or "Natural",
+                "tipo_persona": personality or "Natural",
                 "tipo_socio": _norm_str(_col_val(row, col_member_type), 50),
                 "telefono": _norm_str(_col_val(row, col_phone), 100),
                 "email": _norm_str(_col_val(row, col_email), 320),
@@ -642,18 +642,18 @@ def _transform_subscriptions(df: pd.DataFrame, estado: str) -> list[dict]:
 # Transformaciones — CARGOS ACEPTADOS / RECHAZADOS
 # ---------------------------------------------------------------------------
 
-def _dedupe_key(file_number: int, periodo: str | None, installment: str | None) -> str:
+def _dedupe_key(file_number: int, period: str | None, installment: str | None) -> str:
     """Clave estable de una cuota: ficha | periodo real | cuota (D13, TCH-PAR-03).
 
     NO lleva estado ni monto: en la fuente cada cuota tiene un estado final, de modo que un rechazo seguido de un pago
     (o un cambio de monto en un reporte posterior) actualiza la MISMA fila. La cuota se normaliza aqui tambien:
     '12', '12.0' y 12.0 dan la misma clave.
     """
-    return "|".join([str(file_number), periodo or "", _norm_installment(installment) or ""])
+    return "|".join([str(file_number), period or "", _norm_installment(installment) or ""])
 
 
-def _charge_status(estado: str) -> str:
-    normalized = estado.strip().upper()
+def _charge_status(status: str) -> str:
+    normalized = status.strip().upper()
     if normalized in {"PAGADA", "PAGADO", "ACEPTADA", "ACEPTADO"}:
         return "ACEPTADA"
     if normalized in {"IMPAGA", "IMPAGO", "RECHAZADA", "RECHAZADO"}:
@@ -661,7 +661,7 @@ def _charge_status(estado: str) -> str:
     return normalized
 
 
-def _transform_transactions(df: pd.DataFrame, estado: str, file_name: str) -> list[dict]:
+def _transform_transactions(df: pd.DataFrame, status: str, file_name: str) -> list[dict]:
     """
     Estructura real de CARGOS (header=[5,6]):
       ('Número Ficha', ...)              → numero_ficha
@@ -704,10 +704,10 @@ def _transform_transactions(df: pd.DataFrame, estado: str, file_name: str) -> li
     col_reason = _find_leaf_col(df, "motivo") or _find_leaf_col(df, "raz")
 
     if col_file_number is None:
-        log.warning(f"  No se encontró columna 'Número Ficha' en transacciones ({estado})")
+        log.warning(f"  No se encontró columna 'Número Ficha' en transacciones ({status})")
         return rows
     if col_installment_month is None:
-        log.warning(f"  No se encontró columna 'Cuota Mes' en transacciones ({estado}); no se cargan cargos sin periodo real")
+        log.warning(f"  No se encontró columna 'Cuota Mes' en transacciones ({status}); no se cargan cargos sin periodo real")
         return rows
 
     without_period = 0
@@ -722,31 +722,31 @@ def _transform_transactions(df: pd.DataFrame, estado: str, file_name: str) -> li
         if file_number <= 0:
             continue
 
-        periodo = _norm_period(_col_val(row, col_installment_month))
-        if periodo is None:
+        period = _norm_period(_col_val(row, col_installment_month))
+        if period is None:
             without_period += 1
             continue
         raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
 
         installment = _norm_installment(_col_val(row, col_installment)) if col_installment else None
-        monto = _norm_amount(_col_val(row, col_amount))
+        amount = _norm_amount(_col_val(row, col_amount))
         reason = _norm_str(_col_val(row, col_reason), 500) if col_reason else None
-        codigo = (_norm_str(_col_val(row, col_code), 50) if col_code else None) or _code_from_reason(reason)
+        code = (_norm_str(_col_val(row, col_code), 50) if col_code else None) or _code_from_reason(reason)
         rows.append({
             "numero_ficha": file_number,
             "numero_mandato": _norm_int(_col_val(row, col_mandate)),
-            "periodo": periodo,
+            "periodo": period,
             "numero_cuota": installment,
             "total_cuotas": _norm_installment(_col_val(row, col_total_installments)) if col_total_installments else None,
-            "monto": monto,
+            "monto": amount,
             "fecha_cargo": _norm_date(_col_val(row, col_date)),
             "tipo_transaccion": _norm_str(_col_val(row, col_type), 50) if col_type else None,
-            "estado": estado,
+            "estado": status,
             "entidad_recaudadora": _norm_str(_col_val(row, col_collecting_entity), 100) if col_collecting_entity else None,
-            "codigo_respuesta": codigo,
+            "codigo_respuesta": code,
             "razon_rechazo": reason,
             "archivo_origen": file_name,
-            "dedupe_key": _dedupe_key(file_number, periodo, installment),
+            "dedupe_key": _dedupe_key(file_number, period, installment),
             "origen": ORIGIN_CHARGE,
             "reporte_periodo": None,
             "rechazo_previo": None,
@@ -755,7 +755,7 @@ def _transform_transactions(df: pd.DataFrame, estado: str, file_name: str) -> li
             "raw_payload": raw,
         })
     if without_period:
-        log.warning(f"  {without_period} cargos ({estado}) omitidos: 'Cuota Mes' vacio o ilegible")
+        log.warning(f"  {without_period} cargos ({status}) omitidos: 'Cuota Mes' vacio o ilegible")
     return rows
 
 
@@ -785,12 +785,12 @@ def _transform_charge_history(df: pd.DataFrame, file_name: str) -> list[dict]:
             if not period:
                 continue
             installment = _norm_installment(_col_val(row, df.columns[start]))
-            estado = _norm_str(_col_val(row, df.columns[start + 1]), 20)
-            monto = _norm_amount(_col_val(row, df.columns[start + 2]))
-            if not estado:
+            status = _norm_str(_col_val(row, df.columns[start + 1]), 20)
+            amount = _norm_amount(_col_val(row, df.columns[start + 2]))
+            if not status:
                 continue
-            original_status = estado.upper()
-            estado = _charge_status(estado)
+            original_status = status.upper()
+            status = _charge_status(status)
             rows.append(
                 {
                     "numero_ficha": file_number,
@@ -798,10 +798,10 @@ def _transform_charge_history(df: pd.DataFrame, file_name: str) -> list[dict]:
                     "periodo": period,
                     "numero_cuota": installment,
                     "total_cuotas": None,
-                    "monto": monto,
+                    "monto": amount,
                     "fecha_cargo": None,
                     "tipo_transaccion": "HISTORIAL_MENSUAL",
-                    "estado": estado,
+                    "estado": status,
                     "entidad_recaudadora": None,
                     "codigo_respuesta": None,
                     "razon_rechazo": None,
@@ -812,7 +812,7 @@ def _transform_charge_history(df: pd.DataFrame, file_name: str) -> list[dict]:
                     "rechazo_previo": None,
                     "rechazo_previo_motivo": None,
                     "rechazo_previo_en": None,
-                    "raw_payload": {"periodo": period, "numero_cuota": installment, "estado_original": original_status, "monto": monto},
+                    "raw_payload": {"periodo": period, "numero_cuota": installment, "estado_original": original_status, "monto": amount},
                 }
             )
     return rows
@@ -852,11 +852,11 @@ def _transform_banks_from_tables(filepath: Path) -> list[dict]:
 
     rows = []
     for _, row in df_banks.iterrows():
-        nombre = _norm_str(_col_val(row, col_first_name), 100)
-        if not nombre or nombre.upper() in ("NOMBRE", "NAN"):
+        bank_name = _norm_str(_col_val(row, col_first_name), 100)
+        if not bank_name or bank_name.upper() in ("NOMBRE", "NAN"):
             continue
         rows.append({
-            "nombre": nombre,
+            "nombre": bank_name,
             "codigo_interno": _norm_int(_col_val(row, col_internal_code)) if col_internal_code else None,
             "codigo_grupo": _norm_int(_col_val(row, col_group_code)) if col_group_code else None,
             "activo": True,
@@ -907,21 +907,21 @@ def _bulk_upsert_clients(db, clients: list[dict]) -> int:
     CHUNK = 4000
     for i in range(0, len(rows), CHUNK):
         chunk = rows[i : i + CHUNK]
-        stmt = pg_insert(TchCliente).values(chunk).on_conflict_do_update(
+        stmt = pg_insert(TchClient).values(chunk).on_conflict_do_update(
             index_elements=["rut"],
             set_={
-                "nombre": pg_insert(TchCliente).excluded.nombre,
-                "apellido": pg_insert(TchCliente).excluded.apellido,
-                "fecha_nacimiento": pg_insert(TchCliente).excluded.fecha_nacimiento,
-                "profesion": pg_insert(TchCliente).excluded.profesion,
-                "tipo_socio": pg_insert(TchCliente).excluded.tipo_socio,
-                "telefono": pg_insert(TchCliente).excluded.telefono,
-                "email": pg_insert(TchCliente).excluded.email,
-                "direccion": pg_insert(TchCliente).excluded.direccion,
-                "comuna": pg_insert(TchCliente).excluded.comuna,
-                "ciudad": pg_insert(TchCliente).excluded.ciudad,
-                "region": pg_insert(TchCliente).excluded.region,
-                "tipo_persona": pg_insert(TchCliente).excluded.tipo_persona,
+                "nombre": pg_insert(TchClient).excluded.nombre,
+                "apellido": pg_insert(TchClient).excluded.apellido,
+                "fecha_nacimiento": pg_insert(TchClient).excluded.fecha_nacimiento,
+                "profesion": pg_insert(TchClient).excluded.profesion,
+                "tipo_socio": pg_insert(TchClient).excluded.tipo_socio,
+                "telefono": pg_insert(TchClient).excluded.telefono,
+                "email": pg_insert(TchClient).excluded.email,
+                "direccion": pg_insert(TchClient).excluded.direccion,
+                "comuna": pg_insert(TchClient).excluded.comuna,
+                "ciudad": pg_insert(TchClient).excluded.ciudad,
+                "region": pg_insert(TchClient).excluded.region,
+                "tipo_persona": pg_insert(TchClient).excluded.tipo_persona,
             },
         )
         db.execute(stmt)
@@ -949,10 +949,10 @@ def _pg_upsert_catalog(db, model, unique_col: str, values: set[str], extra_cols:
 
 def _bulk_upsert_catalogs(db, rows: list[dict]) -> None:
     """Pre-carga catálogos únicos de las suscripciones usando ON CONFLICT DO NOTHING."""
-    _pg_upsert_catalog(db, TchBanco, "nombre", {r.get("banco_nombre") for r in rows})
-    _pg_upsert_catalog(db, TchOrigen, "nombre", {r.get("origen") for r in rows})
-    _pg_upsert_catalog(db, TchCentroCosto, "nombre", {r.get("centro_costo") for r in rows})
-    _pg_upsert_catalog(db, TchTipoMandato, "codigo", {r.get("tipo_mandato") for r in rows})
+    _pg_upsert_catalog(db, TchBank, "nombre", {r.get("banco_nombre") for r in rows})
+    _pg_upsert_catalog(db, TchOrigin, "nombre", {r.get("origen") for r in rows})
+    _pg_upsert_catalog(db, TchCostCenter, "nombre", {r.get("centro_costo") for r in rows})
+    _pg_upsert_catalog(db, TchMandateType, "codigo", {r.get("tipo_mandato") for r in rows})
 
 
 def _load_bank_catalog(db, rows: list[dict]) -> int:
@@ -969,7 +969,7 @@ def _load_bank_catalog(db, rows: list[dict]) -> int:
         return 0
 
     to_insert = [{"id": uuid.uuid4(), **r} for r in seen.values()]
-    db.execute(pg_insert(TchBanco).values(to_insert).on_conflict_do_nothing(index_elements=["nombre"]))
+    db.execute(pg_insert(TchBank).values(to_insert).on_conflict_do_nothing(index_elements=["nombre"]))
     db.flush()
     return len(to_insert)
 
@@ -1010,41 +1010,41 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
     CHUNK_SUBSCRIPTIONS = 2500
     for i in range(0, len(unique_subscriptions), CHUNK_SUBSCRIPTIONS):
         chunk = unique_subscriptions[i : i + CHUNK_SUBSCRIPTIONS]
-        stmt = pg_insert(TchSuscripcion).values(chunk).on_conflict_do_update(
+        stmt = pg_insert(TchSubscription).values(chunk).on_conflict_do_update(
             index_elements=["numero_ficha"],
             set_={
-                "estado": pg_insert(TchSuscripcion).excluded.estado,
-                "banco_nombre": pg_insert(TchSuscripcion).excluded.banco_nombre,
-                "tipo_mandato": pg_insert(TchSuscripcion).excluded.tipo_mandato,
-                "origen": pg_insert(TchSuscripcion).excluded.origen,
-                "centro_costo": pg_insert(TchSuscripcion).excluded.centro_costo,
-                "monto": pg_insert(TchSuscripcion).excluded.monto,
-                "moneda": pg_insert(TchSuscripcion).excluded.moneda,
-                "estrategia": pg_insert(TchSuscripcion).excluded.estrategia,
-                "lugar_captacion": pg_insert(TchSuscripcion).excluded.lugar_captacion,
-                "folio": pg_insert(TchSuscripcion).excluded.folio,
-                "referencia": pg_insert(TchSuscripcion).excluded.referencia,
-                "personalidad": pg_insert(TchSuscripcion).excluded.personalidad,
-                "titular_distinto": pg_insert(TchSuscripcion).excluded.titular_distinto,
-                "fecha_primer_cobro": pg_insert(TchSuscripcion).excluded.fecha_primer_cobro,
-                "monto_primer_cobro": pg_insert(TchSuscripcion).excluded.monto_primer_cobro,
-                "cuotas_cobradas": pg_insert(TchSuscripcion).excluded.cuotas_cobradas,
-                "monto_cobrado": pg_insert(TchSuscripcion).excluded.monto_cobrado,
-                "aportes_cuotas": pg_insert(TchSuscripcion).excluded.aportes_cuotas,
-                "aportes_monto": pg_insert(TchSuscripcion).excluded.aportes_monto,
-                "promedio_donacion": pg_insert(TchSuscripcion).excluded.promedio_donacion,
-                "meses_sin_aporte": pg_insert(TchSuscripcion).excluded.meses_sin_aporte,
-                "permanencia_meses": pg_insert(TchSuscripcion).excluded.permanencia_meses,
-                "permanencia_anos": pg_insert(TchSuscripcion).excluded.permanencia_anos,
-                "nvo_mes": pg_insert(TchSuscripcion).excluded.nvo_mes,
-                "rech_mes": pg_insert(TchSuscripcion).excluded.rech_mes,
-                "eli_mes": pg_insert(TchSuscripcion).excluded.eli_mes,
-                "equivalente_pesos": pg_insert(TchSuscripcion).excluded.equivalente_pesos,
-                "fecha_activacion": pg_insert(TchSuscripcion).excluded.fecha_activacion,
-                "fecha_rechazo": pg_insert(TchSuscripcion).excluded.fecha_rechazo,
-                "fecha_eliminacion": pg_insert(TchSuscripcion).excluded.fecha_eliminacion,
-                "razon_baja": pg_insert(TchSuscripcion).excluded.razon_baja,
-                "raw_payload": pg_insert(TchSuscripcion).excluded.raw_payload,
+                "estado": pg_insert(TchSubscription).excluded.estado,
+                "banco_nombre": pg_insert(TchSubscription).excluded.banco_nombre,
+                "tipo_mandato": pg_insert(TchSubscription).excluded.tipo_mandato,
+                "origen": pg_insert(TchSubscription).excluded.origen,
+                "centro_costo": pg_insert(TchSubscription).excluded.centro_costo,
+                "monto": pg_insert(TchSubscription).excluded.monto,
+                "moneda": pg_insert(TchSubscription).excluded.moneda,
+                "estrategia": pg_insert(TchSubscription).excluded.estrategia,
+                "lugar_captacion": pg_insert(TchSubscription).excluded.lugar_captacion,
+                "folio": pg_insert(TchSubscription).excluded.folio,
+                "referencia": pg_insert(TchSubscription).excluded.referencia,
+                "personalidad": pg_insert(TchSubscription).excluded.personalidad,
+                "titular_distinto": pg_insert(TchSubscription).excluded.titular_distinto,
+                "fecha_primer_cobro": pg_insert(TchSubscription).excluded.fecha_primer_cobro,
+                "monto_primer_cobro": pg_insert(TchSubscription).excluded.monto_primer_cobro,
+                "cuotas_cobradas": pg_insert(TchSubscription).excluded.cuotas_cobradas,
+                "monto_cobrado": pg_insert(TchSubscription).excluded.monto_cobrado,
+                "aportes_cuotas": pg_insert(TchSubscription).excluded.aportes_cuotas,
+                "aportes_monto": pg_insert(TchSubscription).excluded.aportes_monto,
+                "promedio_donacion": pg_insert(TchSubscription).excluded.promedio_donacion,
+                "meses_sin_aporte": pg_insert(TchSubscription).excluded.meses_sin_aporte,
+                "permanencia_meses": pg_insert(TchSubscription).excluded.permanencia_meses,
+                "permanencia_anos": pg_insert(TchSubscription).excluded.permanencia_anos,
+                "nvo_mes": pg_insert(TchSubscription).excluded.nvo_mes,
+                "rech_mes": pg_insert(TchSubscription).excluded.rech_mes,
+                "eli_mes": pg_insert(TchSubscription).excluded.eli_mes,
+                "equivalente_pesos": pg_insert(TchSubscription).excluded.equivalente_pesos,
+                "fecha_activacion": pg_insert(TchSubscription).excluded.fecha_activacion,
+                "fecha_rechazo": pg_insert(TchSubscription).excluded.fecha_rechazo,
+                "fecha_eliminacion": pg_insert(TchSubscription).excluded.fecha_eliminacion,
+                "razon_baja": pg_insert(TchSubscription).excluded.razon_baja,
+                "raw_payload": pg_insert(TchSubscription).excluded.raw_payload,
             },
         )
         db.execute(stmt)
@@ -1136,10 +1136,10 @@ def _load_transactions(db, rows: list[dict], file_name: str | None = None) -> in
             layers.append([])
         layers[index].append({"id": uuid.uuid4(), **_TX_OPTIONAL, **row})
 
-    table = TchTransaccion.__table__
+    table = TchTransaction.__table__
     for layer in layers:
         for i in range(0, len(layer), CHUNK):
-            stmt = pg_insert(TchTransaccion).values(layer[i : i + CHUNK])
+            stmt = pg_insert(TchTransaction).values(layer[i : i + CHUNK])
             db.execute(
                 stmt.on_conflict_do_update(
                     constraint="uq_tch_transaccion_dedupe_key", set_=_transaction_upsert_set(stmt, table)
@@ -1153,7 +1153,7 @@ def _has_legacy_dedupe_keys(db) -> bool:
 
     Una carga incremental sobre ellas duplicaria todas las cuotas: primero hay que reconstruir con ``--mode full``.
     """
-    return db.scalar(select(TchTransaccion.id).where(TchTransaccion.dedupe_key.like("%|%|%|%|%")).limit(1)) is not None
+    return db.scalar(select(TchTransaction.id).where(TchTransaction.dedupe_key.like("%|%|%|%|%")).limit(1)) is not None
 
 
 def _load_monthly_collection(db, rows: list[dict]) -> int:
@@ -1161,16 +1161,16 @@ def _load_monthly_collection(db, rows: list[dict]) -> int:
         return 0
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    statement = pg_insert(TchRecaudacionMensual).values(
+    statement = pg_insert(TchMonthlyCollection).values(
         [{"id": uuid.uuid4(), **row} for row in rows]
     ).on_conflict_do_update(
         index_elements=["periodo"],
         set_={
-            "aceptadas_cantidad": pg_insert(TchRecaudacionMensual).excluded.aceptadas_cantidad,
-            "aceptadas_monto": pg_insert(TchRecaudacionMensual).excluded.aceptadas_monto,
-            "rechazadas_cantidad": pg_insert(TchRecaudacionMensual).excluded.rechazadas_cantidad,
-            "rechazadas_monto": pg_insert(TchRecaudacionMensual).excluded.rechazadas_monto,
-            "archivo_origen": pg_insert(TchRecaudacionMensual).excluded.archivo_origen,
+            "aceptadas_cantidad": pg_insert(TchMonthlyCollection).excluded.aceptadas_cantidad,
+            "aceptadas_monto": pg_insert(TchMonthlyCollection).excluded.aceptadas_monto,
+            "rechazadas_cantidad": pg_insert(TchMonthlyCollection).excluded.rechazadas_cantidad,
+            "rechazadas_monto": pg_insert(TchMonthlyCollection).excluded.rechazadas_monto,
+            "archivo_origen": pg_insert(TchMonthlyCollection).excluded.archivo_origen,
             "updated_at": func.now(),
         },
     )
@@ -1192,16 +1192,18 @@ def _apply_implicit_cancellations(db, file_numbers_latest_report: set[int]) -> i
     if not file_numbers_latest_report:
         return 0
     stale = (
-        TchSuscripcion.estado.in_(("VIGENTE", "PENDIENTE")),
-        TchSuscripcion.numero_ficha.notin_(file_numbers_latest_report),
+        TchSubscription.status.in_(("VIGENTE", "PENDIENTE")),
+        TchSubscription.file_number.notin_(file_numbers_latest_report),
     )
     result = db.execute(
-        TchSuscripcion.__table__.update()
+        TchSubscription.__table__.update()
         .where(*stale)
-        .values(
-            estado="ELIMINADA",
-            razon_baja=func.coalesce(TchSuscripcion.razon_baja, _IMPLICIT_CANCELLATION_REASON),
-        )
+        .values({
+            TchSubscription.status: "ELIMINADA",
+            TchSubscription.cancellation_reason: func.coalesce(
+                TchSubscription.cancellation_reason, _IMPLICIT_CANCELLATION_REASON
+            ),
+        })
     )
     db.flush()
     return result.rowcount or 0
@@ -1217,8 +1219,8 @@ def _is_latest_report(latest_loaded_period: str | None, report_period: str | Non
 def _last_closed_period(db) -> str | None:
     """Ultimo mes con cobros en el control mensual (ignora los meses futuros en cero)."""
     return db.scalar(
-        select(func.max(TchRecaudacionMensual.periodo)).where(
-            TchRecaudacionMensual.aceptadas_cantidad + TchRecaudacionMensual.rechazadas_cantidad > 0
+        select(func.max(TchMonthlyCollection.period)).where(
+            TchMonthlyCollection.accepted_count + TchMonthlyCollection.rejected_count > 0
         )
     )
 
@@ -1239,10 +1241,10 @@ def _purge_future_collection(db) -> int:
     if last_closed is None:
         return 0
     result = db.execute(
-        TchRecaudacionMensual.__table__.delete().where(
-            TchRecaudacionMensual.periodo > last_closed,
-            TchRecaudacionMensual.aceptadas_cantidad == 0,
-            TchRecaudacionMensual.rechazadas_cantidad == 0,
+        TchMonthlyCollection.__table__.delete().where(
+            TchMonthlyCollection.period > last_closed,
+            TchMonthlyCollection.accepted_count == 0,
+            TchMonthlyCollection.rejected_count == 0,
         )
     )
     db.flush()
@@ -1281,7 +1283,7 @@ def _unique_reports_by_sha256(files: list[Path]) -> tuple[list[Path], list[Path]
 def _clear_tch_data(db) -> None:
     """Rebuild the local TCH projection from the complete report history."""
     report_registry.clear(db)
-    for model in (TchRecaudacionMensual, TchTransaccion, TchSuscripcion, TchCliente, TchCentroCosto, TchOrigen, TchTipoMandato, TchBanco):
+    for model in (TchMonthlyCollection, TchTransaction, TchSubscription, TchClient, TchCostCenter, TchOrigin, TchMandateType, TchBank):
         db.query(model).delete()
     db.flush()
 
@@ -1291,10 +1293,10 @@ def _clear_tch_data(db) -> None:
 # ---------------------------------------------------------------------------
 
 def _process_file(filepath: Path, db) -> dict:
-    nombre = filepath.name
-    log.info(f"Procesando: {nombre}")
+    report_name = filepath.name
+    log.info(f"Procesando: {report_name}")
 
-    file_totals = {"archivo": nombre, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
+    file_totals = {"archivo": report_name, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
     file_numbers: set[int] = set()  # fichas presentes en el reporte (VIGENTES + ELIMINADOS + RECHAZADOS)
     has_portfolio = False
     file_totals["fichas"] = file_numbers
@@ -1314,7 +1316,7 @@ def _process_file(filepath: Path, db) -> dict:
     df_active = _read_sheet(filepath, SHEET_ACTIVE)
     if df_active is not None:
         rows_active = _transform_subscriptions(df_active, "VIGENTE")
-        transaction_rows = _transform_charge_history(df_active, nombre)
+        transaction_rows = _transform_charge_history(df_active, report_name)
         has_portfolio = bool(rows_active)
         file_numbers.update(r["numero_ficha"] for r in rows_active)
         i, u, e = _load_subscriptions(db, rows_active)
@@ -1330,7 +1332,7 @@ def _process_file(filepath: Path, db) -> dict:
     df_deleted = _read_sheet(filepath, SHEET_DELETED)
     if df_deleted is not None:
         rows_deleted = _transform_subscriptions(df_deleted, "ELIMINADA")
-        transaction_rows += _transform_charge_history(df_deleted, nombre)
+        transaction_rows += _transform_charge_history(df_deleted, report_name)
         file_numbers.update(r["numero_ficha"] for r in rows_deleted)
         i, u, e = _load_subscriptions(db, rows_deleted)
         file_totals["sus_ins"] += i
@@ -1357,18 +1359,18 @@ def _process_file(filepath: Path, db) -> dict:
     # se aplica despues, es el estado final, y el rechazo queda como atributo `rechazo_previo*`).
     df_rejected = _read_sheet(filepath, SHEET_REJECTED_CHARGES)
     if df_rejected is not None:
-        transaction_rows += _transform_transactions(df_rejected, "RECHAZADA", nombre)
+        transaction_rows += _transform_transactions(df_rejected, "RECHAZADA", report_name)
 
     df_accepted = _read_sheet(filepath, SHEET_ACCEPTED_CHARGES)
     if df_accepted is not None:
-        transaction_rows += _transform_transactions(df_accepted, "ACEPTADA", nombre)
+        transaction_rows += _transform_transactions(df_accepted, "ACEPTADA", report_name)
 
     # "El ultimo reporte gana": cada fila lleva el mes del reporte que la trajo. Se procesan TODAS las ventanas de
     # historial de cada reporte (un reporte posterior puede reexpresar el estado de un mes ya cargado).
-    reporte_periodo = _report_period(filepath)
+    report_period = _report_period(filepath)
     for row in transaction_rows:
-        row["reporte_periodo"] = reporte_periodo
-    n_transactions = _load_transactions(db, transaction_rows, nombre)
+        row["reporte_periodo"] = report_period
+    n_transactions = _load_transactions(db, transaction_rows, report_name)
     file_totals["trans"] = n_transactions
     log.info(f"  Transacciones: {n_transactions}")
 
@@ -1389,7 +1391,7 @@ DEFAULT_TOLERANCE_TOTAL = 0.001  # 0,1 % sobre el total
 
 @dataclass
 class MonthReconciliation:
-    periodo: str
+    period: str
     db_accepted: int
     db_rejected: int
     control_accepted: int
@@ -1409,7 +1411,7 @@ class Reconciliation:
 
     @property
     def failed_months(self) -> list[str]:
-        return [m.periodo for m in self.months if not m.ok]
+        return [m.period for m in self.months if not m.ok]
 
     @property
     def ok(self) -> bool:
@@ -1434,28 +1436,28 @@ def reconcile(
     Los meses en ``exclude_months`` (p. ej. un ano sin detalle en la fuente) se informan pero no cuentan.
     """
     controls = {
-        row.periodo: row
-        for row in db.scalars(select(TchRecaudacionMensual).order_by(TchRecaudacionMensual.periodo))
-        if months is None or row.periodo in months
+        row.period: row
+        for row in db.scalars(select(TchMonthlyCollection).order_by(TchMonthlyCollection.period))
+        if months is None or row.period in months
     }
     counts: dict[tuple[str, str], int] = {
-        (periodo, estado): quantity
-        for periodo, estado, quantity in db.execute(
-            select(TchTransaccion.periodo, TchTransaccion.estado, func.count())
-            .where(TchTransaccion.estado.in_(("ACEPTADA", "RECHAZADA")), TchTransaccion.periodo.in_(list(controls)))
-            .group_by(TchTransaccion.periodo, TchTransaccion.estado)
+        (period, status): quantity
+        for period, status, quantity in db.execute(
+            select(TchTransaction.period, TchTransaction.status, func.count())
+            .where(TchTransaction.status.in_(("ACEPTADA", "RECHAZADA")), TchTransaction.period.in_(list(controls)))
+            .group_by(TchTransaction.period, TchTransaction.status)
         )
     }
     result = Reconciliation(tolerance_month=tolerance_month, tolerance_total=tolerance_total)
     excluded = set(exclude_months)
-    for periodo, control in controls.items():
+    for period, control in controls.items():
         item = MonthReconciliation(
-            periodo=periodo,
-            db_accepted=counts.get((periodo, "ACEPTADA"), 0),
-            db_rejected=counts.get((periodo, "RECHAZADA"), 0),
-            control_accepted=control.aceptadas_cantidad,
-            control_rejected=control.rechazadas_cantidad,
-            excluded=periodo in excluded,
+            period=period,
+            db_accepted=counts.get((period, "ACEPTADA"), 0),
+            db_rejected=counts.get((period, "RECHAZADA"), 0),
+            control_accepted=control.accepted_count,
+            control_rejected=control.rejected_count,
+            excluded=period in excluded,
         )
         if not item.excluded:
             item.ok = (
@@ -1473,9 +1475,9 @@ def format_reconciliation(result: Reconciliation) -> str:
     """Texto para la consola: solo periodos, conteos y diferencias (nada personal)."""
     lines = [f"{'mes':<8} {'acep BD':>9} {'acep ctl':>9} {'rech BD':>9} {'rech ctl':>9}  estado"]
     for m in result.months:
-        estado = "excluido" if m.excluded else ("ok" if m.ok else "FALLA")
+        status = "excluido" if m.excluded else ("ok" if m.ok else "FALLA")
         lines.append(
-            f"{m.periodo:<8} {m.db_accepted:>9} {m.control_accepted:>9} {m.db_rejected:>9} {m.control_rejected:>9}  {estado}"
+            f"{m.period:<8} {m.db_accepted:>9} {m.control_accepted:>9} {m.db_rejected:>9} {m.control_rejected:>9}  {status}"
         )
     gap = _relative_gap(result.total_db, result.total_control) * 100
     lines.append(
@@ -1527,7 +1529,7 @@ def reload_full(
             cancellations = _apply_implicit_cancellations(db, latest["fichas"])
             log.info(f"Bajas implicitas (ausentes de {latest['archivo']}): {cancellations}")
         result = reconcile(db, tolerance_month, tolerance_total, exclude_months=exclude_months)
-        vigentes = db.scalar(select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "VIGENTE")) or 0
+        vigentes = db.scalar(select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")) or 0
         committed = apply and result.ok
         if committed:
             db.commit()

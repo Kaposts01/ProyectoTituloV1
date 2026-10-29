@@ -37,7 +37,7 @@ from app.models.cancellation import (
     SubscriptionCancellationRequestEvent,
 )
 from app.models.payku_channel import PaykuTransaction
-from app.models.tch import TchSuscripcion
+from app.models.tch import TchSubscription
 from app.models.toku_channel import TokuInvoice
 from app.models.vp import VpCharge
 from app.services import billing_requests as br
@@ -169,8 +169,8 @@ def subscription_status(db: Session, channel: str, external_id: str) -> str | No
     if channel == "tch":
         if not external_id.isdigit():
             return None
-        row = db.execute(select(TchSuscripcion.estado, TchSuscripcion.fecha_eliminacion).where(
-            TchSuscripcion.numero_ficha == int(external_id)).limit(1)).first()
+        row = db.execute(select(TchSubscription.status, TchSubscription.deletion_date).where(
+            TchSubscription.file_number == int(external_id)).limit(1)).first()
         if row is None:
             return None
         return "ELIMINADA" if (row[1] or "").strip() else (row[0] or "VIGENTE")

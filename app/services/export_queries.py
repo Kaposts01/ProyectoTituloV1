@@ -35,7 +35,7 @@ from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription as CSub
 from app.models.payku_channel import PaykuTransaction as PkTx
-from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
+from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.services.exporter import ExportColumn
 
 YIELD_PER = 2000
@@ -216,28 +216,28 @@ def _clients_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, labe
 
 
 def _clients_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
-    name = _name(TchCliente.nombre, TchCliente.apellido)
+    name = _name(TchClient.name, TchClient.last_name)
     search = _search(f, {
-        "rut": TchCliente.rut, "name": name, "last_name": func.coalesce(TchCliente.apellido, ""), "platform": literal("TCH"),
-        "email": TchCliente.email, "phone": TchCliente.telefono,
+        "rut": TchClient.rut, "name": name, "last_name": func.coalesce(TchClient.last_name, ""), "platform": literal("TCH"),
+        "email": TchClient.email, "phone": TchClient.phone,
     }, "rut")
-    address = func.concat_ws(", ", TchCliente.direccion, TchCliente.comuna, TchCliente.ciudad)
+    address = func.concat_ws(", ", TchClient.address, TchClient.district, TchClient.city)
     stmt = select(
-        literal("tch").label("channel"), cast(TchCliente.id, String).label("external_id"), null().label("status"),
-        func.substr(cast(TchCliente.created_at, String), 1, 10).label("signup_date"), _pii(TchCliente.rut, pii).label("rut"),
-        _pii(name, pii).label("name"), _pii(TchCliente.email, pii).label("email"),
-        _pii(TchCliente.telefono, pii).label("phone"), _pii(address, pii).label("address"),
+        literal("tch").label("channel"), cast(TchClient.id, String).label("external_id"), null().label("status"),
+        func.substr(cast(TchClient.created_at, String), 1, 10).label("signup_date"), _pii(TchClient.rut, pii).label("rut"),
+        _pii(name, pii).label("name"), _pii(TchClient.email, pii).label("email"),
+        _pii(TchClient.phone, pii).label("phone"), _pii(address, pii).label("address"),
     )
     conds = []
     if f.status and f.status.strip():
         conds.append(false())  # los clientes TCH no tienen estado propio
     if f.date_from is not None:
-        conds.append(func.substr(cast(TchCliente.created_at, String), 1, 10) >= f.date_from.isoformat())
+        conds.append(func.substr(cast(TchClient.created_at, String), 1, 10) >= f.date_from.isoformat())
     if f.date_to is not None:
-        conds.append(func.substr(cast(TchCliente.created_at, String), 1, 10) <= f.date_to.isoformat())
+        conds.append(func.substr(cast(TchClient.created_at, String), 1, 10) <= f.date_to.isoformat())
     if search is not None:
         conds.append(search)
-    return stmt.where(*conds).order_by(TchCliente.id)
+    return stmt.where(*conds).order_by(TchClient.id)
 
 
 # ----------------------------------------------------------------------------- suscripciones
@@ -324,31 +324,31 @@ def _subs_payku(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
 
 
 def _subs_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
-    client_name = _name(TchCliente.nombre, TchCliente.apellido)
-    amount = func.coalesce(func.nullif(TchSuscripcion.equivalente_pesos, ""), TchSuscripcion.monto)
+    client_name = _name(TchClient.name, TchClient.last_name)
+    amount = func.coalesce(func.nullif(TchSubscription.peso_equivalent, ""), TchSubscription.amount)
     last_paid = (
-        select(func.max(TchTransaccion.fecha_cargo))
-        .where(TchTransaccion.numero_ficha == TchSuscripcion.numero_ficha, func.lower(TchTransaccion.estado).in_(PAID_STATUSES))
-        .correlate(TchSuscripcion).scalar_subquery()
+        select(func.max(TchTransaction.charge_date))
+        .where(TchTransaction.file_number == TchSubscription.file_number, func.lower(TchTransaction.status).in_(PAID_STATUSES))
+        .correlate(TchSubscription).scalar_subquery()
     )
-    ended = func.coalesce(TchSuscripcion.fecha_eliminacion, TchSuscripcion.fecha_rechazo)
+    ended = func.coalesce(TchSubscription.deletion_date, TchSubscription.rejection_date)
     stmt = (
         select(
-            literal("tch").label("channel"), cast(TchSuscripcion.numero_ficha, String).label("subscription_id"),
-            TchSuscripcion.estado.label("status"), TchSuscripcion.fecha_activacion.label("start_date"),
+            literal("tch").label("channel"), cast(TchSubscription.file_number, String).label("subscription_id"),
+            TchSubscription.status.label("status"), TchSubscription.activation_date.label("start_date"),
             ended.label("end_date"), amount.label("amount"), literal("CLP").label("currency"), last_paid.label("last_charge"),
-            _pii(TchSuscripcion.cliente_rut, pii).label("rut"), _pii(client_name, pii).label("name"),
+            _pii(TchSubscription.client_rut, pii).label("rut"), _pii(client_name, pii).label("name"),
         )
-        .select_from(TchSuscripcion)
-        .outerjoin(TchCliente, _rut_key_sql(TchSuscripcion.cliente_rut) == _rut_key_sql(TchCliente.rut))
-        .where(func.upper(TchSuscripcion.estado) != "RECHAZADA")
+        .select_from(TchSubscription)
+        .outerjoin(TchClient, _rut_key_sql(TchSubscription.client_rut) == _rut_key_sql(TchClient.rut))
+        .where(func.upper(TchSubscription.status) != "RECHAZADA")
     )
-    conds = _common_conditions(f, TchSuscripcion.estado, TchSuscripcion.fecha_activacion, amount)
-    search = _subs_search(f, cast(TchSuscripcion.numero_ficha, String), client_name, TchSuscripcion.cliente_rut, "TCH",
-                          TchSuscripcion.estado)
+    conds = _common_conditions(f, TchSubscription.status, TchSubscription.activation_date, amount)
+    search = _subs_search(f, cast(TchSubscription.file_number, String), client_name, TchSubscription.client_rut, "TCH",
+                          TchSubscription.status)
     if search is not None:
         conds.append(search)
-    return stmt.where(*conds).order_by(TchSuscripcion.numero_ficha)
+    return stmt.where(*conds).order_by(TchSubscription.file_number)
 
 
 # ----------------------------------------------------------------------------- cobros
@@ -381,23 +381,23 @@ def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> A
 
 
 def _charges_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
-    t = TchTransaccion
+    t = TchTransaction
     cols = [
-        literal("tch").label("channel"), cast(t.id, String).label("charge_id"), cast(t.numero_ficha, String).label("subscription_id"),
-        t.estado.label("status"), t.fecha_cargo.label("charge_date"), t.periodo.label("period"), t.monto.label("amount"),
-        literal("CLP").label("currency"), t.razon_rechazo.label("rejection_reason"),
+        literal("tch").label("channel"), cast(t.id, String).label("charge_id"), cast(t.file_number, String).label("subscription_id"),
+        t.status.label("status"), t.charge_date.label("charge_date"), t.period.label("period"), t.amount.label("amount"),
+        literal("CLP").label("currency"), t.rejection_reason.label("rejection_reason"),
     ]
     if pii:
         stmt = (
-            select(*cols, TchSuscripcion.cliente_rut.label("rut"), _name(TchCliente.nombre, TchCliente.apellido).label("name"))
+            select(*cols, TchSubscription.client_rut.label("rut"), _name(TchClient.name, TchClient.last_name).label("name"))
             .select_from(t)
-            .outerjoin(TchSuscripcion, TchSuscripcion.numero_ficha == t.numero_ficha)
-            .outerjoin(TchCliente, TchCliente.rut == TchSuscripcion.cliente_rut)
+            .outerjoin(TchSubscription, TchSubscription.file_number == t.file_number)
+            .outerjoin(TchClient, TchClient.rut == TchSubscription.client_rut)
         )
     else:
         stmt = select(*cols, null().label("rut"), null().label("name"))
-    search = _search(f, {"id": cast(t.id, String), "subscription_id": cast(t.numero_ficha, String), "status": t.estado})
-    conds = _common_conditions(f, t.estado, t.fecha_cargo, t.monto)
+    search = _search(f, {"id": cast(t.id, String), "subscription_id": cast(t.file_number, String), "status": t.status})
+    conds = _common_conditions(f, t.status, t.charge_date, t.amount)
     if search is not None:
         conds.append(search)
     return stmt.where(*conds).order_by(t.id)

@@ -21,7 +21,7 @@ from app.models.core import (
     CoreSubscription,
     ExternalIdentity,
 )
-from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
+from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.services.core_materialization import materialize_core_clients
 
 log = logging.getLogger(__name__)
@@ -65,14 +65,14 @@ def normalize_tch_currency(value: object) -> str | None:
     return None
 
 
-def _resolve_currency(subscription: TchSuscripcion) -> str:
+def _resolve_currency(subscription: TchSubscription) -> str:
     """Moneda del mandato desde "Moneda Vigente" (TCH-PAR-05); CLP si el reporte no la trae.
 
     El campo ``reajuste`` ("SI" o vacio) indica reajuste del monto, no la moneda.
     Se lee la columna ``moneda`` (migracion 0047); en filas cargadas antes de ella, del payload, donde el ETL deja
     la clave ``moneda_vigente`` y, en filas aun mas antiguas, el rotulo crudo de la columna.
     """
-    from_column = normalize_tch_currency(getattr(subscription, "moneda", None))
+    from_column = normalize_tch_currency(getattr(subscription, "currency", None))
     if from_column:
         return from_column
     payload = getattr(subscription, "raw_payload", None) or {}
@@ -89,7 +89,7 @@ def _resolve_currency(subscription: TchSuscripcion) -> str:
 
 def _materialize_client_attributes(db: Session) -> int:
     """Upsert observable PII attributes for each TCH client."""
-    clients = db.scalars(select(TchCliente)).all()
+    clients = db.scalars(select(TchClient)).all()
 
     identity_index: dict[str, uuid.UUID | None] = {}
     for row in db.execute(
@@ -107,12 +107,12 @@ def _materialize_client_attributes(db: Session) -> int:
         client_id = identity_index.get(c.rut)
         observed = c.updated_at or c.created_at
 
-        full_name = " ".join(filter(None, [c.nombre, c.apellido])).strip() or None
+        full_name = " ".join(filter(None, [c.name, c.last_name])).strip() or None
         for attr_type, attr_val in [
             ("name", full_name),
             ("rut", c.rut),
             ("email", c.email),
-            ("phone", c.telefono),
+            ("phone", c.phone),
         ]:
             if attr_val and attr_val.strip():
                 rows.append({
@@ -151,31 +151,31 @@ def _materialize_subscriptions(db: Session) -> int:
     # Índice de último estado de transacción por ficha (para last_payment_status)
     _tx_latest: dict[int, tuple[str, str]] = {}
     for row in db.execute(
-        select(TchTransaccion.numero_ficha, TchTransaccion.fecha_cargo, TchTransaccion.estado)
-        .where(TchTransaccion.numero_ficha.isnot(None))
+        select(TchTransaction.file_number, TchTransaction.charge_date, TchTransaction.status)
+        .where(TchTransaction.file_number.isnot(None))
     ):
-        prev = _tx_latest.get(row.numero_ficha)
-        charge_day = row.fecha_cargo or ""
+        prev = _tx_latest.get(row.file_number)
+        charge_day = row.charge_date or ""
         if prev is None or charge_day > prev[0]:
-            _tx_latest[row.numero_ficha] = (charge_day, row.estado)
+            _tx_latest[row.file_number] = (charge_day, row.status)
     last_tx_status: dict[int, str] = {k: v[1] for k, v in _tx_latest.items()}
 
-    subscriptions = db.scalars(select(TchSuscripcion)).all()
+    subscriptions = db.scalars(select(TchSubscription)).all()
 
     rows = []
     for s in subscriptions:
-        client_id = identity_index.get(s.cliente_rut) if s.cliente_rut else None
+        client_id = identity_index.get(s.client_rut) if s.client_rut else None
         rows.append({
             "id": uuid.uuid4(),
             "client_id": client_id,
             "source": _SOURCE,
-            "external_id": str(s.numero_ficha),
-            "status": s.estado,
-            "amount": _parse_amount(s.monto),
+            "external_id": str(s.file_number),
+            "status": s.status,
+            "amount": _parse_amount(s.amount),
             "currency": _resolve_currency(s),
-            "started_at": _parse_date(s.fecha_activacion),
-            "ended_at": _parse_date(s.fecha_eliminacion),
-            "last_payment_status": last_tx_status.get(s.numero_ficha),
+            "started_at": _parse_date(s.activation_date),
+            "ended_at": _parse_date(s.deletion_date),
+            "last_payment_status": last_tx_status.get(s.file_number),
         })
 
     before = db.scalar(select(func.count()).select_from(CoreSubscription).where(CoreSubscription.source == _SOURCE)) or 0
@@ -210,7 +210,7 @@ def legacy_key_filter(model, key_column):
     return and_(
         model.source == _SOURCE,
         key_column.like("%|%|%|%|%"),
-        ~exists().where(TchTransaccion.dedupe_key == key_column),
+        ~exists().where(TchTransaction.dedupe_key == key_column),
     )
 
 
@@ -231,7 +231,7 @@ def _materialize_payments(db: Session) -> int:
     ):
         sub_index[row.external_id] = row.id
 
-    transacciones = db.scalars(select(TchTransaccion)).all()
+    transacciones = db.scalars(select(TchTransaction)).all()
 
     rows = []
     skipped = 0
@@ -239,19 +239,19 @@ def _materialize_payments(db: Session) -> int:
         if not t.dedupe_key:
             skipped += 1
             continue
-        sub_id = sub_index.get(str(t.numero_ficha))
+        sub_id = sub_index.get(str(t.file_number))
         rows.append({
             "id": uuid.uuid4(),
             "source": _SOURCE,
             "external_id": t.dedupe_key,
             "subscription_id": sub_id,
             "charge_id": None,
-            "source_status": t.estado,
-            "occurred_at": _parse_date(t.fecha_cargo),
-            "amount": _parse_amount(t.monto),
+            "source_status": t.status,
+            "occurred_at": _parse_date(t.charge_date),
+            "amount": _parse_amount(t.amount),
             "currency": "CLP",
-            "rejection_code": t.codigo_respuesta if t.estado and "RECHAZ" in t.estado.upper() else None,
-            "rejection_reason": t.razon_rechazo if t.estado and "RECHAZ" in t.estado.upper() else None,
+            "rejection_code": t.response_code if t.status and "RECHAZ" in t.status.upper() else None,
+            "rejection_reason": t.rejection_reason if t.status and "RECHAZ" in t.status.upper() else None,
             "rejection_reported_at": None,
         })
 

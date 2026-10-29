@@ -24,10 +24,10 @@ from app.core.security import require_csrf, require_permissions, require_role
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.models.tch import (
-    TchCliente,
-    TchRecaudacionMensual,
-    TchSuscripcion,
-    TchTransaccion,
+    TchClient,
+    TchMonthlyCollection,
+    TchSubscription,
+    TchTransaction,
 )
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import tch_report_registry
@@ -78,11 +78,11 @@ def _tch_last_paid_map(db: Session, fichas: list[int]) -> dict[int, str]:
     if not fichas:
         return {}
     rows = db.execute(
-        select(TchTransaccion.numero_ficha, func.max(TchTransaccion.fecha_cargo).label("last_date"))
-        .where(TchTransaccion.numero_ficha.in_(fichas), func.lower(TchTransaccion.estado).in_(_TCH_PAID))
-        .group_by(TchTransaccion.numero_ficha)
+        select(TchTransaction.file_number, func.max(TchTransaction.charge_date).label("last_date"))
+        .where(TchTransaction.file_number.in_(fichas), func.lower(TchTransaction.status).in_(_TCH_PAID))
+        .group_by(TchTransaction.file_number)
     ).all()
-    return {r.numero_ficha: r.last_date for r in rows if r.last_date}
+    return {r.file_number: r.last_date for r in rows if r.last_date}
 
 
 def _tch_secondary(estado: str, last_paid: str | None) -> str:
@@ -97,65 +97,65 @@ def _tch_secondary(estado: str, last_paid: str | None) -> str:
         return "Nunca Cobrado"
 
 
-def _serialize_sus(s: TchSuscripcion, last_paid: str | None = None) -> dict:
+def _serialize_sus(s: TchSubscription, last_paid: str | None = None) -> dict:
     return {
         "id": str(s.id),
-        "numero_ficha": s.numero_ficha,
-        "numero_mandato": s.numero_mandato,
-        "cliente_rut": s.cliente_rut,
-        "banco_nombre": s.banco_nombre,
-        "tipo_mandato": s.tipo_mandato,
-        "tipo_cuenta": s.tipo_cuenta,
-        "origen": s.origen,
-        "centro_costo": s.centro_costo,
-        "captador": s.captador,
-        "monto": s.monto,
-        "equivalente_pesos": s.equivalente_pesos,
-        "fecha_activacion": s.fecha_activacion,
-        "fecha_rechazo": s.fecha_rechazo,
-        "fecha_eliminacion": s.fecha_eliminacion,
-        "fecha_fin": s.fecha_eliminacion or s.fecha_rechazo,
-        "razon_baja": s.razon_baja,
-        "estado": s.estado,
+        "numero_ficha": s.file_number,
+        "numero_mandato": s.mandate_number,
+        "cliente_rut": s.client_rut,
+        "banco_nombre": s.bank_name,
+        "tipo_mandato": s.mandate_type,
+        "tipo_cuenta": s.account_type,
+        "origen": s.origin,
+        "centro_costo": s.cost_center,
+        "captador": s.recruiter,
+        "monto": s.amount,
+        "equivalente_pesos": s.peso_equivalent,
+        "fecha_activacion": s.activation_date,
+        "fecha_rechazo": s.rejection_date,
+        "fecha_eliminacion": s.deletion_date,
+        "fecha_fin": s.deletion_date or s.rejection_date,
+        "razon_baja": s.cancellation_reason,
+        "estado": s.status,
         "last_paid_date": last_paid,
-        "secondary_status": _tch_secondary(s.estado, last_paid),
+        "secondary_status": _tch_secondary(s.status, last_paid),
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
 
 
-def _serialize_cliente(c: TchCliente) -> dict:
+def _serialize_cliente(c: TchClient) -> dict:
     return {
         "id": str(c.id),
         "rut": c.rut,
-        "nombre": c.nombre,
-        "apellido": c.apellido,
-        "fecha_nacimiento": c.fecha_nacimiento,
-        "profesion": c.profesion,
-        "tipo_persona": c.tipo_persona,
-        "tipo_socio": c.tipo_socio,
-        "telefono": c.telefono,
+        "nombre": c.name,
+        "apellido": c.last_name,
+        "fecha_nacimiento": c.birth_date,
+        "profesion": c.profession,
+        "tipo_persona": c.person_type,
+        "tipo_socio": c.member_type,
+        "telefono": c.phone,
         "email": c.email,
-        "direccion": c.direccion,
-        "comuna": c.comuna,
-        "ciudad": c.ciudad,
+        "direccion": c.address,
+        "comuna": c.district,
+        "ciudad": c.city,
     }
 
 
-def _serialize_trans(t: TchTransaccion) -> dict:
+def _serialize_trans(t: TchTransaction) -> dict:
     return {
         "id": str(t.id),
-        "numero_ficha": t.numero_ficha,
-        "periodo": t.periodo,
-        "numero_cuota": t.numero_cuota,
-        "total_cuotas": t.total_cuotas,
-        "monto": t.monto,
-        "fecha_cargo": t.fecha_cargo,
-        "tipo_transaccion": t.tipo_transaccion,
-        "estado": t.estado,
-        "entidad_recaudadora": t.entidad_recaudadora,
-        "razon_rechazo": t.razon_rechazo,
-        "archivo_origen": t.archivo_origen,
+        "numero_ficha": t.file_number,
+        "periodo": t.period,
+        "numero_cuota": t.installment_number,
+        "total_cuotas": t.total_installments,
+        "monto": t.amount,
+        "fecha_cargo": t.charge_date,
+        "tipo_transaccion": t.transaction_type,
+        "estado": t.status,
+        "entidad_recaudadora": t.collecting_entity,
+        "razon_rechazo": t.rejection_reason,
+        "archivo_origen": t.source_file,
     }
 
 
@@ -196,22 +196,22 @@ def _parse_monto(value: object) -> float:
         return 0.0
 
 
-def _recaudo_mensual_kpis(controles: list[TchRecaudacionMensual]) -> dict | None:
+def _recaudo_mensual_kpis(controles: list[TchMonthlyCollection]) -> dict | None:
     """Recaudo aceptado del ultimo periodo con transacciones aceptadas (reportes Excel)."""
-    con_aceptadas = [c for c in controles if (c.aceptadas_cantidad or 0) > 0]
+    con_aceptadas = [c for c in controles if (c.accepted_count or 0) > 0]
     if not con_aceptadas:
         return None
-    ultimo = max(con_aceptadas, key=lambda c: c.periodo)
-    mrr = _parse_monto(ultimo.aceptadas_monto)
-    active_clients = int(ultimo.aceptadas_cantidad)
+    ultimo = max(con_aceptadas, key=lambda c: c.period)
+    mrr = _parse_monto(ultimo.accepted_amount)
+    active_clients = int(ultimo.accepted_count)
     return {
-        "period": ultimo.periodo,
+        "period": ultimo.period,
         "mrr": round(mrr, 0),
         "active_clients": active_clients,  # alias heredado de accepted_transactions (no son clientes distintos)
         "accepted_transactions": active_clients,
         "arpu": round(mrr / active_clients, 0),
-        "rejected_count": int(ultimo.rechazadas_cantidad or 0),
-        "rejected_amount": round(_parse_monto(ultimo.rechazadas_monto), 0),
+        "rejected_count": int(ultimo.rejected_count or 0),
+        "rejected_amount": round(_parse_monto(ultimo.rejected_amount), 0),
     }
 
 
@@ -221,61 +221,61 @@ def tch_summary() -> dict:
     db = _get_db()
     try:
         total_vigentes = db.scalar(
-            select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "VIGENTE")
+            select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")
         ) or 0
         total_eliminadas = db.scalar(
-            select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "ELIMINADA")
+            select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "ELIMINADA")
         ) or 0
         controles = db.scalars(
-            select(TchRecaudacionMensual).order_by(TchRecaudacionMensual.periodo)
+            select(TchMonthlyCollection).order_by(TchMonthlyCollection.period)
         ).all()
         monto_numerico = case(
-            (TchTransaccion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaccion.monto, Numeric)),
+            (TchTransaction.amount.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaction.amount, Numeric)),
             else_=0,
         )
         monto_suscripcion = case(
-            (TchSuscripcion.equivalente_pesos.op("~")(r"^\d+(\.\d+)?$"), cast(TchSuscripcion.equivalente_pesos, Numeric)),
+            (TchSubscription.peso_equivalent.op("~")(r"^\d+(\.\d+)?$"), cast(TchSubscription.peso_equivalent, Numeric)),
             else_=0,
         )
-        periodo_activacion = func.substring(TchSuscripcion.fecha_activacion, 1, 7)
+        periodo_activacion = func.substring(TchSubscription.activation_date, 1, 7)
         transacciones_fuente = "recaudacion_mensual" if controles else "transacciones"
         if controles:
-            total_aceptadas = sum(control.aceptadas_cantidad for control in controles)
-            total_rechazadas = sum(control.rechazadas_cantidad for control in controles)
+            total_aceptadas = sum(control.accepted_count for control in controles)
+            total_rechazadas = sum(control.rejected_count for control in controles)
             total_trans = total_aceptadas + total_rechazadas
             transacciones_mensuales = [
                 {
-                    "year": int(control.periodo[:4]),
-                    "month": int(control.periodo[5:]),
+                    "year": int(control.period[:4]),
+                    "month": int(control.period[5:]),
                     "status": status,
                     "count": count,
                     "amount": int(amount),
                 }
                 for control in controles
                 for status, count, amount in (
-                    ("ACEPTADA", control.aceptadas_cantidad, _parse_monto(control.aceptadas_monto)),
-                    ("RECHAZADA", control.rechazadas_cantidad, _parse_monto(control.rechazadas_monto)),
+                    ("ACEPTADA", control.accepted_count, _parse_monto(control.accepted_amount)),
+                    ("RECHAZADA", control.rejected_count, _parse_monto(control.rejected_amount)),
                 )
             ]
         else:
-            total_trans = db.scalar(select(func.count()).select_from(TchTransaccion)) or 0
+            total_trans = db.scalar(select(func.count()).select_from(TchTransaction)) or 0
             total_aceptadas = db.scalar(
-                select(func.count()).select_from(TchTransaccion).where(TchTransaccion.estado == "ACEPTADA")
+                select(func.count()).select_from(TchTransaction).where(TchTransaction.status == "ACEPTADA")
             ) or 0
             total_rechazadas = db.scalar(
-                select(func.count()).select_from(TchTransaccion).where(TchTransaccion.estado == "RECHAZADA")
+                select(func.count()).select_from(TchTransaction).where(TchTransaction.status == "RECHAZADA")
             ) or 0
             transacciones_mensuales = _monthly_statuses(
                 db.execute(
                     select(
-                        TchTransaccion.periodo,
-                        TchTransaccion.estado,
+                        TchTransaction.period,
+                        TchTransaction.status,
                         func.count(),
                         func.coalesce(func.sum(monto_numerico), 0),
                     )
-                    .where(TchTransaccion.periodo.op("~")(r"^\d{4}-\d{2}$"))
-                    .group_by(TchTransaccion.periodo, TchTransaccion.estado)
-                    .order_by(TchTransaccion.periodo, TchTransaccion.estado)
+                    .where(TchTransaction.period.op("~")(r"^\d{4}-\d{2}$"))
+                    .group_by(TchTransaction.period, TchTransaction.status)
+                    .order_by(TchTransaction.period, TchTransaction.status)
                 ).all()
             )
         tasa_rechazo = round(100 * total_rechazadas / total_trans, 1) if total_trans else None
@@ -287,12 +287,12 @@ def tch_summary() -> dict:
                     func.count(),
                     func.coalesce(func.sum(monto_suscripcion), 0),
                 )
-                .where(TchSuscripcion.fecha_activacion.op("~")(r"^\d{4}-\d{2}-\d{2}$"))
+                .where(TchSubscription.activation_date.op("~")(r"^\d{4}-\d{2}-\d{2}$"))
                 .group_by(periodo_activacion)
                 .order_by(periodo_activacion)
             ).all()
         )
-        periodo_eliminacion = func.substring(TchSuscripcion.fecha_eliminacion, 1, 7)
+        periodo_eliminacion = func.substring(TchSubscription.deletion_date, 1, 7)
         bajas_mensuales = _monthly_statuses(
             db.execute(
                 select(
@@ -301,7 +301,7 @@ def tch_summary() -> dict:
                     func.count(),
                     func.coalesce(func.sum(monto_suscripcion), 0),
                 )
-                .where(TchSuscripcion.fecha_eliminacion.op("~")(r"^\d{4}-\d{2}-\d{2}$"))
+                .where(TchSubscription.deletion_date.op("~")(r"^\d{4}-\d{2}-\d{2}$"))
                 .group_by(periodo_eliminacion)
                 .order_by(periodo_eliminacion)
             ).all()
@@ -329,29 +329,29 @@ def tch_summary() -> dict:
         mrr = float(
             db.scalar(
                 select(func.coalesce(func.sum(monto_suscripcion), 0))
-                .select_from(TchSuscripcion)
-                .where(TchSuscripcion.estado == "VIGENTE")
+                .select_from(TchSubscription)
+                .where(TchSubscription.status == "VIGENTE")
             ) or 0
         )
         active_clients = db.scalar(
-            select(func.count(TchSuscripcion.cliente_rut.distinct()))
-            .select_from(TchSuscripcion)
-            .where(TchSuscripcion.estado == "VIGENTE")
-            .where(TchSuscripcion.cliente_rut.isnot(None))
+            select(func.count(TchSubscription.client_rut.distinct()))
+            .select_from(TchSubscription)
+            .where(TchSubscription.status == "VIGENTE")
+            .where(TchSubscription.client_rut.isnot(None))
         ) or 0
         monto_eliminadas = float(
             db.scalar(
                 select(func.coalesce(func.sum(monto_suscripcion), 0))
-                .select_from(TchSuscripcion)
-                .where(TchSuscripcion.estado == "ELIMINADA")
+                .select_from(TchSubscription)
+                .where(TchSubscription.status == "ELIMINADA")
             ) or 0
         )
         if controles:
-            monto_transacciones = int(sum(_parse_monto(c.aceptadas_monto) + _parse_monto(c.rechazadas_monto) for c in controles))
+            monto_transacciones = int(sum(_parse_monto(c.accepted_amount) + _parse_monto(c.rejected_amount) for c in controles))
         else:
             monto_transacciones = int(
                 db.scalar(
-                    select(func.coalesce(func.sum(monto_numerico), 0)).select_from(TchTransaccion)
+                    select(func.coalesce(func.sum(monto_numerico), 0)).select_from(TchTransaction)
                 ) or 0
             )
         arpu = round(mrr / active_clients, 0) if active_clients else None
@@ -445,16 +445,16 @@ def list_clientes(
     """Lista paginada de clientes TCH."""
     db = _get_db()
     try:
-        query = select(TchCliente)
+        query = select(TchClient)
         if rut:
-            query = query.where(TchCliente.rut.ilike(f"%{rut}%"))
+            query = query.where(TchClient.rut.ilike(f"%{rut}%"))
         if nombre:
             query = query.where(
-                func.concat_ws(" ", TchCliente.nombre, TchCliente.apellido).ilike(f"%{nombre}%")
+                func.concat_ws(" ", TchClient.name, TchClient.last_name).ilike(f"%{nombre}%")
             )
         total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
         items = db.scalars(
-            query.order_by(TchCliente.apellido, TchCliente.nombre).offset((page - 1) * limit).limit(limit)
+            query.order_by(TchClient.last_name, TchClient.name).offset((page - 1) * limit).limit(limit)
         ).all()
         return {"total": total, "page": page, "limit": limit, "pages": -(-total // limit), "items": [_serialize_cliente(item) for item in items]}
     finally:
@@ -470,17 +470,17 @@ def get_cliente(rut: str) -> dict:
     """Ficha de cliente TCH con sus mandatos asociados."""
     db = _get_db()
     try:
-        cliente = db.scalar(select(TchCliente).where(TchCliente.rut == rut))
+        cliente = db.scalar(select(TchClient).where(TchClient.rut == rut))
         if cliente is None:
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
         data = _serialize_cliente(cliente)
         suscripciones = db.scalars(
-            select(TchSuscripcion)
-            .where(TchSuscripcion.cliente_rut == cliente.rut)
-            .order_by(TchSuscripcion.fecha_activacion.desc())
+            select(TchSubscription)
+            .where(TchSubscription.client_rut == cliente.rut)
+            .order_by(TchSubscription.activation_date.desc())
         ).all()
-        last_paid_map = _tch_last_paid_map(db, [s.numero_ficha for s in suscripciones])
-        data["suscripciones"] = [_serialize_sus(s, last_paid_map.get(s.numero_ficha)) for s in suscripciones]
+        last_paid_map = _tch_last_paid_map(db, [s.file_number for s in suscripciones])
+        data["suscripciones"] = [_serialize_sus(s, last_paid_map.get(s.file_number)) for s in suscripciones]
         return data
     finally:
         db.close()
@@ -502,27 +502,27 @@ def list_suscripciones(
     """Lista paginada de suscripciones TCH con filtros opcionales."""
     db = _get_db()
     try:
-        q = select(TchSuscripcion)
+        q = select(TchSubscription)
         if estado:
-            q = q.where(TchSuscripcion.estado == estado.upper())
+            q = q.where(TchSubscription.status == estado.upper())
         if banco:
-            q = q.where(TchSuscripcion.banco_nombre.ilike(f"%{banco}%"))
+            q = q.where(TchSubscription.bank_name.ilike(f"%{banco}%"))
         if origen:
-            q = q.where(TchSuscripcion.origen.ilike(f"%{origen}%"))
+            q = q.where(TchSubscription.origin.ilike(f"%{origen}%"))
         if centro_costo:
-            q = q.where(TchSuscripcion.centro_costo.ilike(f"%{centro_costo}%"))
+            q = q.where(TchSubscription.cost_center.ilike(f"%{centro_costo}%"))
 
         total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
         items = db.scalars(
-            q.order_by(TchSuscripcion.numero_ficha).offset((page - 1) * limit).limit(limit)
+            q.order_by(TchSubscription.file_number).offset((page - 1) * limit).limit(limit)
         ).all()
-        last_paid_map = _tch_last_paid_map(db, [s.numero_ficha for s in items])
+        last_paid_map = _tch_last_paid_map(db, [s.file_number for s in items])
         return {
             "total": total,
             "page": page,
             "limit": limit,
             "pages": -(-total // limit),
-            "items": [_serialize_sus(s, last_paid_map.get(s.numero_ficha)) for s in items],
+            "items": [_serialize_sus(s, last_paid_map.get(s.file_number)) for s in items],
         }
     finally:
         db.close()
@@ -537,13 +537,13 @@ def get_suscripcion(numero_ficha: int) -> dict:
     """Ficha de una suscripción con su historial de transacciones."""
     db = _get_db()
     try:
-        sus = db.scalar(select(TchSuscripcion).where(TchSuscripcion.numero_ficha == numero_ficha))
+        sus = db.scalar(select(TchSubscription).where(TchSubscription.file_number == numero_ficha))
         if not sus:
             raise HTTPException(status_code=404, detail="Suscripción no encontrada")
         trans = db.scalars(
-            select(TchTransaccion)
-            .where(TchTransaccion.numero_ficha == numero_ficha)
-            .order_by(TchTransaccion.periodo.desc(), TchTransaccion.fecha_cargo.desc())
+            select(TchTransaction)
+            .where(TchTransaction.file_number == numero_ficha)
+            .order_by(TchTransaction.period.desc(), TchTransaction.charge_date.desc())
         ).all()
         last_paid_map = _tch_last_paid_map(db, [numero_ficha])
         data = _serialize_sus(sus, last_paid_map.get(numero_ficha))
@@ -568,17 +568,17 @@ def list_transacciones(
     """Historial de transacciones TCH con filtros."""
     db = _get_db()
     try:
-        q = select(TchTransaccion)
+        q = select(TchTransaction)
         if periodo:
-            q = q.where(TchTransaccion.periodo == periodo)
+            q = q.where(TchTransaction.period == periodo)
         if estado:
-            q = q.where(TchTransaccion.estado == estado.upper())
+            q = q.where(TchTransaction.status == estado.upper())
         if banco:
-            q = q.where(TchTransaccion.entidad_recaudadora.ilike(f"%{banco}%"))
+            q = q.where(TchTransaction.collecting_entity.ilike(f"%{banco}%"))
 
         total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
         items = db.scalars(
-            q.order_by(TchTransaccion.periodo.desc(), TchTransaccion.numero_ficha)
+            q.order_by(TchTransaction.period.desc(), TchTransaction.file_number)
             .offset((page - 1) * limit)
             .limit(limit)
         ).all()
@@ -603,12 +603,12 @@ def get_transaccion(transaction_id: uuid.UUID) -> dict:
     """Ficha de un cargo o intento de cobro TCH."""
     db = _get_db()
     try:
-        transaction = db.get(TchTransaccion, transaction_id)
+        transaction = db.get(TchTransaction, transaction_id)
         if transaction is None:
             raise HTTPException(status_code=404, detail="Transacción no encontrada")
         data = _serialize_trans(transaction)
         suscripcion = db.scalar(
-            select(TchSuscripcion).where(TchSuscripcion.numero_ficha == transaction.numero_ficha)
+            select(TchSubscription).where(TchSubscription.file_number == transaction.file_number)
         )
         data["suscripcion"] = _serialize_sus(suscripcion) if suscripcion else None
         return data
