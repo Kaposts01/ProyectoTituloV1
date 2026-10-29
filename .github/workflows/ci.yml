@@ -39,6 +39,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.lock
       - run: alembic upgrade head
+      - run: alembic check
       - run: python -m ruff check app tests alembic scripts
       - run: python -m pytest
 
@@ -56,4 +57,5 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npm run build

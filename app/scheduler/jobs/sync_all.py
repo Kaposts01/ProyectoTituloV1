@@ -89,6 +89,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     started = datetime.now(timezone.utc)
     channels_done: list[str] = []
     channels_failed: list[str] = []
+    consolidation_failed = False
 
     try:
         # — VirtualPOS VP1 y VP2 —
@@ -108,9 +109,9 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
             except Exception:
-                logger.exception("Error en %s", phase)
+                logger.exception("Error en %s", phase, exc_info=False)
                 channels_failed.append(platform)
-                event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": f"Error en {phase}"})
+                event_bus.emit(run_id, {"type": "error", "terminal": False, "phase": phase, "msg": f"Error en {phase}"})
             finally:
                 db.close()
 
@@ -129,9 +130,9 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
             except Exception:
-                logger.exception("Error en %s", phase)
+                logger.exception("Error en %s", phase, exc_info=False)
                 channels_failed.append("toku")
-                event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en sync_toku"})
+                event_bus.emit(run_id, {"type": "error", "terminal": False, "phase": phase, "msg": "Error en sync_toku"})
             finally:
                 db.close()
 
@@ -150,9 +151,9 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
             except Exception:
-                logger.exception("Error en %s", phase)
+                logger.exception("Error en %s", phase, exc_info=False)
                 channels_failed.append("payku")
-                event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en sync_payku"})
+                event_bus.emit(run_id, {"type": "error", "terminal": False, "phase": phase, "msg": "Error en sync_payku"})
             finally:
                 db.close()
 
@@ -184,16 +185,22 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": consolidated})
             logger.info("Consolidación completada: %d registros", consolidated)
         except Exception:
-            logger.exception("Error en consolidación")
-            event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en consolidación"})
+            consolidation_failed = True
+            logger.exception("Error en consolidación", exc_info=False)
+            event_bus.emit(run_id, {"type": "error", "terminal": False, "phase": phase, "msg": "Error en consolidación"})
         finally:
             db.close()
 
         duration_s = int((datetime.now(timezone.utc) - started).total_seconds())
-        failed_msg = f"Canales con error: {', '.join(channels_failed)}" if channels_failed else None
+        errors = []
+        if channels_failed:
+            errors.append(f"Canales con error: {', '.join(channels_failed)}")
+        if consolidation_failed:
+            errors.append("Error en consolidación")
+        failed_msg = "; ".join(errors) or None
         _update_run(
             db_run_id,
-            status="completed",
+            status="failed" if failed_msg else "completed",
             phase=None,
             channels_processed=channels_done,
             channels_failed=channels_failed or None,
@@ -202,7 +209,10 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             error_message=failed_msg,
         )
         event_bus.emit(run_id, {
-            "type": "completed",
+            "type": "error" if failed_msg else "completed",
+            "terminal": True,
+            "phase": "fatal" if failed_msg else None,
+            "msg": failed_msg,
             "total_records": total_records,
             "duration_s": duration_s,
             "channels_done": channels_done,
@@ -210,16 +220,18 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         })
         logger.info("sync_all_channels completado: %d registros en %ds", total_records, duration_s)
 
-    except Exception as exc:
-        logger.exception("Error fatal en sync_all_channels (run_id=%s)", run_id)
+    except Exception:
+        logger.exception("Error fatal en sync_all_channels (run_id=%s)", run_id, exc_info=False)
         _update_run(
             db_run_id,
             status="failed",
             phase=None,
-            error_message=str(exc)[:2000],
+            channels_processed=channels_done,
+            records_upserted=total_records,
+            error_message="Error durante la sincronización.",
             finished_at=datetime.now(timezone.utc),
         )
-        event_bus.emit(run_id, {"type": "error", "phase": "fatal", "msg": str(exc)[:500]})
+        event_bus.emit(run_id, {"type": "error", "phase": "fatal", "terminal": True, "msg": "Error durante la sincronización."})
 
     finally:
         event_bus.close_bus(run_id)

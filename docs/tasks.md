@@ -2,6 +2,44 @@
 
 Este archivo es la fuente de estado del proyecto. Debe actualizarse al iniciar, bloquear, completar o modificar una tarea.
 
+## Skills Codex por stack 2026-10-20
+
+- Evaluacion completada: 37 pruebas estructurales pasan; 27 casos de revision offline (tres por skill) cumplen los criterios revisados por el agente principal tras respuestas de tres evaluadores independientes. Un cuarto evaluador basado solo en metadatos selecciono correctamente nueve especialidades y rechazo tres solicitudes fuera de alcance (12/12). No son pruebas de ejecucion del CRM ni de activacion automatica nativa.
+- Artefactos: `tests/test_codex_skills.py`, casos y evaluacion en `tests/fixtures/skills/`, informe `docs/quality/skills-evaluation-2026-10-20.md`. Ruff de la suite nueva y diff correctos; Ruff global reporta I001 en `tests/test_core_etl_helpers.py`, reproducido tambien contra HEAD. No se modificaron skills, codigo funcional, servicios ni base operativa para esta evaluacion.
+
+- Completada: nueve skills especializadas creadas e instaladas en `.agents/skills/`, con alcance por stack, criterios de refactorizacion y validacion, metadatos Codex y tres escenarios de revision por skill. Se preservan las skills existentes de `.opencode/skills/`; el catalogo y su relacion quedan en `AGENTS.md`.
+- Validacion inicial de creacion: `quick_validate.py` para los nueve paquetes, YAML UI, nombre/carpeta, longitud de descripciones UI, menciones de invocacion, seleccion implicita habilitada y referencias relativas. La evaluacion offline posterior y sus limites figuran arriba; las skills aparecen en el catalogo activo, sin certificar activacion nativa en una sesion limpia. No se modificaron codigo funcional, dependencias, servicios ni proveedores.
+
+## Carga inicial de proveedores 2026-10-20
+
+- Resultado actual: VirtualPOS cuenta 1 Sandbox sincronizado y consolidado (SyncRun `47802c2c-a457-4c2d-9ed3-78a2915770a7`, 1.489 registros). Toku fallo primero en `/organization/payments` con HTTP 404; luego se completo una carga acotada de cinco recursos disponibles y consolidacion (SyncRun `fce4e171-3a4d-4084-a795-087d96a2d8e8`), con exclusion de pagos registrada expresamente en metadata. La segunda corrida Toku inserto cero cambios porque las primeras colecciones ya estaban persistidas; no implica que no haya registros. No se modifico el sincronizador versionado ni se certifico cobertura de pagos. Payku y VP2 no se consultaron.
+
+- Configuracion actualizada verificada: VirtualPOS cuenta 1 apunta a Sandbox oficial y tiene API/SECRET KEY; Toku usa base oficial y API KEY. Usuario confirma configuracion lista; se inicia carga de lectura solo para esos dos canales, sin VP2 ni Payku. TCH ya cargado no se reimporta. Bandera de escritura de cada proveedor permanece deshabilitada.
+
+- URL verificadas contra documentacion oficial: VirtualPOS produccion `https://api.virtualpos.cl`, sandbox `https://api.virtualpos-sandbox.com`; Toku `https://api.trytoku.com`. Registradas en los contratos de integracion. Pendiente confirmar el ambiente de las claves VirtualPOS; no se cambio su URL ni se enviaron credenciales a ningun ambiente durante esta investigacion. VirtualPOS requiere ademas SECRET KEY; no se puede derivar de la API KEY.
+
+- TCH verificado: ruta proporcionada por el usuario contiene `20260930 TCH IG SEPTIEMBRE 2026.XLSX` (9,05 MiB), con las cinco hojas operativas esperadas. Ya existen 10.533 clientes, 10.547 suscripciones, 133.532 transacciones y dos ETL completados en la base local. La transformacion de VIGENTES/ELIMINADOS/RECHAZADOS del archivo produce exactamente las 10.547 fichas y estados existentes, sin faltantes ni adicionales. No se repitio la importacion. Septiembre 2026 tiene 10.359 transacciones y un control mensual; resumen TCH y dashboard general responden 200 autenticados. Esta comprobacion no certifica comparacion campo a campo de clientes o transacciones ni materializacion completa al Core.
+
+- En curso: el usuario configuro claves de VirtualPOS cuenta 1 y Toku y autorizo cargar esos canales mas TCH; Payku queda fuera. Toku usa la URL documentada `https://api.trytoku.com`. Pendiente URL real de VirtualPOS; ubicacion del reporte TCH recibida y verificada. Las tres banderas de escritura permanecen deshabilitadas.
+- Pendiente: el permiso de ejecucion externa solicitado para la sincronizacion de lectura de Toku fue rechazado por el usuario; el comando no se inicio y no se realizo ninguna consulta al proveedor. Runner local preparado en `.local/sync_ready_channels.py` sin credenciales ni cambios en el codigo versionado.
+- Hallazgo de prevalidacion: `scripts/sync_virtualpos.py` y `scripts/sync_toku.py` importan `consolidate_to_canonical`, mientras el servicio expone `consolidate_to_centralized`; revisar los lanzadores antes de utilizarlos. La API usa el nombre vigente.
+
+## Detalle del arranque local 2026-10-20
+
+- Completada: frontend Vite activo en `http://127.0.0.1:5173` (HTTP 200), con logs en `logs/frontend.*.log`. Dependencias instaladas con `npm ci`; build correcto y lint con advertencias existentes.
+- Backend preparado: Python 3.14.7 instalado mediante winget (el archivo `.python-version` solicita 3.14.5 y no se modifico), `.venv` creado y `requirements.lock` instalado. Imports de FastAPI/SQLAlchemy/Uvicorn y `pip check` correctos.
+- El usuario autorizo PostgreSQL 18 nativo aislado: cluster nuevo en `.local/postgres18/data`, escucha solo en `127.0.0.1:5433`, base `crm`, autenticacion SCRAM y secretos en `.env` ignorado. No se modificaron bases existentes. Docker sigue bloqueado por `HCS_E_HYPERV_NOT_INSTALLED`.
+- Migraciones aplicadas hasta `20261007_0028`; administrador inicial creado con contrasena local disponible en `.env` bajo `LOCAL_ADMIN_PASSWORD`, sin conservar `INITIAL_ADMIN_PASSWORD`. API Uvicorn activa en `127.0.0.1:8000`, con logs en `logs/api.*.log`.
+- Verificado: `/health`, `/docs`, frontend, login, sesion y resumen staging autenticado responden 200; proxy Vite devuelve 401 sin sesion; contraseña PostgreSQL incorrecta rechazada. Base operativa nueva sin registros de proveedores y sin credenciales reales de integracion. No se ejecutaron sincronizaciones.
+
+## Revision del repositorio 2026-10-20
+
+- Completada: revision de arquitectura, flujos de datos, seguridad, frontend, Core y validaciones disponibles mediante contraste de documentacion y codigo. Sin cambios funcionales, sincronizaciones ni escrituras contra proveedores.
+- Confirmado por inspeccion: el checkout `master` contiene los cuatro ETL Core y las migraciones hasta `20261007_0028`; la API operativa y el frontend siguen consultando principalmente staging, proyecciones previas y TCH. El scheduler consolida esas proyecciones y crea identidades Core, pero no ejecuta los cuatro ETL Core completos.
+- Riesgos identificados por inspeccion, sin correccion en esta tarea: `/etl/core/{provider}` se registra antes de `/etl/core/all`; `core_client_attributes` impone unicidad por fuente/tipo/valor y descarta conflictos, perdiendo asociaciones cuando clientes comparten atributos; el indice de RUT de VirtualPOS elige el primer cliente ante duplicados. Requieren validacion funcional y tareas de correccion especificas.
+- Inconsistencias documentales: la memoria aun describe el Core en una rama pendiente de merge, arquitectura conserva partes del Core como propuestas y `tasks.md` mantiene CORE-01/03 abiertos. No se certificaron despliegue, migraciones aplicadas ni cierre de esas tareas. La tension entre operaciones POST existentes y restricciones de escritura de `AGENTS.md` sigue sin resolverse.
+- Validacion: 132 archivos Python sin errores de sintaxis mediante AST; cadena estatica de 29 migraciones con un solo head declarado (`20261007_0028`) y sin padres ausentes; `git diff --check` correcto; solo `.env.example` aparece versionado entre archivos `.env` consultados. No se ejecutaron pytest, ruff, build/lint frontend ni pruebas de base/proveedores: no existe `.venv`, el Python disponible carece de FastAPI, SQLAlchemy y ruff, y falta `frontend/node_modules`.
+
 ## Hito 1: VirtualPOS Sandbox (solo lectura)
 
 | ID | Tarea | Estado | Criterio de aceptación |
@@ -487,3 +525,38 @@ Fuente de referencia: [informe comparativo](https://claude.ai/artifact/7R7N8sJHP
 | RISK-VP-01 | Agregar clasificacion de motivo antes de `retry_charge` VirtualPOS | Completada | `retry_charge` obtiene `payment.order.uuid`, llama a `/attempts` y clasifica el motivo; CAMBIO_TARJETA y DIFERIR lanzan RetryBlockedError (HTTP 409); commit df76bc5. |
 | RISK-VP-02 | Agregar antiduplicado en `create_subscription` VirtualPOS | Completada | Verifica `VpSubscription` ACTIVA/SUSCRIBIENDO antes de llamar al proveedor (HTTP 409); además índice único parcial `uq_vp_sub_active_plan_client` (migración 0036) captura la condición de carrera con `IntegrityError` → `DuplicateSubscriptionError`; commits 267fd47 + 8c2ba4e. |
 | RISK-TK-01 | Corregir `cancel-subscription` Toku para hacer void de invoices impagas | Completada | `delete_subscription` consulta invoices unpaid/partially_paid antes del DELETE y anula las que no están in_progress; añade `list_subscription_invoices()` al TokuClient; commit f2f7ab2. |
+
+
+## Actualizacion local desde GitHub (2026-10-20)
+
+- Status: Completed. Rama master actualizada por fast-forward de 0bd0a2a a 4604258. Cambios locales restaurados sin conflictos y respaldo stash conservado. Skills y archivos locales no versionados preservados. Migraciones nuevas 0029-0031 pendientes de aplicar; esta tarea actualizo el repositorio, sin validar la ejecucion de la aplicacion.
+
+## Validacion de actualizacion GitHub 4604258 (2026-10-20)
+
+- Status: Completed (validacion con hallazgos, correcciones pendientes). 265 pruebas pasan y 1 falla; Ruff detecta 5 errores. Build frontend y migraciones en PostgreSQL aislado pasan. Alembic check detecta metadata incompleta de webhooks. Base operativa permanece en 0028. Informe: [validacion 4604258](quality/update-validation-2026-10-20.md).
+
+## Correcciones de validacion 4604258 (2026-10-20)
+
+- Status: Completed (fallos bloqueantes de la validacion). Corregidos metadata Alembic, fixture transaccional, contrato de prueba Payku e imports Ruff. 268 pruebas pasan, Ruff y alembic check pasan. CI incluye alembic check. Base local respaldada y actualizada a 0031; login/dashboard/logout verificados. Advertencias frontend y deprecacion de dependencia siguen pendientes; ver informe de calidad.
+
+## REL-01 — Confiabilidad de sincronizacion y ETL (2026-10-20)
+
+- Status: Completed. Rama local codex/estabilizacion-synkmetrix. Skills/documentacion previas confirmadas por separado. Corregidos imports CLI, precedencia de Core all/detect-matches y exito global incorrecto. Pruebas previas: 8 fallos reproducidos; resultado final: 283 pruebas pasan, Ruff y build frontend pasan. Se conservan canales/conteos parciales, se rechaza lista de proveedores vacia y los errores SSE intermedios no cierran el seguimiento. Sin llamadas reales de proveedor ni migraciones nuevas. Frontend conserva 11 advertencias; no se probo interaccion visual.
+
+## DATA-01 — Integridad de atributos y relaciones VirtualPOS (2026-10-20)
+
+- Status: Completed. Restriccion de atributos por cliente/fuente e idempotencia para client_id null; migracion 0032 verificada y aplicada a crm local con respaldo. VirtualPOS excluye RUT compartido de asociaciones automaticas y prioriza ID externo explicito. 296 pruebas pasan; Ruff y Alembic check pasan. Sin backfill ni reasignacion historica. Informe: [DATA-01](quality/data-integrity-2026-10-20.md).
+
+## DASH-02 — KPI mensuales y graficos generales (2026-10-20)
+
+- Status: Completed. KPI mensuales y cuatro graficos con diseno de referencia, datos observados CLP y metas de analisis opcionales sin persistencia. Se conserva resumen anterior. 304 pruebas Python y 4 del modelo TypeScript pasan; Ruff, build y lint pasan con advertencias previas. Revisado en sesion de navegador y conciliado TCH. [Definiciones y evidencia](quality/dashboard-kpis-2026-10-20.md).
+
+## IDE-01 — Continuidad en VS Code (2026-10-20)
+
+- Status: Completed. VS Code abierto en ProyectoTituloV1, rama codex/estabilizacion-synkmetrix. Contexto enviado al agente Copilot con VSCODE_HANDOFF.md adjunto. Se verifico que leyo el traspaso, AGENTS.md, PROJECT_STATE.md y CURRENT_SPRINT.md. Instruido para esperar siguiente tarea sin modificaciones ni push.
+
+## GIT-01 — Entrega sprint-5 (2026-10-29)
+
+- Status: Completed (integracion y validacion; CI backend bloqueado por migracion historica 0035). La rama remota fue publicada antes de completar el squash; se resuelven conflictos conservando tareas de ambas ramas y la fixture transaccional. La revision de atributos local 0032 colisiona con otra revision publicada; la entrega incorpora ese cambio como nueva revision 20261029_0037 sobre 0036. No se migra la base operativa: la antigua base local con la otra 0032 necesita reconciliacion explicita antes de actualizar. Validacion en base nueva aislada. Master no se modifica.
+
+- Resultado GIT-01: 374 pruebas Python y 4 frontend pasan; Ruff, build y Alembic check pasan en base aislada preparada con DDL manual de 0035. Informe: [sprint-5](quality/sprint-5-delivery-2026-10-29.md).

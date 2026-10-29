@@ -1,0 +1,41 @@
+.performance-dashboard { margin: 22px 0; --performance-cyan: #39c7e6; }
+.performance-banner { padding: 27px 30px; border-radius: 20px; background: #190e69; color: #fff; }
+.performance-banner p { color: #60d9ef; font-size: 10px; letter-spacing: .2em; font-weight: 800; margin: 0 0 12px; }
+.performance-banner h2 { font-family: inherit; font-size: clamp(22px, 2.1vw, 33px); letter-spacing: -.035em; margin: 0 0 12px; line-height: 1.2; }
+.performance-banner span { font-size: 12px; color: #c8c1e9; }
+.performance-controls { display: flex; align-items: flex-start; gap: 22px; flex-wrap: wrap; margin: 28px 0 22px; }
+.performance-controls > div { flex: 1; min-width: 220px; }
+.performance-controls h3 { text-transform: capitalize; font-size: 23px; margin: 0 0 8px; }
+.performance-controls p, .performance-controls small { color: var(--text-2); font-size: 12px; }
+.performance-controls label { display: grid; gap: 7px; font-size: 11px; color: var(--text-2); font-weight: 600; }
+.performance-controls input, .performance-controls select { background: var(--bg-input); border: 1px solid var(--border); color: var(--text-1); padding: 11px 13px; border-radius: 11px; font: inherit; font-size: 13px; min-width: 175px; min-height: 42px; }
+.performance-controls :is(input,select):focus-visible { outline: 2px solid #39c7e6; outline-offset: 3px; }
+.performance-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.performance-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 20px; padding: 20px 17px; min-height: 136px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.performance-card p { font-size: 12px; margin: 0; color: var(--text-2); }
+.performance-card strong { font-size: clamp(23px, 2vw, 32px); color: #16849b; line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.performance-card small { font-size: 11px; line-height: 1.65; color: var(--text-2); }
+.performance-card.featured { background: #190e69; border-color: #190e69; }
+.performance-card.featured p, .performance-card.featured small { color: #d3ceeb; }
+.performance-card.featured:first-child strong { color: #fff; }
+.performance-card.featured strong { color: #45d1ee; }
+.performance-card.negative strong { color: #c21872; }
+.performance-card progress { width: 100%; height: 7px; accent-color: #39c7e6; }
+.performance-coverage { margin: 18px 0 28px; padding: 14px 18px; border: 1px solid var(--border-subtle); border-radius: 12px; font-size: 12px; color: var(--text-2); line-height: 1.7; }
+.performance-dashboard summary, .performance-legacy > summary { cursor: pointer; color: var(--link-color); font-size: 12px; font-weight: 700; padding: 6px 0; }
+.performance-evolution { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.performance-evolution h3 { text-transform: uppercase; font-size: 11px; letter-spacing: .2em; color: var(--link-color); }
+.performance-plots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.performance-plot { padding: 25px 22px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 18px; min-width: 0; }
+.performance-plot.wide { grid-column: 1 / -1; }
+.performance-plot h3 { margin: 0 0 8px; font-size: 17px; }
+.performance-plot > p { margin: 0 0 22px; font-size: 12px; line-height: 1.6; color: var(--text-2); }
+.performance-chart { height: 290px; width: 100%; font-size: 10px; }
+.performance-dashboard .recharts-text { fill: var(--text-2); }
+.performance-dashboard .recharts-default-tooltip { background: var(--bg-surface) !important; border-radius: 12px; border: 1px solid var(--border) !important; color: var(--text-1); }
+.performance-dashboard table { width: 100%; margin-top: 10px; font-size: 12px; }
+.performance-legacy { margin: 20px 0; }
+.performance-legacy > summary { font-size: 14px; margin-bottom: 14px; }
+@media (max-width: 1200px) { .performance-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .performance-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .performance-plots { grid-template-columns: 1fr; } .performance-banner { padding: 23px 20px; } .performance-plot { padding: 19px 10px; } .performance-chart { height: 250px; } .performance-card { padding: 17px 13px; } .performance-controls label { width: 100%; } }
+@media (max-width: 380px) { .performance-cards { grid-template-columns: 1fr; } }

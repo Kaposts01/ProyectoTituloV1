@@ -1,0 +1,6 @@
+interface:
+  display_name: "SynkmetriX · Dashboards"
+  short_description: "Recharts, reportes y metricas trazables por canal"
+  default_prompt: "Usa $synkmetrix-dashboard-recharts para resolver esta tarea de SynkmetriX con cambios verificables: "
+policy:
+  allow_implicit_invocation: true

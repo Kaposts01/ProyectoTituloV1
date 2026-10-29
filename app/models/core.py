@@ -102,7 +102,12 @@ class CorePayment(Base):
 
 class CoreClientAttribute(Base):
     __tablename__ = "core_client_attributes"
-    __table_args__ = (UniqueConstraint("source", "attribute_type", "attribute_value", name="uq_core_client_attribute"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "client_id", "source", "attribute_type", "attribute_value",
+            name="uq_core_client_attribute", postgresql_nulls_not_distinct=True,
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("core_clients.id"), index=True)

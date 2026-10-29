@@ -544,15 +544,31 @@ def test_payku_transaction_reads_historical_transaction_identifier() -> None:
     assert transaction["created_at_api"] == "2099-01-15T12:00:00"
 
 
-def test_payku_consolidation_preserves_subscription_dates_and_rut(db_session) -> None:
+@pytest.mark.parametrize(
+    "status, logs, expected_canceled_at",
+    [
+        ("cancel", {"status": [
+            {"final_status": "cancel", "change_date": "2099-02-03"},
+            {"final_status": "cancel", "change_date": "2099-02-02"},
+            {"final_status": "active", "change_date": "2099-02-04"},
+        ]}, "2099-02-03"),
+        ("cancel", {}, "2099-02-01"),
+        ("active", {"status": [
+            {"final_status": "cancel", "change_date": "2099-02-03"},
+        ]}, None),
+    ],
+)
+def test_payku_consolidation_preserves_subscription_dates_and_rut(
+    db_session, status, logs, expected_canceled_at,
+) -> None:
     subscription = PaykuSubscription(
         external_id="payku-dashboard-date-test",
         client_id="client-1",
         plan_id="plan-1",
-        status="cancel",
+        status=status,
         amount=None,
         currency="CLP",
-        raw_payload={"start": "2099-01-01", "end": "2099-02-01", "client": {"rut": "12.345.678-9"}},
+        raw_payload={"start": "2099-01-01", "end": "2099-02-01", "logs": logs, "client": {"rut": "12.345.678-9"}},
     )
     transaction = PaykuTransaction(
         external_id="payku-dashboard-date-transaction",
@@ -571,7 +587,7 @@ def test_payku_consolidation_preserves_subscription_dates_and_rut(db_session) ->
     canonical = db_session.query(Subscription).filter_by(source="payku", external_id=subscription.external_id).one()
 
     assert canonical.suscription_date == "2099-01-01"
-    assert canonical.canceled_at == "2099-02-01"
+    assert canonical.canceled_at == expected_canceled_at
     assert canonical.client_social_id == "12.345.678-9"
     assert canonical.amount == "2500"
     assert subscription.amount == "2500"

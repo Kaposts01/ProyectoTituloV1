@@ -1,0 +1,6 @@
+interface:
+  display_name: "SynkmetriX · Entorno y CI"
+  short_description: "Docker, Vite, Uvicorn y GitHub Actions reproducibles"
+  default_prompt: "Usa $synkmetrix-runtime-ci para resolver esta tarea de SynkmetriX con cambios verificables: "
+policy:
+  allow_implicit_invocation: true

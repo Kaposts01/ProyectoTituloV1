@@ -1,0 +1,6 @@
+interface:
+  display_name: "SynkmetriX · Backend y API"
+  short_description: "Python, FastAPI y Pydantic con contratos seguros"
+  default_prompt: "Usa $synkmetrix-python-api para resolver esta tarea de SynkmetriX con cambios verificables: "
+policy:
+  allow_implicit_invocation: true

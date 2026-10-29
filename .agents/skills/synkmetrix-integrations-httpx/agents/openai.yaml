@@ -1,0 +1,6 @@
+interface:
+  display_name: "SynkmetriX · Integraciones"
+  short_description: "HTTPX, contratos API y sincronizacion observable"
+  default_prompt: "Usa $synkmetrix-integrations-httpx para resolver esta tarea de SynkmetriX con cambios verificables: "
+policy:
+  allow_implicit_invocation: true

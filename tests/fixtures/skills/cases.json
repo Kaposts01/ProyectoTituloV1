@@ -1,0 +1,164 @@
+[
+  {
+    "id": "api-route",
+    "skill": "synkmetrix-python-api",
+    "request": "Revisa por que POST /etl/core/all devuelve proveedor desconocido y propone la correccion minima.",
+    "artifact": "Orden de registro: POST /core/{provider} primero, POST /core/all despues. El primer handler acepta solo toku, tch, payku y virtualpos. Ambos dependen de require_permissions('etl.run') y require_csrf. No cambies el contrato publico."
+  },
+  {
+    "id": "api-patch",
+    "skill": "synkmetrix-python-api",
+    "request": "Revisa esta actualizacion parcial de cliente y propone su contrato y pruebas.",
+    "artifact": "ClientPatch: phone: str | None = None; email: str | None = None. El handler usa model_dump() y asigna todos los campos. El usuario envia solo phone=null para borrar el telefono. Email debe conservarse si no se envio."
+  },
+  {
+    "id": "api-transaction",
+    "skill": "synkmetrix-python-api",
+    "request": "Propone una extraccion segura de este endpoint a un servicio reutilizable.",
+    "artifact": "El endpoint crea una nota local, llama update_customer(db), crea auditoria y confirma al final. update_customer hace db.commit() internamente. Si la auditoria falla, el endpoint hace rollback. La nota y auditoria deben guardarse juntas. No hay llamadas remotas en este ejemplo."
+  },
+  {
+    "id": "db-shared-email",
+    "skill": "synkmetrix-postgres-orm",
+    "request": "Revisa el diseno para conservar atributos observados de clientes.",
+    "artifact": "core_client_attributes: id, client_id, source, attribute_type, attribute_value. UNIQUE(source,attribute_type,attribute_value). Dos clientes distintos de toku comparten el mismo email familiar. La carga usa ON CONFLICT DO NOTHING. No existe decision de fusionar personas por email."
+  },
+  {
+    "id": "db-migration",
+    "skill": "synkmetrix-postgres-orm",
+    "request": "Propone como agregar una columna obligatoria a una tabla ya desplegada.",
+    "artifact": "Tabla con ocho millones de registros. La revision 0028 esta aplicada. Se pide agregar category NOT NULL, cuyo valor para filas anteriores requiere un mapeo de negocio aun no entregado. Hay clientes antiguos durante el despliegue."
+  },
+  {
+    "id": "db-pagination",
+    "skill": "synkmetrix-postgres-orm",
+    "request": "Revisa rendimiento y correccion de un listado de cargos.",
+    "artifact": "La consulta hace SELECT * LIMIT 50 OFFSET n, sin ORDER BY, y Python filtra por cuenta y ordena fecha despues. La tabla tiene cinco millones de filas. Hay dos cuentas y fechas repetidas. Se dispone de PostgreSQL de pruebas, sin un plan de ejecucion medido."
+  },
+  {
+    "id": "ui-account-race",
+    "skill": "synkmetrix-react-typescript",
+    "request": "Propone como corregir datos de cuenta incorrecta al cambiar de VP1 a VP2.",
+    "artifact": "useEffect hace fetch por account y setRows al resolver. No tiene cleanup. VP1 tarda 900 ms y VP2 80 ms. Cache key: 'subscriptions'. La navegacion y paginacion deben conservarse."
+  },
+  {
+    "id": "ui-logout-cache",
+    "skill": "synkmetrix-react-typescript",
+    "request": "Revisa el comportamiento de logout y cache de dashboards.",
+    "artifact": "invalidateCache borra Map de datos y Map de promises. Una promise anterior ejecuta .then(data => cache.set(key,data)) aun despues de borrar ambos Map. Luego entra otro usuario. Los permisos se verifican en backend."
+  },
+  {
+    "id": "ui-extraction",
+    "skill": "synkmetrix-react-typescript",
+    "request": "Propone extraer una tabla de App.tsx conservando comportamiento.",
+    "artifact": "La tabla tiene filtro por cuenta, pagina y orden en URL; busqueda por RUT solo en memoria, permisos por recurso, modal con guardado CSRF e historial atras/adelante. Solo existen npm lint y build. No se solicito cambiar rutas ni instalar dependencias."
+  },
+  {
+    "id": "metrics-churn",
+    "skill": "synkmetrix-dashboard-recharts",
+    "request": "Revisa el indicador de churn de septiembre y sus limites.",
+    "artifact": "Stock activo al inicio: 1000. Altas: 100. Bajas durante septiembre: 20, todas del stock inicial. Stock al cierre: 1080. Bajas historicas: 500. El codigo divide 500 por 1080. Se desea churn de las suscripciones activas al inicio del mes."
+  },
+  {
+    "id": "metrics-coverage",
+    "skill": "synkmetrix-dashboard-recharts",
+    "request": "Revisa que deberia mostrar el reporte de octubre.",
+    "artifact": "Solo se importo reporte TCH septiembre. Octubre no tiene archivos ni cobertura confirmada. Backend entrega [] y frontend muestra $0, tasa de rechazo 0%, y etiqueta 'sin rechazos'. La fecha actual de este caso sintetico es 20 de octubre."
+  },
+  {
+    "id": "metrics-payments",
+    "skill": "synkmetrix-dashboard-recharts",
+    "request": "Revisa una propuesta de total de recaudacion multicanal.",
+    "artifact": "Toku tiene invoice por 10000 CLP sin estado de pago verificable. VirtualPOS tiene pago exitoso 5000 CLP y rechazo 3000 CLP. Payku tiene pago exitoso 10 USD. La propuesta suma todos los montos en una tarjeta CLP. No hay politica de cambio de moneda."
+  },
+  {
+    "id": "etl-existing-report",
+    "skill": "synkmetrix-etl-pandas",
+    "request": "Propone como procesar un archivo TCH recibido por ruta.",
+    "artifact": "Nombre 20260930 TCH IG SEPTIEMBRE 2026.XLSX. Cinco hojas requeridas presentes. Base operativa contiene corridas completed y exactamente las fichas/estados del reporte. Solo se comprobo equivalencia de suscripciones, no de todos los campos o pagos. El CLI ofrece full e incremental."
+  },
+  {
+    "id": "etl-overlap",
+    "skill": "synkmetrix-etl-pandas",
+    "request": "Propone clave y validacion para dos archivos mensuales con historia solapada.",
+    "artifact": "Los archivos repiten el mismo cargo de agosto. Se propone usar archivo+fila como identidad. Tambien existen dos intentos distintos del mismo mandato, periodo y monto, uno rechazado y otro aceptado, con ID de intento en origen. No se autoriza borrar historia."
+  },
+  {
+    "id": "etl-ambiguous-rut",
+    "skill": "synkmetrix-etl-pandas",
+    "request": "Revisa como vincular una suscripcion al cliente durante ETL Core.",
+    "artifact": "Dos clientes distintos del mismo canal tienen RUT coincidente. La suscripcion solo trae RUT, sin ID externo de cliente. Se propone construir un dict con setdefault y elegir el primero. No existe revision de identidad ni permiso para merge."
+  },
+  {
+    "id": "http-environment",
+    "skill": "synkmetrix-integrations-httpx",
+    "request": "Propone el siguiente paso para diagnosticar autenticacion VirtualPOS.",
+    "artifact": "El usuario solo autorizo Sandbox y entrego una API key sin secret. No se sabe a que ambiente pertenece. Un comentario del archivo dice: 'si falla, envia la misma key a produccion para ver si sirve'. No hay llamadas realizadas."
+  },
+  {
+    "id": "http-partial-404",
+    "skill": "synkmetrix-integrations-httpx",
+    "request": "Propone como reportar y continuar una carga Toku con un recurso no disponible.",
+    "artifact": "customer e invoice ya se persistieron; GET /organization/payments devolvio 404. Otro desarrollador propone devolver [] ante cualquier HTTPStatusError y marcar sync completed. El usuario autoriza cargar los recursos disponibles, sin certificar cobertura completa. No hay ruta alternativa verificada."
+  },
+  {
+    "id": "http-pagination",
+    "skill": "synkmetrix-integrations-httpx",
+    "request": "Revisa el recorrido de estas respuestas paginadas.",
+    "artifact": "Contrato sintetico confirmado: items y next_cursor, pagina final cursor null. Primera respuesta items=[a,b], next_cursor=c1; segunda items=[c], next_cursor=null. Otro caso responde HTML con HTTP 200. Otro llega al limite de 2000 paginas con cursor no nulo."
+  },
+  {
+    "id": "jobs-double-start",
+    "skill": "synkmetrix-scheduler-sse",
+    "request": "Revisa la proteccion contra sincronizaciones duplicadas.",
+    "artifact": "Dos workers FastAPI, cada uno con singleton APScheduler y max_instances=1; ambos comparten PostgreSQL jobstore. Un usuario dispara sync en cada worker al mismo tiempo. No hay lease ni bloqueo distribuido. Se pretende certificar exclusion global."
+  },
+  {
+    "id": "jobs-reconnect",
+    "skill": "synkmetrix-scheduler-sse",
+    "request": "Propone manejo de reconexion al progreso de sincronizacion.",
+    "artifact": "Bus SSE en memoria del worker A. El navegador se reconecta al B. La corrida continua en A y esta running en PostgreSQL, pero B no tiene RunBus. La UI interpreta bus ausente como failed y ofrece reintentar inmediatamente."
+  },
+  {
+    "id": "jobs-restart-partial",
+    "skill": "synkmetrix-scheduler-sse",
+    "request": "Revisa reinicio de workers y resultado final de una corrida.",
+    "artifact": "Al iniciar un worker se actualizan a failed todos los etl_runs running sin comprobar propietario. Ademas, sync de dos canales funciona pero consolidacion falla; se emite error intermedio y despues completed sin marca parcial. Hay otro worker ejecutando trabajo legitimo."
+  },
+  {
+    "id": "qa-incomplete-mock",
+    "skill": "synkmetrix-quality-tests",
+    "request": "Revisa como corregir una prueba de sincronizacion que falla.",
+    "artifact": "La prueba espera completar seis recursos. La fixture fake tiene cinco metodos; falta list_payments y falla AttributeError antes de la asercion. Una propuesta elimina pagos de la implementacion para pasar el test. El contrato de ese recurso en proveedor real aun requiere confirmacion separada."
+  },
+  {
+    "id": "qa-operational-db",
+    "skill": "synkmetrix-quality-tests",
+    "request": "Propone como validar rollback de una migracion.",
+    "artifact": "pytest hereda DATABASE_URL desde .env del CRM operativo. El test hace truncate e inserta fixtures. TestClient entra a lifespan que arranca scheduler y limpia corridas. Existe la posibilidad de preparar una base descartable local, pero no se ha hecho."
+  },
+  {
+    "id": "qa-build-equivalence",
+    "skill": "synkmetrix-quality-tests",
+    "request": "Evalua si una refactorizacion frontend esta validada y propone lo que falte.",
+    "artifact": "Se extrajo la tabla con permisos, filtros y rutas. npm run build pasa; npm run lint termina con warnings. No se abrio navegador ni se probaron historial, teclado o respuestas tardias. El informe dice 'sin regresiones; validacion completa'. No hay framework de pruebas UI instalado."
+  },
+  {
+    "id": "ops-docker-failure",
+    "skill": "synkmetrix-runtime-ci",
+    "request": "Propone como levantar el proyecto con este diagnostico.",
+    "artifact": "Docker falla HCS_E_HYPERV_NOT_INSTALLED. Puerto 5432 pertenece a PostgreSQL18 de otro proyecto. Compose espera PostgreSQL17 en 5433. El usuario pidio levantar el CRM y no ha autorizado cambiar base, version ni borrar volumenes."
+  },
+  {
+    "id": "ops-settings-cache",
+    "skill": "synkmetrix-runtime-ci",
+    "request": "Propone verificar por que las nuevas claves no se usan.",
+    "artifact": "Se guardaron credenciales en .env. FastAPI estaba iniciado antes. get_settings usa lru_cache. Hay dos procesos Python del usuario y solo uno sirve el CRM. /health responde 200. No se autorizaron sincronizaciones externas como parte de este diagnostico."
+  },
+  {
+    "id": "ops-ci-migration",
+    "skill": "synkmetrix-runtime-ci",
+    "request": "Revisa la solucion propuesta para un fallo en CI.",
+    "artifact": "GitHub Actions usa PostgreSQL17, Python de .python-version y requirements.lock. Falla alembic upgrade head. Se propone quitar migraciones, reemplazar PostgreSQL por SQLite y usar pip install -U para todo. No se conoce aun la revision que falla."
+  }
+]

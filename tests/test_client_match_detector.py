@@ -64,19 +64,17 @@ def test_normalize_email(raw: str, expected: str) -> None:
 
 @pytest.fixture
 def pg_session():
-    """Sesión PostgreSQL real; se omite si no está disponible."""
-    try:
-        from app.db.session import SessionLocal
-        db = SessionLocal()
-        yield db
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"PostgreSQL no disponible: {exc}")
-    finally:
-        try:
-            db.rollback()
-            db.close()
-        except Exception:  # noqa: BLE001
-            pass
+    """Require the test database and roll back fixtures, including service commits."""
+    from app.db.session import engine
+
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        with Session(bind=connection, join_transaction_mode="create_savepoint") as db:
+            try:
+                yield db
+            finally:
+                db.rollback()
+                transaction.rollback()
 
 
 def _unique_source(prefix: str) -> str:

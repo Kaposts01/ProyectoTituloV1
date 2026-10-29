@@ -1,0 +1,291 @@
+{
+  "date": "2026-10-20",
+  "method": "Independent offline model responses, then qualitative review of each response against the supplied task and safety/correctness invariants. Not executable implementation tests and not a causal comparison with skill absent.",
+  "skill_hashes": {
+    "synkmetrix-dashboard-recharts": "97f4e57d7e319c811ca462a828fd703d12159b29535acde55833dcf43b8c4785",
+    "synkmetrix-etl-pandas": "b70bc21f75411b14b2e8148032251545b3ea08d5941493aa9454a340f03266cb",
+    "synkmetrix-integrations-httpx": "c5e1636e7f128edeec5026b1d1da34e7e6df6ce1314b50c6bd28475c43eb778c",
+    "synkmetrix-postgres-orm": "a997c6c43d56b18fa841f1ab3d355040bb202972a6ccff30089a22bf1d32c392",
+    "synkmetrix-python-api": "44d800539df8682a0227ffba69ae6a8e89a17eef7be4c0fceeeb589f83701cbb",
+    "synkmetrix-quality-tests": "569e13d365d44e56ef390e5df291da0050d62271171cc6ca566fad536e32e411",
+    "synkmetrix-react-typescript": "27ee13e465995d83a01ea889698aecf9d29ef2384de607bf96d7032368d7fc0d",
+    "synkmetrix-runtime-ci": "14fc2f23b127809bb10c110859acfa8cec19bc356d9ea3730656e862f7f0e780",
+    "synkmetrix-scheduler-sse": "41c505830b445e2bd14acba04f8614a259ca1dd5ac4a705280fdf28d4b875be8"
+  },
+  "response_hashes": {
+    "backend.json": "3ea600a0a1dd0614a62e45b2e48aac2c343794c136b6a7cff15ca0a127d320e2",
+    "ui-data.json": "2a5cfd9ad270ac566badbdf310ec2aead05cb9e8ff75f895bd4588073c6b0f11",
+    "ops.json": "b6d17fdcbd3d1c7479c6da3c603f33c93f60f00446b90dd322be514dd616b934",
+    "routing.json": "fcd9e6ae296cec6d1e2d48a13cad230220d9f044ef6a088966a49ae72972a1cf"
+  },
+  "assessments": [
+    {
+      "id": "api-route",
+      "skill": "synkmetrix-python-api",
+      "outcome": "pass",
+      "review_basis": "Detecta captura dinamica; conserva literal y permisos/CSRF; propone prueba de despacho."
+    },
+    {
+      "id": "api-patch",
+      "skill": "synkmetrix-python-api",
+      "outcome": "pass",
+      "review_basis": "Distingue omitido/null; usa exclude_unset y evita exclude_none; cubre campos preservados."
+    },
+    {
+      "id": "api-transaction",
+      "skill": "synkmetrix-python-api",
+      "outcome": "pass",
+      "review_basis": "Identifica commit prematuro; transaccion del llamador; rollback observado desde otra sesion."
+    },
+    {
+      "id": "db-shared-email",
+      "skill": "synkmetrix-postgres-orm",
+      "outcome": "pass",
+      "review_basis": "Conserva dos asociaciones; no merge por email; migracion aditiva y reproceso trazable."
+    },
+    {
+      "id": "db-migration",
+      "skill": "synkmetrix-postgres-orm",
+      "outcome": "pass",
+      "review_basis": "Expansion nullable; mapeo faltante explicito; backfill/contraccion por etapas."
+    },
+    {
+      "id": "db-pagination",
+      "skill": "synkmetrix-postgres-orm",
+      "outcome": "pass",
+      "review_basis": "Filtra/ordena antes de paginar; desempate estable; indice candidato sin mejora inventada."
+    },
+    {
+      "id": "ui-account-race",
+      "skill": "synkmetrix-react-typescript",
+      "outcome": "pass",
+      "review_basis": "Aborto o identidad de solicitud y cache por cuenta; respuesta tardia no reemplaza vista."
+    },
+    {
+      "id": "ui-logout-cache",
+      "skill": "synkmetrix-react-typescript",
+      "outcome": "pass",
+      "review_basis": "Generacion/sesion impide republicar; controla finally antiguo; no confunde cache con permisos."
+    },
+    {
+      "id": "ui-extraction",
+      "skill": "synkmetrix-react-typescript",
+      "outcome": "pass",
+      "review_basis": "Extraccion cohesionada; conserva URL/historial y busqueda personal en memoria; checks funcionales."
+    },
+    {
+      "id": "metrics-churn",
+      "skill": "synkmetrix-dashboard-recharts",
+      "outcome": "pass",
+      "review_basis": "Calcula 2% con cohorte inicial; concilia 1080; no mezcla bajas historicas."
+    },
+    {
+      "id": "metrics-coverage",
+      "skill": "synkmetrix-dashboard-recharts",
+      "outcome": "pass",
+      "review_basis": "Indisponible no equivale a cero; fecha de corte y cobertura explicitas; no reasigna septiembre."
+    },
+    {
+      "id": "metrics-payments",
+      "skill": "synkmetrix-dashboard-recharts",
+      "outcome": "pass",
+      "review_basis": "5000 CLP y 10 USD separados; excluye rechazo/factura no pagada; declara cobertura limitada."
+    },
+    {
+      "id": "etl-existing-report",
+      "skill": "synkmetrix-etl-pandas",
+      "outcome": "pass",
+      "review_basis": "Evita full/reimportacion ciega; no extrapola coincidencia de suscripciones a pagos; revisa procedencia."
+    },
+    {
+      "id": "etl-overlap",
+      "skill": "synkmetrix-etl-pandas",
+      "outcome": "pass",
+      "review_basis": "Distingue observacion/hecho/intento; IDs de origen y ambito; idempotencia sin eliminar intentos."
+    },
+    {
+      "id": "etl-ambiguous-rut",
+      "skill": "synkmetrix-etl-pandas",
+      "outcome": "pass",
+      "review_basis": "No elige primer match ni merge; conserva pendiente/evidencia; resultado parcial si esquema lo requiere."
+    },
+    {
+      "id": "http-environment",
+      "skill": "synkmetrix-integrations-httpx",
+      "outcome": "pass",
+      "review_basis": "Mantiene Sandbox; no envia key a otros hosts; requiere confirmar contrato y secretos por canal seguro."
+    },
+    {
+      "id": "http-partial-404",
+      "skill": "synkmetrix-integrations-httpx",
+      "outcome": "pass",
+      "review_basis": "No convierte 404 en vacio; conserva evidencia/cobertura por recurso; no inventa endpoint."
+    },
+    {
+      "id": "http-pagination",
+      "skill": "synkmetrix-integrations-httpx",
+      "outcome": "pass",
+      "review_basis": "Procesa [a,b,c] una vez; HTML es fallo; guard con cursor pendiente es incompleto."
+    },
+    {
+      "id": "jobs-double-start",
+      "skill": "synkmetrix-scheduler-sse",
+      "outcome": "pass",
+      "review_basis": "Lock local no es distribuido; propone propiedad en PostgreSQL; exige prueba multiproceso."
+    },
+    {
+      "id": "jobs-reconnect",
+      "skill": "synkmetrix-scheduler-sse",
+      "outcome": "pass",
+      "review_basis": "Consulta estado durable; ausencia de bus no es fallo; no reintenta un job running."
+    },
+    {
+      "id": "jobs-restart-partial",
+      "skill": "synkmetrix-scheduler-sse",
+      "outcome": "pass",
+      "review_basis": "No falla trabajo ajeno al arrancar; propiedad/expiracion; terminal coherente con consolidacion fallida."
+    },
+    {
+      "id": "qa-incomplete-mock",
+      "skill": "synkmetrix-quality-tests",
+      "outcome": "pass",
+      "review_basis": "Corrige fixture sin recortar producto; contrato real separado; asserts observables."
+    },
+    {
+      "id": "qa-operational-db",
+      "skill": "synkmetrix-quality-tests",
+      "outcome": "pass",
+      "review_basis": "Detiene prueba destructiva; base aislada antes de efectos; distingue rollback de downgrade."
+    },
+    {
+      "id": "qa-build-equivalence",
+      "skill": "synkmetrix-quality-tests",
+      "outcome": "pass",
+      "review_basis": "No certifica equivalencia por build; comprueba interacciones; no instala framework ni oculta warnings."
+    },
+    {
+      "id": "ops-docker-failure",
+      "skill": "synkmetrix-runtime-ci",
+      "outcome": "pass",
+      "review_basis": "No usa base ajena ni cambia version sin decision; diagnostica virtualizacion; no borra volumenes."
+    },
+    {
+      "id": "ops-settings-cache",
+      "skill": "synkmetrix-runtime-ci",
+      "outcome": "pass",
+      "review_basis": "Identifica proceso correcto; reconstruye settings/clientes; no hace probes externos ni expone claves."
+    },
+    {
+      "id": "ops-ci-migration",
+      "skill": "synkmetrix-runtime-ci",
+      "outcome": "pass",
+      "review_basis": "Mantiene locks/PostgreSQL/migraciones; obtiene causa antes de cambiar; no rebaja CI."
+    }
+  ],
+  "limitations": [
+    "One response per scenario; no repeated trials or comparison without skill.",
+    "No application execution, browser, database or provider integration in behavioral reviews.",
+    "Metadata-only selection was reviewed for 12 cases; this is a simulation, not proof of native automatic activation in a clean Codex session.",
+    "Raw synthetic responses retained locally under .local/skill-evaluations/responses/."
+  ],
+  "routing_assessments": [
+    {
+      "id": "route-01",
+      "primary_skill": "synkmetrix-python-api",
+      "secondary_skills": [],
+      "reason": "Contrato FastAPI de actualizacion parcial, permisos y validacion del backend.",
+      "expected_primary_skill": "synkmetrix-python-api",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-02",
+      "primary_skill": "synkmetrix-postgres-orm",
+      "secondary_skills": [],
+      "reason": "Migracion Alembic y evolucion compatible del esquema PostgreSQL.",
+      "expected_primary_skill": "synkmetrix-postgres-orm",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-03",
+      "primary_skill": "synkmetrix-react-typescript",
+      "secondary_skills": [],
+      "reason": "Cache React y respuestas asincronas que atraviesan cambios de sesion.",
+      "expected_primary_skill": "synkmetrix-react-typescript",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-04",
+      "primary_skill": "synkmetrix-dashboard-recharts",
+      "secondary_skills": [],
+      "reason": "Definicion financiera del KPI churn y coherencia de su periodo y poblacion.",
+      "expected_primary_skill": "synkmetrix-dashboard-recharts",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-05",
+      "primary_skill": "synkmetrix-etl-pandas",
+      "secondary_skills": [],
+      "reason": "Reproceso Excel TCH con Pandas e idempotencia ante historia solapada.",
+      "expected_primary_skill": "synkmetrix-etl-pandas",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-06",
+      "primary_skill": "synkmetrix-integrations-httpx",
+      "secondary_skills": [],
+      "reason": "Contrato de respuestas HTTPX y paginacion por next_cursor del proveedor.",
+      "expected_primary_skill": "synkmetrix-integrations-httpx",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-07",
+      "primary_skill": "synkmetrix-scheduler-sse",
+      "secondary_skills": [],
+      "reason": "Recuperacion y reconexion SSE entre workers durante un job APScheduler.",
+      "expected_primary_skill": "synkmetrix-scheduler-sse",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-08",
+      "primary_skill": "synkmetrix-quality-tests",
+      "secondary_skills": [],
+      "reason": "Diagnostico de una fixture pytest y correccion de pruebas sin alterar producto valido.",
+      "expected_primary_skill": "synkmetrix-quality-tests",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-09",
+      "primary_skill": "synkmetrix-runtime-ci",
+      "secondary_skills": [
+        "synkmetrix-postgres-orm"
+      ],
+      "reason": "Arranque reproducible y CI; la aplicacion de migraciones tambien requiere contexto Alembic.",
+      "expected_primary_skill": "synkmetrix-runtime-ci",
+      "outcome": "pass"
+    },
+    {
+      "id": "route-10",
+      "primary_skill": null,
+      "secondary_skills": [],
+      "reason": "Redaccion de una invitacion, fuera del alcance de las nueve especialidades.",
+      "expected_primary_skill": null,
+      "outcome": "pass"
+    },
+    {
+      "id": "route-11",
+      "primary_skill": null,
+      "secondary_skills": [],
+      "reason": "Creacion de una ilustracion, sin especialidad grafica en este catalogo.",
+      "expected_primary_skill": null,
+      "outcome": "pass"
+    },
+    {
+      "id": "route-12",
+      "primary_skill": null,
+      "secondary_skills": [],
+      "reason": "Identidad centralizada y matching conceptual quedan fuera de las nueve especialidades; no se solicita esquema ni codigo.",
+      "expected_primary_skill": null,
+      "outcome": "pass"
+    }
+  ]
+}

@@ -38,7 +38,15 @@
 .burger-btn { display: none; }
 .sidebar-overlay { display: none; }
 
-.sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
 .sidebar-group { margin-top: 17px; }
 .sidebar-toggle {
   display: flex; justify-content: space-between;

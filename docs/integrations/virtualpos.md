@@ -2,6 +2,10 @@
 
 VirtualPOS aporta clientes, planes, suscripciones, cargos y pagos. Usa autenticacion JWT HS256 y sincronizacion paginada. Los datos se sanean antes de staging.
 
+**Confirmed 2026-10-20:** la [documentacion oficial de endpoints](https://virtualpos.readme.io/reference/endpoints) define `https://api.virtualpos.cl` para produccion y `https://api.virtualpos-sandbox.com` para sandbox. `VIRTUALPOS_BASE_URL` guarda solo esa base; el cliente del repositorio agrega `/v3/...`. No seleccionar ni cambiar el ambiente automaticamente.
+
+La [autenticacion oficial](https://virtualpos.readme.io/reference/autenticaci%C3%B3n-y-firma) requiere API KEY y SECRET KEY del mismo comercio y ambiente; se obtienen en Perfil > Configuracion de cuenta > Integracion. Una API KEY sola no permite generar la firma requerida. Esta verificacion documental no certifica credenciales ni conectividad de una cuenta.
+
 **Observed 2026-10-04:** los cargos operativos se extraen de `charge_program` embebido en cada suscripcion. La respuesta global de pagos conserva el RUT del cliente, que permite mostrar transacciones de ese cliente dentro de la misma cuenta. Los registros locales actuales no contienen un identificador de cargo o suscripcion verificable en las transacciones ni UUID de orden util en los cargos; por ello no se asignan transacciones individualmente a un cargo o suscripcion. Una respuesta de coleccion con envelope invalido falla la sincronizacion en vez de registrarse como vacia.
 
 Las escrituras se realizan solamente desde rutas internas autorizadas y con `VIRTUALPOS_WRITES_ENABLED=true`. El detalle contractual historico existente esta en [la investigacion de VirtualPOS](../history/integrations/virtualpos-appscript-research.md).
@@ -40,3 +44,7 @@ Incluye 15 flujos paso a paso y 14 documentos de recursos (contratos de API, aut
 **TBD:** la documentación no define firma, secreto, identificador único de entrega, orden, reintentos ni tiempo de espera para estos callbacks. La firma documentada para Payout no aplica al flujo de pagos o PAT. No se implementará un receptor de VirtualPOS hasta contar con un método verificable de autenticidad.
 
 Fuentes oficiales: [Webhook](https://virtualpos.readme.io/reference/webhook), [crear Payment](https://virtualpos.readme.io/reference/crear-un-objeto-payment), [crear Suscription](https://virtualpos.readme.io/reference/crear-una-suscription) y [webhook Payout](https://virtualpos.readme.io/reference/webhook-payout).
+
+## Core — asociaciones conservadoras (DATA-01, 2026-10-20)
+
+El ETL Core prioriza client_external_id de la suscripcion; si existe pero no tiene identidad externa conocida, conserva client_id nulo. Solo usa el fallback por RUT cuando falta ID explicito y existe un unico cliente con ese valor en la misma cuenta. RUT compartido no selecciona el primer cliente ni participa en asociaciones automaticas de pagos a suscripciones. La proyeccion operativa por canal no cambia. Las asociaciones Core existentes no se reasignan mediante el upsert; requieren revision antes de cualquier reparacion historica.

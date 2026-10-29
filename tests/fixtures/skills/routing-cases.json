@@ -1,0 +1,14 @@
+[
+  {"id":"route-01","request":"Corrige el contrato de una actualizacion parcial FastAPI que borra campos omitidos; conserva permisos y CSRF."},
+  {"id":"route-02","request":"Disena una migracion Alembic para agregar una columna obligatoria a ocho millones de filas PostgreSQL sin romper escritores antiguos."},
+  {"id":"route-03","request":"Corrige la cache React: una respuesta anterior al logout reaparece en la sesion de otro usuario."},
+  {"id":"route-04","request":"Revisa la formula y el periodo de churn del dashboard; parece mezclar bajas historicas con stock actual."},
+  {"id":"route-05","request":"Disena el reproceso de archivos Excel TCH con historia solapada en Pandas sin duplicar cargos."},
+  {"id":"route-06","request":"El conector HTTPX interpreta HTML 200 como coleccion vacia y no recorre correctamente next_cursor; corrige su contrato."},
+  {"id":"route-07","request":"La reconexion SSE llega a otro worker que no tiene bus, aunque el job APScheduler continua running en PostgreSQL; revisa su recuperacion."},
+  {"id":"route-08","request":"Una fixture pytest incompleta falla antes de la asercion; ayudame a corregir la prueba sin quitar comportamiento valido del producto."},
+  {"id":"route-09","request":"Prepara el arranque local Docker/Vite/Uvicorn y diagnostica por que CI no aplica migraciones con sus dependencias bloqueadas."},
+  {"id":"route-10","request":"Redacta una invitacion a la reunion del equipo para manana; no cambies archivos ni codigo."},
+  {"id":"route-11","request":"Crea una ilustracion del logo de SynkmetriX sobre fondo transparente."},
+  {"id":"route-12","request":"Revisa conceptualmente una propuesta de identidad centralizada y merge reversible entre socios de diferentes proveedores, sin implementar codigo ni esquema."}
+]

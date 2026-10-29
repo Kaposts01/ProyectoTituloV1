@@ -38,7 +38,7 @@ _SYNC_FN = {
 
 
 class FullSyncRequest(BaseModel):
-    providers: Annotated[list[str], Field(default_factory=lambda: list(_ALL_PROVIDERS))]
+    providers: Annotated[list[str], Field(default_factory=lambda: list(_ALL_PROVIDERS), min_length=1)]
 
 
 def _get_db() -> Session:
@@ -73,11 +73,12 @@ def _serialize_run(run: EtlRun) -> dict:
 async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> None:
     """BackgroundTask: sync APIs → source_records → materialización (Pipeline B)."""
     total = 0
+    channels_done: list[str] = []
+    channels_failed: list[str] = []
     try:
         for provider in providers:
             if provider not in _SYNC_FN:
-                logger.warning("Proveedor desconocido: %s. Omitido.", provider)
-                continue
+                raise ValueError("Proveedor desconocido")
             _update_run(run_id, phase=f"sync_{provider}")
             logger.info("Iniciando sync Pipeline B: %s", provider)
             try:
@@ -85,11 +86,13 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
                 try:
                     sync_run = await _SYNC_FN[provider](db)
                     total += sync_run.records_processed or 0
+                    channels_done.append(provider)
                     logger.info("Sync completado %s: %d registros", provider, sync_run.records_processed)
                 finally:
                     db.close()
             except Exception:
-                logger.exception("Error en sync de %s", provider)
+                logger.exception("Error en sync de %s", provider, exc_info=False)
+                channels_failed.append(provider)
 
         # Consolidación desde tablas canal → tablas centralizadas
         _update_run(run_id, phase="consolidating")
@@ -103,19 +106,22 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
 
         _update_run(
             run_id,
-            status="completed",
+            status="failed" if channels_failed else "completed",
             phase=None,
-            channels_processed=providers,
+            error_message=f"Canales con error: {', '.join(channels_failed)}" if channels_failed else None,
+            channels_processed=channels_done,
             records_upserted=total,
             finished_at=datetime.now(timezone.utc),
         )
     except Exception:
-        logger.exception("Error en full-sync (run_id=%s)", run_id)
+        logger.exception("Error en full-sync (run_id=%s)", run_id, exc_info=False)
         _update_run(
             run_id,
             status="failed",
             phase=None,
-            error_message="Error durante la sincronización.",
+            channels_processed=channels_done,
+            records_upserted=total,
+            error_message="Error durante la sincronización o consolidación.",
             finished_at=datetime.now(timezone.utc),
         )
 
@@ -252,35 +258,6 @@ def _run_core_etl_background(run_id: uuid.UUID, provider: str) -> None:
 
 
 @router.post(
-    "/core/{provider}",
-    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
-    tags=["ETL Core"],
-)
-def trigger_core_etl(provider: str, background_tasks: BackgroundTasks) -> dict:
-    """Materializa tablas de proveedor (tch/toku/payku/virtualpos) → entidades Core (Layer 3).
-
-    Idempotente: seguro re-ejecutar. Retorna inmediatamente; la ejecución ocurre en background.
-    """
-    if provider not in _CORE_ETL_FN:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Proveedor desconocido: '{provider}'. Opciones: {sorted(_CORE_ETL_FN)}",
-        )
-    db = _get_db()
-    try:
-        run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-        run_id = run.id
-    finally:
-        db.close()
-
-    background_tasks.add_task(_run_core_etl_background, run_id, provider)
-    return {"run_id": str(run_id), "status": "running", "provider": provider}
-
-
-@router.post(
     "/core/all",
     dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
     tags=["ETL Core"],
@@ -355,3 +332,32 @@ def list_match_candidates(status: str = "pending", limit: int = 100) -> list[dic
         ]
     finally:
         db.close()
+
+
+@router.post(
+    "/core/{provider}",
+    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
+    tags=["ETL Core"],
+)
+def trigger_core_etl(provider: str, background_tasks: BackgroundTasks) -> dict:
+    """Materializa tablas de proveedor (tch/toku/payku/virtualpos) → entidades Core (Layer 3).
+
+    Idempotente: seguro re-ejecutar. Retorna inmediatamente; la ejecución ocurre en background.
+    """
+    if provider not in _CORE_ETL_FN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Proveedor desconocido: '{provider}'. Opciones: {sorted(_CORE_ETL_FN)}",
+        )
+    db = _get_db()
+    try:
+        run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+    finally:
+        db.close()
+
+    background_tasks.add_task(_run_core_etl_background, run_id, provider)
+    return {"run_id": str(run_id), "status": "running", "provider": provider}

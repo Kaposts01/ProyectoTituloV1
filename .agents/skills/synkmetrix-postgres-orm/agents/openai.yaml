@@ -1,0 +1,6 @@
+interface:
+  display_name: "SynkmetriX · Persistencia"
+  short_description: "PostgreSQL, SQLAlchemy y migraciones Alembic"
+  default_prompt: "Usa $synkmetrix-postgres-orm para resolver esta tarea de SynkmetriX con cambios verificables: "
+policy:
+  allow_implicit_invocation: true

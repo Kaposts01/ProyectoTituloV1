@@ -1,0 +1,6 @@
+interface:
+  display_name: "SynkmetriX · ETL y Excel"
+  short_description: "Pandas, Excel y ETL reproducible hacia el Core"
+  default_prompt: "Usa $synkmetrix-etl-pandas para resolver esta tarea de SynkmetriX con cambios verificables: "
+policy:
+  allow_implicit_invocation: true

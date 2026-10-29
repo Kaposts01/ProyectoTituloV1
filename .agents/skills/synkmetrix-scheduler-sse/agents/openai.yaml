@@ -1,0 +1,6 @@
+interface:
+  display_name: "SynkmetriX · Jobs y SSE"
+  short_description: "APScheduler, concurrencia y progreso mediante SSE"
+  default_prompt: "Usa $synkmetrix-scheduler-sse para resolver esta tarea de SynkmetriX con cambios verificables: "
+policy:
+  allow_implicit_invocation: true
