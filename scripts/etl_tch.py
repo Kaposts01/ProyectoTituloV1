@@ -673,9 +673,15 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> lis
 
 
 def _transform_historial_cargos(df: pd.DataFrame, archivo: str) -> list[dict]:
-    """Desnormaliza BK:CT: cada mes contiene N°, Estado y Monto."""
+    """Desnormaliza BK:CT: cada mes contiene N°, Estado y Monto.
+
+    TCH-PAR-04: es el ESTADO MENSUAL de un mandato, sin fecha de cobro. Un mandato RECHAZADO (nunca cobro) repite
+    "Rechazada" cada mes: es estado de mandato, no un cobro rechazado, y se omite. Los cobros reales vienen solo de
+    las hojas CARGOS; estas filas (origen 'historial') solo completan los meses que ningun CARGOS detalla.
+    """
     c_ficha = _find_col(df, "ficha", "dues") or _find_col(df, "ficha")
     c_mandato = _find_col(df, "mandato", "dues")
+    c_estado_mandato = _find_estado_col(df)
     if c_ficha is None:
         return []
 
@@ -683,6 +689,8 @@ def _transform_historial_cargos(df: pd.DataFrame, archivo: str) -> list[dict]:
     for _, row in df.iterrows():
         ficha = _norm_int(_col_val(row, c_ficha))
         if ficha is None:
+            continue
+        if c_estado_mandato is not None and _estado_mandato(_col_val(row, c_estado_mandato), "") == "RECHAZADA":
             continue
         mandato = _norm_int(_col_val(row, c_mandato))
         for start in range(62, min(98, len(df.columns)), 3):
@@ -1225,7 +1233,7 @@ def _process_file(filepath: Path, db) -> dict:
     df_mandatos_rech = _read_sheet(filepath, SHEET_RECHAZADOS_MANDATOS)
     if df_mandatos_rech is not None:
         rows_mandatos_rech = _transform_suscripciones(df_mandatos_rech, "RECHAZADA")
-        trans_rows += _transform_historial_cargos(df_mandatos_rech, nombre)
+        # Sin historial: los mandatos de esta hoja nunca cobraron (TCH-PAR-04).
         fichas.update(r["numero_ficha"] for r in rows_mandatos_rech)
         i, u, e = _load_suscripciones(db, rows_mandatos_rech)
         totales["sus_ins"] += i
