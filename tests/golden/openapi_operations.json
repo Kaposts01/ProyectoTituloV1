@@ -1,0 +1,637 @@
+{
+ "DELETE /api/v1/admin/roles/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/payku/clients/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/payku/subscriptions/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/toku/customers/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/toku/invoices/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/toku/subscriptions/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/virtualpos/charges/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/virtualpos/payments/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/virtualpos/subscriptions/{}": [
+  "cookie:crm_access_token"
+ ],
+ "DELETE /api/v1/writes/virtualpos/subscriptions/{}/charges": [
+  "cookie:crm_access_token",
+  "query:dry_run"
+ ],
+ "GET /api/v1/admin/permissions": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/admin/roles": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/admin/users": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/auth/me": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/billing/changes": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset",
+  "query:platform",
+  "query:request_type",
+  "query:requested_by",
+  "query:status",
+  "query:subscription_id"
+ ],
+ "GET /api/v1/billing/changes/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/billing/changes/{}/events": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/billing/policy": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/billing/policy/audit": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/billing/renewal-tasks": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset",
+  "query:platform",
+  "query:priority",
+  "query:status",
+  "query:subscription_id"
+ ],
+ "GET /api/v1/billing/requesters": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/cancellations": [
+  "cookie:crm_access_token",
+  "query:channel",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset",
+  "query:requested_by",
+  "query:status",
+  "query:subscription_id"
+ ],
+ "GET /api/v1/cancellations/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/cancellations/{}/events": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/catalog/mappings": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/catalog/qa-scenarios": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/changes/daily": [
+  "cookie:crm_access_token",
+  "query:date",
+  "query:entity_type",
+  "query:limit",
+  "query:offset",
+  "query:source"
+ ],
+ "GET /api/v1/charges": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset",
+  "query:source",
+  "query:status"
+ ],
+ "GET /api/v1/charges/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/clients": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset",
+  "query:source",
+  "query:status"
+ ],
+ "GET /api/v1/clients/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/core/identity/match-candidates": [
+  "cookie:crm_access_token",
+  "query:match_level",
+  "query:page",
+  "query:page_size",
+  "query:status"
+ ],
+ "GET /api/v1/core/identity/match-candidates/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/counts": [
+  "cookie:crm_access_token",
+  "query:source"
+ ],
+ "GET /api/v1/dashboard/general": [
+  "cookie:crm_access_token",
+  "query:channels",
+  "query:month"
+ ],
+ "GET /api/v1/etl/core/match-candidates": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:status"
+ ],
+ "GET /api/v1/etl/runs": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/etl/runs/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/export/{}": [
+  "cookie:crm_access_token",
+  "query:all",
+  "query:amount_max",
+  "query:amount_min",
+  "query:canal",
+  "query:date_from",
+  "query:date_to",
+  "query:filter_field",
+  "query:limit",
+  "query:offset",
+  "query:query",
+  "query:status"
+ ],
+ "GET /api/v1/export/{}/count": [
+  "cookie:crm_access_token",
+  "query:amount_max",
+  "query:amount_min",
+  "query:canal",
+  "query:date_from",
+  "query:date_to",
+  "query:filter_field",
+  "query:query",
+  "query:status"
+ ],
+ "GET /api/v1/payments": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset",
+  "query:source",
+  "query:status"
+ ],
+ "GET /api/v1/payments/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/plans": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset",
+  "query:source",
+  "query:status"
+ ],
+ "GET /api/v1/plans/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/recovery/cancelled": [
+  "cookie:crm_access_token",
+  "query:account",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:max_amount",
+  "query:min_amount",
+  "query:offset",
+  "query:rejected_from",
+  "query:rejected_to",
+  "query:rejection_code",
+  "query:secondary_status"
+ ],
+ "GET /api/v1/recovery/cancelled/export": [
+  "cookie:crm_access_token",
+  "query:account",
+  "query:date_from",
+  "query:date_to",
+  "query:max_amount",
+  "query:min_amount",
+  "query:rejected_from",
+  "query:rejected_to",
+  "query:rejection_code",
+  "query:secondary_status"
+ ],
+ "GET /api/v1/recovery/card-expirations": [
+  "cookie:crm_access_token",
+  "query:account",
+  "query:limit",
+  "query:max_amount",
+  "query:min_amount",
+  "query:offset",
+  "query:rejected_from",
+  "query:rejected_to",
+  "query:rejection_code",
+  "query:secondary_status"
+ ],
+ "GET /api/v1/recovery/group": [
+  "cookie:crm_access_token",
+  "query:account",
+  "query:date_from",
+  "query:date_to",
+  "query:group",
+  "query:limit",
+  "query:max_amount",
+  "query:min_amount",
+  "query:offset",
+  "query:rejected_from",
+  "query:rejected_to",
+  "query:rejection_code",
+  "query:secondary_status"
+ ],
+ "GET /api/v1/recovery/group/export": [
+  "cookie:crm_access_token",
+  "query:account",
+  "query:date_from",
+  "query:date_to",
+  "query:group",
+  "query:max_amount",
+  "query:min_amount",
+  "query:rejected_from",
+  "query:rejected_to",
+  "query:rejection_code",
+  "query:secondary_status"
+ ],
+ "GET /api/v1/recovery/rejected": [
+  "cookie:crm_access_token",
+  "query:account",
+  "query:bucket",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:max_amount",
+  "query:min_amount",
+  "query:offset",
+  "query:rejected_from",
+  "query:rejected_to",
+  "query:rejection_code",
+  "query:secondary_status"
+ ],
+ "GET /api/v1/recovery/rejected/export": [
+  "cookie:crm_access_token",
+  "query:account",
+  "query:bucket",
+  "query:date_from",
+  "query:date_to",
+  "query:max_amount",
+  "query:min_amount",
+  "query:rejected_from",
+  "query:rejected_to",
+  "query:rejection_code",
+  "query:secondary_status"
+ ],
+ "GET /api/v1/recovery/retry-history": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/reports/automatic": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/reports/{}": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to"
+ ],
+ "GET /api/v1/scheduler/jobs": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/scheduler/runs": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/scheduler/runs/{}/stream": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/dashboard/channel/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/dashboard/general": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/dashboard/general/clients": [
+  "cookie:crm_access_token",
+  "query:filter_field",
+  "query:limit",
+  "query:offset",
+  "query:query"
+ ],
+ "GET /api/v1/staging/dashboard/general/clients/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/dashboard/general/subscriptions": [
+  "cookie:crm_access_token",
+  "query:filter_field",
+  "query:limit",
+  "query:offset",
+  "query:query"
+ ],
+ "GET /api/v1/staging/dashboard/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/dashboard/{}/alerts/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/records": [
+  "cookie:crm_access_token",
+  "query:amount_max",
+  "query:amount_min",
+  "query:date_from",
+  "query:date_to",
+  "query:filter_field",
+  "query:filters",
+  "query:limit",
+  "query:offset",
+  "query:query",
+  "query:resource_type",
+  "query:sort_direction",
+  "query:sort_field",
+  "query:source"
+ ],
+ "GET /api/v1/staging/records/filter-values": [
+  "cookie:crm_access_token",
+  "query:filter_field",
+  "query:resource_type",
+  "query:source"
+ ],
+ "GET /api/v1/staging/summary": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/virtualpos/charges/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/virtualpos/clients/{}": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/staging/virtualpos/payments/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/staging/virtualpos/plans/{}": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/staging/virtualpos/subscriptions/{}": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/staging/{}/{}/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/subscriptions": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset",
+  "query:source",
+  "query:status"
+ ],
+ "GET /api/v1/subscriptions/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/subscriptions/{}/detail": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/sync-runs": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/sync-runs/health": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/system/environment": [],
+ "GET /api/v1/system/environment/switch": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/tch/clientes": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:nombre",
+  "query:page",
+  "query:rut"
+ ],
+ "GET /api/v1/tch/clientes/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/tch/etl/runs": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/tch/summary": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/tch/suscripciones": [
+  "cookie:crm_access_token",
+  "query:banco",
+  "query:centro_costo",
+  "query:estado",
+  "query:limit",
+  "query:origen",
+  "query:page"
+ ],
+ "GET /api/v1/tch/suscripciones/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/tch/transacciones": [
+  "cookie:crm_access_token",
+  "query:banco",
+  "query:estado",
+  "query:limit",
+  "query:page",
+  "query:periodo"
+ ],
+ "GET /api/v1/tch/transacciones/{}": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/writes/virtualpos/charges/rejected": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset",
+  "query:platform",
+  "query:rejection_reason"
+ ],
+ "GET /api/v1/writes/virtualpos/charges/rejection-reasons": [
+  "cookie:crm_access_token"
+ ],
+ "GET /health": [],
+ "PATCH /api/v1/admin/users/{}/password": [
+  "cookie:crm_access_token"
+ ],
+ "PATCH /api/v1/auth/me": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/admin/roles": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/admin/users": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/auth/login": [],
+ "POST /api/v1/auth/logout": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/changes": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/changes/preview": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/changes/{}/apply": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/changes/{}/approve": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/changes/{}/reject": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/changes/{}/reopen": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/changes/{}/withdraw": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/cancellations": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/cancellations/preview": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/cancellations/{}/apply": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/cancellations/{}/approve": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/cancellations/{}/reject": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/cancellations/{}/reopen": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/cancellations/{}/withdraw": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/core/identity/match-candidates/{}/review": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/etl/core/all": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/etl/core/detect-matches": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/etl/core/{}": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/etl/full-sync": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/etl/run": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/imports/toku-reports": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/imports/virtualpos-reports": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/recovery/card-change-links/{}": [
+  "cookie:crm_access_token",
+  "query:source"
+ ],
+ "POST /api/v1/recovery/retries": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/scheduler/jobs/{}/run": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/staging/sync/{}": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/tch/import-report": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/webhooks/payku/{}": [
+  "query:k"
+ ],
+ "POST /api/v1/webhooks/toku": [
+  "header:Toku-Signature"
+ ],
+ "POST /api/v1/webhooks/virtualpos/{}": [
+  "header:Signature"
+ ],
+ "POST /api/v1/writes/toku/subscriptions/{}/status": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/writes/virtualpos/charges/batch-retry": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/writes/virtualpos/charges/{}/retry": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/writes/virtualpos/clients": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/writes/virtualpos/plans": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/writes/virtualpos/subscriptions": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/writes/virtualpos/subscriptions/{}/charges": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/writes/virtualpos/subscriptions/{}/reassign-amount": [
+  "cookie:crm_access_token",
+  "query:dry_run"
+ ],
+ "PUT /api/v1/admin/roles/{}": [
+  "cookie:crm_access_token"
+ ],
+ "PUT /api/v1/admin/users/{}": [
+  "cookie:crm_access_token"
+ ],
+ "PUT /api/v1/billing/policy": [
+  "cookie:crm_access_token"
+ ],
+ "PUT /api/v1/writes/payku/clients/{}": [
+  "cookie:crm_access_token"
+ ],
+ "PUT /api/v1/writes/toku/customers/{}": [
+  "cookie:crm_access_token"
+ ],
+ "PUT /api/v1/writes/toku/invoices/{}": [
+  "cookie:crm_access_token"
+ ],
+ "PUT /api/v1/writes/virtualpos/clients/{}": [
+  "cookie:crm_access_token"
+ ]
+}

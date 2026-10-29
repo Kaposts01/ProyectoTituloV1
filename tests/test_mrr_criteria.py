@@ -59,7 +59,7 @@ def test_tch_recaudo_mensual_uses_last_period_with_accepted() -> None:
         _ctrl("2026-09", 200, "1600000", 10, "90000"),
         _ctrl("2026-10", 0, "0", 3, "30000"),
     ]
-    out = tch._recaudo_mensual_kpis(controles)
+    out = tch._monthly_collection_kpis(controles)
     assert out == {
         "period": "2026-09",
         "mrr": 1600000.0,
@@ -72,5 +72,5 @@ def test_tch_recaudo_mensual_uses_last_period_with_accepted() -> None:
 
 
 def test_tch_recaudo_mensual_none_without_accepted() -> None:
-    assert tch._recaudo_mensual_kpis([]) is None
-    assert tch._recaudo_mensual_kpis([_ctrl("2026-10", 0, "0", 3, "30000")]) is None
+    assert tch._monthly_collection_kpis([]) is None
+    assert tch._monthly_collection_kpis([_ctrl("2026-10", 0, "0", 3, "30000")]) is None

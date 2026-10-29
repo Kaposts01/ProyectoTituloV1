@@ -61,13 +61,13 @@ def test_dashboard_general_keys(auth, data) -> None:  # noqa: F811
 
 def test_tch_routes_keys(seeded) -> None:
     assert_keys("tch_summary", tch.tch_summary())
-    assert_keys("tch_clientes", tch.list_clientes(page=1, limit=50))
-    assert_keys("tch_cliente_detalle", tch.get_cliente("T1"))
-    assert_keys("tch_suscripciones", tch.list_suscripciones(page=1, limit=50))
-    assert_keys("tch_suscripcion_detalle", tch.get_suscripcion(1))
-    assert_keys("tch_transacciones", tch.list_transacciones(page=1, limit=50))
+    assert_keys("tch_clientes", tch.list_clients(page=1, limit=50))
+    assert_keys("tch_cliente_detalle", tch.get_client("T1"))
+    assert_keys("tch_suscripciones", tch.list_subscriptions(page=1, limit=50))
+    assert_keys("tch_suscripcion_detalle", tch.get_subscription(1))
+    assert_keys("tch_transacciones", tch.list_transactions(page=1, limit=50))
     first = seeded.query(TchTransaction).filter(TchTransaction.dedupe_key == "k-2").one()
-    assert_keys("tch_transaccion_detalle", tch.get_transaccion(first.id))
+    assert_keys("tch_transaccion_detalle", tch.get_transaction(first.id))
 
 
 def test_staging_dashboard_keys(seeded) -> None:
