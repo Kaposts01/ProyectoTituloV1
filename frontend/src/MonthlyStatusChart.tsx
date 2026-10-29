@@ -230,13 +230,13 @@ const _isPaid = (s: string) => _PAID_KW.some(k => s.toLowerCase().includes(k))
 export function TransactionsVsSubscriptionsChart({
   payments,
   activeSubs,
-  cobrableSubs,
+  collectableSubs,
   year,
   mode,
 }: {
   payments: MonthlyStatusEntry[]
   activeSubs: { year: number; month: number; count: number }[]
-  cobrableSubs: { year: number; month: number; count: number }[]
+  collectableSubs: { year: number; month: number; count: number }[]
   year: number | null
   mode: 'count' | 'amount'
 }) {
@@ -253,19 +253,19 @@ export function TransactionsVsSubscriptionsChart({
     activeByKey.set(`${e.year}-${String(e.month).padStart(2, '0')}`, e.count)
   }
 
-  const cobrableByKey = new Map<string, number>()
-  for (const e of (year != null ? cobrableSubs.filter(d => d.year === year) : cobrableSubs)) {
-    cobrableByKey.set(`${e.year}-${String(e.month).padStart(2, '0')}`, e.count)
+  const collectableByKey = new Map<string, number>()
+  for (const e of (year != null ? collectableSubs.filter(d => d.year === year) : collectableSubs)) {
+    collectableByKey.set(`${e.year}-${String(e.month).padStart(2, '0')}`, e.count)
   }
 
-  const allKeys = [...new Set([...payByKey.keys(), ...activeByKey.keys(), ...cobrableByKey.keys()])].sort()
+  const allKeys = [...new Set([...payByKey.keys(), ...activeByKey.keys(), ...collectableByKey.keys()])].sort()
   const rows = allKeys.map(key => {
     const [yr, mo] = key.split('-').map(Number)
     return {
       label: monthLabel(mo, yr),
       transactions: payByKey.get(key) ?? 0,
       active: activeByKey.get(key) ?? 0,
-      collectable: cobrableByKey.get(key) ?? 0,
+      collectable: collectableByKey.get(key) ?? 0,
     }
   })
   if (!rows.length) return <p className="empty-chart">Sin datos para este período.</p>

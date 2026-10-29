@@ -43,11 +43,11 @@ describe("activationVsChurnChart", () => {
       [{ year: 2025, month: 2, count: 1, amount: 10 }],
       "count",
     );
-    expect(r.rows).toEqual([{ year: 2025, month: 1, altas: 5, bajas: 0 }, { year: 2025, month: 2, altas: 0, bajas: 1 }]);
-    expect(r.series.map((s) => s.key)).toEqual(["altas", "bajas"]);
+    expect(r.rows).toEqual([{ year: 2025, month: 1, activations: 5, cancellations: 0 }, { year: 2025, month: 2, activations: 0, cancellations: 1 }]);
+    expect(r.series.map((s) => s.key)).toEqual(["activations", "cancellations"]);
   });
   it("modo monto", () => {
-    expect(activationVsChurnChart([{ year: 2025, month: 1, count: 2, amount: 20 }], [], "amount").rows[0].altas).toBe(20);
+    expect(activationVsChurnChart([{ year: 2025, month: 1, count: 2, amount: 20 }], [], "amount").rows[0].activations).toBe(20);
   });
 });
 

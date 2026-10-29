@@ -6,7 +6,10 @@ import type { GeneralDashboard } from "../shared/types";
 import { GeneralKpis } from "./GeneralKpis";
 import { Metric } from "./Metric";
 import { OperationalAlerts } from "./OperationalAlerts";
-import { applyChargeFilter } from "./applyChargeFilter";
+import { applyChargeFilter, type ChargeFilter } from "./applyChargeFilter";
+
+const CHARGE_FILTERS: ChargeFilter[] = ["all", "paid", "rejected"];
+const CHARGE_FILTER_LABEL: Record<ChargeFilter, string> = { all: "Todas", paid: "Pagada", rejected: "Rechazada" };
 import type { GeneralState } from "./useGeneralDashboard";
 
 /** Métricas, KPIs, gráficos, alertas y tarjetas por canal del resumen general (con `generalData` ya cargado). */
@@ -17,8 +20,8 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
     generalYear,
     debtFilter,
     setDebtFilter,
-    transFilter,
-    setTransFilter,
+    transactionFilter,
+    setTransactionFilter,
   } = general;
   const selectedYear = generalData ? (generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]) : null;
   const acceptedForYear = (generalData?.transactions_monthly ?? [])
@@ -77,9 +80,9 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
           <div className="panel-heading">
             <div><p className="eyebrow">RECAUDACIÓN</p><h3>Deudas mensuales por canal</h3></div>
             <div className="mode-switch">
-              {(["todas", "pagada", "rechazada"] as const).map(f => (
+              {CHARGE_FILTERS.map(f => (
                 <button key={f} className={debtFilter === f ? "active" : ""} onClick={() => setDebtFilter(f)}>
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                  {CHARGE_FILTER_LABEL[f]}
                 </button>
               ))}
             </div>
@@ -90,14 +93,14 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
           <div className="panel-heading">
             <div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones efectivas por canal</h3></div>
             <div className="mode-switch">
-              {(["todas", "pagada", "rechazada"] as const).map(f => (
-                <button key={f} className={transFilter === f ? "active" : ""} onClick={() => setTransFilter(f)}>
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
+              {CHARGE_FILTERS.map(f => (
+                <button key={f} className={transactionFilter === f ? "active" : ""} onClick={() => setTransactionFilter(f)}>
+                  {CHARGE_FILTER_LABEL[f]}
                 </button>
               ))}
             </div>
           </div>
-          <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transFilter)} mode={generalMode} year={generalYear} />
+          <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transactionFilter)} mode={generalMode} year={generalYear} />
         </article>
       </section>
       {(generalData.alerts ?? []).length > 0 && <OperationalAlerts alerts={generalData.alerts ?? []} />}

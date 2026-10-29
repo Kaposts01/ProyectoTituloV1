@@ -35,8 +35,8 @@ function dateValue(item: RecoveryRow, tab: RecoveryTab, group: RecoveryGroup): u
 export function RecoveryTable({ tab, group, items, selected, submitting, canRetry, canChangeCard, onToggle, onToggleAll, onRetry, onCardLink }: Props) {
   const allSelected = items.length > 0 && selected.size === items.length;
   const showRejection = tab === "retry" || tab === "card";
-  const showVigente = tab !== "history";
-  const colSpan = 5 +(tab === "retry" ? 1 : 0) + (tab === "cancelled" ? 1 : 0) + (showVigente ? 1 : 0) + (showRejection ? 3 : 0) + (tab === "history" ? 2 : 0) + (tab === "retry" || tab === "card" ? 1 : 0);
+  const showCurrentAmount = tab !== "history";
+  const colSpan = 5 +(tab === "retry" ? 1 : 0) + (tab === "cancelled" ? 1 : 0) + (showCurrentAmount ? 1 : 0) + (showRejection ? 3 : 0) + (tab === "history" ? 2 : 0) + (tab === "retry" || tab === "card" ? 1 : 0);
   return (
     <section className="panel recovery-table"><div className="table-wrap"><table><thead><tr>
       {tab === "retry" ? <th><input aria-label="Seleccionar todos" type="checkbox" checked={allSelected} onChange={(event) => onToggleAll(event.target.checked)} /></th> : null}
@@ -46,7 +46,7 @@ export function RecoveryTable({ tab, group, items, selected, submitting, canRetr
       <th>{dateColumnLabel(tab, group)}</th>
       <th>Cuenta</th>
       <th>Monto</th>
-      {showVigente ? <th>Monto vigente (último cobrado)</th> : null}
+      {showCurrentAmount ? <th>Monto vigente (último cobrado)</th> : null}
       {showRejection ? <><th>Código</th><th>Motivo de rechazo (Texto del proveedor)</th><th>Fecha de rechazo</th></> : null}
       {tab === "history" ? <><th>Resultado</th><th>Fecha conciliación</th></> : null}
       {tab === "retry" || tab === "card" ? <th>Acción</th> : null}
@@ -65,7 +65,7 @@ export function RecoveryTable({ tab, group, items, selected, submitting, canRetr
             <td className="mono">{text(dateValue(item, tab, group), "—")}</td>
             <td>{labelOr("channel", recoveryValue(item, "account", "source"), "—")}</td>
             <td className="mono">{monto !== undefined ? clpOrDash(monto) : recoveryAmount(item)}</td>
-            {showVigente ? <td className="mono">{clpOrDash(recoveryValue(item, "monto_vigente"))}</td> : null}
+            {showCurrentAmount ? <td className="mono">{clpOrDash(recoveryValue(item, "monto_vigente"))}</td> : null}
             {showRejection ? <>
               <td className="mono">{text(recoveryValue(item, "rejection_code"), "—")}</td>
               <td data-raw-text>{text(recoveryValue(item, "rejection_reason", "reason"), "—")}</td>

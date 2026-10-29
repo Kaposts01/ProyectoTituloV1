@@ -4,6 +4,7 @@ import { getCachedOrFetch } from "../../apiCache";
 import { useDebouncedValue } from "../../hooks";
 import type { ProviderSection } from "../../routes";
 import { defaultYear } from "../shared/utils";
+import type { ChargeFilter } from "./applyChargeFilter";
 import type {
   AuthSession, GeneralClientDetail, GeneralClients, GeneralDashboard, GeneralSubscriptions, Summary,
 } from "../shared/types";
@@ -48,8 +49,8 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   const [generalRefreshing, setGeneralRefreshing] = useState(false);
   const [generalMode, setGeneralMode] = useState<"count" | "amount">("count");
   const [generalYear, setGeneralYear] = useState<number | null>(null);
-  const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
-  const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
+  const [debtFilter, setDebtFilter] = useState<ChargeFilter>("all");
+  const [transactionFilter, setTransactionFilter] = useState<ChargeFilter>("all");
   const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
   const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
 
@@ -147,8 +148,8 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
     setGeneralYear,
     debtFilter,
     setDebtFilter,
-    transFilter,
-    setTransFilter,
+    transactionFilter,
+    setTransactionFilter,
   };
 }
 

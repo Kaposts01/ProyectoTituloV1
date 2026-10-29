@@ -62,8 +62,8 @@ describe("ChannelChart", () => {
   });
 
   it("renderiza grouped con leyenda mostrando cada serie", () => {
-    const two = [{ key: "altas", label: "Altas", color: "#2563EB" }, { key: "bajas", label: "Bajas", color: "#DC2626" }];
-    const rowsData = [{ year: 2025, month: 1, altas: 4, bajas: 1 }, { year: 2025, month: 2, altas: 2, bajas: 3 }];
+    const two = [{ key: "activations", label: "Altas", color: "#2563EB" }, { key: "cancellations", label: "Bajas", color: "#DC2626" }];
+    const rowsData = [{ year: 2025, month: 1, activations: 4, cancellations: 1 }, { year: 2025, month: 2, activations: 2, cancellations: 3 }];
     render(<ChannelChart series={two} data={rowsData} kind="grouped" mode="count" year={2025} legend />);
     expect(screen.getByText("Altas")).toBeInTheDocument();
     expect(screen.getByText("Bajas")).toBeInTheDocument();

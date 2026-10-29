@@ -9,8 +9,8 @@ type StatusValue = MonthValue & { status?: string | null };
 
 const ym = (y: number, m: number) => y * 12 + (m - 1);
 const toYm = (id: number) => ({ year: Math.floor(id / 12), month: (id % 12) + 1 });
-const ALTAS_COLOR = STATUS_PALETTE[0];
-const BAJAS_COLOR = "var(--status-rejected)"; // rojo semántico; DEC-36 (altas/bajas) sigue abierta
+const ACTIVATIONS_COLOR = STATUS_PALETTE[0];
+const CANCELLATIONS_COLOR = "var(--status-rejected)"; // rojo semántico; DEC-36 (altas/bajas) sigue abierta
 const NEUTRAL_COLOR = STATUS_PALETTE[1];
 
 const valueOf = (entry: MonthValue, mode: ChartMode): number => Number(entry[mode] ?? 0) || 0;
@@ -30,7 +30,7 @@ export function statusStackedChart(entries: StatusValue[] | undefined | null, mo
 
 /** Suscripciones activas acumuladas: los meses sin movimiento arrastran el valor anterior. */
 export function activeSubsLineChart(entries: { year: number; month: number; count: number }[] | undefined | null): ChartProps {
-  const series = [{ key: "count", label: "Suscripciones activas", color: ALTAS_COLOR }];
+  const series = [{ key: "count", label: "Suscripciones activas", color: ACTIVATIONS_COLOR }];
   if (!entries?.length) return { rows: [], series };
   const sorted = [...entries].sort((a, b) => ym(a.year, a.month) - ym(b.year, b.month));
   const byMonth = new Map(sorted.map((e) => [ym(e.year, e.month), e.count]));
@@ -57,14 +57,14 @@ export function activationVsChurnChart(
   mode: ChartMode,
 ): ChartProps {
   const series = [
-    { key: "altas", label: "Altas", color: ALTAS_COLOR },
-    { key: "bajas", label: "Bajas", color: BAJAS_COLOR },
+    { key: "activations", label: "Altas", color: ACTIVATIONS_COLOR },
+    { key: "cancellations", label: "Bajas", color: CANCELLATIONS_COLOR },
   ];
   const a = sumByMonth(activations, mode);
   const c = sumByMonth(churn, mode);
   const ids = [...new Set([...a.keys(), ...c.keys()])].sort((x, y) => x - y);
   if (!ids.length) return { rows: [], series };
-  const rows = ids.map((id) => ({ ...toYm(id), altas: a.get(id) ?? 0, bajas: c.get(id) ?? 0 }));
+  const rows = ids.map((id) => ({ ...toYm(id), activations: a.get(id) ?? 0, cancellations: c.get(id) ?? 0 }));
   return { rows: fillMonths(rows), series };
 }
 

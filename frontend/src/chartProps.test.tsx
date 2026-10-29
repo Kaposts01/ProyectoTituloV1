@@ -114,7 +114,7 @@ describe("componentes antiguos (dashboard general)", () => {
   });
 
   it("TransactionsVsSubscriptionsChart: líneas linear y ejes sin decimales", () => {
-    render(<TransactionsVsSubscriptionsChart payments={entries} activeSubs={simple} cobrableSubs={simple} year={null} mode="count" />);
+    render(<TransactionsVsSubscriptionsChart payments={entries} activeSubs={simple} collectableSubs={simple} year={null} mode="count" />);
     expect(seen.Line.length).toBe(2);
     expect(seen.Line.every((l) => l.type === "linear")).toBe(true);
     expect(seen.YAxis.every((y) => y.allowDecimals === false)).toBe(true);

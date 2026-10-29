@@ -88,7 +88,7 @@ export function ChannelDashboardView({
       </article>
     ) : null;
   const activeSubs = activeSubsLineChart(data.active_subs_monthly);
-  const altasBajas = activationVsChurnChart(data.activation_monthly, data.churn_monthly, mode);
+  const activationsVsCancellations = activationVsChurnChart(data.activation_monthly, data.churn_monthly, mode);
   const gaps = coverageGapAnnotations(data.coverage_gaps);
   const methodSnapshot = paymentMethodSnapshot(data.statuses);
   const metricSections = providerGroups.find((group) => group.sections[0].source === data.source)?.sections ?? [];
@@ -203,7 +203,7 @@ export function ChannelDashboardView({
         {isVirtualPos ? (() => { const p = statusStackedChart(data.payments_monthly, mode); return panel(p, "TRANSACCIONES", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de transacciones mensuales por estado" })); })() : null}
         {(() => { const p = statusStackedChart(data.invoices_monthly, mode); return panel(p, "FACTURAS", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de facturas mensuales por estado" })); })()}
         {isToku ? (() => { const p = statusStackedChart(data.transactions_monthly, mode); return panel(p, "TRANSACCIONES", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de transacciones mensuales por estado" })); })() : null}
-        {panel(altasBajas, "SUSCRIPCIONES", "Altas vs bajas", chart(altasBajas, "grouped", { legend: true, ariaLabel: "Gráfico de altas y bajas mensuales de suscripciones" }))}
+        {panel(activationsVsCancellations, "SUSCRIPCIONES", "Altas vs bajas", chart(activationsVsCancellations, "grouped", { legend: true, ariaLabel: "Gráfico de altas y bajas mensuales de suscripciones" }))}
         {isToku && methodSnapshot.length ? (
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">MÉTODOS DE PAGO</p><h3>Por estado (foto actual)</h3></div></div>
