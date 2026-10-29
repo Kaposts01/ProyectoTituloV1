@@ -207,7 +207,7 @@ Key rules from DESIGN.md:
 - Cabinet Grotesk (Fontshare) for display/headings, General Sans (Fontshare) for body/UI
 - JetBrains Mono for ALL numeric data values: RUTs, IDs, amounts, timestamps
 - Sidebar always navy blue (#111727 light / #0a0f1c dark), decision D1 2026-10-29
-- Dark mode derives from teal, not from any external palette
+- Surfaces, primary and action colors are blue-gray and blue in light and dark (decision D27); chart series use the violet/indigo `--series-N` tokens (D19). See DESIGN.md for the exact tokens
 - No nested cards; no colored left-border on cards; no Inter in any role
 
 ## Health Stack
