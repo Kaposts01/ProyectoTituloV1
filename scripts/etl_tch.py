@@ -22,7 +22,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
-from sqlalchemy import case, func
+from sqlalchemy import case, func, select
 
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
@@ -354,8 +354,38 @@ def _transform_recaudacion_mensual(filepath: Path) -> list[dict]:
 # Transformaciones — VIGENTES / ELIMINADOS
 # ---------------------------------------------------------------------------
 
+_ESTADOS_MANDATO = {
+    "ACTIVO": "VIGENTE", "ACTIVA": "VIGENTE", "VIGENTE": "VIGENTE",
+    "PENDIENTE": "PENDIENTE",
+    "RECHAZADO": "RECHAZADA", "RECHAZADA": "RECHAZADA",
+    "ELIMINADO": "ELIMINADA", "ELIMINADA": "ELIMINADA",
+}
+
+
+def _find_estado_col(df: pd.DataFrame) -> Any:
+    """Columna ESTADO del mandato (grupo ANTECEDENTES Y ESTADO MANDATO).
+
+    Los 12 bloques mensuales "N / Estado / Monto" repiten el rotulo "Estado" mas a la derecha;
+    la primera coincidencia exacta del rotulo final es la del mandato.
+    """
+    for col in df.columns:
+        leaf = str(col[-1] if isinstance(col, tuple) else col).strip().lower()
+        if re.fullmatch(r"estado(\.\d+)?", leaf):
+            return col
+    return None
+
+
+def _estado_mandato(valor: Any, por_hoja: str) -> str:
+    """Estado de la ficha desde la columna ESTADO; si falta o no se reconoce, el de la hoja de origen."""
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return por_hoja
+    return _ESTADOS_MANDATO.get(str(valor).strip().upper(), por_hoja)
+
+
 def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
     """
+    ``estado`` es el valor por defecto segun la hoja; manda la columna ESTADO del reporte.
+
     Mapeo de columnas reales del sheet VIGENTES/ELIMINADOS (estructura 2025-2026):
       ('Ficha DUES', ...)          → numero_ficha
       ('Mandato DUES', ...)        → numero_mandato
@@ -409,6 +439,7 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
     c_frechazo = _find_col(df, "fecha", "rechazo")
     c_felim = _find_col(df, "fecha", "eliminado") or _find_col(df, "fecha", "eliminac") or _find_col(df, "fecha", "baja")
     c_razon = _find_col(df, "motivo") or _find_col(df, "raz")
+    c_estado = _find_estado_col(df)
 
     # Captación
     c_origen = _find_col(df, "origen")
@@ -450,7 +481,7 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
             "fecha_rechazo": _norm_date(_col_val(row, c_frechazo)),
             "fecha_eliminacion": _norm_date(_col_val(row, c_felim)),
             "razon_baja": _norm_str(_col_val(row, c_razon), 500),
-            "estado": estado,
+            "estado": _estado_mandato(_col_val(row, c_estado), estado),
             "raw_payload": raw,
             "_cliente": {
                 "rut": rut,
@@ -912,6 +943,60 @@ def _load_recaudacion_mensual(db, rows: list[dict]) -> int:
     return len(rows)
 
 
+_RAZON_BAJA_IMPLICITA = "Baja implicita: ficha ausente del ultimo reporte"
+
+
+def _apply_implicit_bajas(db, fichas_ultimo_reporte: set[int]) -> int:
+    """Marca ELIMINADA toda ficha VIGENTE/PENDIENTE que no aparece en el ultimo reporte.
+
+    Sin esto, una ficha que figuro como vigente en un cierre viejo y luego desaparecio de
+    todas las hojas (387 casos en la carga actual) queda VIGENTE para siempre. Con un
+    reporte sin cartera (conjunto vacio) no se hace nada.
+    """
+    if not fichas_ultimo_reporte:
+        return 0
+    stale = (
+        TchSuscripcion.estado.in_(("VIGENTE", "PENDIENTE")),
+        TchSuscripcion.numero_ficha.notin_(fichas_ultimo_reporte),
+    )
+    result = db.execute(
+        TchSuscripcion.__table__.update()
+        .where(*stale)
+        .values(
+            estado="ELIMINADA",
+            razon_baja=func.coalesce(TchSuscripcion.razon_baja, _RAZON_BAJA_IMPLICITA),
+        )
+    )
+    db.flush()
+    return result.rowcount or 0
+
+
+def _is_latest_report(ultimo_periodo_cargado: str | None, periodo_reporte: str | None) -> bool:
+    """Un reporte solo puede dar de baja fichas si no es anterior a lo ya cargado."""
+    if not periodo_reporte:
+        return False
+    return ultimo_periodo_cargado is None or periodo_reporte >= ultimo_periodo_cargado
+
+
+def _last_closed_period(db) -> str | None:
+    """Ultimo mes con cobros en el control mensual (ignora los meses futuros en cero)."""
+    return db.scalar(
+        select(func.max(TchRecaudacionMensual.periodo)).where(
+            TchRecaudacionMensual.aceptadas_cantidad + TchRecaudacionMensual.rechazadas_cantidad > 0
+        )
+    )
+
+
+def _report_period(filepath: Path) -> str | None:
+    """Mes del reporte segun su nombre: prefiere el texto del mes ("DICIEMBRE 2025") a la fecha del archivo,
+    que en los cierres es la del dia siguiente (20260101)."""
+    named = _norm_periodo(filepath.stem)
+    if named and 2015 <= int(named[:4]) <= 2035:
+        return named
+    year, month, _, _ = _report_sort_key(filepath)
+    return f"{year:04d}-{month:02d}" if year else None
+
+
 def _clear_tch_data(db) -> None:
     """Rebuild the local TCH projection from the complete report history."""
     for model in (TchRecaudacionMensual, TchTransaccion, TchSuscripcion, TchCliente, TchCentroCosto, TchOrigen, TchTipoMandato, TchBanco):
@@ -928,6 +1013,9 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     log.info(f"Procesando: {nombre}")
 
     totales = {"archivo": nombre, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
+    fichas: set[int] = set()  # fichas presentes en el reporte (VIGENTES + ELIMINADOS + RECHAZADOS)
+    tiene_cartera = False
+    totales["fichas"] = fichas
 
     # --- Catálogo de bancos desde hoja TABLAS ---
     bancos_rows = _transform_bancos_from_tablas(filepath)
@@ -945,6 +1033,8 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     if df_vig is not None:
         rows_vig = _transform_suscripciones(df_vig, "VIGENTE")
         trans_rows = _transform_historial_cargos(df_vig, nombre)
+        tiene_cartera = bool(rows_vig)
+        fichas.update(r["numero_ficha"] for r in rows_vig)
         i, u, e = _load_suscripciones(db, rows_vig)
         totales["sus_ins"] += i
         totales["sus_upd"] += u
@@ -959,6 +1049,7 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     if df_elim is not None:
         rows_elim = _transform_suscripciones(df_elim, "ELIMINADA")
         trans_rows += _transform_historial_cargos(df_elim, nombre)
+        fichas.update(r["numero_ficha"] for r in rows_elim)
         i, u, e = _load_suscripciones(db, rows_elim)
         totales["sus_ins"] += i
         totales["sus_upd"] += u
@@ -970,11 +1061,15 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     if df_mandatos_rech is not None:
         rows_mandatos_rech = _transform_suscripciones(df_mandatos_rech, "RECHAZADA")
         trans_rows += _transform_historial_cargos(df_mandatos_rech, nombre)
+        fichas.update(r["numero_ficha"] for r in rows_mandatos_rech)
         i, u, e = _load_suscripciones(db, rows_mandatos_rech)
         totales["sus_ins"] += i
         totales["sus_upd"] += u
         totales["err"] += e
         log.info(f"  RECHAZADOS: {i} nuevas, {u} actualizadas, {e} errores")
+
+    if not tiene_cartera:
+        fichas.clear()  # sin hoja VIGENTES legible (p. ej. dic-2023) no se infieren bajas
 
     # --- CARGOS ---
     df_acep = _read_sheet(filepath, SHEET_ACEPTADOS)
@@ -1035,8 +1130,12 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
             raise ValueError("Ejecución ETL no encontrada")
         run.phase = "tch_import"
         db.commit()
+        ultimo_cargado = _last_closed_period(db)
         totals = _process_file(filepath, db, set())
         total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
+        if _is_latest_report(ultimo_cargado, _report_period(filepath)):
+            bajas = _apply_implicit_bajas(db, totals["fichas"])
+            log.info(f"  Bajas implicitas (ausentes del reporte): {bajas}")
         _finish_run(db, run, total)
         return total
     except Exception as exc:
@@ -1087,17 +1186,23 @@ def main() -> None:
 
     total = 0
     loaded_history_periods: set[str] = set()
+    ultimo: dict = {}
     try:
         if args.mode == "full":
             _clear_tch_data(db)
             log.info("Proyección TCH anterior eliminada para reconstrucción histórica")
         for archivo in archivos:
             t = _process_file(archivo, db, loaded_history_periods)
+            ultimo = t
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             log.info(
                 f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} "
                 f"trans={t['trans']} err={t['err']}"
             )
+
+        if args.mode == "full" and ultimo:
+            bajas = _apply_implicit_bajas(db, ultimo["fichas"])
+            log.info(f"Bajas implicitas (ausentes de {ultimo['archivo']}): {bajas}")
 
         _finish_run(db, run, total)
         log.info(f"ETL completado. Total procesados: {total}")

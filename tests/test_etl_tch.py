@@ -363,3 +363,107 @@ def test_transform_suscripciones_keeps_moneda_vigente_in_raw_payload(moneda, esp
     frame = _vigentes_frame(pd.Timestamp("2024-03-15"), 12000, moneda)
     row = etl_tch._transform_suscripciones(frame, "VIGENTE")[0]
     assert row["raw_payload"].get("moneda_vigente") == esperada
+
+
+# --- TCH-PAR-06: estado de la ficha desde la columna ESTADO + baja implicita ---
+
+def _mandatos_frame(filas: list[tuple[int, str | None]]) -> pd.DataFrame:
+    columnas = [
+        ("Ficha DUES", "Ficha DUES"),
+        ("SOCIO", "Rut"),
+        ("ANTECEDENTES Y ESTADO MANDATO", "ESTADO"),
+        ("ULTIMOS MESES", "Estado"),  # los bloques mensuales traen otra columna "Estado": no debe usarse
+    ]
+    datos = [[ficha, f"1{ficha % 10}000000-0", estado, "Pagada"] for ficha, estado in filas]
+    return pd.DataFrame(datos, columns=pd.MultiIndex.from_tuples(columnas))
+
+
+@pytest.mark.parametrize(
+    ("columna", "esperado"),
+    [
+        ("Activo", "VIGENTE"), ("ACTIVO", "VIGENTE"), ("Pendiente", "PENDIENTE"), (" pendiente ", "PENDIENTE"),
+        ("Rechazado", "RECHAZADA"), ("Eliminado", "ELIMINADA"), ("ELIMINADA", "ELIMINADA"),
+    ],
+)
+def test_transform_suscripciones_uses_the_estado_column_over_the_sheet(columna: str, esperado: str) -> None:
+    # La hoja VIGENTES trae tambien Pendiente, Rechazado y Eliminado: manda la columna ESTADO.
+    rows = etl_tch._transform_suscripciones(_mandatos_frame([(101, columna)]), "VIGENTE")
+    assert rows[0]["estado"] == esperado
+
+
+@pytest.mark.parametrize("columna", [None, "", "Desconocido"])
+def test_transform_suscripciones_falls_back_to_the_sheet_when_estado_is_missing(columna) -> None:
+    rows = etl_tch._transform_suscripciones(_mandatos_frame([(101, columna)]), "ELIMINADA")
+    assert rows[0]["estado"] == "ELIMINADA"
+
+
+def test_transform_suscripciones_without_estado_column_uses_the_sheet() -> None:
+    frame = pd.DataFrame({"Ficha DUES": [101], "SOCIO Rut": ["12345678-9"]})
+    assert etl_tch._transform_suscripciones(frame, "RECHAZADA")[0]["estado"] == "RECHAZADA"
+
+
+def _cargar_fichas(db, estados: dict[int, str]) -> None:
+    etl_tch._load_suscripciones(
+        db,
+        [
+            {"numero_ficha": ficha, "estado": estado, "raw_payload": {}, "_cliente": None, "_cliente_titular": None}
+            for ficha, estado in estados.items()
+        ],
+    )
+
+
+def _estado(db, ficha: int) -> tuple[str, str | None]:
+    row = db.execute(
+        select(TchSuscripcion.estado, TchSuscripcion.razon_baja).where(TchSuscripcion.numero_ficha == ficha)
+    ).one()
+    return row.estado, row.razon_baja
+
+
+def test_implicit_baja_keeps_vigente_and_pendiente_and_closes_the_absent(db_session) -> None:
+    # 3 casos: ficha vigente y ficha pendiente en el ultimo reporte; ficha vigente por un cierre viejo y ausente hoy.
+    _cargar_fichas(db_session, {930001: "VIGENTE", 930002: "PENDIENTE", 930003: "VIGENTE", 930004: "ELIMINADA"})
+
+    cambiadas = etl_tch._apply_implicit_bajas(db_session, {930001, 930002, 930004})
+
+    assert cambiadas == 1
+    assert _estado(db_session, 930001)[0] == "VIGENTE"
+    assert _estado(db_session, 930002)[0] == "PENDIENTE"
+    estado, razon = _estado(db_session, 930003)
+    assert estado == "ELIMINADA"
+    assert razon and "ausente" in razon.lower()
+    assert _estado(db_session, 930004)[0] == "ELIMINADA"
+
+
+def test_implicit_baja_keeps_an_existing_razon_baja(db_session) -> None:
+    _cargar_fichas(db_session, {930010: "VIGENTE"})
+    db_session.execute(
+        TchSuscripcion.__table__.update().where(TchSuscripcion.numero_ficha == 930010).values(razon_baja="motivo previo")
+    )
+    etl_tch._apply_implicit_bajas(db_session, {1})
+    assert _estado(db_session, 930010) == ("ELIMINADA", "motivo previo")
+
+
+def test_implicit_baja_never_runs_with_an_empty_last_report(db_session) -> None:
+    # Si el ultimo reporte no trajo cartera (p. ej. la hoja VIGENTES de dic-2023), no se da de baja a nadie.
+    _cargar_fichas(db_session, {930020: "VIGENTE"})
+    assert etl_tch._apply_implicit_bajas(db_session, set()) == 0
+    assert _estado(db_session, 930020)[0] == "VIGENTE"
+
+
+@pytest.mark.parametrize(
+    ("previo", "reporte", "esperado"),
+    [
+        (None, "2026-09", True), ("2026-08", "2026-09", True), ("2026-09", "2026-09", True),
+        ("2026-09", "2026-03", False),  # un reporte viejo no puede dar de baja lo cargado despues
+        ("2026-09", None, False),
+    ],
+)
+def test_implicit_baja_only_applies_to_the_latest_report(previo, reporte, esperado) -> None:
+    assert etl_tch._is_latest_report(previo, reporte) is esperado
+
+
+def test_process_file_without_a_readable_vigentes_sheet_reports_no_fichas(db_session, tmp_path) -> None:
+    # Solo hoja de cargos: no hay cartera, por lo que no se pueden inferir bajas implicitas.
+    xlsx = tmp_path / "20260331 TCH IG MARZO 2026.xlsx"
+    _write_cargos_workbook(xlsx, etl_tch.SHEET_ACEPTADOS, ["MAR 26"])
+    assert etl_tch._process_file(xlsx, db_session, set())["fichas"] == set()
