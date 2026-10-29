@@ -30,6 +30,13 @@ from app.scheduler.jobs.billing_jobs import (
     billing_renewal_check,
     billing_sweep_applying,
 )
+from app.scheduler.jobs.cancellation_jobs import (
+    CANCELLATION_JOB_IDS,
+    JOB_CANCELLATION_EXPIRE,
+    JOB_CANCELLATION_SWEEP,
+    cancellation_expire_requests,
+    cancellation_sweep_applying,
+)
 from app.scheduler.jobs.sync_all import channel_is_enabled, sync_all_channels
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 
@@ -99,7 +106,7 @@ def list_jobs(
     sched = get_scheduler()
     result = []
     for job in sched.get_jobs():
-        if job.id in BILLING_JOB_IDS or job.id == JOB_ALERTS:  # alertas: sin filas en sync_runs (last_run = null)
+        if job.id in BILLING_JOB_IDS or job.id in CANCELLATION_JOB_IDS or job.id == JOB_ALERTS:  # alertas: sin filas en sync_runs (last_run = null)
             result.append(_billing_job_json(db, job))
             continue
         # Último EtlRun completado o fallido para este job
@@ -143,7 +150,7 @@ async def trigger_job(
     if not sched.get_job(job_id):
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' no encontrado.")
 
-    if job_id in BILLING_JOB_IDS:  # solo lectura hacia el proveedor: no depende de canales ni de la sync activa
+    if job_id in BILLING_JOB_IDS or job_id in CANCELLATION_JOB_IDS:  # solo lectura hacia el proveedor: no depende de canales ni de la sync activa
         if body.channels is not None:
             raise HTTPException(status_code=422, detail="Este job no admite selección de canales.")
         running = db.scalar(select(SyncRun).where(
@@ -157,7 +164,9 @@ async def trigger_job(
         db.add(SyncRun(id=billing_run_id, source=job_id, status="running"))
         db.commit()
         job_fn = {JOB_BILLING_RENEWAL: billing_renewal_check, JOB_BILLING_EXPIRE: billing_expire_requests,
-                  JOB_BILLING_SWEEP: billing_sweep_applying}[job_id]
+                  JOB_BILLING_SWEEP: billing_sweep_applying,
+                  JOB_CANCELLATION_EXPIRE: cancellation_expire_requests,
+                  JOB_CANCELLATION_SWEEP: cancellation_sweep_applying}[job_id]
         background_tasks.add_task(job_fn, str(billing_run_id))
         return {"run_id": str(billing_run_id), "status": "accepted", "skipped_channels": []}
 

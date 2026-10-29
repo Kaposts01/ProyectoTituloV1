@@ -108,6 +108,37 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
         )
         logger.info("Job '%s' registrado (cada 15 min: :05/:20/:35/:50).", JOB_BILLING_SWEEP)
 
+    # Bajas de suscripcion (MGT-07..10): expiracion de solicitudes `pending` (cada hora, :25) y barredor de `applying`
+    # atascadas (cada 15 min, :08/:23/:38/:53; no chocan con los de la Opcion A en :05/:10/:20/:35/:50). Filas en
+    # `sync_runs` con el prefijo `cancellation_`, excluido de los KPI de canales.
+    from app.scheduler.jobs.cancellation_jobs import (
+        JOB_CANCELLATION_EXPIRE,
+        JOB_CANCELLATION_SWEEP,
+        cancellation_expire_requests,
+        cancellation_sweep_applying,
+    )
+
+    if not scheduler.get_job(JOB_CANCELLATION_EXPIRE):
+        scheduler.add_job(
+            cancellation_expire_requests,
+            trigger="cron",
+            minute=25,
+            id=JOB_CANCELLATION_EXPIRE,
+            name="Expiración de solicitudes de baja",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (cada hora, minuto 25).", JOB_CANCELLATION_EXPIRE)
+    if not scheduler.get_job(JOB_CANCELLATION_SWEEP):
+        scheduler.add_job(
+            cancellation_sweep_applying,
+            trigger="cron",
+            minute="8,23,38,53",
+            id=JOB_CANCELLATION_SWEEP,
+            name="Barrido de bajas atascadas en 'applying'",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (cada 15 min: :08/:23/:38/:53).", JOB_CANCELLATION_SWEEP)
+
     # RT-05: procesador de la cola de webhooks (cada minuto). Detras de WEBHOOK_PROCESSOR_ENABLED (apagada por defecto);
     # la exclusion entre workers la da FOR UPDATE SKIP LOCKED dentro del procesador.
     from app.scheduler.jobs.webhook_jobs import process_webhook_queue

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, Integer, String, Text, func, or_
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,6 +12,8 @@ from app.db.session import Base
 # aparece solo, y un job de facturacion nuevo queda excluido mientras respete el prefijo (lo exige un test sobre
 # BILLING_JOB_IDS).
 BILLING_JOB_PREFIX = "billing_"
+# Los jobs de bajas de suscripcion (expiracion y barredor) usan su propio prefijo, tambien excluido de los KPI de canales.
+CANCELLATION_JOB_PREFIX = "cancellation_"
 
 
 class SyncRun(Base):
@@ -27,5 +29,8 @@ class SyncRun(Base):
 
     @classmethod
     def is_channel_source(cls):
-        """Condicion SQL: fila de sincronizacion de un canal (no de un job de facturacion)."""
-        return ~cls.source.startswith(BILLING_JOB_PREFIX, autoescape=True)
+        """Condicion SQL: fila de sincronizacion de un canal (no de un job de facturacion ni de bajas)."""
+        return ~or_(
+            cls.source.startswith(BILLING_JOB_PREFIX, autoescape=True),
+            cls.source.startswith(CANCELLATION_JOB_PREFIX, autoescape=True),
+        )
