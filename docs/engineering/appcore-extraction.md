@@ -106,3 +106,13 @@ Cada uno está fijado por una prueba de caracterización marcada como HALLAZGO o
 5. **[PENDIENTE, UX-05] Un enlace profundo carga datos que no se muestran**: al abrir directamente `/central/clientes` (o cualquier ruta que no sea el resumen) la vista aún es «summary» durante el primer render, así que se piden `staging/summary` y `staging/dashboard/general` antes de aplicar la ruta.
 6. **[PENDIENTE, UX-05] Acciones con distinto reinicio de errores según dónde se disparen**: «Cancelar» una suscripción desde la ficha de cliente reinicia el error del diálogo, desde la lista o la ficha de suscripción no; «Eliminar» un registro reinicia el error desde la ficha pero no desde la lista. Se conservaron las diferencias con callbacks separados.
 7. **[PENDIENTE, UX-05] `loading` compartido**: el indicador «Cargando» de la lista de registros también lo apaga el efecto del resumen de staging (`setLoading(false)`), así que puede mostrar «N registros» antes de que termine la carga de la lista en curso.
+
+## 6. UX-05: navegación de un solo nivel (2026-10-29)
+
+Qué cambió en la navegación que `AppCore.tsx` conservaba:
+
+- El menú (`components/Sidebar.tsx`) se alimenta de datos puros en `navigation.ts` (`menuGroups`, `visibleMenu`, `detailChannels`, `filterMenu`), con grupos Resumen · Cartera · Operación · Sistema y el grupo transitorio «Detalle por canal». `AppCore` ya no guarda `openProvider` (qué proveedor estaba desplegado) sino `detailOpen`, que se abre al entrar a una pantalla de canal (`showChannel`, `showSection`, `showTch`). Las rutas, `canAccessRoute`, `applyRoute` y `legacyRedirectPath` no cambian.
+- El indicador de salud pasa de un punto por canal a `components/SidebarHealth.tsx` (peor nivel global; el detalle por canal se abre con un botón).
+- Tests de caracterización actualizados de forma deliberada: `navTop(label)` del arnés ahora busca ítems planos de grupo fuera del detalle por canal y se agrega `navDetail(canal, label)`; `Dashboard`→`Resumen`, `Clientes`→`Socios`, `Reporte automático`→`Reportes`; el recorrido por TCH usa el detalle por canal; pruebas nuevas de salud global, detalle plegado/desplegado, enlace profundo y permisos.
+- Los hallazgos 5, 6 y 7 de la sección 5 **siguen pendientes**: UX-05 no tocó el cargue inicial de datos por enlace profundo, el reinicio de errores ni el `loading` compartido; se resolverán con las vistas unificadas.
+- Pendiente de las vistas que faltan: Cobros (UX-09) e Identidad (UX-11) no están en el menú; «Socios» sigue mostrando la pantalla «Clientes consolidados» (agrupada por RUT) hasta UX-10.

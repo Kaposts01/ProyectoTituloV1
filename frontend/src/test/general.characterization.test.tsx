@@ -112,7 +112,7 @@ describe("Dashboard general (/central/resumen)", () => {
     expect(screen.getByText("ALERTAS OPERATIVAS")).toBeTruthy();
   });
 
-  it("conserva modo, año y filtros al ir a Clientes y volver al Dashboard desde el menú", async () => {
+  it("conserva modo, año y filtros al ir a Socios y volver al Resumen desde el menú", async () => {
     mountApp("/central/resumen", [
       ...summaryHandlers(),
       ["GET", "/api/v1/staging/dashboard/general/clients", { items: [], total: 0, offset: 0, limit: 100 }],
@@ -121,10 +121,10 @@ describe("Dashboard general (/central/resumen)", () => {
     await screen.findByLabelText("Métricas generales");
     fireEvent.click(screen.getByRole("button", { name: "Monto" }));
     fireEvent.change(screen.getByLabelText("Año dashboard general"), { target: { value: "2024" } });
-    fireEvent.click(navTop("Clientes"));
+    fireEvent.click(navTop("Socios"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
     expect(await screen.findByText("CLIENTES CONSOLIDADOS")).toBeTruthy();
-    fireEvent.click(navTop("Dashboard"));
+    fireEvent.click(navTop("Resumen"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/resumen"));
     const metrics = await screen.findByLabelText("Métricas generales");
     expect(metrics.querySelector(".metric-value-money")).toBeTruthy();

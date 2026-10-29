@@ -44,3 +44,113 @@ export function resourcePermission(source: string, resource: string): string {
   };
   return `${source}.${names[source]?.[resource] ?? resource}.view`;
 }
+
+/* ── Menú de un solo nivel (UX-05, D29) ─────────────────────────────────────────────
+   Grupos: Resumen · Cartera · Operación · Sistema, más el grupo transitorio «Detalle por canal».
+   Solo contiene vistas que existen hoy. Fuera del menú, a propósito:
+   - Cobros (Cartera): aún no hay vista unificada; entra con UX-09.
+   - Identidad (Operación): no existe pantalla (cola de candidatos, UX-11).
+   Las rutas no cambian: el menú solo reagrupa y renombra. */
+
+export type Can = (permission: string) => boolean;
+
+export type MenuAction =
+  | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "report" }
+  | { kind: "recovery" }
+  | { kind: "billing" }
+  | { kind: "admin"; view: "usuarios" | "sincronizacion" };
+
+export type MenuItem = { id: string; label: string; action: MenuAction; allowed: (can: Can) => boolean };
+/** `label: null` = grupo sin encabezado (Resumen). */
+export type MenuGroup = { id: string; label: string | null; items: MenuItem[] };
+
+const canDashboard: MenuItem["allowed"] = (can) => can("dashboard.view");
+
+export const menuGroups: MenuGroup[] = [
+  { id: "resumen", label: null, items: [{ id: "summary", label: "Resumen", action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
+  {
+    id: "cartera",
+    label: "Cartera",
+    items: [
+      { id: "clients", label: "Socios", action: { kind: "central", view: "clients" }, allowed: canDashboard },
+      { id: "subscriptions", label: "Suscripciones", action: { kind: "central", view: "subscriptions" }, allowed: canDashboard },
+    ],
+  },
+  {
+    id: "operacion",
+    label: "Operación",
+    items: [
+      { id: "recovery", label: "Recuperador", action: { kind: "recovery" }, allowed: (can) => can("virtualpos.recovery.view") },
+      { id: "billing", label: "Cambios de cobro", action: { kind: "billing" }, allowed: (can) => can("virtualpos.billing_changes.view") },
+    ],
+  },
+  {
+    id: "sistema",
+    label: "Sistema",
+    items: [
+      { id: "sync", label: "Sincronización", action: { kind: "admin", view: "sincronizacion" }, allowed: (can) => can("sync_runs.view") || can("sync.run") },
+      { id: "admin", label: "Administración", action: { kind: "admin", view: "usuarios" }, allowed: (can) => can("users.manage") || can("roles.manage") },
+      { id: "report", label: "Reportes", action: { kind: "central", view: "report" }, allowed: canDashboard },
+    ],
+  },
+];
+
+/** Grupos con solo los ítems permitidos; un grupo sin ítems visibles desaparece. */
+export function visibleMenu(can: Can): MenuGroup[] {
+  return menuGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => item.allowed(can)) }))
+    .filter((group) => group.items.length > 0);
+}
+
+export type TchView = "summary" | "clientes" | "suscripciones" | "transacciones";
+export type DetailAction =
+  | { kind: "channel"; source: ProviderSource }
+  | { kind: "section"; section: ProviderSection }
+  | { kind: "tch"; view: TchView };
+export type DetailItem = { id: string; label: string; action: DetailAction };
+export type DetailChannel = { id: string; name: string; items: DetailItem[] };
+
+/**
+ * «Detalle por canal» (TRANSITORIO): las pantallas por canal que siguen vivas hasta que existan las vistas
+ * unificadas de Cobros, Socios y Suscripciones (UX-09 a UX-11). Mismos permisos por canal que antes.
+ */
+export function detailChannels(can: Can): DetailChannel[] {
+  const out: DetailChannel[] = [];
+  for (const group of providerGroups) {
+    const sections = group.sections.filter((section) => can(resourcePermission(section.source, section.resource)));
+    if (sections.length === 0) continue;
+    const source = sections[0].source;
+    out.push({
+      id: source,
+      name: group.name,
+      items: [
+        { id: `${source}:resumen`, label: "Resumen", action: { kind: "channel", source } },
+        ...sections.map((section) => ({ id: `${source}:${section.resource}`, label: section.label, action: { kind: "section", section } as DetailAction })),
+      ],
+    });
+  }
+  if (can("tch.dashboard.view")) {
+    const items: DetailItem[] = [{ id: "tch:resumen", label: "Resumen", action: { kind: "tch", view: "summary" } }];
+    if (can("tch.clientes.view")) items.push({ id: "tch:clientes", label: "Clientes", action: { kind: "tch", view: "clientes" } });
+    if (can("tch.suscripciones.view")) items.push({ id: "tch:suscripciones", label: "Suscripciones", action: { kind: "tch", view: "suscripciones" } });
+    if (can("tch.transacciones.view")) items.push({ id: "tch:transacciones", label: "Transacciones", action: { kind: "tch", view: "transacciones" } });
+    out.push({ id: "tch", name: "TCH", items });
+  }
+  return out;
+}
+
+const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+/** Filtra el menú por texto (sin tildes ni mayúsculas): coincide con el rótulo del ítem o del grupo. */
+export function filterMenu(groups: MenuGroup[], channels: DetailChannel[], query: string): { groups: MenuGroup[]; channels: DetailChannel[] } {
+  const q = fold(query);
+  if (!q) return { groups, channels };
+  return {
+    groups: groups
+      .map((group) => ({ ...group, items: group.items.filter((item) => fold(item.label).includes(q) || fold(group.label ?? "").includes(q)) }))
+      .filter((group) => group.items.length > 0),
+    channels: channels
+      .map((channel) => ({ ...channel, items: channel.items.filter((item) => fold(`${channel.name} ${item.label}`).includes(q)) }))
+      .filter((channel) => channel.items.length > 0),
+  };
+}

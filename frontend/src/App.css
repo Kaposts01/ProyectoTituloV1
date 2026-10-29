@@ -659,3 +659,50 @@ h1, h2, h3, .eyebrow {
   font-size: 0.88em;
   letter-spacing: 0;
 }
+
+/* ── Menú de un solo nivel (UX-05, D29) ─────────────────────────────────
+   Grupos con etiqueta, ítems planos, salud global compacta, buscador y el grupo
+   transitorio «Detalle por canal». Todo con tokens --sidebar-* (contraste vigilado). */
+.sidebar-nav { min-height: 0; overflow-y: auto; }
+.sidebar-group { margin-top: 14px; }
+.sidebar-group:first-child { margin-top: 0; }
+.sidebar-section-label { padding: 6px 10px 4px; }
+.sidebar-note { margin: 4px 10px 8px; color: var(--sidebar-label); font-size: 11px; line-height: 1.4; }
+.sidebar-search { margin: 0 0 14px; }
+.sidebar-search input {
+  width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px;
+  color: var(--sidebar-text-strong); background: var(--sidebar-active-bg);
+  font: inherit; font-size: 13px;
+}
+.sidebar-search input::placeholder { color: var(--sidebar-label); opacity: 1; }
+.sidebar-search input:focus-visible { outline: 2px solid var(--series-4); outline-offset: 1px; }
+.sidebar-health { margin: -14px 0 12px; }
+.sidebar-health-toggle {
+  display: flex; align-items: center; gap: 4px; width: 100%; padding: 6px 10px; border: 0; border-radius: 8px;
+  color: var(--sidebar-text); background: transparent; cursor: pointer; font: inherit; font-size: 12px; text-align: left;
+}
+.sidebar-health-toggle:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.sidebar-health-toggle:focus-visible { outline: 2px solid var(--series-4); outline-offset: 1px; }
+.sidebar-health-text { flex: 1; }
+.sidebar-health-glyph { color: var(--sidebar-label); font-size: 14px; line-height: 1; }
+.sidebar-health-list { margin: 2px 0 0; padding: 0 10px; list-style: none; }
+.sidebar-health-list li { display: flex; align-items: center; gap: 4px; padding: 3px 0; color: var(--sidebar-text); font-size: 11px; }
+.sidebar-health-list .health-dot { margin: 0 4px 0 0; }
+.sidebar-health-age { margin-left: auto; color: var(--sidebar-label); text-align: right; }
+.sidebar-detail-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; border-radius: 8px;
+}
+.sidebar-detail-toggle:disabled { cursor: default; }
+.sidebar-detail-toggle > span:first-child { flex: 1; }
+.sidebar-transient {
+  padding: 1px 6px; border: 1px solid var(--sidebar-label); border-radius: 9999px;
+  font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+}
+.sidebar-detail-glyph { font-size: 16px; line-height: 1; }
+.sidebar-subgroup { margin-top: 8px; }
+.sidebar-subheading { padding: 4px 10px 2px; color: var(--sidebar-label); font-size: 11px; font-weight: 700; }
+.sidebar-subgroup .sidebar-item { padding-left: 20px; font-size: 12px; }
+@media (max-width: 800px) {
+  .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
+  .sidebar-search input { min-height: 44px; }
+}

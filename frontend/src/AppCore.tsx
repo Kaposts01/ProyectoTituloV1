@@ -11,7 +11,6 @@ import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type Provider
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
 import type { ChannelDashboard, AuthSession, TchSuscripcionDetail } from "./features/shared/types";
-import { title } from "./features/shared/utils";
 import { stagingFilters } from "./features/virtualpos/constants";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
@@ -71,7 +70,8 @@ function AppCore() {
   const [activeSection, setActiveSection] = useState<ProviderSection | null>(
     null,
   );
-  const [openProvider, setOpenProvider] = useState<string | null>("VirtualPOS");
+  // «Detalle por canal» (transitorio) del menú: se abre solo al entrar a una pantalla de canal.
+  const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const {
@@ -252,7 +252,7 @@ function AppCore() {
     setTchTransaccionDetail(null);
     setTchClienteDetail(null);
     setTchView(view);
-    setOpenProvider("TCH");
+    setDetailOpen(true);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "tch", view });
   }
@@ -283,7 +283,7 @@ function AppCore() {
     setError(null);
     setYear(null);
     setChannel(source);
-    setOpenProvider(title(source));
+    setDetailOpen(true);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "channel", source });
   }
@@ -304,7 +304,7 @@ function AppCore() {
     setSortDirection("asc");
     if (section.source === "virtualpos") setVpPlatform("all");
     setActiveSection(section);
-    setOpenProvider(title(section.source));
+    setDetailOpen(true);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "resource", source: section.source, resource: section.resource });
   }
@@ -332,7 +332,6 @@ function AppCore() {
     setAdminOpen(false);
     setRecoveryOpen(true);
     setBillingOpen(false);
-    setOpenProvider("VirtualPOS");
     setProfileView(null);
     if (updateUrl) navigate({ kind: "recovery" });
   }
@@ -653,7 +652,8 @@ function AppCore() {
         activeSection={activeSection}
         channel={channel}
         tchView={tchView}
-        openProvider={openProvider}
+        detailOpen={detailOpen}
+        onToggleDetail={() => setDetailOpen((open) => !open)}
         theme={theme}
         onDashboard={showDashboard}
         generalView={generalView}
@@ -662,9 +662,6 @@ function AppCore() {
         onAutoReport={showAutoReport}
         onChannel={showChannel}
         onSection={showSection}
-        onToggle={(provider) =>
-          setOpenProvider((open) => (open === provider ? null : provider))
-        }
         onTheme={toggleTheme}
         onTch={showTch}
         permissions={session.user.permissions}

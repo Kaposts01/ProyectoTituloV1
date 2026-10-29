@@ -148,11 +148,22 @@ export function contentHtml(): string {
   return normalizeHtml(parts.join("\n"));
 }
 
-/** Botón de primer nivel del menú lateral (los grupos de proveedor repiten rótulos como «Clientes»). */
+/**
+ * Ítem del menú lateral de un solo nivel (UX-05). Excluye el grupo transitorio «Detalle por canal»,
+ * donde los rótulos se repiten por canal («Clientes», «Resumen»…); para esos usar `navDetail`.
+ */
 export function navTop(label: string): HTMLElement {
   const nav = document.querySelector(".sidebar-nav") as HTMLElement;
-  const found = Array.from(nav.querySelectorAll(":scope > button")).find((b) => b.textContent?.trim() === label);
+  const found = Array.from(nav.querySelectorAll(".sidebar-group:not(.sidebar-detail) .sidebar-item")).find((b) => b.textContent?.trim() === label);
   if (!found) throw new Error(`Sin botón de menú «${label}»`);
+  return found as HTMLElement;
+}
+
+/** Ítem de «Detalle por canal» (transitorio) de un canal: `navDetail("TCH", "Transacciones")`. Debe estar desplegado. */
+export function navDetail(channel: string, label: string): HTMLElement {
+  const group = Array.from(document.querySelectorAll('.sidebar-detail [role="group"]')).find((g) => g.getAttribute("aria-label") === channel);
+  const found = group && Array.from(group.querySelectorAll(".sidebar-item")).find((b) => b.textContent?.trim() === label);
+  if (!found) throw new Error(`Sin botón de detalle «${channel} / ${label}»`);
   return found as HTMLElement;
 }
 

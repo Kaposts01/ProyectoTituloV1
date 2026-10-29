@@ -148,15 +148,28 @@ Carga: Fontshare via `<link href="https://api.fontshare.com/v2/css?f[]=cabinet-g
 
 ## Layout
 
-Sidebar fijo de 220px en brand teal. Contenido principal fluid, max-width 1160px. Padding lateral 24px en desktop, 16px en mobile.
+Sidebar fijo de 220px, azul marino (D1). Contenido principal fluid, max-width 1160px. Padding lateral 24px en desktop, 16px en mobile.
 
-**Navegación sidebar (estructura real):** dos niveles — nivel 1: ítems planos (Dashboard, Clientes, Suscripciones, Reporte); nivel 2: grupos de proveedor expandibles/colapsables (VirtualPOS, Toku, Payku, TCH) con sus sub-secciones (Suscripciones, Cobros, Socios, Intentos fallidos por proveedor). Administración como grupo separado (Usuarios, Sincronización). El sidebar del preview en el artifact es ilustrativo — la nav real usa expandibles. Section labels en 9px/600/uppercase.
+**Navegación del menú: UN SOLO NIVEL con grupos (UX-05, D29, 2026-10-29).** Sin submenús ni expandibles por proveedor. Estructura, de arriba abajo:
+
+1. **Encabezado:** marca (`Sx SynkmetriX`, lleva a Resumen), el **indicador global de salud de sincronización** (un punto con el peor nivel de los canales + texto «Todo sincronizado / Sincronización atrasada / Error de sincronización / Sin datos de sincronización»; al abrirlo muestra el detalle por canal con su texto «hace N h»; usa `GET /api/v1/sync-runs/health`; sin datos no se pinta) y el **buscador** (campo que filtra los ítems del menú por rótulo o grupo, sin tildes ni mayúsculas; con texto activo despliega las coincidencias del detalle por canal).
+2. **Grupos** (etiqueta 9px/600/uppercase en `--sidebar-label`; ítems planos de 13px, sin sangría):
+   - *(sin etiqueta)* **Resumen** (`/central/resumen`)
+   - **Cartera:** Socios (`/central/clientes`, clientes consolidados), Suscripciones (`/central/suscripciones`, consolidadas)
+   - **Operación:** Recuperador (`/virtualpos/recuperador-socios`), Cambios de cobro (`/general/cambios-de-cobro`)
+   - **Sistema:** Sincronización (`/admin/sincronizaciones`), Administración (`/admin/usuarios`), Reportes (`/central/reporte-automatico`)
+3. **Detalle por canal (TRANSITORIO):** grupo plegado por defecto al final, con la marca «Transitorio» y el aviso «Se retira cuando existan las vistas unificadas de Cobros, Socios y Suscripciones». Mientras tanto mantiene accesibles las pantallas por canal (VirtualPOS: Resumen, Clientes, Planes, Suscripciones, Cargos, Transacciones; Toku; Payku; TCH), con los mismos permisos por canal de antes. Se despliega solo al entrar a una pantalla de canal. Se retira con UX-09 a UX-11.
+4. **Pie:** tema claro/oscuro, Mi perfil, Cerrar sesión.
+
+Cada ítem de grupo se muestra solo con su permiso (`dashboard.view`; `virtualpos.recovery.view`; `virtualpos.billing_changes.view`; `sync_runs.view` o `sync.run`; `users.manage` o `roles.manage`); un grupo sin ítems visibles desaparece. El canal deja de ser un nivel del menú: pasará a ser columna y filtro en cada vista unificada.
+
+**Fuera del menú a propósito (no se inventan vistas):** *Cobros* (Cartera; entra con UX-09, vista unificada de cargos y transacciones) e *Identidad* (Operación; cola de candidatos, UX-11). Cuando existan se agregan a `menuGroups` en `frontend/src/navigation.ts`. Las rutas no cambian con el rediseño del menú: solo se reagrupan y renombran (Dashboard→Resumen, Clientes→Socios, Reporte automático→Reportes, Recuperador de Socios→Recuperador); las rutas viejas (p. ej. `/virtualpos/cambios-de-cobro`) siguen redirigiendo con `legacyRedirectPath`. El ítem activo lleva `aria-current="page"` además del peso 700 y el fondo.
 
 Tablas full-width dentro del área de contenido, sin max-width propio. Altura de fila: 38px (padding 9px top+bottom). Sticky header con background surface-alt. Alternancia de row: solo en hover — no zebra estática que distrae.
 
 Stats cards en grid de 4 columnas (desktop), 2 en tablet, 1 en mobile. Gap 12px. Sin aspect-ratio forzado.
 
-Sidebar colapsa a top-bar en mobile con scroll horizontal para nav items.
+En mobile el menú es un drawer (hamburguesa, velo, Esc y clic fuera cierran, foco atrapado); buscador, indicador de salud y cabecera del grupo transitorio miden 44px de alto. La lista de ítems hace scroll propio y el pie queda fijo abajo.
 
 ## Elevation & Depth
 
@@ -189,7 +202,7 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 **Alert banner:** Solo para estados que requieren acción. Warning bg + border + icono de info. Texto breve, link "Ver →" a la derecha.
 
-**Sidebar:** Siempre fondo `--bg-sidebar` (azul marino). Nav items con hover `--sidebar-hover-bg`. Item activo en `--sidebar-active-bg` + `--sidebar-active-text` + peso 700 (no `--accent`). Section labels en 9px / 600 / uppercase / `--sidebar-label`. Footer con avatar y email del usuario.
+**Sidebar:** Siempre fondo `--bg-sidebar` (azul marino). Un solo nivel: etiquetas de grupo no interactivas (9px / 600 / uppercase / `--sidebar-label`) e ítems con hover `--sidebar-hover-bg`. Item activo en `--sidebar-active-bg` + `--sidebar-active-text` + peso 700 + `aria-current` (no `--accent`). Buscador sobre `--sidebar-active-bg`. Indicador global de salud en el encabezado (punto + texto). Grupo transitorio «Detalle por canal» plegado y rotulado. Footer con tema, perfil y salir. Ver Layout.
 
 **KPI card (v2).** Superficie normal con borde sutil (sin borde lateral de color, sin cards anidadas). Etiqueta, valor en JetBrains Mono (`—` con texto accesible «sin datos» si no hay dato), `delta` vs mes anterior con flecha y color semántico, chip de meta, barra de progreso hacia la meta (con `role="progressbar"` y texto «X % de la meta»), sparkline opcional (decorativo, `aria-hidden`; la tendencia va en texto). Variantes: `normal` y `destacada` rellena (máx. 1–2 por pantalla). Churn (D20): tarjeta con chip, meta y sparkline, no velocímetro.
 
@@ -248,6 +261,7 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 | 2026-10-21 | Dark mode derivado del teal | El dark mode anterior pedía prestado a GitHub Dark; ahora tiene identidad propia |
 | 2026-10-21 | Cabinet Grotesk + General Sans (Fontshare) | Display + body con identidad; reemplazan Inter completamente. Preview proxy: Barlow + DM Sans |
 | 2026-10-21 | Nav sidebar expandible por proveedor (2 niveles) | Nav plana de 6 ítems era mockup ilustrativo — la nav real usa grupos colapsables por canal |
+| 2026-10-29 | D29 / UX-05: menú de UN SOLO NIVEL con grupos Resumen · Cartera (Socios, Suscripciones) · Operación (Recuperador, Cambios de cobro) · Sistema (Sincronización, Administración, Reportes); salud de canal pasa a un indicador global en el encabezado; buscador que filtra el menú; las pantallas por canal quedan en el grupo plegado y transitorio «Detalle por canal» | Decisión del usuario (D29). Revierte «Nav sidebar expandible por proveedor (2 niveles)» (2026-10-21). Cobros e Identidad fuera del menú hasta que existan sus vistas (UX-09, UX-11); el detalle por canal se retira con UX-09 a UX-11. Rutas sin cambios (solo reagrupar y renombrar). Sin íconos en esta tanda |
 | 2026-10-29 | D1: sidebar azul marino oscuro (#111727 claro / #0a0f1c oscuro; activo #242a38) en lugar de teal | Decisión del usuario, a partir de docs/dashboardeinspiracion.png. Revierte la decisión del 2026-10-21 «Sidebar en brand teal». El teal sigue siendo primario/acento interactivo fuera del menú |
 | 2026-10-29 | D19: paleta de series violeta e índigo (`--series-1..6`, con verde, azul y rosa como categorías extra), marcas ≥ 3:1 en claro y oscuro | Decisión del usuario (imagen de inspiración); cierra DEC-36 en lo cromático. Hex oscurecidos donde el original no pasaba 3:1 sobre blanco |
 | 2026-10-29 | D20: churn como tarjeta KPI con chip, meta y sparkline (no velocímetro) | Decisión del usuario; alineado con el tablero de la jefatura |
@@ -297,6 +311,6 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 
 **Dudas abiertas para el usuario (2026-10-29), NO aplicadas:**
 1. ~~Superficies oscuras en teal~~ y 2. ~~acento teal~~: resueltas por D27 (2026-10-29), ver Decisions Log.
-3. El Layout sigue describiendo la navegación de 2 niveles por proveedor; se reescribe en UX-05 con la nueva IA.
+3. ~~Layout con navegación de 2 niveles por proveedor~~: reescrito en UX-05 (un solo nivel, D29), ver Layout y Decisions Log.
 4. Título «hero» grande (DEC-41) y encabezado marino de página (C1/C4/C6 de la auditoría): sin aplicar.
 5. ~~Colores de canal y de MonthlyStatusChart~~: migrados a `--series-N` / `--status-*` (D27). Queda DEC-36 (color de altas/bajas): bajas usa el rojo semántico `--status-rejected`.

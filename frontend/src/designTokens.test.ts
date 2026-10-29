@@ -301,3 +301,33 @@ describe("D27 superficies, primario y accion en azul-gris y azul (claro y oscuro
     expect(readFileSync("src/MonthlyStatusChart.tsx", "utf8")).not.toMatch(/#[0-9a-f]{6}/i);
   });
 });
+
+describe("UX-05 menu de un solo nivel: CSS", () => {
+  it("la lista del menu hace scroll propio (el pie con tema y perfil no se pierde con muchos items)", () => {
+    expect(finalDecl(appCss, ".sidebar-nav", "overflow-y")).toBe("auto");
+    expect(finalDecl(appCss, ".sidebar-nav", "min-height")).toBe("0");
+  });
+  it("buscador, indicador de salud y grupo transitorio usan solo tokens --sidebar-* (sin hex)", () => {
+    const block = appCss.slice(appCss.indexOf("/* ── Menú de un solo nivel (UX-05, D29)"));
+    expect(block.length).toBeGreaterThan(100);
+    expect(block).not.toMatch(/#[0-9a-f]{3,6}\b/i);
+    expect(finalDecl(appCss, ".sidebar-search input", "background")).toBe("var(--sidebar-active-bg)");
+    expect(finalDecl(appCss, ".sidebar-search input", "color")).toBe("var(--sidebar-text-strong)");
+  });
+  it("en movil el buscador, el indicador de salud y el grupo transitorio miden 44px de alto", () => {
+    const block = appCss.slice(appCss.indexOf("/* ── Menú de un solo nivel (UX-05, D29)"));
+    expect(block).toMatch(/@media \(max-width: 800px\)\s*\{[^@]*\.sidebar-detail-toggle[^}]*\{\s*min-height:\s*44px/);
+    expect(block).toMatch(/\.sidebar-search input\s*\{\s*min-height:\s*44px/);
+  });
+  for (const [name, t] of Object.entries(themesAll)) {
+    it(`${name}: texto del buscador y notas del menu >= 4.5:1 sobre sus fondos`, () => {
+      expect(ratio(hexOf(t, "--sidebar-text-strong"), hexOf(t, "--sidebar-active-bg"))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-label"), hexOf(t, "--sidebar-active-bg"))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-label"), hexOf(t, "--bg-sidebar"))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-text"), hexOf(t, "--bg-sidebar"))).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${name}: puntos de salud (marcas) >= 3:1 sobre el menu`, () => {
+      for (const k of ["ok", "warn", "error", "unknown"]) expect(ratio(hexOf(t, `--health-${k}`), hexOf(t, "--bg-sidebar")), k).toBeGreaterThanOrEqual(3);
+    });
+  }
+});

@@ -11,9 +11,9 @@ function setup(permissions: string[], over: Partial<SidebarProps> = {}) {
   const onClose = vi.fn();
   render(
     <Sidebar
-      activeSection={null} channel={null} tchView={null} openProvider="VirtualPOS" theme="light" onDashboard={fn}
+      activeSection={null} channel={null} tchView={null} detailOpen={false} onToggleDetail={fn} theme="light" onDashboard={fn}
       generalView="summary" onGeneralClients={fn} onGeneralSubscriptions={fn} onAutoReport={fn} onChannel={fn} onSection={fn}
-      onToggle={fn} onTheme={fn} onTch={fn} permissions={permissions} onAdmin={fn} adminOpen={false} adminTab={null}
+      onTheme={fn} onTch={fn} permissions={permissions} onAdmin={fn} adminOpen={false} adminTab={null}
       onLogout={fn} onProfile={fn} open onClose={onClose} recoveryOpen={false} onRecovery={fn} onBilling={onBilling} {...over}
     />,
   );
@@ -44,10 +44,12 @@ describe("entrada del menu", () => {
     setup(["virtualpos.billing_changes.view"]);
     expect(screen.getByRole("button", { name: "Cambios de cobro" })).toBeTruthy();
     cleanup();
-    setup(["dashboard.view", "virtualpos.clients.view", "virtualpos.billing_changes.view"], { openProvider: "VirtualPOS" });
-    const labels = Array.from(document.querySelectorAll(".sidebar-nav > button")).map((n) => n.textContent);
-    expect(labels).toEqual(["Dashboard", "Clientes", "Suscripciones", "Reporte automático", "Cambios de cobro"]);
-    expect(document.querySelector(".sidebar-group")?.textContent).not.toContain("Cambios de cobro");
+    setup(["dashboard.view", "virtualpos.clients.view", "virtualpos.billing_changes.view"], { detailOpen: true });
+    // Cambio deliberado (UX-05): menú de un solo nivel; «Cambios de cobro» vive en Operación, nunca en el detalle por canal.
+    const labels = Array.from(document.querySelectorAll(".sidebar-nav .sidebar-group:not(.sidebar-detail) .sidebar-item")).map((n) => n.textContent);
+    expect(labels).toEqual(["Resumen", "Socios", "Suscripciones", "Cambios de cobro", "Reportes"]);
+    expect(screen.getByRole("group", { name: "Operación" }).textContent).toContain("Cambios de cobro");
+    expect(document.querySelector(".sidebar-detail")?.textContent).not.toContain("Cambios de cobro");
   });
 
   it("aparece solo con el permiso view", () => {

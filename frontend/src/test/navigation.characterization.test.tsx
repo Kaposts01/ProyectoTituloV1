@@ -5,7 +5,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { act } from "react";
-import { appReady, failWith, mountApp, navTop, resetApp, type Handler } from "./appHarness";
+import { appReady, failWith, mountApp, navDetail, navTop, resetApp, type Handler } from "./appHarness";
 import { page } from "./fixtures";
 
 afterEach(resetApp);
@@ -126,24 +126,93 @@ describe("Rutas y permisos", () => {
   });
 });
 
-describe("Menú lateral", () => {
+describe("Menú lateral (un solo nivel, UX-05)", () => {
+  const tchSummary: Handler = ["GET", "/api/v1/tch/summary", { suscripciones: { vigentes: 0, eliminadas: 0, total: 0, monto_vigentes: 0, monto_eliminadas: 0, monto_total: 0 }, transacciones: { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: null, monto: 0 }, kpis: { mrr: 0, arpu: null, active_clients: 0, active_subscribers: 0, churn_rate: null, ltv: null }, years: [], ultimo_etl: { id: null, status: null, started_at: null, records_upserted: null } }];
+  const emptyPage = { items: [], total: 0, offset: 0, limit: 50 };
+
+  // Cambio deliberado: los rótulos pasan a Resumen / Socios / Suscripciones / Reportes (antes Dashboard / Clientes /
+  // Suscripciones / Reporte automático) y TCH vive en «Detalle por canal»; las URL no cambian.
   it("los accesos del menú navegan a la URL correspondiente", async () => {
     mountApp("/central/resumen", [
       listHandler,
-      ["GET", "/api/v1/tch/summary", { suscripciones: { vigentes: 0, eliminadas: 0, total: 0, monto_vigentes: 0, monto_eliminadas: 0, monto_total: 0 }, transacciones: { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: null, monto: 0 }, kpis: { mrr: 0, arpu: null, active_clients: 0, active_subscribers: 0, churn_rate: null, ltv: null }, years: [], ultimo_etl: { id: null, status: null, started_at: null, records_upserted: null } }],
+      tchSummary,
       ["GET", "/api/v1/staging/dashboard/general/subscriptions", page([])],
+      ["GET", "/api/v1/staging/dashboard/general/clients", page([])],
+      ["GET", /^\/api\/v1\/(billing|recovery)\//, emptyPage],
+      ["GET", /^\/api\/v1\/(users|roles|permissions)/, []],
     ]);
     await appReady();
     fireEvent.click(navTop("Suscripciones"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/suscripciones"));
-    fireEvent.click(navTop("Reporte automático"));
+    fireEvent.click(navTop("Socios"));
+    await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
+    fireEvent.click(navTop("Reportes"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/reporte-automatico"));
-    fireEvent.click(navTop("Dashboard"));
+    fireEvent.click(navTop("Resumen"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/resumen"));
-    fireEvent.click(screen.getByRole("button", { name: "TCH" }));
+    fireEvent.click(navTop("Recuperador"));
+    await waitFor(() => expect(window.location.pathname).toBe("/virtualpos/recuperador-socios"));
+    fireEvent.click(navTop("Cambios de cobro"));
+    await waitFor(() => expect(window.location.pathname).toBe("/general/cambios-de-cobro"));
+    fireEvent.click(navTop("Sincronización"));
+    await waitFor(() => expect(window.location.pathname).toBe("/admin/sincronizaciones"));
+    fireEvent.click(navTop("Administración"));
+    await waitFor(() => expect(window.location.pathname).toBe("/admin/usuarios"));
+  });
+
+  it("«Detalle por canal» arranca plegado, se abre a mano y sus accesos navegan", async () => {
+    mountApp("/central/resumen", [listHandler, tchSummary, ["GET", "/api/v1/staging/dashboard/general/subscriptions", page([])]]);
+    await appReady();
+    const toggle = screen.getByRole("button", { name: /Detalle por canal/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(navDetail("TCH", "Resumen"));
     await waitFor(() => expect(window.location.pathname).toBe("/tch/resumen"));
-    const group = Array.from(document.querySelectorAll(".sidebar-group")).find((g) => g.querySelector(".channel-dashboard")?.textContent === "TCH") as HTMLElement;
-    fireEvent.click(within(group).getByRole("button", { name: "Transacciones" }));
+    fireEvent.click(navDetail("TCH", "Transacciones"));
     await waitFor(() => expect(window.location.pathname).toBe("/tch/transacciones"));
+    expect(navDetail("TCH", "Transacciones").getAttribute("aria-current")).toBe("page");
+    fireEvent.click(navDetail("Toku", "Clientes"));
+    await waitFor(() => expect(window.location.pathname).toBe("/toku/clientes"));
+  });
+
+  it("un enlace profundo a una pantalla de canal deja el detalle desplegado con su ítem activo", async () => {
+    mountApp("/payku/planes", [listHandler]);
+    await appReady();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Detalle por canal/ }).getAttribute("aria-expanded")).toBe("true"));
+    expect(navDetail("Payku", "Planes").getAttribute("aria-current")).toBe("page");
+  });
+
+  it("el indicador de salud del encabezado es global y abre el detalle por canal", async () => {
+    mountApp("/central/resumen", [
+      listHandler,
+      ["GET", "/api/v1/sync-runs/health", [
+        { channel: "virtualpos", level: "ok", last_finished_at: "2026-10-29T00:00:00Z", age_hours: 3 },
+        { channel: "toku", level: "warn", last_finished_at: "2026-10-28T00:00:00Z", age_hours: 30 },
+      ]],
+    ]);
+    await appReady();
+    const toggle = await screen.findByRole("button", { name: /Sincronización atrasada/ });
+    expect(document.querySelectorAll('.health-dot[data-scope="global"]')).toHaveLength(1);
+    fireEvent.click(toggle);
+    const list = screen.getByRole("list", { name: "Sincronización por canal" });
+    expect(within(list).getByText("Sincronizado: hace 3 h")).toBeTruthy();
+    expect(within(list).getByText("Sincronización atrasada: hace 30 h")).toBeTruthy();
+  });
+
+  it("Cobros e Identidad no están en el menú (no existen sus vistas)", async () => {
+    mountApp("/central/resumen", [listHandler]);
+    await appReady();
+    const nav = document.querySelector(".sidebar-nav") as HTMLElement;
+    expect(within(nav).queryByRole("button", { name: "Cobros" })).toBeNull();
+    expect(within(nav).queryByRole("button", { name: "Identidad" })).toBeNull();
+  });
+
+  it("sin permisos de canal el detalle no aparece, y el recuperador solo depende de su permiso", async () => {
+    mountApp("/virtualpos/recuperador-socios", [["GET", /^\/api\/v1\/recovery\//, emptyPage]], { permissions: ["dashboard.view", "virtualpos.recovery.view"] });
+    await appReady();
+    expect(screen.queryByRole("button", { name: /Detalle por canal/ })).toBeNull();
+    await waitFor(() => expect(navTop("Recuperador").getAttribute("aria-current")).toBe("page"));
+    expect(screen.queryByRole("button", { name: "Cambios de cobro" })).toBeNull();
   });
 });
