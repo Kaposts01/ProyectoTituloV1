@@ -240,10 +240,17 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
                 numero_ficha=999999, estado="VIGENTE", monto="2000", fecha_activacion="2099-04-03"
             ),
             TchTransaccion(numero_ficha=999999, periodo="2099-04", estado="ACEPTADA", monto="2000"),
+            # Tarjetas de rechazo = universo de CARGOS hasta hoy (no meses futuros): periodo pasado.
             TchRecaudacionMensual(
-                periodo="2099-04", aceptadas_cantidad=1, aceptadas_monto="2000",
+                periodo="2026-09", aceptadas_cantidad=1, aceptadas_monto="2000",
                 rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="control.xlsx",
             ),
+            Charge(source="payku", external_id="general-payku-charge-ok", status="pagado",
+                   charge_date="2026-09-02", raw_payload={}),
+            Charge(source="payku", external_id="general-payku-charge-rej", status="rechazado",
+                   charge_date="2026-09-02", raw_payload={}),
+            Charge(source="payku", external_id="general-payku-charge-cancel", status="cancelado",
+                   charge_date="2026-09-02", raw_payload={}),
         ]
     )
     db_session.flush()
@@ -260,12 +267,15 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
     assert {entry["status"] for entry in response["activations_monthly"] if entry["year"] == 2099} >= {"Payku", "TCH"}
 
 
-def test_pending_payments_counts_only_nonterminal_charges(db_session) -> None:
+def test_pending_payments_counts_only_explicit_pending_charges(db_session) -> None:
+    # Antes 'in_progress' (estado no terminal desconocido) contaba como pendiente; ahora solo estados
+    # explicitamente pendientes (pendiente/pending/procesando). Ver tests/test_dashboard_data_integrity.py.
     staging.invalidate_dashboard_cache()
     before = staging.general_dashboard(db=db_session)
     db_session.add_all([
         Charge(source="payku", external_id="pend-1", status="pending", charge_date="2099-05-01", raw_payload={}),
-        Charge(source="payku", external_id="pend-2", status="in_progress", charge_date="2099-05-01", raw_payload={}),
+        Charge(source="payku", external_id="pend-2", status="Pendiente", charge_date="2099-05-01", raw_payload={}),
+        Charge(source="payku", external_id="pend-3", status="in_progress", charge_date="2099-05-01", raw_payload={}),
         Charge(source="payku", external_id="term-paid", status="pagado", charge_date="2099-05-01", raw_payload={}),
         Charge(source="payku", external_id="term-rej", status="rejected", charge_date="2099-05-01", raw_payload={}),
     ])

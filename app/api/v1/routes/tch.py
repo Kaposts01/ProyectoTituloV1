@@ -275,7 +275,7 @@ def tch_summary() -> dict:
                     .order_by(TchTransaccion.periodo, TchTransaccion.estado)
                 ).all()
             )
-        tasa_rechazo = round(100 * total_rechazadas / total_trans, 1) if total_trans else 0.0
+        tasa_rechazo = round(100 * total_rechazadas / total_trans, 1) if total_trans else None
         activaciones_mensuales = _monthly_statuses(
             db.execute(
                 select(
@@ -351,16 +351,20 @@ def tch_summary() -> dict:
                     select(func.coalesce(func.sum(monto_numerico), 0)).select_from(TchTransaccion)
                 ) or 0
             )
-        arpu = round(mrr / active_clients, 0) if active_clients else 0.0
-        # Churn mensual promedio: promedio de bajas/mes ÷ subs vigentes
-        if bajas_mensuales and total_vigentes:
+        arpu = round(mrr / active_clients, 0) if active_clients else None
+        # Churn mensual promedio historico: promedio de bajas/mes ÷ subs vigentes hoy.
+        # None sin base (0 vigentes); 0.0 con base pero sin bajas.
+        if not total_vigentes:
+            churn_rate = None
+        elif bajas_mensuales:
             total_bajas = sum(e["count"] for e in bajas_mensuales)
             num_meses = len({(e["year"], e["month"]) for e in bajas_mensuales})
             avg_bajas_mes = total_bajas / num_meses if num_meses else 0
             churn_rate = round(avg_bajas_mes / total_vigentes * 100, 1)
         else:
             churn_rate = 0.0
-        ltv = round(arpu / (churn_rate / 100), 0) if churn_rate else 0.0
+        ltv = round(arpu / (churn_rate / 100), 0) if arpu is not None and churn_rate else None
+        churn_window_label = "promedio mensual histórico"
 
         ultimo_run = db.scalar(
             select(EtlRun)
@@ -371,11 +375,12 @@ def tch_summary() -> dict:
 
         tch_kpis = {
             "mrr": round(mrr, 0),
-            "arpu": round(arpu, 0),
+            "arpu": arpu,
             "active_clients": active_clients,
             "active_subscribers": total_vigentes,
             "churn_rate": churn_rate,
-            "ltv": round(ltv, 0),
+            "churn_window_label": churn_window_label,
+            "ltv": ltv,
             "rejected_charges": _rejected_current_month(transacciones_mensuales),
             "recaudo_mensual": _recaudo_mensual_kpis(controles),
             "source_note": "Fuente: reportes Excel oficiales",
@@ -397,6 +402,7 @@ def tch_summary() -> dict:
                 "monto": monto_transacciones,
             },
             "kpis": tch_kpis,
+            "churn_window_label": churn_window_label,
             "years": years,
             "transacciones_mensuales": transacciones_mensuales,
             "transacciones_fuente": transacciones_fuente,

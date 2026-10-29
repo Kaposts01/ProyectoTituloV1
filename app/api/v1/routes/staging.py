@@ -27,7 +27,14 @@ from app.models.tch import (
     TchSuscripcion,
     TchTransaccion,
 )
+from app.services import rejected_month
 from app.services.channel_consolidation import consolidate_to_centralized
+from app.services.charge_stats import (
+    PENDING_DASHBOARD_STATES,
+    charge_rejection_stats,
+    fmt_pct,
+    rejection_stats_by,
+)
 from app.services.payku_sync import sync_payku
 from app.services.rbac import permission_codes, source_permission
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
@@ -91,6 +98,13 @@ def _month(value: Any) -> tuple[int, int] | None:
     return (year, month) if 1 <= month <= 12 else None
 
 
+def _ltv(arpu: float | None, churn_rate: float | None) -> float | None:
+    """LTV = ARPU / churn; None si falta alguno o el churn es 0 (denominador 0)."""
+    if arpu is None or not churn_rate:
+        return None
+    return round(arpu / (churn_rate / 100), 0)
+
+
 def _general_transaction_status(status: Any) -> str:
     normalized = str(status or "").strip().lower()
     if normalized in {"pagado", "pago", "aceptado", "accepted", "paid", "success", "aprobada", "aceptada"}:
@@ -106,6 +120,73 @@ _DASHBOARD_CACHE_TTL = 60  # seconds
 
 def invalidate_dashboard_cache() -> None:
     _dashboard_cache.clear()
+
+
+def _window_start_3m(today: date) -> date:
+    """Inicio de la ventana '3 meses' de las alertas (criterio historico: dia 1 del mes menos 90 dias)."""
+    return today.replace(day=1) - timedelta(days=90)
+
+
+def _charge_stat_rows(
+    db: Session, tch_controls: Any, tch_months: Any
+) -> list[dict[str, Any]]:
+    """Filas {channel, date, status, count} de CARGOS de todos los canales (VP, Toku, Payku por dia; TCH por mes)."""
+    labels = {"virtualpos1": "VirtualPOS", "virtualpos2": "VirtualPOS", "toku": "Toku", "payku": "Payku"}
+    day = func.substring(CCharge.charge_date, 1, 10)
+    rows: list[dict[str, Any]] = [
+        {"channel": labels[source], "date": d, "status": status, "count": int(count)}
+        for source, d, status, count in db.execute(
+            select(CCharge.source, day, CCharge.status, func.count())
+            .where(CCharge.source.in_((*_VP_SRCS, "toku", "payku")), CCharge.charge_date.op("~")(r"^\d{4}-\d{2}"))
+            .group_by(CCharge.source, day, CCharge.status)
+        ).all()
+    ]
+    if tch_controls:
+        for control in tch_controls:
+            rows.append({"channel": "TCH", "date": control.periodo, "status": "ACEPTADA", "count": int(control.aceptadas_cantidad)})
+            rows.append({"channel": "TCH", "date": control.periodo, "status": "RECHAZADA", "count": int(control.rechazadas_cantidad)})
+    else:
+        rows.extend(
+            {"channel": "TCH", "date": period, "status": status, "count": int(count)}
+            for period, status, count, _amount_total in tch_months
+        )
+    return rows
+
+
+def _rejection_alerts(rows: list[dict[str, Any]], today: date) -> list[dict[str, Any]]:
+    """Alertas de rechazo sobre CARGOS (misma definicion que las tarjetas; ver charge_stats).
+
+    Global (ultimos 3 meses, todos los canales) primero, luego canal/mes. Sin meses futuros ni meses sin
+    cargos evaluables. Forma del dict: sev/tipo/canal/detalle (+ `periodo` YYYY-MM en las de canal/mes).
+    """
+    alerts: list[dict[str, Any]] = []
+    g = charge_rejection_stats(rows, today, since=_window_start_3m(today))
+    if g["rate"] is not None and g["rate"] > 25:
+        alerts.append({
+            "sev": "alta" if g["rate"] > 40 else "media",
+            "tipo": "Tasa de rechazo global elevada",
+            "canal": "Consolidado",
+            "detalle": (
+                f"Últimos 3 meses: {fmt_pct(g['rate'])} de cargos rechazados "
+                f"({g['rejected']} de {g['evaluable']} cargos pagados o rechazados, todos los canales)"
+            ),
+        })
+    by_month = rejection_stats_by(
+        rows, today, lambda r: (r["channel"], str(r["date"])[:7])
+    )
+    for (channel, periodo), s in sorted(by_month.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        if s["rate"] is not None and s["rate"] > 30:
+            alerts.append({
+                "sev": "alta" if s["rate"] > 50 else "media",
+                "tipo": "Alta tasa de rechazo",
+                "canal": channel,
+                "periodo": periodo,
+                "detalle": (
+                    f"{periodo} · {channel}: {fmt_pct(s['rate'])} de cargos rechazados "
+                    f"({s['rejected']} de {s['evaluable']} cargos pagados o rechazados)"
+                ),
+            })
+    return alerts
 
 
 def _general_dashboard(db: Session) -> dict[str, Any]:
@@ -421,33 +502,23 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         {"year": year, "month": month, "status": source, "count": int(values["count"]), "amount": round(values["amount"], 2)}
         for (year, month, source), values in sorted(cancellation_months.items())
     ]
-    transaction_total = sum(totals.values())
 
     # ── Alertas operativas (calculadas desde datos ya cargados) ───────────
-    today = datetime.now(tz=timezone.utc).date()
+    today = rejected_month.now_chile().date()  # hora Chile (punto unico monkeypatcheable)
     dashboard_alerts: list[dict[str, Any]] = []
 
-    # 1. Alta tasa de rechazo por canal/mes
-    chn_month: defaultdict[tuple[int, int, str], dict[str, int]] = defaultdict(lambda: {"ok": 0, "fail": 0})
-    for (y, m, ch, cs), v in charge_months.items():
-        if cs == "pagada":
-            chn_month[(y, m, ch)]["ok"] += int(v["count"])
-        else:
-            chn_month[(y, m, ch)]["fail"] += int(v["count"])
-    for (y, m, ch), stats in sorted(chn_month.items()):
-        total_ch = stats["ok"] + stats["fail"]
-        if total_ch > 0:
-            rate = round(100 * stats["fail"] / total_ch, 1)
-            if rate > 30:
-                dashboard_alerts.append({
-                    "sev": "alta" if rate > 50 else "media",
-                    "tipo": "Alta tasa de rechazo",
-                    "canal": ch,
-                    "detalle": f"{y}-{m:02d} · {ch}: {rate}% de rechazos ({stats['fail']} de {total_ch} cargos)",
-                })
+    # 1 y 3. Rechazo por canal/mes y global (3 meses): UNICA definicion sobre cargos (charge_stats),
+    # la misma que usan las tarjetas de `transactions`. Sin meses futuros ni cancelados/expirados/anulados.
+    # Nota (total de cargos entre pantallas): la alerta global suma TODOS los canales (VirtualPOS + Toku +
+    # Payku + TCH) en una ventana de 3 meses, mientras el dashboard de VirtualPOS cuenta solo VP; una
+    # diferencia de 1 cargo (1.458 vs 1.457) corresponde a un cargo de otro canal en la ventana.
+    charge_stat_rows = _charge_stat_rows(db, tch_controls, tch_months)
+    dashboard_alerts.extend(_rejection_alerts(charge_stat_rows, today))
+    card_stats = charge_rejection_stats(charge_stat_rows, today)
+    card_stats_3m = charge_rejection_stats(charge_stat_rows, today, since=_window_start_3m(today))
 
     # 2. Canal con saldo negativo en últimos 3 meses (bajas > altas)
-    cutoff_3m = (today.replace(day=1) - timedelta(days=90))
+    cutoff_3m = _window_start_3m(today)
     recent_act: defaultdict[str, int] = defaultdict(int)
     recent_can: defaultdict[str, int] = defaultdict(int)
     for (y, m, ch), v in activation_months.items():
@@ -467,35 +538,13 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
                 "detalle": f"{ch}: {bajas} bajas vs {altas} altas en los últimos 3 meses",
             })
 
-    # 3. Tasa de rechazo global muy alta (últimos 3 meses)
-    g_ok = g_fail = 0
-    for (y, m, _ch, cs), v in charge_months.items():
-        if date(y, m, 1) >= cutoff_3m:
-            if cs == "pagada":
-                g_ok += int(v["count"])
-            else:
-                g_fail += int(v["count"])
-    g_total = g_ok + g_fail
-    if g_total > 0:
-        g_rate = round(100 * g_fail / g_total, 1)
-        if g_rate > 25:
-            dashboard_alerts.insert(0, {
-                "sev": "alta" if g_rate > 40 else "media",
-                "tipo": "Tasa de rechazo global elevada",
-                "canal": "Consolidado",
-                "detalle": f"Últimos 3 meses: {g_rate}% de rechazos ({g_fail} de {g_total} cargos en todos los canales)",
-            })
-
     # ── Nuevos KPIs (EPIC-B) ─────────────────────────────────────────────────
-    _terminal_lower = {
-        "pagado", "pago", "aceptado", "accepted", "paid", "success", "aprobada", "aceptada",
-        "rechazado", "rejected", "failed", "failure", "declined", "error", "rechazada",
-    }
+    # Pendiente = estado EXPLICITAMENTE pendiente (pendiente/pending/procesando/processing, normalizado).
+    # Antes se contaba todo lo que no fuera pagado/rechazado, y entraban cancelados y expirados.
     pending_payments: int = db.scalar(
         select(func.count()).select_from(CCharge).where(
             CCharge.source.in_((*_VP_SRCS, "toku", "payku")),
-            CCharge.status.isnot(None),
-            ~func.lower(CCharge.status).in_(_terminal_lower),
+            func.lower(func.trim(CCharge.status)).in_(tuple(PENDING_DASHBOARD_STATES)),
         )
     ) or 0
 
@@ -516,17 +565,23 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         if y == today.year and m == today.month
     )
     total_active = sum(active_subscriptions.values())
-    churn_rate_pct: float = round(100 * current_month_cancellations / total_active, 1) if total_active > 0 else 0.0
+    # Bajas del mes actual (Chile) / suscripciones activas hoy; None sin base de activas.
+    churn_rate_pct: float | None = (
+        round(100 * current_month_cancellations / total_active, 1) if total_active > 0 else None
+    )
 
     return {
         "clients": sum(clients.values()),
         "subscriptions": {"active": sum(active_subscriptions.values()), "amount": round(sum(sub_amounts.values()), 0)},
         "transactions": {
-            "total": transaction_total,
-            "accepted": totals["Aceptadas"],
-            "rejected": totals["Rechazadas"],
-            "amount": round(sum(amounts.values()), 2),
-            "rejection_rate_pct": round(100 * totals["Rechazadas"] / transaction_total, 1) if transaction_total else 0,
+            # Universo CARGOS (fecha de cobro <= hoy Chile, sin cancelados/expirados/anulados); ver charge_stats.
+            "total": card_stats["evaluable"],
+            "accepted": card_stats["paid"],
+            "rejected": card_stats["rejected"],
+            "amount": round(sum(amounts.values()), 2),  # monto aceptado (pagos), sin cambios
+            "rejection_rate_pct": card_stats["rate"],
+            "rejection_rate_3m_pct": card_stats_3m["rate"],
+            "basis_label": "cargos pagados o rechazados hasta hoy (sin cancelados, expirados ni meses futuros)",
         },
         "channels": [
             {"source": label, "clients": clients[key], "active_subscriptions": active_subscriptions[key], "accepted": by_source[label]["Aceptadas"], "amount": round(amounts[label], 2)}
@@ -540,8 +595,10 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         "transactions_effective_monthly": transactions_effective_monthly,
         "alerts": dashboard_alerts,
         "pending_payments": pending_payments,
+        "pending_payments_label": "cargos pendientes (pendiente o procesando)",
         "sync_success_rate_pct": sync_success_rate_pct,
         "churn_rate_pct": churn_rate_pct,
+        "churn_window_label": "bajas del mes actual ÷ suscripciones activas hoy",
     }
 
 
@@ -958,15 +1015,16 @@ def _channel_alerts(
                 "detalle": f"{y}-{m:02d}: {bajas} bajas vs {altas} altas",
             })
 
-    # 2. Churn rate histórico elevado
+    # 2. Churn rate elevado (el texto dice QUE mide cada canal: ver `churn_window_label`)
     if kpis:
-        cr = kpis.get("churn_rate", 0)
+        cr = kpis.get("churn_rate")
         if isinstance(cr, (int, float)) and cr > 10:
+            window = kpis.get("churn_window_label") or "ventana no especificada"
             alerts.insert(0, {
                 "sev": "alta" if cr > 20 else "media",
                 "tipo": "Churn rate elevado",
                 "canal": channel,
-                "detalle": f"Tasa de abandono histórica: {cr}% — supera umbral operativo",
+                "detalle": f"Tasa de abandono ({window}): {fmt_pct(float(cr))} de bajas — supera umbral operativo",
             })
 
     return alerts
@@ -1185,8 +1243,8 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
                 if social_id:
                     active_ruts.add(str(social_id))
 
-    active_clients = len(active_ruts) or active_subs or 1
-    arpu = round(mrr / active_clients, 0) if active_clients else 0.0
+    active_clients = len(active_ruts) or active_subs  # sin piso artificial: 0 activos = 0 clientes
+    arpu = round(mrr / active_clients, 0) if active_clients else None
 
     # Churn rate mensual: usa conteo acumulado de activos como denominador proxy
     all_months = sorted(set(list(activation_by_month.keys()) + list(churn_by_month.keys())))
@@ -1202,9 +1260,11 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         active_subs_monthly_series.append({"year": month[0], "month": month[1], "count": cum_active})
 
     # KPI churn: promedio de los últimos 3 meses con actividad
+    # None si no hay base (ninguna suscripcion con alta); 0.0 si hay base pero sin bajas recientes.
     recent_rates = [e["rate"] for e in churn_rate_monthly_series[-3:] if e["rate"] > 0]
-    churn_rate = round(sum(recent_rates) / len(recent_rates), 1) if recent_rates else 0.0
-    ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
+    has_base = any(int(v["count"]) for by_status in activation_by_month.values() for v in by_status.values())
+    churn_rate: float | None = (round(sum(recent_rates) / len(recent_rates), 1) if recent_rates else 0.0) if has_base else None
+    ltv = _ltv(arpu, churn_rate)
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1226,9 +1286,10 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         "mrr": round(mrr, 0),
         "active_subscribers": active_subs,
         "active_clients": active_clients,
-        "arpu": round(arpu, 0),
+        "arpu": arpu,
         "churn_rate": churn_rate,
-        "ltv": round(ltv, 0),
+        "churn_window_label": "promedio de 3 meses",
+        "ltv": ltv,
     }
     ch_flat   = _flatten_by_status(charges_monthly)
     act_flat  = _flatten_by_status(activation_by_month)
@@ -1237,6 +1298,7 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     kpis["rejected_charges"] = _rejected_current_month(rejected_flat)
     return {
         "kpis": kpis,
+        "churn_window_label": kpis["churn_window_label"],
         "charges_monthly": ch_flat,
         "rejected_charges_monthly": rejected_flat,
         "payments_monthly": _flatten_by_status(payments_monthly),
@@ -1306,12 +1368,13 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
                 if customer_id:
                     active_customers.add(customer_id)
 
-    active_clients = len(active_customers) or active_subs or 1
-    arpu = round(mrr / active_clients, 0) if active_clients else 0.0
+    active_clients = len(active_customers) or active_subs  # sin piso artificial
+    arpu = round(mrr / active_clients, 0) if active_clients else None
     total_subs = sum(1 for r in records if r.resource_type == "subscription")
     total_churned = sum(int(v["count"]) for v in churn_by_month.values())
-    churn_rate = round(total_churned / total_subs * 100, 1) if total_subs > 0 else 0.0
-    ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
+    # Acumulado historico: bajas totales / suscripciones totales (distinto del promedio de 3 meses de VirtualPOS).
+    churn_rate: float | None = round(total_churned / total_subs * 100, 1) if total_subs > 0 else None
+    ltv = _ltv(arpu, churn_rate)
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1333,9 +1396,10 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         "mrr": round(mrr, 0),
         "active_subscribers": active_subs,
         "active_clients": active_clients,
-        "arpu": round(arpu, 0),
+        "arpu": arpu,
         "churn_rate": churn_rate,
-        "ltv": round(ltv, 0),
+        "churn_window_label": "acumulado histórico",
+        "ltv": ltv,
     }
     inv_flat   = _flatten_by_status(invoices_monthly)
     act_flat   = _flatten_by_status(activation_by_month)
@@ -1370,6 +1434,7 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     tx_flat = _flatten_by_status(transactions_monthly)
     return {
         "kpis": kpis,
+        "churn_window_label": kpis["churn_window_label"],
         "invoices_monthly": inv_flat,
         "payments_monthly": tx_flat,
         "transactions_monthly": tx_flat,
@@ -1471,12 +1536,15 @@ def _payku_extended_data(
         arpu_subs = len(last_success)
     else:
         arpu_subs = active_subs
-    active_clients = len(active_ruts) or arpu_subs or 1
-    arpu = round(mrr / active_clients, 0) if active_clients else 0.0
+    # Sin piso `or 1`: con 0 suscripciones activas el recuento de clientes es 0 (antes el subtexto de la
+    # tarjeta ARPU decia '1 cliente con subs activas' sin ninguna activa).
+    active_clients = len(active_ruts) or arpu_subs
+    arpu = round(mrr / active_clients, 0) if active_clients else None
     total_subs = sum(1 for r in records if r.resource_type == "subscription")
     total_churned = sum(int(values["count"]) for statuses in churn_by_month.values() for values in statuses.values())
-    churn_rate = round(total_churned / total_subs * 100, 1) if total_subs > 0 else 0.0
-    ltv = round(arpu / (churn_rate / 100), 0) if churn_rate > 0 else 0.0
+    # Acumulado historico: bajas totales / suscripciones totales.
+    churn_rate: float | None = round(total_churned / total_subs * 100, 1) if total_subs > 0 else None
+    ltv = _ltv(arpu, churn_rate)
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1498,9 +1566,10 @@ def _payku_extended_data(
         "mrr": round(mrr, 0),
         "active_subscribers": active_subs,
         "active_clients": active_clients,
-        "arpu": round(arpu, 0),
+        "arpu": arpu,
         "churn_rate": churn_rate,
-        "ltv": round(ltv, 0),
+        "churn_window_label": "acumulado histórico",
+        "ltv": ltv,
     }
     tx_flat   = _flatten_by_status(transactions_monthly)
     act_flat  = _flatten_by_status(activation_by_month)
@@ -1523,6 +1592,7 @@ def _payku_extended_data(
 
     return {
         "kpis": kpis,
+        "churn_window_label": kpis["churn_window_label"],
         "transactions_monthly": tx_flat,
         "activation_monthly": act_flat,
         "churn_monthly": churn_flat,
@@ -2776,7 +2846,7 @@ def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
         "mrr": mrr,
         "active_subscribers": len(active_subscriptions),
         "active_clients": active_clients,
-        "arpu": round(mrr / active_clients, 0) if active_clients else 0.0,
+        "arpu": round(mrr / active_clients, 0) if active_clients else None,
     })
     return {
         "source": "toku",
