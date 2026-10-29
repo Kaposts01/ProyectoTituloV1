@@ -76,6 +76,22 @@ class Settings(BaseSettings):
     vp_rejection_capture_pause_seconds: float = 0.3
     vp_rejection_capture_recheck_days: int = 30  # cobros consultados sin glosa se reconsultan pasado este plazo
     vp_rejection_capture_max_retries: int = 3  # reintentos con backoff ante 429/5xx
+    # RT-04..08: webhooks en tiempo casi real. Receptores (tope de body, rate limit por IP+ruta) y procesador asincrono.
+    # El procesador esta APAGADO por defecto: sin la bandera la cola `webhook_events` solo acumula.
+    webhook_max_body_bytes: int = 262144
+    webhook_rate_limit_per_minute: int = 120
+    webhook_trust_forwarded_for: bool = False  # solo detras de un proxy/tunel propio (X-Forwarded-For es falsificable)
+    webhook_processor_enabled: bool = False
+    webhook_processor_batch_size: int = 50
+    webhook_max_attempts: int = 5
+    webhook_backoff_base_seconds: float = 30  # espera = base * 2**(intentos-1), tope 1 h
+    webhook_processing_stale_minutes: float = 10  # un evento `processing` abandonado vuelve a `pending`
+    # RT-06: reconciliacion dirigida (sin webhooks) de suscripciones con ventana de riesgo. APAGADA por defecto.
+    targeted_reconcile_enabled: bool = False
+    targeted_reconcile_max_per_run: int = 200
+    targeted_reconcile_pause_seconds: float = 1.0
+    targeted_reconcile_due_days: int = 5  # cobro programado en los ultimos N dias
+    targeted_reconcile_rejection_days: int = 15  # rechazo reciente = cobro rechazado de los ultimos N dias
     # RJ-15: materializa los intentos FAILED de Toku como core_payments (source_status='FAILED'). APAGADA por defecto.
     toku_materialize_failed_payments: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)

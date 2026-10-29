@@ -15,9 +15,11 @@ from app.api.v1.routes import (
     webhooks_virtualpos,
 )
 from app.core.config import settings, warn_unguarded_dev_writes
+from app.core.log_redaction import install_access_log_redaction
 from app.scheduler.engine import get_scheduler, register_jobs
 
 logger = logging.getLogger(__name__)
+install_access_log_redaction()  # RT-08: el access log de uvicorn no debe imprimir el token `?k=` de Payku
 
 _DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
