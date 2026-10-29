@@ -1561,6 +1561,24 @@ def _finish_run(db, run: EtlRun, total: int, error: str | None = None, phase: st
     db.commit()
 
 
+def _close_cancellations_from_report(db) -> int:
+    """Cierra las bajas TCH `pending_external` cuya ficha ya viene eliminada en lo recien cargado.
+
+    Se llama DESPUES de confirmar la importacion y nunca la hace fallar: si el cierre falla solo queda un aviso en el
+    log (el siguiente reporte lo reintenta; es idempotente)."""
+    try:
+        from app.services import cancellation_apply
+
+        closed = cancellation_apply.close_tch_cancellations_from_report(db)
+        if closed:
+            log.info(f"  Bajas TCH cerradas por el reporte: {len(closed)}")
+        return len(closed)
+    except Exception as exc:
+        db.rollback()
+        log.warning("No se pudieron cerrar las bajas TCH en trámite (%s).", type(exc).__name__)
+        return 0
+
+
 def import_incremental_file(filepath: Path, run_id=None) -> int:
     """Carga un reporte TCH individual y deja el resultado trazado en ``etl_runs``."""
     db = SessionLocal()
@@ -1585,6 +1603,7 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
             bajas = _apply_implicit_bajas(db, totals["fichas"])
             log.info(f"  Bajas implicitas (ausentes del reporte): {bajas}")
         _finish_run(db, run, total)
+        _close_cancellations_from_report(db)
         return total
     except Exception as exc:
         db.rollback()
@@ -1715,6 +1734,7 @@ def main(argv: list[str] | None = None) -> None:
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             log.info(f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
         _finish_run(db, db.get(EtlRun, run_id), total)
+        _close_cancellations_from_report(db)
         log.info(f"ETL completado. Total procesados: {total}")
     except SystemExit:
         raise

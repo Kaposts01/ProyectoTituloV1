@@ -545,8 +545,8 @@ def close_tch_cancellations_from_report(db: Session, *, now: datetime | None = N
     """Cierra (`completed`) las bajas TCH `pending_external` cuya ficha ya trae `fecha_eliminacion` en la tabla local
     (cargada por el ETL del Excel). Idempotente; evento `closed_by_report` con actor sistema. Devuelve los ids cerrados.
 
-    Pendiente (anotado en docs/designs/baja-cascada.md): invocarla al final del ETL/importacion del Excel TCH y la
-    exportacion para tesoreria/banco; hoy solo estan el modelo y el cierre."""
+    La invoca `scripts/etl_tch.py` al final de cada importacion del Excel (script y `POST /api/v1/tch/import-report`).
+    Pendiente (docs/designs/baja-cascada.md §5.8): la exportacion para tesoreria/banco."""
     closed: list[uuid.UUID] = []
     rows = db.scalars(select(SubscriptionCancellationRequest).where(
         SubscriptionCancellationRequest.channel == "tch",
