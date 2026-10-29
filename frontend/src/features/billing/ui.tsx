@@ -99,6 +99,28 @@ export function Dialog({ title, children, onClose, busy = false, wide = false, d
   );
 }
 
+/** Celda de tabla apilable: `data-label` alimenta la etiqueta visible en tarjetas móviles (CSS) y el rol se fija explícito. */
+export function Cell({ label, className, children, title }: { label: string; className?: string; children?: ReactNode; title?: string }) {
+  return <td role="cell" data-label={label} className={className} title={title}>{children}</td>;
+}
+
+/**
+ * Filtros colapsables en móvil. En escritorio el botón no se muestra y el cuerpo queda siempre visible (CSS).
+ * Debe renderizarse DENTRO del `<form>`: los botones Buscar/Limpiar viven en el cuerpo.
+ */
+export function FiltersPanel({ activeCount, children }: { activeCount: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  return (
+    <>
+      <button type="button" className="bx-btn bx-btn-ghost bx-filters-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((v) => !v)}>
+        {activeCount > 0 ? `Filtros (${activeCount})` : "Filtros"}
+      </button>
+      <div id={bodyId} className={`bx-filters-body${open ? "" : " is-collapsed"}`}>{children}</div>
+    </>
+  );
+}
+
 export function Notice({ tone, children, live = false }: { tone: "ok" | "warning" | "error" | "neutral"; children: ReactNode; live?: boolean }) {
   const cls = tone === "neutral" ? "bx-notice" : `bx-notice bx-notice-${tone}`;
   return <div className={cls} role={tone === "error" ? "alert" : live ? "status" : undefined}>{children}</div>;

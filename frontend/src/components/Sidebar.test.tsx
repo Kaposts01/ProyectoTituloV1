@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
@@ -79,5 +80,73 @@ describe("Sidebar", () => {
     const props = setup({ open: true });
     fireEvent.keyDown(document, { key: "Escape" });
     expect(props.onClose).toHaveBeenCalled();
+  });
+});
+
+describe("Sidebar como drawer modal (movil)", () => {
+  function Harness({ initialOpen = false, onCloseSpy }: { initialOpen?: boolean; onCloseSpy?: () => void }) {
+    const [open, setOpen] = useState(initialOpen);
+    const noop = () => {};
+    return (
+      <div className="app-layout">
+        <button className="burger-btn" aria-label="Abrir menu" onClick={() => setOpen(true)}>b</button>
+        <Sidebar
+          activeSection={null} channel={null} tchView={null} openProvider={null} theme="light" onDashboard={noop}
+          generalView="summary" onGeneralClients={noop} onGeneralSubscriptions={noop} onAutoReport={noop}
+          onChannel={noop} onSection={noop} onToggle={noop} onTheme={noop} onTch={noop} permissions={allPerms}
+          onAdmin={noop} adminOpen={false} adminTab={null} onLogout={noop} onProfile={noop} open={open}
+          onClose={() => { onCloseSpy?.(); setOpen(false); }} recoveryOpen={false} onRecovery={noop}
+        />
+        <main data-testid="content">contenido</main>
+      </div>
+    );
+  }
+
+  it("cerrado: sin velo y el contenido no esta inert", () => {
+    render(<Harness />);
+    expect(document.querySelector(".sidebar-overlay")).toBeNull();
+    expect(screen.getByTestId("content")).not.toHaveAttribute("inert");
+  });
+
+  it("abierto: hay velo, el contenido queda inert/aria-hidden y el foco entra al menu", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText("Abrir menu"));
+    expect(document.querySelector(".sidebar-overlay")).not.toBeNull();
+    const content = screen.getByTestId("content");
+    expect(content).toHaveAttribute("inert");
+    expect(content).toHaveAttribute("aria-hidden", "true");
+    expect(document.getElementById("app-sidebar")!.contains(document.activeElement)).toBe(true);
+  });
+
+  it("clic en el velo cierra, quita inert y devuelve el foco a la hamburguesa", () => {
+    render(<Harness />);
+    const burger = screen.getByLabelText("Abrir menu");
+    burger.focus();
+    fireEvent.click(burger);
+    fireEvent.click(document.querySelector(".sidebar-overlay")!);
+    expect(document.querySelector(".sidebar-overlay")).toBeNull();
+    expect(screen.getByTestId("content")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("content")).not.toHaveAttribute("aria-hidden");
+    expect(document.activeElement).toBe(burger);
+  });
+
+  it("Escape cierra y devuelve el foco", () => {
+    const spy = vi.fn();
+    render(<Harness onCloseSpy={spy} />);
+    const burger = screen.getByLabelText("Abrir menu");
+    burger.focus();
+    fireEvent.click(burger);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(burger);
+  });
+
+  it("no pisa un inert o aria-hidden previo del contenido al cerrar", () => {
+    render(<Harness />);
+    screen.getByTestId("content").setAttribute("aria-hidden", "false");
+    const burger = screen.getByLabelText("Abrir menu");
+    fireEvent.click(burger);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByTestId("content")).toHaveAttribute("aria-hidden", "false");
   });
 });

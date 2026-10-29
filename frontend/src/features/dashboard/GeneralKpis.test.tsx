@@ -62,4 +62,17 @@ describe("GeneralKpis", () => {
     view({});
     expect(noData("Pagos pendientes")).not.toBeNull();
   });
+
+  it("rotula cargos (no transacciones) y explica la tasa", () => {
+    view({}, 2, 8);
+    expect(screen.getByText("Cargos rechazados")).toBeInTheDocument();
+    expect(screen.getByText("Cargos rechazados hasta hoy · no incluye cancelados")).toBeInTheDocument();
+    expect(screen.getByText("Tasa de rechazo · rechazados / (pagados + rechazados)")).toBeInTheDocument();
+    expect(screen.queryByText(/Transacciones rechazadas|total del año/)).not.toBeInTheDocument();
+  });
+
+  it("usa transactions.basis_label del backend si llega", () => {
+    view({ transactions: { basis_label: "Cargos al 29-10 (Chile)" } });
+    expect(screen.getByText("Cargos al 29-10 (Chile)")).toBeInTheDocument();
+  });
 });

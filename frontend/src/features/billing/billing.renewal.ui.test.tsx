@@ -143,7 +143,7 @@ describe("renovaciones: lista", () => {
   it("la pestaña muestra el contador de altas/vencidas con texto accesible", async () => {
     alertTotal = 3;
     render(<BillingInbox can={canOf(READONLY)} />);
-    expect(await screen.findByRole("tab", { name: /Renovaciones.*3 de prioridad alta o vencidas/ })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: /Renovaciones.*3 tareas abiertas o vencidas con prioridad alta/ })).toBeTruthy();
   });
 
   it("si falla el contador no rompe la bandeja", async () => {

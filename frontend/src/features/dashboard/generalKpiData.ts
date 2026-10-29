@@ -5,6 +5,8 @@ export type GeneralKpiData = {
   sync_success_rate_pct?: number | null;
   churn_rate_pct?: number | null;
   churn_window_label?: string | null;
+  /** Base de los cargos (p. ej. «hasta hoy, hora de Chile»), si el backend la informa. */
+  transactions?: { basis_label?: string | null } | null;
 };
 
 /** Tasa de rechazo en % con un decimal; null si no hay transacciones (sin denominador no hay razón). */

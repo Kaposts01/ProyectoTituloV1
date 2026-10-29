@@ -1,7 +1,7 @@
 import { buildKeptRows, buildPlanRows, PLAN_KIND_LABEL, PLAN_KIND_TONE, planIssueText } from "./billingPlan";
 import { formatClp, formatPct, formatSignedClp } from "./billingLabels";
 import type { PlanPreview } from "./types";
-import { Badge, Notice } from "./ui";
+import { Badge, Cell, Notice } from "./ui";
 
 /** Vista previa del plan: totales, avisos, tabla por mes y cobros automáticos conservados fuera del horizonte. */
 export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { plan: PlanPreview | null | undefined; title?: string }) {
@@ -42,19 +42,19 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
       {plan.noop ? <Notice tone="neutral">El plan no produce cambios.</Notice> : null}
       {rows.length > 0 ? (
         <div className="table-wrap">
-          <table className="bx-table">
+          <table className="bx-table bx-stack bx-stack-plan" role="table">
             <caption className="bx-sr">Plan por mes</caption>
-            <thead>
-              <tr><th scope="col">Mes</th><th scope="col">Acción</th><th scope="col">Fecha de cobro</th><th scope="col" className="num">Monto</th><th scope="col">Detalle</th></tr>
+            <thead role="rowgroup">
+              <tr role="row"><th role="columnheader" scope="col">Mes</th><th role="columnheader" scope="col">Acción</th><th role="columnheader" scope="col">Fecha de cobro</th><th role="columnheader" scope="col" className="num">Monto</th><th role="columnheader" scope="col">Detalle</th></tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {rows.map((r) => (
-                <tr key={r.key}>
-                  <td className="mono">{r.month}</td>
-                  <td><Badge tone={PLAN_KIND_TONE[r.kind]}>{PLAN_KIND_LABEL[r.kind]}</Badge></td>
-                  <td className="mono">{r.date ?? "—"}</td>
-                  <td className="mono num">{r.amount === null ? "—" : formatClp(r.amount)}</td>
-                  <td>{r.note ? <span className="mono">{r.note}</span> : null}</td>
+                <tr role="row" key={r.key}>
+                  <Cell label="Mes" className="mono bx-c-month">{r.month}</Cell>
+                  <Cell label="Acción" className="bx-c-kind"><Badge tone={PLAN_KIND_TONE[r.kind]}>{PLAN_KIND_LABEL[r.kind]}</Badge></Cell>
+                  <Cell label="Fecha de cobro" className="mono bx-c-date bx-lbl">{r.date ?? "—"}</Cell>
+                  <Cell label="Monto" className="mono num bx-c-amount">{r.amount === null ? "—" : formatClp(r.amount)}</Cell>
+                  <Cell label="Detalle" className="bx-c-note" title={r.note ?? undefined}>{r.note ? <span className="mono">{r.note}</span> : null}</Cell>
                 </tr>
               ))}
             </tbody>
@@ -72,12 +72,16 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
         <>
           <h3>Cobros automáticos conservados fuera del horizonte</h3>
           <div className="table-wrap">
-            <table className="bx-table">
-              <thead><tr><th scope="col">Mes</th><th scope="col">Cobro</th><th scope="col">Fecha</th><th scope="col" className="num">Monto</th></tr></thead>
-              <tbody>
+            <table className="bx-table bx-stack bx-stack-kept" role="table">
+              <caption className="bx-sr">Cobros automáticos conservados fuera del horizonte</caption>
+              <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Mes</th><th role="columnheader" scope="col">Cobro</th><th role="columnheader" scope="col">Fecha</th><th role="columnheader" scope="col" className="num">Monto</th></tr></thead>
+              <tbody role="rowgroup">
                 {kept.map((k) => (
-                  <tr key={k.key}>
-                    <td className="mono">{k.month}</td><td className="mono">{k.chargeId}</td><td className="mono">{k.date}</td><td className="mono num">{formatClp(k.amount)}</td>
+                  <tr role="row" key={k.key}>
+                    <Cell label="Mes" className="mono bx-c-month">{k.month}</Cell>
+                    <Cell label="Cobro" className="mono bx-c-charge bx-lbl">{k.chargeId}</Cell>
+                    <Cell label="Fecha" className="mono bx-c-date bx-lbl">{k.date}</Cell>
+                    <Cell label="Monto" className="mono num bx-c-amount">{formatClp(k.amount)}</Cell>
                   </tr>
                 ))}
               </tbody>

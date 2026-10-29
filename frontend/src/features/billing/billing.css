@@ -122,3 +122,73 @@ html[data-theme="dark"] {
 
 .bx-count { display: inline-block; margin-left: 8px; min-width: 20px; padding: 0 6px; border-radius: 9999px; border: 1px solid var(--bx-warn-text); background: var(--bx-warn-bg); color: var(--bx-warn-text); font-size: 11px; line-height: 18px; text-align: center; }
 .bx-sub { margin-top: 4px; color: var(--text-2); font-size: 12px; }
+
+/* Filtros colapsables: en escritorio el botón no existe y el cuerpo es transparente al flex del formulario. */
+.bx-filters-toggle { display: none; }
+.bx-filters-body { display: contents; }
+
+/* Móvil (<=720px): tablas -> filas apiladas (misma <table> con roles ARIA explícitos), filtros colapsables, objetivos de 44px. */
+@media (max-width: 720px) {
+  .bx-page { min-width: 0; max-width: 100%; }
+  .bx-page .topbar { align-items: flex-start; justify-content: flex-start; gap: 12px; margin-bottom: 16px; }
+
+  .bx-tabs { gap: 0; overflow-x: auto; }
+  .bx-tabs button { flex: 1 1 auto; min-height: 44px; padding: 8px 10px; white-space: nowrap; }
+  .bx-count { margin-left: 6px; padding: 0 6px; white-space: nowrap; line-height: 18px; }
+
+  .bx-btn { min-height: 44px; min-width: 44px; }
+  .bx-filters { display: block; }
+  .bx-filters .bx-filters-toggle { display: inline-flex; align-items: center; justify-content: space-between; width: 100%; }
+  .bx-filters-toggle::after { content: "\25BE"; transition: transform .15s ease; }
+  .bx-filters-toggle[aria-expanded="true"]::after { transform: rotate(180deg); }
+  .bx-filters-body { display: grid; gap: 12px; width: 100%; margin-top: 12px; }
+  .bx-filters-body.is-collapsed { display: none; }
+  .bx-filters select, .bx-filters input { min-height: 44px; }
+  .bx-pagination .bx-btn { flex: 1 1 0; }
+
+  .bx-table { min-width: 0; }
+  .bx-stack, .bx-stack tbody, .bx-stack td { display: block; }
+  .bx-stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .bx-stack tbody { border-top: 1px solid var(--border-subtle); }
+  .bx-stack tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 8px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface); }
+  .bx-stack td { min-width: 0; padding: 0; border: 0; }
+  .bx-stack td.num { text-align: right; }
+  .bx-stack td.bx-lbl::before { content: attr(data-label); display: block; color: var(--text-2); font-family: var(--font-body, system-ui, sans-serif); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .bx-stack .bx-row-btn { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; padding: 0 4px; }
+  .bx-stack .bx-platform { font-size: 11px; color: var(--text-2); }
+
+  /* Cambios de cobro (Pendientes / Historial): línea 1 suscripción + estado; 2 tipo + cambio; 3 fechas; 4 solicitante. */
+  .bx-stack-requests .bx-c-sub { order: 1; grid-column: 1; }
+  .bx-stack-requests .bx-c-status { order: 2; grid-column: 2; justify-self: end; }
+  .bx-stack-requests .bx-c-type { order: 3; grid-column: 1; }
+  .bx-stack-requests .bx-c-change { order: 4; grid-column: 2; justify-self: end; }
+  .bx-stack-requests .bx-c-created { order: 5; grid-column: 1; }
+  .bx-stack-requests .bx-c-due { order: 6; grid-column: 2; justify-self: end; text-align: right; }
+  .bx-stack-requests .bx-c-who { order: 7; grid-column: 1 / -1; }
+
+  /* Renovaciones: suscripción + estado; plataforma + prioridad; fecha límite + monto; acción a todo el ancho. */
+  .bx-stack-renewals .bx-c-sub { order: 1; grid-column: 1; }
+  .bx-stack-renewals .bx-c-status { order: 2; grid-column: 2; justify-self: end; text-align: right; }
+  .bx-stack-renewals .bx-c-platform { order: 3; grid-column: 1; }
+  .bx-stack-renewals .bx-c-priority { order: 4; grid-column: 2; justify-self: end; }
+  .bx-stack-renewals .bx-c-deadline { order: 5; grid-column: 1; }
+  .bx-stack-renewals .bx-c-amount { order: 6; grid-column: 2; justify-self: end; }
+  .bx-stack-renewals .bx-c-action { order: 7; grid-column: 1 / -1; }
+  .bx-stack-renewals .bx-c-action .bx-btn { width: 100%; }
+
+  /* Plan: mes (sin partirse) + acción; fecha + monto; detalle técnico en tercera línea atenuada que puede envolver. */
+  .bx-stack .bx-c-month { white-space: nowrap; }
+  .bx-stack-plan .bx-c-month { order: 1; grid-column: 1; }
+  .bx-stack-plan .bx-c-kind { order: 2; grid-column: 2; justify-self: end; }
+  .bx-stack-plan .bx-c-date { order: 3; grid-column: 1; }
+  .bx-stack-plan .bx-c-amount { order: 4; grid-column: 2; justify-self: end; white-space: nowrap; }
+  .bx-stack-plan .bx-c-note { order: 5; grid-column: 1 / -1; color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
+  .bx-stack-plan .bx-c-note:empty { display: none; }
+  .bx-stack-kept .bx-c-month { order: 1; grid-column: 1; }
+  .bx-stack-kept .bx-c-amount { order: 2; grid-column: 2; justify-self: end; white-space: nowrap; }
+  .bx-stack-kept .bx-c-charge { order: 3; grid-column: 1; overflow-wrap: anywhere; }
+  .bx-stack-kept .bx-c-date { order: 4; grid-column: 2; justify-self: end; }
+}
+@media (max-width: 720px) and (prefers-reduced-motion: reduce) {
+  .bx-filters-toggle::after { transition: none; }
+}

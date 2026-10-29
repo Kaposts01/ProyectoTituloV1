@@ -8,7 +8,7 @@ import {
 } from "./billingRenewal";
 import { lastPageOffset } from "./billingQuery";
 import { PERM_REQUEST, type Platform, type RenewalPriority, type RenewalTask, type RenewalTaskList } from "./types";
-import { Badge, Notice } from "./ui";
+import { Badge, Cell, FiltersPanel, Notice } from "./ui";
 
 const PAGE_SIZE = 25;
 const STATUS_OPTIONS: Array<[RenewalStatusFilter, string]> = [
@@ -70,6 +70,8 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
   }
   const setField = <K extends keyof RenewalFilters>(key: K, value: RenewalFilters[K]) => setDraft((d) => ({ ...d, [key]: value }));
 
+  const activeFilterCount =
+    (applied.status !== "open" ? 1 : 0) + (applied.priority ? 1 : 0) + (applied.platform ? 1 : 0) + (applied.subscription.trim() ? 1 : 0);
   const total = data?.total ?? 0;
   const items = data?.items ?? [];
   const canRequest = can(PERM_REQUEST);
@@ -77,29 +79,31 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
   return (
     <section aria-label="Renovaciones de calendario">
       <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de renovaciones">
-        <label>Estado
-          <select value={draft.status} onChange={(e) => setField("status", e.target.value as RenewalStatusFilter)}>
-            {STATUS_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
-        <label>Prioridad
-          <select value={draft.priority} onChange={(e) => setField("priority", e.target.value as RenewalPriority | "")}>
-            <option value="">Todas</option>
-            <option value="alta">Alta</option>
-            <option value="normal">Normal</option>
-          </select>
-        </label>
-        <label>Plataforma
-          <select value={draft.platform} onChange={(e) => setField("platform", e.target.value as Platform | "")}>
-            <option value="">Todas</option>
-            {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
-        <label>Suscripción
-          <input className="mono" value={draft.subscription} maxLength={255} onChange={(e) => setField("subscription", e.target.value)} />
-        </label>
-        <button type="submit" className="bx-btn bx-btn-primary" disabled={loading}>Buscar</button>
-        <button type="button" className="bx-btn bx-btn-ghost" onClick={clearFilters} disabled={loading}>Limpiar</button>
+        <FiltersPanel activeCount={activeFilterCount}>
+          <label>Estado
+            <select value={draft.status} onChange={(e) => setField("status", e.target.value as RenewalStatusFilter)}>
+              {STATUS_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label>Prioridad
+            <select value={draft.priority} onChange={(e) => setField("priority", e.target.value as RenewalPriority | "")}>
+              <option value="">Todas</option>
+              <option value="alta">Alta</option>
+              <option value="normal">Normal</option>
+            </select>
+          </label>
+          <label>Plataforma
+            <select value={draft.platform} onChange={(e) => setField("platform", e.target.value as Platform | "")}>
+              <option value="">Todas</option>
+              {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label>Suscripción
+            <input className="mono" value={draft.subscription} maxLength={255} onChange={(e) => setField("subscription", e.target.value)} />
+          </label>
+          <button type="submit" className="bx-btn bx-btn-primary" disabled={loading}>Buscar</button>
+          <button type="button" className="bx-btn bx-btn-ghost" onClick={clearFilters} disabled={loading}>Limpiar</button>
+        </FiltersPanel>
       </form>
 
       {error ? (
@@ -123,15 +127,15 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
 
       {items.length > 0 ? (
         <div className="table-wrap" aria-busy={loading}>
-          <table className="bx-table">
+          <table className="bx-table bx-stack bx-stack-renewals" role="table">
             <caption className="bx-sr">Tareas de renovación de calendario</caption>
-            <thead>
-              <tr>
-                <th scope="col">Suscripción</th><th scope="col">Plataforma</th><th scope="col">Prioridad</th><th scope="col">Estado</th>
-                <th scope="col">Fecha límite</th><th scope="col" className="num">Último monto programado</th><th scope="col">Acción</th>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">Suscripción</th><th role="columnheader" scope="col">Plataforma</th><th role="columnheader" scope="col">Prioridad</th><th role="columnheader" scope="col">Estado</th>
+                <th role="columnheader" scope="col">Fecha límite</th><th role="columnheader" scope="col" className="num">Último monto programado</th><th role="columnheader" scope="col">Acción</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {items.map((t) => {
                 const open = isOpenRenewal(t.status);
                 const days = open ? daysText(t.days_remaining) : null;
@@ -140,11 +144,11 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
                     aria-label={`Ver solicitud de la suscripción ${t.subscription_external_id}`}>Ver solicitud</button>
                 ) : null;
                 return (
-                  <tr key={t.id}>
-                    <td className="mono">{t.subscription_external_id}</td>
-                    <td>{PLATFORM_LABELS[t.platform] ?? t.platform}</td>
-                    <td><Badge tone={renewalPriorityTone(t.priority)}>{renewalPriorityLabel(t.priority)}</Badge></td>
-                    <td>
+                  <tr role="row" key={t.id}>
+                    <Cell label="Suscripción" className="mono bx-c-sub">{t.subscription_external_id}</Cell>
+                    <Cell label="Plataforma" className="bx-c-platform">{PLATFORM_LABELS[t.platform] ?? t.platform}</Cell>
+                    <Cell label="Prioridad" className="bx-c-priority"><Badge tone={renewalPriorityTone(t.priority)}>{renewalPriorityLabel(t.priority)}</Badge></Cell>
+                    <Cell label="Estado" className="bx-c-status">
                       <Badge tone={renewalStatusTone(t.status)}>{renewalStatusLabel(t.status)}</Badge>
                       {open && t.data_stale ? (
                         <div className="bx-sub">
@@ -152,13 +156,13 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
                           <span className="bx-sr"> La última sincronización de la plataforma es antigua o falló; confirme los datos antes de solicitar la renovación.</span>
                         </div>
                       ) : null}
-                    </td>
-                    <td>
+                    </Cell>
+                    <Cell label="Fecha límite" className="bx-c-deadline bx-lbl">
                       <span className="mono">{formatDateTime(t.due_date)}</span>
                       {days ? <div className="mono bx-sub">{days}</div> : null}
-                    </td>
-                    <td className="mono num">{formatClp(t.scheduled_amount)}</td>
-                    <td>
+                    </Cell>
+                    <Cell label="Último monto programado" className="mono num bx-c-amount bx-lbl">{formatClp(t.scheduled_amount)}</Cell>
+                    <Cell label="Acción" className="bx-c-action">
                       {open ? (
                         viewRequest ?? (canRequest ? (
                           <button className="bx-btn bx-btn-primary" onClick={() => onRequestRenewal(t)}
@@ -170,7 +174,7 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
                           {viewRequest ? <div className="bx-sub">{viewRequest}</div> : null}
                         </div>
                       )}
-                    </td>
+                    </Cell>
                   </tr>
                 );
               })}

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { ChannelHealthMap, HealthChannel } from "../hooks/useChannelHealth";
 import type { ProviderSection, ProviderSource } from "../routes";
 import { providerGroups, resourcePermission } from "../navigation";
@@ -59,6 +59,38 @@ export function Sidebar({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+  const asideRef = useRef<HTMLElement>(null);
+  const openerRef = useRef<Element | null>(null);
+  // Drawer modal: el contenido de fondo queda inert + aria-hidden (mismo patron que Dialog en billing/ui.tsx),
+  // el foco entra al menu y, al cerrar, vuelve al elemento que lo abrio (la hamburguesa).
+  useLayoutEffect(() => {
+    if (!open) return;
+    const aside = asideRef.current;
+    openerRef.current = document.activeElement;
+    const siblings = aside?.parentElement
+      ? (Array.from(aside.parentElement.children).filter(
+          (el) => el !== aside && !el.classList.contains("sidebar-overlay") && el instanceof HTMLElement,
+        ) as HTMLElement[])
+      : [];
+    const saved = siblings.map((el) => ({ el, inert: el.hasAttribute("inert"), ariaHidden: el.getAttribute("aria-hidden") }));
+    for (const { el } of saved) {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    aside?.querySelector<HTMLElement>(".sidebar-close, button")?.focus();
+    return () => {
+      for (const { el, inert, ariaHidden } of saved) {
+        if (!inert) el.removeAttribute("inert");
+        if (ariaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", ariaHidden);
+      }
+    };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const opener = openerRef.current;
+    return () => { if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
+  }, [open]);
   const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !profileOpen && generalView === "summary";
   const go = (fn: () => void) => () => { fn(); onClose(); };
   const visibleGroups = providerGroups.map((group) => ({
@@ -66,7 +98,9 @@ export function Sidebar({
     sections: group.sections.filter((section) => can(resourcePermission(section.source, section.resource))),
   })).filter((group) => group.sections.length > 0);
   return (
-    <aside id="app-sidebar" className={`sidebar${open ? " open" : ""}`}>
+    <>
+    {open ? <div className="sidebar-overlay" aria-hidden="true" onClick={onClose} /> : null}
+    <aside id="app-sidebar" ref={asideRef} className={`sidebar${open ? " open" : ""}`}>
       <div className="sidebar-toprow">
         <button className="sidebar-brand" onClick={go(onDashboard)}>
           <span>Sx</span>
@@ -220,5 +254,6 @@ export function Sidebar({
         <button className="theme-btn" onClick={go(onLogout)}>Cerrar sesión</button>
       </div>
     </aside>
+    </>
   );
 }

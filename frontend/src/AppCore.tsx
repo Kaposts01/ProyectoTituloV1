@@ -3295,9 +3295,6 @@ function AppCore() {
       >
         <span /><span /><span />
       </button>
-      {sidebarOpen && (
-        <div className="sidebar-overlay" onClick={closeSidebar} />
-      )}
       <Sidebar
         activeSection={activeSection}
         channel={channel}

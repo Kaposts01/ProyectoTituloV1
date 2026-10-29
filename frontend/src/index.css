@@ -66,6 +66,7 @@
   --env-warn-bg:     #f2c14e;
   --env-warn-text:   #2b1d00;
   --env-banner-h:    32px;
+  --scrim:           rgb(9 20 24 / 55%);
 
   /* aliases for App.css compatibility */
   --bg:              var(--bg-base);
@@ -75,6 +76,7 @@
 }
 
 html[data-theme="dark"] {
+  --scrim:           rgb(0 0 0 / 72%);
   /* Dark mode derived from brand teal — not GitHub Dark */
   --bg-base:         #0d1e23;
   --bg-sidebar:      #091418;

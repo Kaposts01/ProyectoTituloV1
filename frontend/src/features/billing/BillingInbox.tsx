@@ -10,7 +10,7 @@ import { CreateRequestDialog, type RenewalPrefill } from "./CreateRequestDialog"
 import { RenewalTasksView } from "./RenewalTasksView";
 import { RequestDetail } from "./RequestDetail";
 import { PERM_REQUEST, type BillingList, type BillingRequestDetail, type Platform, type RenewalTask, type Requester, type RequestStatus, type RequestType } from "./types";
-import { Notice, StatusBadge } from "./ui";
+import { Cell, FiltersPanel, Notice, StatusBadge } from "./ui";
 import "./billing.css";
 
 const PAGE_SIZE = 25;
@@ -119,6 +119,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
 
   const setField = <K extends keyof InboxFilters>(key: K, value: InboxFilters[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const statusOptions: RequestStatus[] = listTab === "pending" ? PENDING_STATUSES : HISTORY_STATUSES;
+  const activeFilterCount = Object.values(applied).filter((v) => v !== "").length;
   const total = data?.total ?? 0;
   const items = data?.items ?? [];
 
@@ -184,7 +185,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
             {key === "renewals" && alertCount > 0 ? (
               <>
                 <span className="bx-count mono" aria-hidden="true">{alertCount}</span>
-                <span className="bx-sr"> ({alertCount} de prioridad alta o vencidas)</span>
+                <span className="bx-sr"> ({alertCount} {alertCount === 1 ? "tarea abierta o vencida con prioridad alta" : "tareas abiertas o vencidas con prioridad alta"})</span>
               </>
             ) : null}
           </button>
@@ -198,45 +199,47 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
       ) : (
         <>
       <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de solicitudes">
-        <label>Estado
-          <select value={draft.status} onChange={(e) => setField("status", e.target.value as RequestStatus | "")}>
-            <option value="">Todos</option>
-            {statusOptions.filter((s) => ALL_STATUSES.includes(s)).map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-          </select>
-        </label>
-        <label>Tipo
-          <select value={draft.requestType} onChange={(e) => setField("requestType", e.target.value as RequestType | "")}>
-            <option value="">Todos</option>
-            {REQUEST_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
-          </select>
-        </label>
-        <label>Plataforma
-          <select value={draft.platform} onChange={(e) => setField("platform", e.target.value as Platform | "")}>
-            <option value="">Todas</option>
-            {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
-        <label>Suscripción
-          <input className="mono" value={draft.subscription} maxLength={255} onChange={(e) => setField("subscription", e.target.value)} />
-        </label>
-        <label>Solicitante
-          <select value={draft.requestedBy} disabled={requestersState === "loading"} onChange={(e) => setField("requestedBy", e.target.value)}>
-            <option value="">{requestersState === "loading" ? "Cargando…" : "Todos"}</option>
-            {requesters.map((r) => <option key={r.id} value={r.id}>{r.username}</option>)}
-            {draft.requestedBy && !requesters.some((r) => r.id === draft.requestedBy)
-              ? <option value={draft.requestedBy}>{draft.requestedBy === currentUserId ? "Mis solicitudes" : "Usuario seleccionado"}</option> : null}
-          </select>
-        </label>
-        {currentUserId ? <button type="button" className="bx-btn bx-btn-ghost" onClick={() => setField("requestedBy", currentUserId)}>Mis solicitudes</button> : null}
-        <label>Desde
-          <input className="mono" type="date" value={draft.dateFrom} aria-describedby="bx-date-hint" onChange={(e) => setField("dateFrom", e.target.value)} />
-        </label>
-        <label>Hasta
-          <input className="mono" type="date" value={draft.dateTo} aria-describedby="bx-date-hint" onChange={(e) => setField("dateTo", e.target.value)} />
-        </label>
-        <span id="bx-date-hint" className="bx-hint">Fechas en UTC</span>
-        <button type="submit" className="bx-btn bx-btn-primary" disabled={loading}>Buscar</button>
-        <button type="button" className="bx-btn bx-btn-ghost" onClick={clearFilters} disabled={loading}>Limpiar</button>
+        <FiltersPanel activeCount={activeFilterCount}>
+          <label>Estado
+            <select value={draft.status} onChange={(e) => setField("status", e.target.value as RequestStatus | "")}>
+              <option value="">Todos</option>
+              {statusOptions.filter((s) => ALL_STATUSES.includes(s)).map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+            </select>
+          </label>
+          <label>Tipo
+            <select value={draft.requestType} onChange={(e) => setField("requestType", e.target.value as RequestType | "")}>
+              <option value="">Todos</option>
+              {REQUEST_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+            </select>
+          </label>
+          <label>Plataforma
+            <select value={draft.platform} onChange={(e) => setField("platform", e.target.value as Platform | "")}>
+              <option value="">Todas</option>
+              {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label>Suscripción
+            <input className="mono" value={draft.subscription} maxLength={255} onChange={(e) => setField("subscription", e.target.value)} />
+          </label>
+          <label>Solicitante
+            <select value={draft.requestedBy} disabled={requestersState === "loading"} onChange={(e) => setField("requestedBy", e.target.value)}>
+              <option value="">{requestersState === "loading" ? "Cargando…" : "Todos"}</option>
+              {requesters.map((r) => <option key={r.id} value={r.id}>{r.username}</option>)}
+              {draft.requestedBy && !requesters.some((r) => r.id === draft.requestedBy)
+                ? <option value={draft.requestedBy}>{draft.requestedBy === currentUserId ? "Mis solicitudes" : "Usuario seleccionado"}</option> : null}
+            </select>
+          </label>
+          {currentUserId ? <button type="button" className="bx-btn bx-btn-ghost" onClick={() => setField("requestedBy", currentUserId)}>Mis solicitudes</button> : null}
+          <label>Desde
+            <input className="mono" type="date" value={draft.dateFrom} aria-describedby="bx-date-hint" onChange={(e) => setField("dateFrom", e.target.value)} />
+          </label>
+          <label>Hasta
+            <input className="mono" type="date" value={draft.dateTo} aria-describedby="bx-date-hint" onChange={(e) => setField("dateTo", e.target.value)} />
+          </label>
+          <span id="bx-date-hint" className="bx-hint">Fechas en UTC</span>
+          <button type="submit" className="bx-btn bx-btn-primary" disabled={loading}>Buscar</button>
+          <button type="button" className="bx-btn bx-btn-ghost" onClick={clearFilters} disabled={loading}>Limpiar</button>
+        </FiltersPanel>
       </form>
       {filterError ? <Notice tone="error">{filterError}</Notice> : null}
       {requestersState === "error" ? (
@@ -265,32 +268,32 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
       ) : null}
       {items.length > 0 ? (
         <div className="table-wrap" aria-busy={loading}>
-          <table className="bx-table">
+          <table className="bx-table bx-stack bx-stack-requests" role="table">
             <caption className="bx-sr">Solicitudes de cambio de cobro</caption>
-            <thead>
-              <tr>
-                <th scope="col">Suscripción</th><th scope="col">Tipo</th><th scope="col" className="num">Cambio</th><th scope="col">Estado</th>
-                <th scope="col">Solicitante</th><th scope="col">Creada</th><th scope="col">Vencimiento</th>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">Suscripción</th><th role="columnheader" scope="col">Tipo</th><th role="columnheader" scope="col" className="num">Cambio</th><th role="columnheader" scope="col">Estado</th>
+                <th role="columnheader" scope="col">Solicitante</th><th role="columnheader" scope="col">Creada</th><th role="columnheader" scope="col">Vencimiento</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {items.map((r) => {
                 const expiry = expiryText(r);
                 return (
-                  <tr key={r.id} data-selected={selectedId === r.id}>
-                    <td>
+                  <tr role="row" key={r.id} data-selected={selectedId === r.id}>
+                    <Cell label="Suscripción" className="bx-c-sub">
                       <button className="bx-row-btn mono" aria-current={selectedId === r.id ? "true" : undefined} onClick={() => setSelectedId(r.id)}
                         aria-label={`Ver solicitud de la suscripción ${r.subscription_external_id}`}>
                         {r.subscription_external_id}
                       </button>
-                      <div className="mono" style={{ fontSize: 11, color: "var(--text-2)" }}>{PLATFORM_LABELS[r.platform] ?? r.platform}</div>
-                    </td>
-                    <td>{TYPE_LABELS[r.request_type] ?? r.request_type}</td>
-                    <td className="mono num">{requestSummary(r)}</td>
-                    <td><StatusBadge status={r.status} /></td>
-                    <td>{r.requested_by ?? "—"}</td>
-                    <td className="mono">{formatDateTime(r.created_at)}</td>
-                    <td className="mono">{expiry ?? "—"}</td>
+                      <div className="mono bx-platform">{PLATFORM_LABELS[r.platform] ?? r.platform}</div>
+                    </Cell>
+                    <Cell label="Tipo" className="bx-c-type">{TYPE_LABELS[r.request_type] ?? r.request_type}</Cell>
+                    <Cell label="Cambio" className="mono num bx-c-change">{requestSummary(r)}</Cell>
+                    <Cell label="Estado" className="bx-c-status"><StatusBadge status={r.status} /></Cell>
+                    <Cell label="Solicitante" className="bx-c-who bx-lbl">{r.requested_by ?? "—"}</Cell>
+                    <Cell label="Creada" className="mono bx-c-created bx-lbl">{formatDateTime(r.created_at)}</Cell>
+                    <Cell label="Vencimiento" className="mono bx-c-due bx-lbl">{expiry ?? "—"}</Cell>
                   </tr>
                 );
               })}
