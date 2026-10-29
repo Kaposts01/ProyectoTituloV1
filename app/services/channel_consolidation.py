@@ -46,6 +46,7 @@ from app.services.status_events import (
     event_context,
     pop_reason_hints,
 )
+from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
 from app.services.vp_current_amount import load_monto_vigente
 
 logger = logging.getLogger(__name__)
@@ -348,8 +349,12 @@ def _consolidate_toku_clients(db: Session) -> int:
 def _consolidate_toku_subscriptions(db: Session, scope: Scope | None = None) -> int:
     criteria = (TokuSubscription.external_id == scope[1],) if scope else ()
     rows = []
+    # TK-PAR-05: alta y baja reales desde el reporte de Productos. La API solo trae el proximo cobro (`anchor`) y no
+    # lista las eliminadas; sin fila de reporte se conserva el comportamiento anterior.
+    report_dates = report_product_dates(db)
     for t in db.scalars(select(TokuSubscription).where(*criteria)).all():
         payload = t.raw_payload or {}
+        report = report_dates.get(t.external_id)
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
@@ -359,8 +364,8 @@ def _consolidate_toku_subscriptions(db: Session, scope: Scope | None = None) -> 
             "service_id": None,
             "status": t.status,
             "automatic_renewal": None,
-            "suscription_date": t.anchor,
-            "canceled_at": t.end_date,
+            "suscription_date": (chile_date_iso(report.created_at) if report else None) or t.anchor,
+            "canceled_at": t.end_date or (chile_date_iso(report.deleted_at) if report else None),
             "amount": t.amount,
             "currency": t.currency_code,
             "raw_payload": t.raw_payload,
