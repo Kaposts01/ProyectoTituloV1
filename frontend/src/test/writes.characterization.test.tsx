@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, failWith, mountApp, resetApp, type Call, type Handler } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Call, type Handler } from "./appHarness";
 import { page, paykuClient, paykuSubscription, rec, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPlan, vpSubscription } from "./fixtures";
 
 afterEach(resetApp);
@@ -34,6 +34,7 @@ describe("Clientes VirtualPOS: editar", () => {
     expect(within(f).getByText("Editar cliente")).toBeTruthy();
     expect(within(f).getByText("cli-1")).toBeTruthy();
     expect(within(f).getByText(/Los cambios se aplican mediante la API interna/)).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.submit(f);
     expect(await within(f).findByText("No hay cambios para guardar.")).toBeTruthy();
@@ -94,10 +95,12 @@ describe("Clientes VirtualPOS: crear", () => {
       ["POST", "/api/v1/writes/virtualpos/clients", (call: Call) => created("client", "cli-9", call.body as Record<string, unknown>)],
     ]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "+ Nuevo cliente" }));
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    fireEvent.click(screen.getByRole("button", { name: "+ Nuevo cliente" }));
     const f = form("Crear cliente VirtualPOS");
     expect(within(f).getByText("Nuevo cliente")).toBeTruthy();
     expect(within(f).getByText("Cuenta VirtualPOS:")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     type(field(f, "Tipo de documento"), "1");
     fireEvent.submit(f);
@@ -128,9 +131,11 @@ describe("Planes y suscripciones VirtualPOS: crear", () => {
       ["POST", "/api/v1/writes/virtualpos/plans", (call: Call) => created("plan", "plan-9", call.body as Record<string, unknown>)],
     ]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "+ Nuevo plan" }));
+    await screen.findByRole("button", { name: "Ver ficha de plan Plan Sintético 1" });
+    fireEvent.click(screen.getByRole("button", { name: "+ Nuevo plan" }));
     const f = form("Crear plan VirtualPOS");
     expect(within(f).getByText("Nuevo plan")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.submit(f);
     expect(await within(f).findByText("El nombre del plan es obligatorio.")).toBeTruthy();
@@ -156,7 +161,8 @@ describe("Planes y suscripciones VirtualPOS: crear", () => {
       ["POST", "/api/v1/writes/virtualpos/subscriptions", (call: Call) => created("subscription", "sub-9", call.body as Record<string, unknown>)],
     ]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "+ Nueva suscripción" }));
+    await screen.findByRole("button", { name: "Ver ficha de subscripción 11111111-1" });
+    fireEvent.click(screen.getByRole("button", { name: "+ Nueva suscripción" }));
     const f = form("Crear suscripción VirtualPOS");
     fireEvent.submit(f);
     expect(await within(f).findByText("El ID del plan es obligatorio.")).toBeTruthy();
@@ -185,6 +191,7 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar Sub" }));
     const d = dialog("Cancelar subscripción VirtualPOS");
     expect(within(d).getByText("¿Estás seguro de cancelar esta suscripción?")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/subscriptions/sub-1")).toHaveLength(1));
@@ -213,6 +220,7 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     fireEvent.click(await screen.findByRole("button", { name: "+ Cargo" }));
     const f = form("Crear cargo VirtualPOS");
     expect(within(f).getByText("Sub: sub-1")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.submit(f);
     expect(await within(f).findByText("La fecha del cargo es obligatoria.")).toBeTruthy();
@@ -256,6 +264,7 @@ describe("Cargos VirtualPOS: cancelar y reintentar", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
     const d = dialog("Cancelar cargo VirtualPOS");
     expect(within(d).getByText("Cancelar cargo")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/charges/chg-1")).toHaveLength(1));
@@ -271,6 +280,7 @@ describe("Cargos VirtualPOS: cancelar y reintentar", () => {
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "Reintentar" }));
     const d = dialog("Reintentar cargo VirtualPOS");
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar reintento" }));
     await waitFor(() => expect(app.find("POST", "/api/v1/writes/virtualpos/charges/chg-2/retry")).toHaveLength(1));
@@ -297,6 +307,7 @@ describe("Toku y Payku: editar, eliminar y cambiar estado", () => {
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
     const f = form("Editar Cliente");
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     type(field(f, "Nombre"), "Cliente Renombrado");
     fireEvent.submit(f);
@@ -321,6 +332,7 @@ describe("Toku y Payku: editar, eliminar y cambiar estado", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Eliminar" }));
     const d = dialog("Eliminar Cliente");
     expect(within(d).getByText(/Se enviará DELETE \/customers\/tcu-1 a Toku\. Esta acción no se puede deshacer\./)).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar eliminación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/toku/customers/tcu-1")).toHaveLength(1));
@@ -347,6 +359,7 @@ describe("Toku y Payku: editar, eliminar y cambiar estado", () => {
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "Gestionar estado" }));
     const f = form("Gestionar estado suscripción Toku");
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.submit(f);
     expect(await within(f).findByText("Selecciona un estado.")).toBeTruthy();

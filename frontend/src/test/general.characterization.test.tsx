@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, failWith, mountApp, navTop, resetApp, type Handler } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, mountApp, navTop, resetApp, type Handler } from "./appHarness";
 
 afterEach(resetApp);
 
@@ -68,6 +68,7 @@ describe("Dashboard general (/central/resumen)", () => {
     expect(screen.getByText("Base de datos unificada")).toBeTruthy();
     expect(screen.getByRole("button", { name: "↻ Sync completo" })).toBeTruthy();
     expect((screen.getByLabelText("Año dashboard general") as HTMLSelectElement).value).toBe("2025");
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -179,6 +180,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["RUT", "Nombre completo", "Plataforma de origen", "Suscripciones activas"]);
     expect(screen.getAllByText("VirtualPOS · Toku").length).toBe(2);
     expect(screen.getByText("1-2 de 250")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -234,6 +236,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
     for (const title of ["IDs de cliente", "Suscripciones", "Cargos", "Transacciones"]) expect(screen.getByRole("heading", { name: title })).toBeTruthy();
     expect(screen.getByText("$10.000")).toBeTruthy();
     expect(screen.getByText("Sin registros relacionados.")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(screen.getByRole("button", { name: "← Volver a clientes" }));
     expect(await screen.findByRole("button", { name: "11111111-1" })).toBeTruthy();
@@ -274,6 +277,7 @@ describe("Suscripciones consolidadas (/central/suscripciones)", () => {
     expect(screen.getByText("cobrable").className).toContain("badge-green");
     expect(screen.getByText("inactiva").className).toContain("badge-gray");
     expect(screen.getByText("1-2 de 250")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 

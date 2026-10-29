@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, failWith, mountApp, resetApp, type Call, type Handler } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Call, type Handler } from "./appHarness";
 import { page, paykuClient, paykuSubscription, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "./fixtures";
 
 afterEach(resetApp);
@@ -36,6 +36,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(screen.getAllByText("VP 1").length).toBeGreaterThan(1);
     expect(screen.getAllByRole("button", { name: "Editar" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "+ Nuevo cliente" })).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -125,6 +126,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     expect(await screen.findByRole("button", { name: "Ver ficha de plan Plan Sintético 1" })).toBeTruthy();
     expect(headers().slice(0, 9)).toEqual(["Nombre", "Monto", "Subscripciones", "Activas", "Cobrables", "Renovacion", "Estado", "Activo en POS", "Plataforma"]);
     expect(screen.getByRole("button", { name: "+ Nuevo plan" })).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -140,6 +142,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     expect(screen.getByText("inactiva").className).toContain("badge-gray");
     expect(screen.getByRole("button", { name: "+ Nueva suscripción" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Monto mínimo"), { target: { value: "5000" } });
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -161,6 +164,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     expect(headers().slice(0, 8)).toEqual(["ID subscripción", "Cliente", "RUT cliente", "Fecha de cargo", "Estado", "Monto", "Plataforma", "Acciones"]);
     expect(screen.getAllByRole("button", { name: "Cancelar" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Reintentar" })).toHaveLength(1);
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -189,6 +193,7 @@ describe("Listas Toku y Payku", () => {
     expect(headers()).toEqual(["RUT", "Nombre", "Mail", "Telefono", "Acciones"]);
     expect(lastRecordsCall(app).query.get("source")).toBe("toku");
     expect(lastRecordsCall(app).query.has("filter_field")).toBe(false);
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     const reset = screen.getByRole("button", { name: "Restablecer" }) as HTMLButtonElement;
     expect(reset.disabled).toBe(true);
@@ -245,6 +250,7 @@ describe("Listas Toku y Payku", () => {
     await appReady();
     expect(await screen.findByRole("button", { name: /Ver ficha de Suscripciones psu-1/ })).toBeTruthy();
     expect(headers()).toEqual(["ID", "Estado", "Estado sec.", "Último cobro", "RUT", "F. Inicio", "F. Cancelacion", "Acciones"]);
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 });
@@ -273,6 +279,7 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
     expect(screen.getByText("Sincronización completada")).toBeTruthy();
     expect(screen.getByLabelText("Explorar recursos")).toBeTruthy();
     expect((screen.getByLabelText("Año") as HTMLSelectElement).value).toBe("2025");
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 

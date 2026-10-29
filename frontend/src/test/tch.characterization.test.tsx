@@ -5,7 +5,7 @@
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appReady, contentHtml, failWith, mountApp, resetApp } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp } from "./appHarness";
 
 afterEach(resetApp);
 
@@ -64,6 +64,7 @@ describe("TCH: resumen (/tch/resumen)", () => {
     expect(screen.getByText("Vistas disponibles")).toBeTruthy();
     expect((screen.getByLabelText("Año TCH") as HTMLSelectElement).value).toBe("2025");
     expect(app.find("GET", "/api/v1/tch/summary")).toHaveLength(1);
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -124,6 +125,7 @@ describe("TCH: suscripciones (/tch/suscripciones)", () => {
     expect(screen.getByText("2025-03-10")).toBeTruthy();
     expect(screen.getByText("ELIMINADA").className).toContain("status-attention");
     expect(screen.getByText("1 / 3 (120 total)")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -176,6 +178,7 @@ describe("TCH: transacciones (/tch/transacciones)", () => {
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Ficha", "Período", "Entidad", "Monto", "Fecha cargo", "Cuota", "Estado"]);
     expect(screen.getByText("3/12")).toBeTruthy();
     expect(screen.getByText("RECHAZADA").className).toContain("status-attention");
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.change(screen.getByLabelText("Filtrar por período"), { target: { value: "2025-03" } });
     await waitFor(() => expect(app.find("GET", "/api/v1/tch/transacciones").at(-1)?.query.get("periodo")).toBe("2025-03"));
@@ -195,6 +198,7 @@ describe("TCH: transacciones (/tch/transacciones)", () => {
     expect(screen.getByText("Entidad Sintética")).toBeTruthy();
     expect(window.location.pathname).toBe("/tch/transacciones");
     expect(app.find("GET", "/api/v1/tch/transacciones/trx-1").length).toBeGreaterThan(0);
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(screen.getByRole("button", { name: "← Transacciones TCH" }));
     expect(await screen.findByText("Transacciones TCH")).toBeTruthy();
@@ -213,6 +217,7 @@ describe("TCH: clientes (/tch/clientes)", () => {
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["RUT", "Nombre", "Fecha nacimiento", "Profesión", "Tipo socio"]);
     expect(screen.getByText("Nombre1 Apellido1")).toBeTruthy();
     expect(screen.getByText("1 / 3 (120 total)")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(screen.getByRole("button", { name: "Siguiente →" }));
     await waitFor(() => expect(app.find("GET", "/api/v1/tch/clientes").at(-1)?.query.get("page")).toBe("2"));
@@ -237,6 +242,7 @@ describe("TCH: clientes (/tch/clientes)", () => {
     expect(screen.getByText("Mandatos asociados")).toBeTruthy();
     expect(screen.getByText("Suscripciones TCH asociadas")).toBeTruthy();
     expect(app.find("GET", "/api/v1/tch/clientes/22222221-2").length).toBeGreaterThan(0);
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 });

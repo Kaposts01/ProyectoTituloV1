@@ -3,11 +3,14 @@
  * sobre una ruta, con `fetch` simulado por tabla de rutas y una sesión sintética.
  * No contiene datos personales: todo es ficticio.
  */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, configure, render, screen, waitFor } from "@testing-library/react";
 import { expect, vi } from "vitest";
 import AppCore from "../AppCore";
 import { invalidateCache } from "../apiCache";
 import { setCsrfToken } from "../api";
+
+// Las pruebas montan la aplicación completa; con la suite en paralelo 1 s de espera por defecto se queda corto.
+configure({ asyncUtilTimeout: 4000 });
 
 export const ALL_PERMISSIONS = [
   "dashboard.view",
@@ -141,4 +144,9 @@ export function navTop(label: string): HTMLElement {
   const found = Array.from(nav.querySelectorAll(":scope > button")).find((b) => b.textContent?.trim() === label);
   if (!found) throw new Error(`Sin botón de menú «${label}»`);
   return found as HTMLElement;
+}
+
+/** Espera a que la lista de registros termine de cargar (el contador deja de decir «Cargando»). */
+export async function listSettled() {
+  await waitFor(() => expect(Array.from(document.querySelectorAll('[aria-live="polite"]')).some((el) => el.textContent === "Cargando")).toBe(false));
 }

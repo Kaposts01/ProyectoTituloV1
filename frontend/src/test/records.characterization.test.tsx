@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, failWith, mountApp, resetApp, type Handler } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Handler } from "./appHarness";
 import { page, rec, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "./fixtures";
 
 afterEach(resetApp);
@@ -40,6 +40,7 @@ describe("Ficha de cliente VirtualPOS (/virtualpos/clientes/{id})", () => {
     expect(screen.getByText("Pagos procesados")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Cancelar" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Plan Sintético 1" })).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -83,6 +84,7 @@ describe("Ficha de plan VirtualPOS (/virtualpos/planes/{id})", () => {
     expect(screen.getByText("Asociadas al plan")).toBeTruthy();
     expect(screen.getAllByText("Abrir enlace").length).toBe(1);
     expect(screen.getByRole("button", { name: "sub-1" })).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 });
@@ -102,6 +104,7 @@ describe("Ficha de suscripción VirtualPOS (/virtualpos/suscripciones/{id})", ()
     expect(screen.getAllByRole("button", { name: "Cancelar" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Reintentar" })).toHaveLength(1);
     expect(screen.getByText(/VirtualPOS no entrega un identificador de subscripción/)).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -132,6 +135,7 @@ describe("Ficha de cargo y de transacción VirtualPOS", () => {
     expect(screen.getByText("RELACIONES")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Persona1 Sintética" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "pay-1" })).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
@@ -156,6 +160,7 @@ describe("Ficha de cargo y de transacción VirtualPOS", () => {
     expect(screen.getByRole("heading", { name: "ord-1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Eliminar" })).toBeTruthy();
     expect(screen.getByText("RELACIONES")).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 });
@@ -181,6 +186,7 @@ describe("Ficha de registro Toku/Payku (/toku/clientes/{id})", () => {
     expect(screen.getByText("SUSCRIPCIONES")).toBeTruthy();
     expect(screen.getByText("Sin registros relacionados.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Gestionar estado" })).toBeTruthy();
+    await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });
 
