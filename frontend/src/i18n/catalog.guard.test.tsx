@@ -5,8 +5,11 @@
  * Excepciones documentadas (docs/engineering/i18n-frontend.md): el texto libre del proveedor y los códigos
  * técnicos se pintan crudos, dentro de un elemento con el atributo `data-raw-text`; el guardián no los mira.
  */
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ChannelDashboardView } from "../features/dashboard/ChannelDashboardView";
+import type { ChannelDashboard } from "../features/shared/types";
 import { appReady, listSettled, mountApp, resetApp, type Handler } from "../test/appHarness";
 import { page, paykuClient, tokuCustomer, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "../test/fixtures";
 import { es } from "./es";
@@ -122,4 +125,53 @@ describe("guardián: vistas de caracterización sin valores crudos en inglés", 
   it("hay al menos un caso registrado cuando el catálogo ya se usa en pantalla", () => {
     expect(Array.isArray(GUARDED_VIEWS)).toBe(true);
   });
+});
+
+type ComponentCase = { name: string; element: () => ReactElement };
+
+/** Componentes que se montan directo con datos crudos en inglés (no hace falta la aplicación completa). */
+export const GUARDED_COMPONENTS: ComponentCase[] = [];
+
+const channelData = (source: string, over: Partial<ChannelDashboard> = {}): ChannelDashboard => ({
+  source, records: 10, resources: { charge: 6, transaction: 4 }, resource_amounts: {}, statuses: [], activity_resource: "transaction", activity: [], years: [2025], last_sync: null, ...over,
+});
+const monthly = (status: string, count: number) => ({ year: 2025, month: 3, status, count, amount: count * 1000 });
+const noop = () => {};
+
+// Paso 4: barras de estado y leyendas de gráficos apilados.
+GUARDED_COMPONENTS.push(
+  {
+    name: "dashboard de canal VirtualPOS: barras de estado y leyendas de gráficos apilados",
+    element: () => (
+      <ChannelDashboardView
+        data={channelData("virtualpos", {
+          statuses: [{ resource: "charge", status: "PAID", count: 3 }, { resource: "charge", status: "FAILED", count: 2 }, { resource: "subscription", status: "ACTIVE", count: 5 }],
+          charges_monthly: [monthly("PAID", 3), monthly("FAILED", 2), monthly("PENDING", 1)],
+        })}
+        mode="count" year={2025} syncing={false} onMode={noop} onYear={noop} onOpenResource={noop} onReport={noop} onSync={noop}
+      />
+    ),
+  },
+  {
+    name: "dashboard de canal Toku: estados de transacciones",
+    element: () => (
+      <ChannelDashboardView
+        data={channelData("toku", {
+          resources: { transaction: 4, subscription: 5 },
+          statuses: [{ resource: "transaction", status: "SUCCESS", count: 3 }, { resource: "subscription", status: "ACTIVE", count: 5 }, { resource: "subscription", status: "CANCELLED", count: 1 }],
+          transactions_monthly: [monthly("SUCCESS", 3), monthly("FAILED", 1)],
+        })}
+        mode="count" year={2025} syncing={false} onMode={noop} onYear={noop} onOpenResource={noop} onReport={noop} onSync={noop}
+      />
+    ),
+  },
+);
+
+describe("guardián: componentes con datos crudos en inglés", () => {
+  for (const view of GUARDED_COMPONENTS) {
+    it(view.name, () => {
+      render(view.element());
+      expect(findRawEnglish(document.body)).toEqual([]);
+    });
+  }
 });

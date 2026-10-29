@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { normalizeStatus, statusKindColor } from "../../statusColors";
+import { label } from "../../i18n/label";
 import { statusResourceLabels } from "../shared/constants";
 import { groupStatuses, statusBarResources, type StatusRow } from "./statusBarRows";
 
@@ -39,7 +40,7 @@ export function StatusBars({
                 items.map((item) => {
                   const kind = normalizeStatus(item.status);
                   return (
-                    <div key={item.status} data-status-kind={kind} className="status-bar-segment" style={{ width: `${(item.count / total) * 100}%`, background: statusKindColor(kind) }} title={`${item.status}: ${item.count}`} />
+                    <div key={item.status} data-status-kind={kind} className="status-bar-segment" style={{ width: `${(item.count / total) * 100}%`, background: statusKindColor(kind) }} title={`${label("status", item.status)}: ${item.count}`} />
                   );
                 })
               ) : (
@@ -53,7 +54,7 @@ export function StatusBars({
                   return (
                     <span key={item.status} className="status-legend-item">
                       <i data-status-kind={kind} style={{ background: statusKindColor(kind) }} />
-                      {item.status}
+                      {label("status", item.status)}
                       <b className="mono">{item.count}</b>
                     </span>
                   );

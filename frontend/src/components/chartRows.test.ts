@@ -31,6 +31,20 @@ describe("pivotByStatus", () => {
     expect(cross.series.map((s) => s.key)).toEqual(["paid", "zzz_nuevo"]);
   });
 
+  it("la leyenda sale en español, la clave de datos sigue cruda y el color sale del valor crudo", () => {
+    const { rows, series } = pivotByStatus([
+      { year: 2025, month: 1, status: "PAID", count: 2 },
+      { year: 2025, month: 1, status: "failed", count: 1 },
+      { year: 2025, month: 1, status: "ZZ_NUEVO", count: 1 },
+      { year: 2025, month: 1, status: "Sin estado", count: 1 },
+    ]);
+    expect(Object.fromEntries(series.map((s) => [s.key, s.label]))).toEqual({
+      PAID: "Pagado", failed: "Fallido", ZZ_NUEVO: "Desconocido (ZZ_NUEVO)", "Sin estado": "Sin estado",
+    });
+    expect(rows[0]).toMatchObject({ PAID: 2, failed: 1, ZZ_NUEVO: 1 });
+    expect(series.find((s) => s.key === "PAID")?.color).toBe("var(--status-paid)");
+  });
+
   it("el color depende del estado, no de su posición alfabética", () => {
     const a = pivotByStatus([{ year: 2025, month: 1, status: "paid", count: 1 }]).series[0].color;
     const b = pivotByStatus([

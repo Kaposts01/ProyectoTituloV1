@@ -103,6 +103,7 @@ export const es = {
     cobrable: "Cobrable",
     incobrable: "Incobrable",
     chargeable: "Cobrable",
+    "sin estado": "Sin estado",
   },
   /** Estados propios de TCH (suscripciones y transacciones de los reportes Excel). */
   tchStatus: {
