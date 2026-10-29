@@ -9,6 +9,7 @@ from app.api.v1.routes import (
     etl,
     export,
     identity,
+    imports,
     recovery,
     reports,
     scheduler,
@@ -34,4 +35,5 @@ api_router.include_router(reports.router, prefix="/reports")
 api_router.include_router(scheduler.router, prefix="/scheduler", tags=["Scheduler"])
 api_router.include_router(identity.router, prefix="/core")
 api_router.include_router(billing_changes.router, prefix="/billing")
+api_router.include_router(imports.router, prefix="/imports")
 api_router.include_router(changes.router, prefix="/changes", tags=["Changes"])

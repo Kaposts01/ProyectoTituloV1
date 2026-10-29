@@ -56,6 +56,7 @@ PERMISSIONS: dict[str, str] = {
     "virtualpos.billing_changes.view": "Ver bandeja e historial de cambios de cobro VirtualPOS",
     "virtualpos.billing_policy.manage": "Configurar aprobadores de cambios de cobro VirtualPOS",
     "toku.reports.import": "Importar reportes descargados de Toku",
+    "virtualpos.reports.import": "Importar reportes PAT descargados del portal de VirtualPOS",
     "export.pii": "Exportar datos personales (RUT, nombre, correo, teléfono, dirección) en las exportaciones CSV",
 }
 
