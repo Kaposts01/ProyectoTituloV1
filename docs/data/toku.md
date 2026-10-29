@@ -84,3 +84,87 @@ Toku API
 | GAP-TK-04 | Nombre | Toku retorna un campo `name` único (no `first_name`/`last_name`). `last_name` es siempre `NULL` en `clients` para Toku. |
 | GAP-TK-05 | **BLQ-TK-01** | `flow_name` para checkout ENROLLMENT no configurado por Toku. Bloquea alta de socios nuevos. Ver `docs/integrations/toku/BLOCKER-TK-A1.md`. Estado al 2026-10-24: **sin respuesta de Toku, bloqueado**. |
 | GAP-TK-06 | Trazabilidad | `source_record_id` es `NULL` en la consolidación. |
+| GAP-TK-07 | Fechas | `suscription_date` = `recurring.anchor` (próximo cobro) y `canceled_at`/`started_at`/`ended_at` vacíos. **Corregido con los reportes (TK-PAR-05)** cuando el reporte de Productos está cargado; sin reporte se conserva el comportamiento anterior. |
+| GAP-TK-08 | Estado | La API no trae estado de cliente ni de suscripción (solo `ACTIVE`/`PAUSED` y algunos `NULL`) ni lista las eliminadas. Se resuelve con reportes y señales (TK-PAR-06/TK-20), detrás de `TOKU_REPORT_SIGNALS_ENABLED`. |
+
+## Reportes descargados del Backoffice (TK-17 a TK-20, TK-PAR-05/06)
+
+La API REST de Toku no entrega el estado de la suscripción ni del medio de pago, ni la fecha de alta real, ni lista las
+suscripciones eliminadas. El Backoffice sí lo exporta, y se carga a mano (una vez por semana, DEC-21). Código:
+`app/services/toku_report_parser.py` (lectura), `toku_report_import.py` (carga), `toku_report_lifecycle.py` y
+`core_toku_etl.py` (fechas), `toku_report_signals.py` (señales); modelos en `app/models/toku_report.py` (migraciones 0039 a
+0041). Procedimiento para el usuario: [`toku-reports-load.md`](toku-reports-load.md).
+
+### Reglas de lectura
+* El tipo de reporte se detecta por la **firma de columnas** (nombres sin tildes ni mayúsculas), no por título ni nombre de archivo.
+  Encabezado en la fila 7 (filas 1 a 6: título, fecha de generación, tipo de fecha, ventana); si el encabezado está en la
+  fila 1 la fecha de generación es «ahora» y se avisa `generated_at_fallback_now`. Columnas repetidas (p. ej. «Medio de pago»
+  en inscripciones) se leen por posición. Columnas extra se ignoran y se informan por nombre.
+* **Datos personales**: nombre, mail, celular, RUT, ID Externo, número de tarjeta, token, bin, cuenta y datos PAC **nunca se leen
+  ni se guardan**. `ID Producto` (texto libre que contiene el RUT) solo se guarda como `product_key_hash`
+  (HMAC-SHA256 con `TOKU_REPORT_HASH_PEPPER`) más el `sub_` resuelto. Sin pepper el importador se niega a cargar.
+* Idempotencia: `tk_report_files(report_type, file_sha256)` único (mismo archivo = «ya cargado»). Cada columna solo se
+  actualiza si el reporte es igual o más nuevo que el dato guardado (guarda de frescura); `deleted_at_source` nunca se «des-elimina».
+
+### Columnas que se leen
+| Reporte (`report_type`) | Columnas de la firma | Tabla | Clave natural |
+|---|---|---|---|
+| Productos (`productos`) | ID (`sub_`), Fecha de Creación, Fecha de Eliminación, ID Producto, Cliente, is_recurring, Monto, due_day, Medio de Pago, Procesador de Pago, Estado | `tk_report_products` | `subscription_external_id` |
+| Medios de pago (`medios_pago`) | ID (`pm_`), Fecha de Creación, Fecha de Eliminación, ID Producto, Tipo de Tarjeta, Marca Tarjeta, Banco Emisor, Estado, Procesador de Pago, last_payment_intent_response_code y _original_response_message | `tk_report_payment_methods` | `(payment_method_external_id, product_key_hash)` |
+| Intentos de pago (`intentos`) | ID, fechas de creación y eliminación, Cliente, Deuda, ID Producto, Fecha de Vencimiento, Monto, Estado, Código de Respuesta Toku, Procesador de Pago, Fecha de Transacción, ID Mandato (solo se guarda si existe); hoja «Códigos de Error Toku» (24 códigos) | `tk_report_attempts`, `tk_report_response_codes` | `attempt_external_id`; `code` |
+| Deudas (`deudas`) | ID, fechas, ID Producto, Fecha de Vencimiento (dd/mm/aaaa), Monto, Pagado, Anulado, Cliente, Estado | `tk_report_debts` | `debt_external_id` |
+| Inscripciones (`inscripciones`) | ID, fechas, Medio de pago, Estado transacción, Código de Respuesta (formato largo `TEPSP1001`), Estado Medio de Pago, Fecha/Estado Último Intento de Pago, id_subscription | `tk_report_inscriptions` | `inscription_external_id` |
+
+No soportados todavía (se rechazan con 422 sin leer filas): Clientes, Pagos, Liquidaciones, Facturación, Contracargos y el resto
+(TK-PAR-07 y TK-PAR-09). **`Estado` en Productos es el estado del medio de pago, no el de la suscripción**; el ciclo de vida sale
+de `Fecha de Eliminación`. `last_payment_intent_response_code` viene vacío en todos los medios: el código de rechazo por
+suscripción se obtiene del último intento fallido. Las fechas sin zona horaria son hora de Chile (`America/Santiago`).
+
+### Precedencia entre reporte y API (DEC-23)
+| Dato | Gana | Detalle |
+|---|---|---|
+| Estado de la suscripción | **Reporte** | Eliminada en el reporte → `core_subscriptions.status = 'deleted_at_source'`; viva con estado de la API vacío → `ACTIVE`; `ACTIVE`/`PAUSED` de la API se respetan (el reporte no conoce las pausas). Solo con `TOKU_REPORT_SIGNALS_ENABLED=true`. |
+| Estado del medio de pago | **Reporte** | Fila de Medios de pago (con fecha de eliminación → `deleted`); si no hay, el `Estado` del producto. |
+| Fecha de alta | **Reporte** | `core_subscriptions.started_at` y `subscriptions.suscription_date` = Fecha de Creación del producto (hora de Chile en la tabla centralizada). `recurring.anchor` de la API es el **próximo cobro**: solo queda como respaldo si la suscripción no está en el reporte. |
+| Fecha de baja | **API** si trae `end_date`; si no, el reporte | `ended_at` y `canceled_at` = `end_date` de la API; si está vacío, Fecha de Eliminación. Nunca se pisa un valor ya existente. |
+| Montos, facturas, pagos | **API** | El reporte no sobreescribe `tk_invoices`, `tk_payments` ni el monto de la suscripción (solo se usa su monto para crear las bajas que la API no lista). |
+
+La regla literal de DEC-23 dice «cuando el reporte es más reciente que el último sync de API». Se implementó la lectura práctica
+del usuario («el reporte gana para estado y medio de pago») sin comparar fechas contra el sync diario, porque un reporte semanal
+casi nunca sería más nuevo que la API. Queda como supuesto a confirmar.
+
+### Suscripciones eliminadas que la API no lista (TK-PAR-05)
+`core_toku_etl.materialize_report_dates(db, dry_run=False)` crea en `core_subscriptions` un registro de baja (`status =
+'deleted_at_source'`, la misma convención de los «stubs» de invoices huérfanas) por cada producto eliminado del reporte que no
+existe en core, con su fecha de alta, de baja, el monto del reporte y el cliente si su identidad ya existe; sin datos
+personales. Idempotente. Corre dentro de `run_toku_core_etl` y se puede invocar a mano con
+`scripts/maintenance/toku_report_lifecycle.py` (dry-run por defecto). **No** se crean en la tabla centralizada `subscriptions`
+(para no mover los KPI de MRR/ARPU hasta TK-13); sí se corrigen allí las fechas de las que ya existen.
+
+### Señales de suscripción (TK-PAR-06 y TK-20)
+`app/services/toku_report_signals.py` llena `core_subscription_signals` (una fila por suscripción core con fila en Productos)
+cuando `TOKU_REPORT_SIGNALS_ENABLED=true` (**apagada por defecto**; el recuperador todavía no las lee, REC-04).
+
+| Señal | Regla |
+|---|---|
+| `lifecycle_status` | `deleted` si el producto tiene Fecha de Eliminación; si no, `active` |
+| `is_chargeable` | estado del medio de pago = `chargeable` |
+| `is_effectively_active` | `active` **y** cobrable (DEC-18) |
+| `consecutive_failed_debts` | racha de **cuotas** impagas «en firme» (DEC-16), de la más nueva hacia atrás. Una cuota es una deuda; está en firme si no se pagó ni se anuló y (algún intento terminó con código **2070**, o el último intento fue hace `TOKU_REPORT_FIRM_UNPAID_DAYS` días o más —7 por defecto, supuesto a confirmar— respecto a la fecha del reporte, o nunca hubo intento y venció hace esos días). Las cuotas con reintentos aún posibles o en proceso ni cuentan ni cortan la racha; una cuota pagada la corta |
+| `consecutive_failed_attempts` | intentos fallidos seguidos (solo informativo; 3 intentos de una cuota **no** son una racha de 3) |
+| tarjeta bloqueada | último intento fallido con 1019, 1051 o 2043 (sin pago posterior), o medio `permanent_failed` |
+| tarjeta vencida | último intento fallido con 1010, 2044 o 2063 |
+| `is_recoverable` / `recoverable_reason` | suscripción `active` y (bloqueada → `blocked_card`, vencida → `expired_card`, racha ≥ 3 → `streak`; prioridad en ese orden). Un medio con falla temporal sin racha no es recuperable (DEC-25) |
+| `last_response_code`, `last_response_severity`, `last_attempt_at` | del último intento fallido / último intento |
+| `report_generated_at`, `computed_at` | fecha de generación del reporte y del cálculo |
+
+Los códigos 1051, 2043 y 2044 vienen del catálogo oficial de Toku (DEC-24) y no están entre los 24 de la hoja de los reportes.
+El corte de «hace N días» es la fecha de generación más reciente de los reportes cargados. Deudas e Intentos deben estar
+cargados con fechas parecidas para que la racha sea fiable (sin Deudas, una cuota sin intentos no se ve).
+
+### Ruta de subida
+`POST /api/v1/imports/toku-reports` (multipart, campo `report`, `.xlsx`, máx. 100 MB, `X-CSRF-Token`; permiso `toku.reports.import`,
+solo `admin`). Respuestas: `200` resumen de contadores; `409 already_loaded` (mismo sha256) o `load_in_progress`; `413 too_large`;
+`422 invalid_format` (también tipo no soportado); `503 pepper_not_configured`; `500 import_failed` (con etiqueta técnica).
+Cada intento queda en `write_runs` (`source = toku`, `operation = import_report`) con tipo, nombre, sha256 y contadores, sin
+contenido. Aviso `stale_report` si el archivo es más viejo que el dato guardado (esas filas no se aplican). Aún no hay pantalla.
