@@ -94,6 +94,7 @@ from app.models.vp_report import (  # noqa: F401
     VpReportPayment,
     VpReportSubscription,
 )
+from app.models.webhook_event import WebhookEvent  # noqa: F401
 from app.models.write_run import WriteRun  # noqa: F401
 
 config = context.config
