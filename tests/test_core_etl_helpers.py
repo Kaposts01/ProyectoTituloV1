@@ -149,29 +149,35 @@ class TestVpParseAmount:
 # ── TCH _resolve_currency ────────────────────────────────────────────────────
 
 class TestResolveCurrency:
-    def _sub(self, reajuste: str | None) -> SimpleNamespace:
-        return SimpleNamespace(reajuste=reajuste)
+    """TCH-PAR-05: la moneda sale de "Moneda Vigente" (Pesos / UF), no del campo reajuste."""
 
-    def test_returns_uf_when_reajuste_is_uf_uppercase(self):
-        assert _resolve_currency(self._sub("UF")) == "UF"  # type: ignore[arg-type]
+    def _sub(self, reajuste: str | None = None, payload: dict | None = None) -> SimpleNamespace:
+        return SimpleNamespace(reajuste=reajuste, raw_payload=payload)
 
-    def test_returns_uf_when_reajuste_is_uf_lowercase(self):
-        assert _resolve_currency(self._sub("uf")) == "UF"  # type: ignore[arg-type]
+    def test_returns_uf_when_moneda_vigente_is_uf(self):
+        sub = self._sub(payload={"moneda_vigente": "UF"})
+        assert _resolve_currency(sub) == "UF"  # type: ignore[arg-type]
 
-    def test_returns_uf_when_reajuste_has_whitespace(self):
-        assert _resolve_currency(self._sub("  UF  ")) == "UF"  # type: ignore[arg-type]
+    def test_returns_clp_when_moneda_vigente_is_pesos(self):
+        sub = self._sub(payload={"moneda_vigente": "Pesos"})
+        assert _resolve_currency(sub) == "CLP"  # type: ignore[arg-type]
 
-    def test_returns_clp_when_reajuste_is_clp(self):
-        assert _resolve_currency(self._sub("CLP")) == "CLP"  # type: ignore[arg-type]
+    def test_reads_moneda_vigente_from_raw_columns_already_loaded(self):
+        # Filas cargadas antes de este cambio solo traen el rotulo crudo de la columna.
+        sub = self._sub(payload={"('MANDATO ACTUAL', 'Moneda Vigente')": " uf "})
+        assert _resolve_currency(sub) == "UF"  # type: ignore[arg-type]
 
-    def test_returns_clp_when_reajuste_is_none(self):
-        assert _resolve_currency(self._sub(None)) == "CLP"  # type: ignore[arg-type]
+    def test_reajuste_uf_no_longer_decides_the_currency(self):
+        sub = self._sub(reajuste="UF", payload={"moneda_vigente": "Pesos"})
+        assert _resolve_currency(sub) == "CLP"  # type: ignore[arg-type]
 
-    def test_returns_clp_when_reajuste_is_empty(self):
-        assert _resolve_currency(self._sub("")) == "CLP"  # type: ignore[arg-type]
+    def test_reajuste_si_with_moneda_uf_is_uf(self):
+        sub = self._sub(reajuste="SI", payload={"moneda_vigente": "UF"})
+        assert _resolve_currency(sub) == "UF"  # type: ignore[arg-type]
 
-    def test_returns_clp_for_other_values(self):
-        assert _resolve_currency(self._sub("PESOS")) == "CLP"  # type: ignore[arg-type]
+    @pytest.mark.parametrize("payload", [None, {}, {"moneda_vigente": None}, {"moneda_vigente": ""}])
+    def test_returns_clp_when_there_is_no_currency_information(self, payload):
+        assert _resolve_currency(self._sub(payload=payload)) == "CLP"  # type: ignore[arg-type]
 
 
 # ── Core model structure ─────────────────────────────────────────────────────

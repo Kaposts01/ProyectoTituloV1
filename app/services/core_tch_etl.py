@@ -51,9 +51,35 @@ def _parse_amount(value: str | None) -> Decimal | None:
         return None
 
 
+def normalize_tch_currency(value: object) -> str | None:
+    """Convierte el texto de "Moneda Vigente" ("Pesos", "UF", ...) a codigo de moneda."""
+    text = str(value).strip().upper() if value is not None else ""
+    if not text:
+        return None
+    if text == "UF" or text.split()[0] == "UF":
+        return "UF"
+    if text in {"CLP", "$"} or text.startswith("PESO"):
+        return "CLP"
+    if text in {"USD", "US$"} or text.startswith("DOLAR") or text.startswith("DÓLAR"):
+        return "USD"
+    return None
+
+
 def _resolve_currency(suscripcion: TchSuscripcion) -> str:
-    reajuste = (suscripcion.reajuste or "").strip().upper()
-    return "UF" if reajuste == "UF" else "CLP"
+    """Moneda del mandato desde "Moneda Vigente" (TCH-PAR-05); CLP si el reporte no la trae.
+
+    El campo ``reajuste`` ("SI" o vacio) indica reajuste del monto, no la moneda.
+    ``tch_suscripciones`` no tiene columna ``moneda``: se lee del payload, donde el ETL deja la
+    clave ``moneda_vigente`` y, en filas cargadas antes, el rotulo crudo de la columna.
+    """
+    payload = getattr(suscripcion, "raw_payload", None) or {}
+    value = payload.get("moneda_vigente")
+    if value is None:
+        for key, raw in payload.items():
+            if "moneda vigente" in str(key).lower():
+                value = raw
+                break
+    return normalize_tch_currency(value) or "CLP"
 
 
 # ── Paso 1: atributos de cliente ──────────────────────────────────────────────

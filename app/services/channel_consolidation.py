@@ -36,6 +36,7 @@ from app.models.toku_channel import (
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
 from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
+from app.services.core_tch_etl import _resolve_currency as _resolve_tch_currency
 from app.services.vp_current_amount import load_monto_vigente
 
 logger = logging.getLogger(__name__)
@@ -553,7 +554,7 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
             "suscription_date": t.fecha_activacion,
             "canceled_at": t.fecha_eliminacion,
             "amount": t.monto,
-            "currency": "CLP",
+            "currency": _resolve_tch_currency(t),
             "raw_payload": t.raw_payload,
         })
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))

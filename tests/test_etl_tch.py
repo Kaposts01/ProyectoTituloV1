@@ -329,3 +329,37 @@ def test_transform_historial_cargos_normalizes_cuota_like_cargos() -> None:
     rows = etl_tch._transform_historial_cargos(frame, "x.xlsx")
     assert {r["numero_cuota"] for r in rows} == {"12"}
     assert {r["dedupe_key"] for r in rows} == {"101|2026-01|12|ACEPTADA|12000"}
+
+
+# --- TCH-PAR-05: monto y moneda de la suscripcion salen de "Monto Vigente" / "Moneda Vigente" ---
+
+def _vigentes_frame(ingreso, monto, moneda) -> pd.DataFrame:
+    columnas = [
+        ("Ficha DUES", "Ficha DUES"),
+        ("SOCIO", "Rut"),
+        ("ANTECEDENTES Y ESTADO MANDATO", "Ingreso"),
+        ("MANDATO ACTUAL", "Moneda Vigente"),
+        ("MANDATO ACTUAL", "Monto Vigente"),
+        ("MANDATO ACTUAL", "Equivalente en Pesos"),
+    ]
+    return pd.DataFrame([[101, "12345678-9", ingreso, moneda, monto, 12000]], columns=pd.MultiIndex.from_tuples(columnas))
+
+
+def test_transform_suscripciones_monto_comes_from_monto_vigente_not_ingreso() -> None:
+    # "Ingreso" es una fecha: antes alimentaba monto y dejaba NULL el 100 % de las suscripciones.
+    frame = _vigentes_frame(pd.Timestamp("2024-03-15"), 12000, "Pesos")
+    row = etl_tch._transform_suscripciones(frame, "VIGENTE")[0]
+    assert row["monto"] == "12000"
+    assert row["equivalente_pesos"] == "12000"
+
+
+def test_transform_suscripciones_monto_is_none_when_monto_vigente_is_empty() -> None:
+    frame = _vigentes_frame(pd.Timestamp("2024-03-15"), None, "Pesos")
+    assert etl_tch._transform_suscripciones(frame, "VIGENTE")[0]["monto"] is None
+
+
+@pytest.mark.parametrize(("moneda", "esperada"), [("Pesos", "CLP"), ("UF", "UF"), (" uf ", "UF"), (None, None)])
+def test_transform_suscripciones_keeps_moneda_vigente_in_raw_payload(moneda, esperada) -> None:
+    frame = _vigentes_frame(pd.Timestamp("2024-03-15"), 12000, moneda)
+    row = etl_tch._transform_suscripciones(frame, "VIGENTE")[0]
+    assert row["raw_payload"].get("moneda_vigente") == esperada

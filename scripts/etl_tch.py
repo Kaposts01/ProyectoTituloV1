@@ -36,6 +36,7 @@ from app.models.tch import (
     TchTipoMandato,
     TchTransaccion,
 )
+from app.services.core_tch_etl import normalize_tch_currency
 from app.services.payload_sanitization import sanitize_payload
 
 logging.basicConfig(
@@ -399,7 +400,9 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
     c_banco = _find_col(df, "banco") or _find_col(df, "institucion")
     c_tipo_cuenta = _find_col(df, "tipo", "cuenta")
     c_num_cuenta = _find_col(df, "numero", "cuenta")
-    c_monto = _find_col(df, "antecedentes", "ingreso") or _find_col(df, "monto", "vigente")
+    # "Ingreso" (grupo ANTECEDENTES) es una fecha; el monto del mandato es "Monto Vigente" (MANDATO ACTUAL).
+    c_monto = _find_col(df, "monto", "vigente")
+    c_moneda = _find_col(df, "moneda", "vigente")
     c_equivalente_pesos = _find_col(df, "equivalente", "pesos")
     c_factivacion = _find_col(df, "activac")
     c_fentrega = _find_col(df, "entrega", "banco")
@@ -423,6 +426,8 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
         rut = _norm_rut(_col_val(row, c_rut))
 
         raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
+        # tch_suscripciones no tiene columna moneda: la moneda normalizada viaja en el payload.
+        raw["moneda_vigente"] = normalize_tch_currency(_col_val(row, c_moneda))
 
         sus = {
             "numero_ficha": ficha,
