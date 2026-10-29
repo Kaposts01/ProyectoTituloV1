@@ -1,6 +1,6 @@
 # Baja en cascada de suscripciones: lo hecho y lo que falta (familia MGT)
 
-> Estado: en curso · Creado: 2026-10-29 (Sprint 5, rama `sprint-5/sync-confiable`) · Alcance: baja de suscripciones por canal (VirtualPOS, Toku, Payku; TCH sin API).
+> Estado: en curso (tanda 1 de MGT hecha; MGT-07 a MGT-10 y MGT-16 hechas en backend en la tanda 2: ver §5) · Creado: 2026-10-29 (Sprint 5, rama `sprint-5/sync-confiable`) · Alcance: baja de suscripciones por canal (VirtualPOS, Toku, Payku; TCH sin API).
 > Fuente de la auditoría: informe `audit_management` del 2026-10-29 (solo lectura; hallazgos 1 a 12 y tareas MGT-01 a MGT-17). Este documento registra lo implementado en la tanda de backend y lo que sigue del diseño unificado. El plan y el estado de cada tarea viven en `docs/tasks.md` (no se reestructura aquí).
 
 ## 1. Hecho en esta tanda (backend)
@@ -22,7 +22,9 @@
 - **VirtualPOS:** la baja puede responder 409 (lock tomado o solicitud `aplicando`/`requiere_conciliacion`) y ahora tarda más (relectura de la suscripción y sus cobros). El frontend actual solo lee `external_id` y `status`, por lo que los campos nuevos no lo rompen.
 - No hay migraciones en esta tanda.
 
-## 2. Lo que falta del diseño unificado (MGT-07 en adelante)
+## 2. Lo que faltaba del diseño unificado (MGT-07 en adelante)
+
+> Actualización: MGT-07, MGT-08, MGT-09, MGT-10 y MGT-16 quedaron implementados en backend en la tanda 2 (ver §5); esta tabla se conserva como registro de la auditoría. Siguen pendientes MGT-11 a MGT-15 y MGT-17 (ver §5.8).
 
 | Tarea | Pendiente | Nota |
 |---|---|---|
@@ -43,6 +45,8 @@ Pendientes menores detectados:
 
 ## 3. Decisiones que siguen siendo del usuario
 
+> Resueltas el 2026-10-29: 1 (tabla nueva, §5.1), 2 (D12: jefatura solicita; admin o jefatura aprueban; ejecutivo lee), 4 (Toku: PAUSED/`end_date`, no DELETE), 6 (botones directos solo admin, §5.5). Siguen abiertas: 3 (medios de pago), 5 (responsable bancario de TCH), 7 (monto Payku) y 8 (aprobar MGT-05 en producción).
+
 1. Modelo de solicitudes de baja: extender `billing_change_requests` (recomendado) o tabla nueva.
 2. Quién solicita y quién aprueba bajas.
 3. Medios de pago: eliminarlos o conservarlos por trazabilidad (VP no tiene API).
@@ -52,7 +56,8 @@ Pendientes menores detectados:
 7. Cambio de monto de Payku: tarea manual o suscripción nueva.
 8. Aprobar el cambio de comportamiento de MGT-05 en producción (ya implementado en código, aún sin desplegar).
 
-### Permisos «fantasma» (MGT-02): decisión pendiente del usuario, NO sembrados
+### Permisos «fantasma» (MGT-02): D28 = NO sembrarlos (decidido por el usuario)
+Se conservan inalcanzables; el flujo nuevo de bajas no depende de ellos y un test (`tests/test_cancellation_permissions.py`) lo vigila. Texto original de la tanda 1:
 Las rutas `DELETE /writes/virtualpos/payments/{id}`, `PUT /writes/toku/invoices/{id}` y `DELETE /writes/toku/invoices/{id}` exigen los permisos `virtualpos.payments.cancel`, `toku.invoices.update` y `toku.invoices.delete`, que **no existen** en `app/services/rbac.py` (`PERMISSIONS`) ni en las migraciones: nadie, ni `admin`, puede usarlas salvo inserción manual en la base. Esta tanda **no** los siembra ni los retira. Alternativas:
 - A (recomendada si se quieren usar): sembrarlos en `rbac.PERMISSIONS` con una migración de datos que los asigne a `admin` (la ejecuta el usuario) y tests.
 - B: retirar las tres rutas (y sus botones, si existen) por ser superficie de escritura sin uso real.
@@ -75,3 +80,58 @@ Decisión (recomendada en el informe como «extender», **cambiada a tabla nueva
 
 ### 5.2 Permisos y roles (MGT-16)
 Permisos nuevos (migración `20261029_0050`, sembrados en `rbac.PERMISSIONS`): `subscriptions.cancellation.request`, `.approve` y `.view`. Matriz (D12): `admin` y `jefatura` solicitan y aprueban; `soporte`, `ejecutivo` y `coordinador` solo ven (y `jefatura`/`admin` también ven). Si un rol no existe en la base, la migración no falla ni lo crea. **`coordinador`** no tiene permisos definidos en el código (manda la base de datos); lo único garantizado hoy es la lectura de las solicitudes de baja: no solicita ni aprueba. Los permisos «fantasma» (D28) siguen sin sembrarse y el flujo nuevo no depende de ellos (un test lo vigila).
+
+### 5.3 Ejecutores por canal (MGT-08/09/10 y TCH)
+`apply_cancellation_request` (`app/services/cancellation_apply.py`) reutiliza el esqueleto de `billing_apply`: banderas, D30 e irreversibilidad se comprueban **antes** de cambiar de estado (la solicitud sigue `approved`); lock por suscripción (`billing_apply.subscription_lock`) y transición atómica `approved → applying`; revalida que la suscripción siga activa (si no, `not_executable`); y ejecuta en este orden: **detener la suscripción → cancelar cobros pendientes → medio de pago**. Cada paso se persiste en `steps` (con evento inmutable `step_completed|step_failed|step_manual`) y se verifica releyendo el proveedor (`refresh_subscription`). Parada en el **primer fallo**:
+- Fallo **sin** pasos previos hechos: `failed` (reintentable).
+- Fallo **con** pasos hechos (las bajas de VirtualPOS/Payku y los void de Toku son irreversibles): `requires_reconciliation` + `requires_reconciliation = true`; nunca se revierte lo hecho.
+- `reopen` (solo aprobador, comentario obligatorio) devuelve la solicitud a `approved` **conservando los pasos hechos**; el siguiente `apply` reanuda desde el paso fallido y no repite lo ya hecho (idempotente). `apply` sobre una solicitud `completed` o `pending_external` es un no-op.
+- `dry_run=true` calcula el plan (pasos por hacer, bloqueos, facturas a anular en Toku) sin reclamar la solicitud ni escribir.
+- Autoaprobación auditada (evento `self_approved`) según la política de la Opción A; la doble aprobación está **apagada** por defecto y, con una sola suscripción por solicitud, nunca exige dos aprobaciones.
+- `sweep_stuck_applying` pasa a `requires_reconciliation` las solicitudes atascadas en `applying` más de 30 min (función lista; ver §5.8 sobre el job).
+
+| Canal | Paso 1: detener | Paso 2: cobros pendientes | Paso 3: medio de pago |
+|---|---|---|---|
+| VirtualPOS | `cancel_subscription_with_outcome` (MGT-03/04, `lock_held=True` para no retomar el lock): DELETE de la suscripción, cierra solicitudes de la Opción A abiertas como `no_ejecutable`, retira la marca de calendario | Los pendientes los cancela el proveedor al dar de baja; se verifica con `refresh_subscription` y, si queda alguno, se cancela **por `charge_id`** (nunca el DELETE plural). Un cobro `procesando` no se cancela: `PROCESSING_CHARGES` → conciliación | **Tarea manual** registrada (`VP_NO_PAYMENT_METHOD_API`): VirtualPOS no tiene API |
+| Toku | **PAUSED** (por defecto) o **`end_date`** (D12: reversible, NUNCA DELETE). Antes de tocar nada se lee el proveedor y, si alguna factura está `in_progress`, la baja se **niega** (D30, `INVOICE_IN_PROGRESS`, 409, la solicitud sigue `approved`) | `void` de cada factura impaga (irreversible), fail-closed (`INVOICE_LIST_FAILED`, `INVOICE_VOID_FAILED`) y verificación sin pendientes | **Tarea manual** registrada (`TOKU_PAYMENT_METHOD_DECISION_PENDING`): la eliminación del medio de pago de Toku (`DELETE payment-methods` si no es compartido) sigue pendiente de decisión (MGT-11) |
+| Payku | `DELETE /api/sususcription/{id}` (**irreversible**: exige `confirm_irreversible = true` en la solicitud; un CHECK de base lo impone) | Payku no tiene API para cuotas: solo se verifica con `refresh_subscription`; si quedan `pending/retry` → `PENDING_CHARGES_REMAIN` → conciliación manual | **No se eliminan tarjetas** (Q-09 sin validar): tarea manual (`PAYKU_CARD_DELETE_Q09_UNVALIDATED`) |
+| TCH | `register_internal`: la solicitud aprobada pasa a **`pending_external`** («en trámite»); sin proveedor ni `write_run` | n/a | `bank_mandate`: **tarea manual** (revocar el mandato en el banco; `TCH_BANK_MANDATE_OUTSIDE_CRM`) |
+
+TCH: `close_tch_cancellations_from_report` cierra (`completed`, evento `closed_by_report`) las solicitudes `pending_external` cuya ficha ya trae `fecha_eliminacion` en `tch_suscripciones`. Mientras está «en trámite» la solicitud ocupa el cupo de una solicitud abierta por ficha. **Solo están el modelo y el cierre**: falta invocarlo al final del ETL/importación del Excel de TCH y la exportación para tesorería/banco (ver §5.8).
+
+### 5.4 API `/api/v1/cancellations`
+`POST /preview`, `POST` (crear, 201), `GET` (filtros: estado, canal, suscripción, solicitante, fechas), `GET /{id}`, `GET /{id}/events`, `POST /{id}/approve|reject|withdraw|reopen|apply`. Permisos: crear, vista previa y retirar exigen `subscriptions.cancellation.request`; aprobar, rechazar, reabrir y aplicar exigen `...approve`; leer exige `...view`. Retirar solo lo hace el solicitante o un admin (403 antes que 409). El actor sale siempre del token; los cuerpos rechazan campos extra; toda escritura exige CSRF. Errores `detail={code,message,...}` con mensajes fijos y sin eco de valores. Códigos HTTP: 409 `open_request_exists`, `invalid_request_state`, `subscription_busy`, `INVOICE_IN_PROGRESS`; 403 `writes_disabled`, `not_approver`, `self_approval_not_allowed`; 422 validación (`irreversibility_confirmation_required`, `comment_required`); 502 `apply_failed` (solicitud `failed`); 503 `reconciliation_required` (solicitud `requires_reconciliation`).
+
+### 5.5 Cambio de comportamiento: botones directos de baja de `/writes/*` (decisión D12-7)
+`DELETE /writes/virtualpos/subscriptions/{id}`, `DELETE /writes/toku/subscriptions/{id}`, `DELETE /writes/payku/subscriptions/{id}` y `POST /writes/toku/subscriptions/{id}/status` con `status = CANCELLED` exigen ahora el **rol `admin`** además de su permiso. Quien tuviera solo el permiso (p. ej. una jefatura con `virtualpos.subscriptions.cancel` en la base) recibe 403: debe usar `/cancellations`. Pausar o reactivar en Toku no cambia. El frontend actual muestra esos botones según permisos: otra sesión debe ocultarlos a quien no sea admin (MGT-15).
+
+### 5.6 Matriz canal × acción (estado final de esta tanda)
+| Acción | VirtualPOS | Toku | Payku | TCH |
+|---|---|---|---|---|
+| Solicitar / aprobar baja | `/cancellations` (jefatura y admin) | igual | igual | igual |
+| Baja de la suscripción | Automática (DELETE, irreversible) | Automática: PAUSED o `end_date` (reversible) | Automática: DELETE (irreversible, confirmación explícita) | **Interna**: «en trámite»; cierre al llegar el Excel con la ficha eliminada |
+| Cancelar cobros pendientes | Implícita + verificación + por `charge_id`; `procesando` → conciliación | `void` de impagas (fail-closed); `in_progress` **niega** la baja (D30) | Solo verificación (sin API) | n/a |
+| Eliminar medio de pago | **Manual** (sin API) | **Manual** (decisión pendiente, MGT-11) | **Manual** (Q-09 sin validar) | **Manual** (mandato en el banco) |
+| Cambio de monto | Opción A (sin cambios) | **Pendiente** (MGT-12) | **Pendiente**: manual (MGT-14) | **Pendiente** (MGT-13) |
+| Verificación posterior | `refresh_subscription` | `refresh_subscription` | `refresh_subscription` | Excel (`fecha_eliminacion`) |
+| Directo `/writes/*` | Solo admin | Solo admin (DELETE y CANCELLED) | Solo admin | n/a |
+
+### 5.7 Pasos manuales (quedan registrados como paso `manual` de la solicitud)
+1. VirtualPOS: bloquear/retirar la tarjeta en el portal de VirtualPOS si corresponde (no hay API).
+2. Toku: decidir si se elimina el medio de pago y hacerlo desde el backoffice si el medio no es compartido.
+3. Payku: eliminar la tarjeta en el portal (la API `suscriptionsdeletecards` no se usa hasta validar Q-09).
+4. TCH: tramitar la revocación del mandato en el banco (responsable y plazo: decisión pendiente del usuario) y cargar el siguiente Excel.
+
+### 5.8 Pendientes y límites (no resueltos en esta tanda)
+- **Jobs**: `expire_pending_cancellation_requests` y `sweep_stuck_applying` (de baja) existen y están probadas, pero **no están registradas en el scheduler** (los tests del scheduler fijan los jobs de la Opción A). Hasta registrarlas, una solicitud `pending` no expira sola y una `applying` atascada solo se destraba llamando al barredor.
+- **TCH**: falta invocar `close_tch_cancellations_from_report` tras la importación del Excel y la exportación para tesorería (sin PAN); la baja TCH no descuenta aún del churn mientras está «en trámite».
+- **MGT-11** (eliminar medios de pago: Toku `DELETE payment-methods` si no es compartido, Payku tras Q-09), **MGT-12** (monto Toku), **MGT-13** (exportación TCH), **MGT-14** (monto Payku manual), **MGT-15** (interfaz unificada y ocultar los botones directos a quien no sea admin) y **MGT-17** (pruebas de contrato en sandbox): sin hacer.
+- La vista previa de la cascada se calcula con la **última sincronización local**; el ejecutor relee el proveedor antes de actuar. No se ha probado nada contra proveedores reales: todo con fakes (el sandbox de Toku comparte host con producción).
+- Quien aprueba bajas es quien tiene `subscriptions.cancellation.approve` (admin y jefatura); **no** se usa la lista `approver_roles` de `billing_policy` (esa es de la Opción A y por defecto solo incluye `admin`). De la política compartida se reutilizan autoaprobación, doble aprobación y expiración.
+- Estados de la Opción A siguen en español (D38 pendiente); los de bajas están en inglés.
+
+### 5.9 Qué debe hacer el usuario
+1. **Respaldar `crm`** (`pg_dump`; no está en el `PATH`) y aplicar `alembic upgrade head` (20261029_0050 y 0051; head único `20261029_0051`). Sin esto, `/cancellations` falla (tablas inexistentes) y los permisos no existen.
+2. Correr `scripts/maintenance/seed_roles.py` en `crm`: crea `ejecutivo` (con `subscriptions.cancellation.view`), agrega la vista a `soporte`, los tres permisos a `admin` y, **si ya existen**, los permisos de baja a `jefatura` y `coordinador` (nunca crea roles ni quita permisos). La migración 0050 hace lo mismo para los roles existentes al aplicarse. **Verificar** que existan `jefatura` y `coordinador`; si no existen, créelos desde el panel de roles y vuelva a correr `seed_roles.py`.
+3. Informar a las jefaturas que las bajas se piden en `/cancellations` (la pantalla llega con MGT-15) y que el botón directo de baja es solo para admin.
+4. Decidir: responsable bancario y plazo de la baja TCH, eliminación de medios de pago de Toku, y si se registran los jobs de expiración y barrido.

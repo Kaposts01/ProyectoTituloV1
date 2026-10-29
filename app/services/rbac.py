@@ -153,12 +153,34 @@ def _ensure_role(db: Session, name: str, description: str, wanted: set[str]) -> 
     return len(role.permissions)
 
 
+def ensure_cancellation_grants(db: Session) -> dict[str, int]:
+    """Agrega los permisos de baja (`CANCELLATION_ROLE_GRANTS`) a los roles que YA existen; nunca crea roles ni quita
+    permisos. Idempotente. Equivale a la migracion 20261029_0050 y sirve para roles creados despues de aplicarla
+    (p. ej. `jefatura` o `coordinador`). Devuelve {rol_existente: permisos_agregados}."""
+    wanted = {code for codes in CANCELLATION_ROLE_GRANTS.values() for code in codes}
+    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted))).all()}
+    added: dict[str, int] = {}
+    for role_name, codes in CANCELLATION_ROLE_GRANTS.items():
+        role = db.scalar(select(Role).where(Role.name == role_name))
+        if role is None:
+            continue
+        present = {p.code for p in role.permissions}
+        missing = sorted(code for code in codes if code not in present and code in by_code)
+        for code in missing:
+            role.permissions.append(by_code[code])
+        added[role_name] = len(missing)
+    db.flush()
+    return added
+
+
 def seed_default_roles(db: Session) -> dict[str, int]:
     """Crea los roles `soporte` y `ejecutivo` o les agrega los permisos faltantes (nunca quita). Idempotente.
 
-    No modifica admin/coordinador/jefatura. Devuelve {nombre_de_rol: cantidad_de_permisos}.
+    No modifica admin/coordinador/jefatura, salvo por agregarles los permisos de BAJA de suscripciones si el rol ya
+    existe (`ensure_cancellation_grants`). Devuelve {nombre_de_rol: cantidad_de_permisos} de soporte y ejecutivo.
     """
     seed_permissions(db)
+    ensure_cancellation_grants(db)
     return {
         SUPPORT_ROLE_NAME: _ensure_role(db, SUPPORT_ROLE_NAME, SUPPORT_ROLE_DESCRIPTION, support_permission_codes()),
         EXECUTIVE_ROLE_NAME: _ensure_role(

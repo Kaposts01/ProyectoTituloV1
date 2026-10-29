@@ -126,3 +126,20 @@ def test_migration_0050_is_idempotent_and_does_not_create_missing_roles(db_sessi
         p.code for p in db_session.scalars(select(Permission).where(Permission.code.like("subscriptions.cancellation.%")))
     ]
     assert sorted(codes) == sorted({REQ, APPR, VIEW})
+
+
+def test_seed_roles_script_path_grants_cancellation_to_existing_roles_only(db_session) -> None:
+    """`seed_roles.py` (seed_default_roles) completa los permisos de baja de los roles que ya existen y no crea
+    `jefatura` ni `coordinador` si faltan; es idempotente."""
+    existing = set(db_session.scalars(select(Role.name)))
+    if "jefatura" not in existing:
+        db_session.add(Role(name="jefatura"))
+        db_session.flush()
+    rbac.seed_default_roles(db_session)
+    again = rbac.ensure_cancellation_grants(db_session)
+    db_session.expire_all()
+    assert _grants(db_session, "jefatura") == {REQ, APPR, VIEW}
+    assert _grants(db_session, "ejecutivo") == {VIEW} and _grants(db_session, "soporte") == {VIEW}
+    assert all(n == 0 for n in again.values())  # segunda corrida: nada que agregar
+    if "coordinador" not in existing:
+        assert _grants(db_session, "coordinador") is None  # no se crea
