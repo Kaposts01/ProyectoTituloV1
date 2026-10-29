@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     targeted_reconcile_rejection_days: int = 15  # rechazo reciente = cobro rechazado de los ultimos N dias
     # RJ-15: materializa los intentos FAILED de Toku como core_payments (source_status='FAILED'). APAGADA por defecto.
     toku_materialize_failed_payments: bool = False
+    # TK-20: senales de suscripcion desde los reportes (activa efectiva, racha por cuotas, tarjeta bloqueada/vencida)
+    # y estado reporte > API. Apagada por defecto: el recuperador todavia no las lee (REC-04).
+    toku_report_signals_enabled: bool = False
+    toku_report_firm_unpaid_days: int = 7  # dias sin intento para que una cuota fallida quede «en firme» (DEC-16)
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""

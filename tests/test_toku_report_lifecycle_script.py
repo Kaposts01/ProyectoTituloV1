@@ -35,6 +35,21 @@ def test_dry_run_is_default_and_writes_nothing(script, db_session, capsys):  # n
     assert _count(db_session, sub) is None
 
 
+def test_signals_dry_run_prints_counts_only_and_apply_writes_them(script, db_session, capsys):  # noqa: F811
+    from app.models.toku_report import CoreSubscriptionSignal
+
+    sub = uid("sub")
+    World(db_session).product(sub, pm_status="permanent_failed", deleted=datetime(2025, 1, 15, 15, 0, tzinfo=UTC))
+    db_session.commit()  # el dry-run termina con rollback: los datos de arranque deben estar confirmados
+    assert script.main(["--signals"], session_factory=lambda: db_session) == 0
+    out = capsys.readouterr().out
+    assert "Senales" in out and "recoverable" in out and sub not in out
+    assert db_session.scalar(select(CoreSubscriptionSignal).where(CoreSubscriptionSignal.external_id == sub)) is None
+    assert script.main(["--signals", "--apply"], session_factory=lambda: db_session) == 0
+    signal = db_session.scalar(select(CoreSubscriptionSignal).where(CoreSubscriptionSignal.external_id == sub))
+    assert signal is not None and signal.lifecycle_status == "deleted" and not signal.is_recoverable
+
+
 def test_apply_creates_the_baja_record(script, db_session, capsys):  # noqa: F811
     sub = uid("sub")
     World(db_session).product(sub, deleted=datetime(2025, 1, 15, 15, 0, tzinfo=UTC))

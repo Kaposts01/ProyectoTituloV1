@@ -38,6 +38,7 @@ from app.services.core_materialization import materialize_core_clients
 from app.services.toku_failed_payments import materialize_failed_toku_payments
 from app.services.toku_rejection_projection import project_toku_rejections
 from app.services.toku_report_lifecycle import report_product_dates
+from app.services.toku_report_signals import compute_report_signals
 
 log = logging.getLogger(__name__)
 
@@ -474,6 +475,16 @@ def run_toku_core_etl(db: Session) -> dict[str, int]:
         log.exception("Toku Core ETL — no se pudieron aplicar las fechas del reporte de Productos")
     log.info("Toku Core ETL — fechas del reporte: %s", report_dates)
 
+    report_signals: dict | None = None
+    if settings.toku_report_signals_enabled:  # TK-20: apagada por defecto; ver toku_report_signals.py
+        log.info("Toku Core ETL — señales y estado desde los reportes")
+        try:
+            with db.begin_nested():
+                report_signals = compute_report_signals(db)
+        except Exception:
+            log.exception("Toku Core ETL — no se pudieron calcular las señales de los reportes")
+            report_signals = {"error": True}
+
     log.info("Toku Core ETL — materializando cargos (invoices)")
     charges = _materialize_charges(db)
     log.info("Toku Core ETL — cargos upserted: %d", charges)
@@ -511,4 +522,6 @@ def run_toku_core_etl(db: Session) -> dict[str, int]:
     }
     if failed_written is not None:
         result["failed_payments_materialized"] = failed_written
+    if report_signals is not None:
+        result["report_signals"] = report_signals
     return result
