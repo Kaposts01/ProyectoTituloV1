@@ -26,8 +26,8 @@ from app.models.write_run import WriteRun
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
 from app.services.rbac import permission_codes
 from app.services.read_only_provider_sync import safe_error_message
+from app.services.rejection_format import format_rejection_reason
 from app.services.vp_current_amount import load_monto_vigente
-from app.services.vp_rejection_codes import format_rejection_reason
 from app.services.write_virtualpos import (
     ChargeNotFoundError,
     WriteDisabledError,
@@ -178,7 +178,7 @@ def _rejection_fields(charge: Charge | None, core: CoreCharge | None) -> dict:
         return {"rejection_code": None, "rejection_reason_raw": None, "rejection_reason": None, "rejection_at": None}
     code, raw = _reason(charge, core)
     at = core.latest_rejection_at.date().isoformat() if core is not None and core.latest_rejection_at else charge.charge_date
-    return {"rejection_code": code, "rejection_reason_raw": raw, "rejection_reason": format_rejection_reason(code, raw), "rejection_at": at}
+    return {"rejection_code": code, "rejection_reason_raw": raw, "rejection_reason": format_rejection_reason(charge.source, code, raw), "rejection_at": at}
 
 
 def _vigente(vigentes: dict[tuple[str, str], Decimal], source: str, sub_id: str | None, sub: Subscription | None) -> float | None:
