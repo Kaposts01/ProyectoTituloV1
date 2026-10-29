@@ -6,6 +6,7 @@ from app.api.v1.routes import (
     catalog,
     changes,
     crm,
+    dashboard,
     etl,
     export,
     identity,
@@ -37,3 +38,4 @@ api_router.include_router(identity.router, prefix="/core")
 api_router.include_router(billing_changes.router, prefix="/billing")
 api_router.include_router(imports.router, prefix="/imports")
 api_router.include_router(changes.router, prefix="/changes", tags=["Changes"])
+api_router.include_router(dashboard.router, prefix="/dashboard")
