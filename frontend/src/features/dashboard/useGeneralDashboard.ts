@@ -5,8 +5,9 @@ import { useDebouncedValue } from "../../hooks";
 import type { ProviderSection } from "../../routes";
 import { defaultYear } from "../shared/utils";
 import type { ChargeFilter } from "./applyChargeFilter";
+import type { GeneralClientDetail } from "./generalClientAdapter";
 import type {
-  AuthSession, GeneralClientDetail, GeneralClients, GeneralDashboard, GeneralSubscriptions, Summary,
+  AuthSession, GeneralClients, GeneralDashboard, GeneralSubscriptions, Summary,
 } from "../shared/types";
 
 /** «summary» = Resumen unificado (features/summary); «classic» = vista anterior del dashboard general (transitoria, UX-15). */

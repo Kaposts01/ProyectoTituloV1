@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { getJson } from "../../api";
 import {
   MonthlyChurnChart,
@@ -11,7 +11,8 @@ import {
   virtualPosMetrics, tokuMetrics, paykuMetrics,
 } from "../shared/constants";
 import { title, defaultYear, aggregateChurn } from "../shared/utils";
-import type { AlertDetailItem, ChannelDashboard } from "../shared/types";
+import type { ChannelDashboard } from "../shared/types";
+import { adaptAlertDetailItems, adaptAlerts, type AlertDetailItemWire } from "./alertAdapter";
 import { Metric } from "./Metric";
 import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
 import { ChannelChart } from "../../components/ChannelChart";
@@ -53,6 +54,7 @@ export function ChannelDashboardView({
   const metrics = data.source === "virtualpos" ? virtualPosMetrics : data.source === "toku" ? tokuMetrics : paykuMetrics;
   const activeYear = year ?? defaultYear(data.years) ?? null;
   const [churnSource, setChurnSource] = useState<"all" | "vp1" | "vp2">("all");
+  const alerts = useMemo(() => adaptAlerts(data.alerts), [data.alerts]);
   const PAID_KW = ["pagad", "aceptad", "accepted", "paid", "success", "cobrad", "aprobad"];
   const isPaid = (s: string) => PAID_KW.some((k) => s.toLowerCase().includes(k));
   const resolvedResources = { ...data.resources };
@@ -238,8 +240,8 @@ export function ChannelDashboardView({
         ) : null}
       </section>
       <OperationalAlerts
-        alerts={data.alerts ?? []}
-        loadDetail={(alertId) => getJson<{ items: AlertDetailItem[] }>(`/api/v1/staging/dashboard/${data.source}/alerts/${alertId}`).then((response) => response.items)}
+        alerts={alerts}
+        loadDetail={(alertId) => getJson<{ items: AlertDetailItemWire[] }>(`/api/v1/staging/dashboard/${data.source}/alerts/${alertId}`).then((response) => adaptAlertDetailItems(response.items))}
       />
     </main>
   );

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { friendlyError, getJson } from "./api";
+import { adaptAlerts, type AlertWire } from "./features/dashboard/alertAdapter";
+import type { Alert } from "./features/dashboard/alertTypes";
 import { formatKpi } from "./components/formatKpi";
 
 type ChannelStats = {
@@ -26,7 +28,7 @@ type ReportPeriod = {
     tch: ChannelStats;
   };
   rejection_reasons: { reason: string; count: number; channel: string }[];
-  alerts: { sev: "alta" | "media" | "baja"; tipo: string; detalle: string }[];
+  alerts: AlertWire[];
 };
 
 type AutomaticReportData = {
@@ -79,9 +81,9 @@ function RejectBadge({ rate }: { rate: number }) {
   return <span className={`badge badge-${cls}`}>{pct(rate)}</span>;
 }
 
-function AlertRow({ a }: { a: { sev: string; tipo: string; detalle: string } }) {
-  const badgeCls = a.sev === "alta" ? "red" : a.sev === "media" ? "orange" : "gray";
-  const bgTint = a.sev === "alta" ? "rgba(232,64,64,.06)" : a.sev === "media" ? "rgba(245,158,11,.06)" : "transparent";
+function AlertRow({ a }: { a: Alert }) {
+  const badgeCls = a.severity === "alta" ? "red" : a.severity === "media" ? "orange" : "gray";
+  const bgTint = a.severity === "alta" ? "rgba(232,64,64,.06)" : a.severity === "media" ? "rgba(245,158,11,.06)" : "transparent";
   return (
     <div style={{
       background: bgTint,
@@ -94,10 +96,10 @@ function AlertRow({ a }: { a: { sev: string; tipo: string; detalle: string } }) 
       fontSize: "13px",
     }}>
       <span className={`badge badge-${badgeCls}`} style={{ flexShrink: 0, textTransform: "uppercase", fontSize: "10px", letterSpacing: ".3px", marginTop: "2px" }}>
-        {a.sev}
+        {a.severity}
       </span>
-      <strong style={{ minWidth: "180px", flexShrink: 0 }}>{a.tipo}</strong>
-      <span className="muted-copy">{a.detalle}</span>
+      <strong style={{ minWidth: "180px", flexShrink: 0 }}>{a.kind}</strong>
+      <span className="muted-copy">{a.detail}</span>
     </div>
   );
 }
@@ -216,7 +218,7 @@ export function AutomaticReport() {
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", paddingBottom: "4px" }}>
-            {p.alerts.map((a, i) => <AlertRow key={i} a={a} />)}
+            {adaptAlerts(p.alerts).map((a, i) => <AlertRow key={i} a={a} />)}
           </div>
         </section>
       )}

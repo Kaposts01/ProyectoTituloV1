@@ -5,7 +5,7 @@
  * estado ausente queda en "" y un número de ficha ausente en 0; las listas ausentes quedan vacías.
  */
 import type { MonthlyStatusEntry } from "../../MonthlyStatusChart";
-import type { DashboardAlert } from "../shared/types";
+import { adaptAlerts, type AlertWire } from "../dashboard/alertAdapter";
 import type {
   TchClient, TchClientDetail, TchClientsPage, TchKpis, TchPage, TchSubscription, TchSubscriptionDetail,
   TchSubscriptionsPage, TchSummary, TchTransaction, TchTransactionDetail, TchTransactionsPage,
@@ -45,7 +45,7 @@ export type TchSummaryWire = {
   active_subs_monthly?: { year: number; month: number; count: number }[] | null;
   churn_rate_monthly?: { year: number; month: number; rate: number }[] | null;
   ultimo_etl?: { id?: string | null; status?: string | null; started_at?: string | null; records_upserted?: number | null } | null;
-  alerts?: DashboardAlert[] | null;
+  alerts?: AlertWire[] | null;
 };
 
 // ---- Utilidades ----
@@ -183,7 +183,7 @@ export function adaptTchSummary(wire: TchSummaryWire | null | undefined): TchSum
     activeSubsMonthly: list(w.active_subs_monthly),
     churnRateMonthly: list(w.churn_rate_monthly),
     lastEtl: { id: text(etl.id), status: text(etl.status), startedAt: text(etl.started_at), recordsUpserted: countOrNull(etl.records_upserted) },
-    alerts: list(w.alerts),
+    alerts: adaptAlerts(w.alerts),
   };
 }
 

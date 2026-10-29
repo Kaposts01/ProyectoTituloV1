@@ -1,4 +1,5 @@
 import { labelOr } from "../../i18n/label";
+import { currentAmount, requestedAmount } from "./recoveryAdapter";
 import { clpOrDash } from "./format";
 import { recoveryAmount, recoveryDisplay, recoveryNestedValue, recoveryRowKey, recoveryValue, text } from "../shared/utils";
 import type { RecoveryRow } from "../shared/types";
@@ -55,7 +56,7 @@ export function RecoveryTable({ tab, group, items, selected, submitting, canRetr
         const key = recoveryRowKey(item);
         const subscription = recoveryValue(item, "subscription_id", "subscription_external_id", "subscription") ?? recoveryNestedValue(item, "subscription", "id", "external_id");
         const client = recoveryValue(item, "client_name", "client", "client_external_id", "customer") ?? recoveryNestedValue(item, "client", "name", "external_id", "id");
-        const monto = recoveryValue(item, "monto");
+        const requested = requestedAmount(item);
         return (
           <tr key={key}>
             {tab === "retry" ? <td><input aria-label={`Seleccionar ${key}`} type="checkbox" checked={selected.has(key)} onChange={(event) => onToggle(key, event.target.checked)} /></td> : null}
@@ -64,8 +65,8 @@ export function RecoveryTable({ tab, group, items, selected, submitting, canRetr
             <td>{recoveryDisplay(client)}</td>
             <td className="mono">{text(dateValue(item, tab, group), "—")}</td>
             <td>{labelOr("channel", recoveryValue(item, "account", "source"), "—")}</td>
-            <td className="mono">{monto !== undefined ? clpOrDash(monto) : recoveryAmount(item)}</td>
-            {showCurrentAmount ? <td className="mono">{clpOrDash(recoveryValue(item, "monto_vigente"))}</td> : null}
+            <td className="mono">{requested !== undefined ? clpOrDash(requested) : recoveryAmount(item)}</td>
+            {showCurrentAmount ? <td className="mono">{clpOrDash(currentAmount(item))}</td> : null}
             {showRejection ? <>
               <td className="mono">{text(recoveryValue(item, "rejection_code"), "—")}</td>
               <td data-raw-text>{text(recoveryValue(item, "rejection_reason", "reason"), "—")}</td>

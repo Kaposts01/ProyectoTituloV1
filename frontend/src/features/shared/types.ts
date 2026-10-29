@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { AlertWire } from "../dashboard/alertAdapter";
 import type { MonthlyEntry, MonthlyStatusEntry } from "../../MonthlyStatusChart";
 
 export type SyncRun = { status: string; records_processed: number; started_at?: string | null; finished_at?: string | null };
@@ -80,7 +81,7 @@ export type ChannelDashboard = {
   churn_rate_monthly_vp2?: { year: number; month: number; rate: number }[];
   active_subs_monthly?: { year: number; month: number; count: number }[];
   cobrable_subs_monthly?: { year: number; month: number; count: number }[];
-  alerts?: DashboardAlert[];
+  alerts?: AlertWire[];
 };
 export type VirtualPosClientDetail = {
   client: StagingRecord;
@@ -134,17 +135,6 @@ export type AuthUser = { id: string; username: string; is_active: boolean; roles
 export type AuthSession = { user: AuthUser; csrf_token: string };
 export type AdminRole = { id: string; name: string; description: string | null; permission_codes: string[] };
 export type PermGroup = { group: string; permissions: Array<{ code: string; description: string }> };
-export type DashboardAlert = { id?: string; sev: "alta" | "media" | "baja"; tipo: string; canal: string; detalle: string; periodo?: string };
-export type AlertDetailItem = {
-  external_id: string | null;
-  rut: string | null;
-  status: string | null;
-  amount: number;
-  suscription_date: string | null;
-  ultimo_cobro?: string | null;
-  ultimo_estado?: string | null;
-  intentos?: number;
-};
 export type GeneralDashboard = {
   clients: number;
   subscriptions: { active: number; amount: number };
@@ -156,7 +146,7 @@ export type GeneralDashboard = {
   cancellations_monthly: MonthlyStatusEntry[];
   debts_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
   transactions_effective_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
-  alerts?: DashboardAlert[];
+  alerts?: AlertWire[];
   pending_payments?: number;
   sync_success_rate_pct?: number | null;
   churn_rate_pct?: number;
@@ -165,12 +155,5 @@ export type GeneralClient = { rut: string; name: string; origins: string[]; acti
 export type GeneralClients = { items: GeneralClient[]; total: number; offset: number; limit: number };
 export type GeneralSubscription = { id: string; platform: string; rut: string; client: string; status: string; started_at: string | null; ended_at: string | null; amount: string | null; currency: string | null; last_paid_date: string | null; secondary_status: string };
 export type GeneralSubscriptions = { items: GeneralSubscription[]; total: number; offset: number; limit: number };
-export type GeneralClientDetail = {
-  rut: string;
-  clients: { portal: string; id_cliente: string; external_id: string }[];
-  subscriptions: { portal: string; id_subscription: string; external_id: string; status: string }[];
-  charges: { portal: string; id_cargo: string; external_id: string; status: string; amount: string | null }[];
-  transactions: { portal: string; id_transaccion: string; external_id: string; status: string; amount: string | null }[];
-};
 export type PlanCreateField = { name: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] };
 export type SubscriptionCreateField = { name: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] };

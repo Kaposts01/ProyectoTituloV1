@@ -149,13 +149,13 @@ describe("tchAdapter: resumen", () => {
     expect(actual).toEqual(expected);
   });
 
-  it("las series mensuales y las alertas pasan sin cambios", () => {
+  it("las series mensuales pasan sin cambios y las alertas pasan por el adaptador de alertas", () => {
     expect(s.monthlyTransactions).toEqual(wire.transacciones_mensuales);
     expect(s.monthlyActivations).toEqual(wire.activaciones_mensuales);
     expect(s.monthlyCancellations).toEqual(wire.bajas_mensuales);
     expect(s.activeSubsMonthly).toEqual(wire.active_subs_monthly);
     expect(s.churnRateMonthly).toEqual(wire.churn_rate_monthly);
-    expect(s.alerts).toEqual(wire.alerts);
+    expect(s.alerts).toEqual([{ severity: "alta", kind: "t", channel: "tch", detail: "d" }]);
   });
 
   it("sin datos: ceros, listas vacías y ETL sin ejecutar (igual que el normalizador anterior)", () => {

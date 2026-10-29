@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { label } from "../../i18n/label";
 import { ActivationsVsChurnChart, ChannelKpiChart, MonthlyRevenueChart, MonthlyStatusChart } from "../../MonthlyStatusChart";
 import type { ChannelRow, MonthlyEntry } from "../../MonthlyStatusChart";
@@ -6,6 +7,7 @@ import type { GeneralDashboard } from "../shared/types";
 import { GeneralKpis } from "./GeneralKpis";
 import { Metric } from "./Metric";
 import { OperationalAlerts } from "./OperationalAlerts";
+import { adaptAlerts } from "./alertAdapter";
 import { applyChargeFilter, type ChargeFilter } from "./applyChargeFilter";
 
 const CHARGE_FILTERS: ChargeFilter[] = ["all", "paid", "rejected"];
@@ -23,6 +25,7 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
     transactionFilter,
     setTransactionFilter,
   } = general;
+  const alerts = useMemo(() => adaptAlerts(generalData?.alerts), [generalData?.alerts]);
   const selectedYear = generalData ? (generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]) : null;
   const acceptedForYear = (generalData?.transactions_monthly ?? [])
     .filter(e => e.status === "Aceptadas" && (selectedYear == null || e.year === selectedYear))
@@ -103,7 +106,7 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
           <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transactionFilter)} mode={generalMode} year={generalYear} />
         </article>
       </section>
-      {(generalData.alerts ?? []).length > 0 && <OperationalAlerts alerts={generalData.alerts ?? []} />}
+      {alerts.length > 0 && <OperationalAlerts alerts={alerts} />}
       <section className="source-summary">
         {generalData.channels.map((channel) => {
           const staging = summary.sources.find((source) => source.source === channel.source.toLowerCase());

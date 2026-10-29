@@ -1,5 +1,5 @@
 import type { MonthlyStatusEntry } from "../../MonthlyStatusChart";
-import type { DashboardAlert } from "../shared/types";
+import type { Alert } from "../dashboard/alertTypes";
 
 /**
  * Tipos INTERNOS de TCH, en inglés. Las claves en español que entrega el backend (`numero_ficha`, `estado`,
@@ -99,5 +99,5 @@ export type TchSummary = {
   activeSubsMonthly: { year: number; month: number; count: number }[];
   churnRateMonthly: { year: number; month: number; rate: number }[];
   lastEtl: { id: string | null; status: string | null; startedAt: string | null; recordsUpserted: number | null };
-  alerts: DashboardAlert[];
+  alerts: Alert[];
 };

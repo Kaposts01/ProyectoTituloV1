@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { groupAlerts, parseDetailValue, normalizeSev } from "./alertGroups";
-import type { DashboardAlert } from "../shared/types";
+import { groupAlerts, parseDetailValue, normalizeSeverity } from "./alertGroups";
+import type { Alert } from "./alertTypes";
 
-const a = (over: Partial<DashboardAlert>): DashboardAlert => ({ sev: "media", tipo: "Rechazos", canal: "Toku", detalle: "10 cargos", ...over });
+const a = (over: Partial<Alert>): Alert => ({ severity: "media", kind: "Rechazos", channel: "Toku", detail: "10 cargos", ...over });
 
 describe("parseDetailValue", () => {
   it("toma el primer número y entiende formato es-CL", () => {
@@ -18,58 +18,58 @@ describe("parseDetailValue", () => {
   });
 });
 
-describe("normalizeSev", () => {
+describe("normalizeSeverity", () => {
   it("acepta alta/media/baja sin importar mayúsculas y cae a baja", () => {
-    expect(normalizeSev("ALTA")).toBe("alta");
-    expect(normalizeSev("media")).toBe("media");
-    expect(normalizeSev(undefined)).toBe("baja");
-    expect(normalizeSev("raro")).toBe("baja");
+    expect(normalizeSeverity("ALTA")).toBe("alta");
+    expect(normalizeSeverity("media")).toBe("media");
+    expect(normalizeSeverity(undefined)).toBe("baja");
+    expect(normalizeSeverity("raro")).toBe("baja");
   });
 });
 
 describe("groupAlerts", () => {
   it("agrupa por (tipo, canal) y toma la severidad máxima", () => {
     const groups = groupAlerts([
-      a({ sev: "baja", periodo: "2026-01" }),
-      a({ sev: "alta", periodo: "2026-02" }),
-      a({ sev: "media", periodo: "2026-03" }),
-      a({ canal: "Payku" }),
-      a({ tipo: "Otro" }),
+      a({ severity: "baja", period: "2026-01" }),
+      a({ severity: "alta", period: "2026-02" }),
+      a({ severity: "media", period: "2026-03" }),
+      a({ channel: "Payku" }),
+      a({ kind: "Otro" }),
     ]);
     expect(groups).toHaveLength(3);
-    const toku = groups.find((g) => g.tipo === "Rechazos" && g.canal === "Toku")!;
+    const toku = groups.find((g) => g.kind === "Rechazos" && g.channel === "Toku")!;
     expect(toku.alerts).toHaveLength(3);
-    expect(toku.sev).toBe("alta");
+    expect(toku.severity).toBe("alta");
   });
 
   it("ordena por severidad y luego por valor numérico del detalle descendente", () => {
     const groups = groupAlerts([
-      a({ tipo: "A", sev: "media", detalle: "5 cargos" }),
-      a({ tipo: "B", sev: "alta", detalle: "2 cargos" }),
-      a({ tipo: "C", sev: "media", detalle: "40 cargos" }),
-      a({ tipo: "D", sev: "media", detalle: "sin número" }),
-      a({ tipo: "E", sev: "baja", detalle: "999 cargos" }),
+      a({ kind: "A", severity: "media", detail: "5 cargos" }),
+      a({ kind: "B", severity: "alta", detail: "2 cargos" }),
+      a({ kind: "C", severity: "media", detail: "40 cargos" }),
+      a({ kind: "D", severity: "media", detail: "sin número" }),
+      a({ kind: "E", severity: "baja", detail: "999 cargos" }),
     ]);
-    expect(groups.map((g) => g.tipo)).toEqual(["B", "C", "A", "D", "E"]);
+    expect(groups.map((g) => g.kind)).toEqual(["B", "C", "A", "D", "E"]);
   });
 
   it("el valor del grupo es el máximo entre sus alertas y el detalle mostrado es el del peor", () => {
-    const [g] = groupAlerts([a({ detalle: "3 cargos", periodo: "2026-01" }), a({ detalle: "30 cargos", periodo: "2026-02" })]);
+    const [g] = groupAlerts([a({ detail: "3 cargos", period: "2026-01" }), a({ detail: "30 cargos", period: "2026-02" })]);
     expect(g.value).toBe(30);
-    expect(g.detalle).toBe("30 cargos");
+    expect(g.detail).toBe("30 cargos");
   });
 
   it("dentro del grupo ordena periodos del más reciente al más antiguo; sin periodo conserva el orden", () => {
-    const [g] = groupAlerts([a({ periodo: "2026-01" }), a({ periodo: "2026-03" }), a({ periodo: "2026-02" })]);
-    expect(g.alerts.map((x) => x.periodo)).toEqual(["2026-03", "2026-02", "2026-01"]);
-    const [old] = groupAlerts([a({ detalle: "1 x" }), a({ detalle: "2 x" })]);
-    expect(old.alerts.map((x) => x.detalle)).toEqual(["1 x", "2 x"]);
+    const [g] = groupAlerts([a({ period: "2026-01" }), a({ period: "2026-03" }), a({ period: "2026-02" })]);
+    expect(g.alerts.map((x) => x.period)).toEqual(["2026-03", "2026-02", "2026-01"]);
+    const [old] = groupAlerts([a({ detail: "1 x" }), a({ detail: "2 x" })]);
+    expect(old.alerts.map((x) => x.detail)).toEqual(["1 x", "2 x"]);
   });
 
   it("es determinista ante empates y tolera lista vacía o sev inválida", () => {
     expect(groupAlerts([])).toEqual([]);
-    const groups = groupAlerts([a({ tipo: "Z", detalle: "1" }), a({ tipo: "B", detalle: "1" })]);
-    expect(groups.map((g) => g.tipo)).toEqual(["B", "Z"]);
-    expect(groupAlerts([{ tipo: "X", canal: "TCH", detalle: "1" } as unknown as DashboardAlert])[0].sev).toBe("baja");
+    const groups = groupAlerts([a({ kind: "Z", detail: "1" }), a({ kind: "B", detail: "1" })]);
+    expect(groups.map((g) => g.kind)).toEqual(["B", "Z"]);
+    expect(groupAlerts([{ kind: "X", channel: "TCH", detail: "1" } as unknown as Alert])[0].severity).toBe("baja");
   });
 });

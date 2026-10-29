@@ -1,35 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { label } from "../../i18n/label";
-import { groupAlerts, normalizeSev, type AlertSev } from "./alertGroups";
-import type { DashboardAlert } from "../shared/types";
+import { groupAlerts, normalizeSeverity } from "./alertGroups";
+import type { Alert, AlertDetailItem, AlertSeverity } from "./alertTypes";
 
-export type { DashboardAlert };
-
-export type AlertDetailItem = {
-  external_id: string | null;
-  rut: string | null;
-  status: string | null;
-  amount: number;
-  suscription_date: string | null;
-  ultimo_cobro?: string | null;
-  ultimo_estado?: string | null;
-  intentos?: number;
-};
+export type { Alert, AlertDetailItem };
 
 /** Cuántos grupos (los peores) se muestran antes de «Ver todas». */
 export const ALERT_GROUPS_VISIBLE = 5;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-function SevBadge({ sev }: { sev: AlertSev }) {
-  return <span className={`alert-sev alert-sev-${sev}`}>{label("severity", sev)}</span>;
+function SevBadge({ severity }: { severity: AlertSeverity }) {
+  return <span className={`alert-sev alert-sev-${severity}`}>{label("severity", severity)}</span>;
 }
 
 export function OperationalAlerts({
   alerts,
   loadDetail,
 }: {
-  alerts: DashboardAlert[];
+  alerts: Alert[];
   loadDetail?: (alertId: string) => Promise<AlertDetailItem[]>;
 }) {
   const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
@@ -88,23 +77,23 @@ export function OperationalAlerts({
     setShowAll(!showAll);
   }
 
-  const high = alerts.filter((alert) => normalizeSev(alert.sev) === "alta").length;
-  const medium = alerts.filter((alert) => normalizeSev(alert.sev) === "media").length;
+  const high = alerts.filter((alert) => normalizeSeverity(alert.severity) === "alta").length;
+  const medium = alerts.filter((alert) => normalizeSeverity(alert.severity) === "media").length;
   const visible = showAll ? groups : groups.slice(0, ALERT_GROUPS_VISIBLE);
 
-  const verMas = (alert: DashboardAlert) =>
+  const moreButton = (alert: Alert) =>
     alert.id && loadDetail ? (
       <button className="alert-ver-mas" onClick={() => toggleAlert(alert.id!)}>{expandedAlertId === alert.id ? "Cerrar" : "Ver más"}</button>
     ) : null;
 
-  const detailPanel = (alert: DashboardAlert) =>
+  const detailPanel = (alert: Alert) =>
     alert.id && expandedAlertId === alert.id ? (
       <div className="alert-detail-panel">
         {alertDetailLoading ? <p className="alert-detail-loading">Cargando...</p> : !alertDetail?.length ? <p className="alert-detail-empty">Sin registros.</p> : (
           <div className="alert-detail-table-wrap">
             <table className="alert-detail-table">
-              <thead><tr><th>RUT</th><th>ID suscripción</th><th>Estado</th><th>Monto</th><th>Fecha suscripción</th>{alertDetail[0]?.ultimo_cobro !== undefined && <th>Último cobro</th>}{alertDetail[0]?.ultimo_estado !== undefined && <th>Estado último cobro</th>}{alertDetail[0]?.intentos !== undefined && <th>Intentos</th>}</tr></thead>
-              <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td className="mono">{item.rut ?? "—"}</td><td className="alert-detail-id mono">{item.external_id ?? "—"}</td><td>{item.status ? label("status", item.status) : "—"}</td><td className="mono" style={{ textAlign: "right" }}>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td className="mono">{item.suscription_date?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.ultimo_cobro !== undefined && <td className="mono">{item.ultimo_cobro?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.ultimo_estado !== undefined && <td>{item.ultimo_estado ? label("status", item.ultimo_estado) : "—"}</td>}{alertDetail[0]?.intentos !== undefined && <td className="mono">{item.intentos}</td>}</tr>)}</tbody>
+              <thead><tr><th>RUT</th><th>ID suscripción</th><th>Estado</th><th>Monto</th><th>Fecha suscripción</th>{alertDetail[0]?.lastCharge !== undefined && <th>Último cobro</th>}{alertDetail[0]?.lastChargeStatus !== undefined && <th>Estado último cobro</th>}{alertDetail[0]?.attempts !== undefined && <th>Intentos</th>}</tr></thead>
+              <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td className="mono">{item.rut ?? "—"}</td><td className="alert-detail-id mono">{item.externalId ?? "—"}</td><td>{item.status ? label("status", item.status) : "—"}</td><td className="mono" style={{ textAlign: "right" }}>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td className="mono">{item.subscriptionDate?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.lastCharge !== undefined && <td className="mono">{item.lastCharge?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.lastChargeStatus !== undefined && <td>{item.lastChargeStatus ? label("status", item.lastChargeStatus) : "—"}</td>}{alertDetail[0]?.attempts !== undefined && <td className="mono">{item.attempts}</td>}</tr>)}</tbody>
             </table>
             <p className="alert-detail-count">{alertDetail.length} registro{alertDetail.length !== 1 ? "s" : ""}</p>
           </div>
@@ -135,29 +124,29 @@ export function OperationalAlerts({
               ref={(el) => { groupRefs.current[index] = el; }}
               tabIndex={-1}
               data-testid="alert-group"
-              className={`dashboard-alert-group dashboard-alert-${group.sev}`}
+              className={`dashboard-alert-group dashboard-alert-${group.severity}`}
             >
               <div className="dashboard-alert-row">
-                <SevBadge sev={group.sev} />
-                <strong className="dashboard-alert-tipo">{group.tipo}</strong>
-                <span className="dashboard-alert-canal">{group.canal}</span>
-                <span className="dashboard-alert-detalle">{group.detalle}</span>
+                <SevBadge severity={group.severity} />
+                <strong className="dashboard-alert-tipo">{group.kind}</strong>
+                <span className="dashboard-alert-canal">{group.channel}</span>
+                <span className="dashboard-alert-detalle">{group.detail}</span>
                 {multi ? (
                   <button className="alert-ver-mas" aria-expanded={open} aria-controls={subId} onClick={() => toggleGroup(group.key)}>
                     {group.alerts.length} periodos
                   </button>
-                ) : verMas(group.alerts[0])}
+                ) : moreButton(group.alerts[0])}
               </div>
               {!multi ? detailPanel(group.alerts[0]) : null}
               {multi && open ? (
-                <ul id={subId} className="dashboard-alert-sublist" aria-label={`Periodos de ${group.tipo} en ${group.canal}`}>
+                <ul id={subId} className="dashboard-alert-sublist" aria-label={`Periodos de ${group.kind} en ${group.channel}`}>
                   {group.alerts.map((alert, i) => (
-                    <li key={`${alert.id ?? alert.periodo ?? i}-${i}`} className="dashboard-alert-subrow">
+                    <li key={`${alert.id ?? alert.period ?? i}-${i}`} className="dashboard-alert-subrow">
                       <div className="dashboard-alert-row">
-                        <SevBadge sev={normalizeSev(alert.sev)} />
-                        <span className="dashboard-alert-periodo mono">{alert.periodo ?? "—"}</span>
-                        <span className="dashboard-alert-detalle">{alert.detalle}</span>
-                        {verMas(alert)}
+                        <SevBadge severity={normalizeSeverity(alert.severity)} />
+                        <span className="dashboard-alert-periodo mono">{alert.period ?? "—"}</span>
+                        <span className="dashboard-alert-detalle">{alert.detail}</span>
+                        {moreButton(alert)}
                       </div>
                       {detailPanel(alert)}
                     </li>
