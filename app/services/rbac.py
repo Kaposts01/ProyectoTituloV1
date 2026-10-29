@@ -58,6 +58,30 @@ PERMISSIONS: dict[str, str] = {
     "toku.reports.import": "Importar reportes descargados de Toku",
     "virtualpos.reports.import": "Importar reportes PAT descargados del portal de VirtualPOS",
     "export.pii": "Exportar datos personales (RUT, nombre, correo, teléfono, dirección) en las exportaciones CSV",
+    "subscriptions.cancellation.request": "Solicitar la baja de suscripciones (todos los canales)",
+    "subscriptions.cancellation.approve": "Aprobar, rechazar, aplicar y reabrir solicitudes de baja de suscripciones",
+    "subscriptions.cancellation.view": "Ver solicitudes de baja de suscripciones y su historial",
+}
+
+# --- Baja de suscripciones multicanal (MGT-16) ---------------------------------------------------------------------
+# D12: JEFATURA solicita; ADMIN o JEFATURA aprueban; EJECUTIVO solo lee. D28: los permisos «fantasma»
+# (`virtualpos.payments.cancel`, `toku.invoices.update`, `toku.invoices.delete`) NO se siembran y el flujo nuevo no
+# depende de ellos.
+CANCELLATION_REQUEST = "subscriptions.cancellation.request"
+CANCELLATION_APPROVE = "subscriptions.cancellation.approve"
+CANCELLATION_VIEW = "subscriptions.cancellation.view"
+JEFATURA_ROLE_NAME = "jefatura"
+COORDINATOR_ROLE_NAME = "coordinador"
+
+# Matriz rol -> permisos de baja que siembra la migracion 20261029_0050 (solo si el rol YA existe; nunca lo crea).
+# `coordinador` no tiene permisos definidos en el codigo (la base de datos manda): hoy solo se le garantiza LECTURA de
+# las solicitudes de baja; no solicita ni aprueba. `soporte` y `ejecutivo` heredan `.view` por sufijo.
+CANCELLATION_ROLE_GRANTS: dict[str, frozenset[str]] = {
+    "admin": frozenset({CANCELLATION_REQUEST, CANCELLATION_APPROVE, CANCELLATION_VIEW}),
+    JEFATURA_ROLE_NAME: frozenset({CANCELLATION_REQUEST, CANCELLATION_APPROVE, CANCELLATION_VIEW}),
+    "soporte": frozenset({CANCELLATION_VIEW}),
+    "ejecutivo": frozenset({CANCELLATION_VIEW}),
+    COORDINATOR_ROLE_NAME: frozenset({CANCELLATION_VIEW}),
 }
 
 SUPPORT_ROLE_NAME = "soporte"
