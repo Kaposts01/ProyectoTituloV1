@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 
 _CHUNK = 2000
 
+# (source, subscription_external_id): acota una consolidacion a UNA suscripcion y sus cobros/pagos (MGT-06).
+Scope = tuple[str, str]
+
 
 def _relationship_id(value: Any) -> str | None:
     if isinstance(value, dict):
@@ -194,11 +197,11 @@ def _s(val: Any) -> str | None:
     return str(val) if val is not None else None
 
 
-def _vp_records(db: Session, model: type) -> list:
+def _vp_records(db: Session, model: type, *criteria: Any) -> list:
     """Filas VirtualPOS con platform conocido; las demás se omiten y se registran."""
     valid = []
     skipped = 0
-    for vp in db.scalars(select(model)).all():
+    for vp in db.scalars(select(model).where(*criteria)).all():
         if vp.platform in _VP_PLATFORMS:
             valid.append(vp)
         else:
@@ -252,12 +255,17 @@ def _consolidate_vp_plans(db: Session) -> int:
     return _upsert_centralized(db, Plan, "uq_plan_source_external_id", _link_source_records(db, rows, "plan"))
 
 
-def _consolidate_vp_subscriptions(db: Session) -> int:
+def _consolidate_vp_subscriptions(db: Session, scope: Scope | None = None) -> int:
     # El monto de una suscripcion VP es el ultimo monto cobrado (plan fijo no editable);
     # sin cargos vigentes cae al monto de la suscripcion/plan. Una consulta agregada.
-    vigentes = load_monto_vigente(db, family="vp")
+    # `scope` = (platform, subscription_external_id): refresco de UNA suscripcion (MGT-06).
+    vigentes = load_monto_vigente(
+        db, family="vp",
+        sources=[scope[0]] if scope else None, subscription_ids=[scope[1]] if scope else None,
+    )
+    criteria = (VpSubscription.platform == scope[0], VpSubscription.external_id == scope[1]) if scope else ()
     rows = []
-    for vp in _vp_records(db, VpSubscription):
+    for vp in _vp_records(db, VpSubscription, *criteria):
         vigente = vigentes.get((vp.platform, vp.external_id))
         rows.append({
             "source": vp.platform,
@@ -277,9 +285,10 @@ def _consolidate_vp_subscriptions(db: Session) -> int:
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
-def _consolidate_vp_charges(db: Session) -> int:
+def _consolidate_vp_charges(db: Session, scope: Scope | None = None) -> int:
+    criteria = (VpCharge.platform == scope[0], VpCharge.subscription_external_id == scope[1]) if scope else ()
     rows = []
-    for vp in _vp_records(db, VpCharge):
+    for vp in _vp_records(db, VpCharge, *criteria):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
@@ -335,9 +344,10 @@ def _consolidate_toku_clients(db: Session) -> int:
     return _upsert_centralized(db, Client, "uq_client_source_external_id", _link_source_records(db, rows, "customer"))
 
 
-def _consolidate_toku_subscriptions(db: Session) -> int:
+def _consolidate_toku_subscriptions(db: Session, scope: Scope | None = None) -> int:
+    criteria = (TokuSubscription.external_id == scope[1],) if scope else ()
     rows = []
-    for t in db.scalars(select(TokuSubscription)).all():
+    for t in db.scalars(select(TokuSubscription).where(*criteria)).all():
         payload = t.raw_payload or {}
         rows.append({
             "source": "toku",
@@ -358,9 +368,10 @@ def _consolidate_toku_subscriptions(db: Session) -> int:
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
-def _consolidate_toku_invoices(db: Session) -> int:
+def _consolidate_toku_invoices(db: Session, scope: Scope | None = None) -> int:
+    criteria = (TokuInvoice.subscription_id == scope[1],) if scope else ()
     rows = []
-    for t in db.scalars(select(TokuInvoice)).all():
+    for t in db.scalars(select(TokuInvoice).where(*criteria)).all():
         payload = t.raw_payload or {}
         rows.append({
             "source": "toku",
@@ -463,12 +474,14 @@ def _payku_last_transition_date(payload: dict, final_status: str) -> str | None:
     return max(dates) if dates else None
 
 
-def _consolidate_payku_subscriptions(db: Session) -> int:
+def _consolidate_payku_subscriptions(db: Session, scope: Scope | None = None) -> int:
     latest_successful_amounts: dict[str, tuple[str, str | None]] = {}
+    tx_criteria = (PaykuTransaction.subscription_id == scope[1],) if scope else ()
     for transaction in db.scalars(
         select(PaykuTransaction).where(
             PaykuTransaction.subscription_id.isnot(None),
             func.lower(PaykuTransaction.status) == "success",
+            *tx_criteria,
         )
     ):
         current = latest_successful_amounts.get(transaction.subscription_id)
@@ -476,8 +489,9 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
         if current is None or timestamp > current[0]:
             latest_successful_amounts[transaction.subscription_id] = (timestamp, transaction.amount)
 
+    sub_criteria = (PaykuSubscription.external_id == scope[1],) if scope else ()
     rows = []
-    for p in db.scalars(select(PaykuSubscription)).all():
+    for p in db.scalars(select(PaykuSubscription).where(*sub_criteria)).all():
         payload = p.raw_payload or {}
         client = payload.get("client") if isinstance(payload.get("client"), dict) else {}
         if not p.amount:
@@ -507,9 +521,10 @@ def _consolidate_payku_subscriptions(db: Session) -> int:
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
-def _consolidate_payku_transactions(db: Session) -> int:
+def _consolidate_payku_transactions(db: Session, scope: Scope | None = None) -> int:
+    criteria = (PaykuTransaction.subscription_id == scope[1],) if scope else ()
     rows = []
-    for p in db.scalars(select(PaykuTransaction)).all():
+    for p in db.scalars(select(PaykuTransaction).where(*criteria)).all():
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
@@ -672,6 +687,47 @@ def consolidate_to_centralized(
     """
     with event_context(run_id=run_id, baseline=baseline):
         return _consolidate(db, sources, raise_on_error, failures, timings)
+
+
+_SCOPED_FNS: dict[str, list[Any]] = {
+    "virtualpos": [_consolidate_vp_subscriptions, _consolidate_vp_charges],
+    "toku": [_consolidate_toku_subscriptions, _consolidate_toku_invoices],
+    "payku": [_consolidate_payku_subscriptions, _consolidate_payku_transactions],
+}
+
+
+def consolidate_subscription(
+    db: Session,
+    source: str,
+    external_id: str,
+    *,
+    run_id: uuid.UUID | None = None,
+    baseline: bool = False,
+) -> int:
+    """Consolida SOLO una suscripcion (y sus cobros/pagos) desde las tablas canal a las centralizadas (MGT-06).
+
+    Reutiliza los mismos constructores de filas y el mismo upsert (con el enganche de eventos de estado) que la
+    consolidacion completa, acotados por `scope`. `source` es la fuente centralizada: `virtualpos1`/`virtualpos2`,
+    `toku` o `payku`. No toca otras suscripciones ni el nucleo de clientes. `baseline=False`: los cambios de estado
+    de esta operacion son novedad real. Un fallo se propaga como `ConsolidationError`.
+    """
+    family = "virtualpos" if source in _VP_PLATFORMS else source
+    fns = _SCOPED_FNS.get(family)
+    if fns is None:
+        raise ValueError(f"Fuente sin consolidacion por suscripcion: {source!r}")
+    failures: list[str] = []
+    total = 0
+    with event_context(run_id=run_id, baseline=baseline):
+        for fn in fns:
+            try:
+                with db.begin_nested():
+                    total += fn(db, scope=(source, external_id))
+            except Exception:
+                logger.exception("Error consolidando %s.%s (suscripcion acotada)", family, fn.__name__)
+                failures.append(f"{family}.{fn.__name__.removeprefix('_consolidate_')}")
+    if failures:
+        raise ConsolidationError(failures)
+    return total
 
 
 def _consolidate(

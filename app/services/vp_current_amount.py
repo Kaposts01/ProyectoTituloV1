@@ -79,6 +79,7 @@ def load_monto_vigente(
     family: Literal["vp", "crm"] = "vp",
     sources: Iterable[str] | None = None,
     today: date | None = None,
+    subscription_ids: Iterable[str] | None = None,
 ) -> MontoVigenteMap:
     """Mapa ``{(source, subscription_external_id): monto_vigente}``.
 
@@ -97,6 +98,7 @@ def load_monto_vigente(
     sub_src = getattr(sub_m, src)
     plan_src = getattr(plan_m, src)
     source_list = list(sources) if sources is not None else None
+    sub_id_list = list(subscription_ids) if subscription_ids is not None else None  # refresco de UNA suscripcion
     cutoff = (today or now_chile().date()).isoformat()
 
     result: MontoVigenteMap = {}
@@ -122,6 +124,8 @@ def load_monto_vigente(
     )
     if source_list is not None:
         charge_q = charge_q.where(charge_src.in_(source_list))
+    if sub_id_list is not None:
+        charge_q = charge_q.where(charge_m.subscription_external_id.in_(sub_id_list))
     for source, sub_id, amount in db.execute(charge_q):
         parsed = parse_amount(amount)
         if parsed is not None:
@@ -138,6 +142,8 @@ def load_monto_vigente(
     sub_q = select(sub_src, sub_m.external_id, sub_m.amount, sub_m.plan_external_id)
     if source_list is not None:
         sub_q = sub_q.where(sub_src.in_(source_list))
+    if sub_id_list is not None:
+        sub_q = sub_q.where(sub_m.external_id.in_(sub_id_list))
     for source, sub_id, amount, plan_id in db.execute(sub_q):
         if (source, sub_id) in result:
             continue
