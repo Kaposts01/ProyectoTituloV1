@@ -13,7 +13,7 @@
 
   /* backgrounds */
   --bg-base:         #f2f5f4;
-  --bg-sidebar:      #1a3d47;
+  --bg-sidebar:      #111727; /* azul marino (D1; muestreado de docs/dashboardeinspiracion.png) */
   --bg-surface:      #ffffff;
   --bg-metric-from:  #f4f8f7;
   --bg-metric-to:    #eaf2ef;
@@ -27,8 +27,17 @@
   /* ancho unico del menu lateral (DESIGN.md: 220 px) */
   --sidebar-w:       220px;
   /* etiquetas de grupo del menu sobre --bg-sidebar (AA >= 4.5:1) */
-  --sidebar-label:        #a9c7c2;
+  --sidebar-label:        #a3adc2;
   --sidebar-label-active: #ffffff;
+  /* items, estados y marca del menu azul marino (todo >= 4.5:1; ver designTokens.test.ts) */
+  --sidebar-text:         #c3cada;
+  --sidebar-text-strong:  #ffffff;
+  --sidebar-hover-bg:     rgb(255 255 255 / 8%);
+  --sidebar-active-bg:    #242a38;
+  --sidebar-active-text:  #ffffff;
+  --sidebar-border:       #2a3142;
+  --sidebar-brand-bg:     #6d3fd0;
+  --sidebar-brand-text:   #ffffff;
   /* pestaña/pildora activa (texto sobre fondo, AA >= 4.5:1) */
   --pill-active-bg:   #1a3d47;
   --pill-active-text: #ffffff;
@@ -74,6 +83,38 @@
   --health-error:    #ff8a80;
   --health-unknown:  #93adb3;
   --shadow-card:     rgba(26, 61, 71, 0.08);
+
+  /* paleta categorica de series (D19; violeta e indigo de la referencia, verde/azul/rosa como extras).
+     Son MARCAS (barras, lineas, puntos): >= 3:1 sobre --bg-surface. El texto de leyenda usa --text-1/-2. */
+  --series-1:        #7f55da; /* violeta */
+  --series-2:        #434ce6; /* indigo */
+  --series-3:        #0e9f5c; /* verde */
+  --series-4:        #0b86c9; /* azul */
+  --series-5:        #ee46bc; /* rosa */
+  --series-6:        #4e5ba6; /* indigo apagado */
+  --series-muted:    #f5eaff; /* barras no seleccionadas / relleno de area */
+  --chart-ref:       #2b3350; /* linea de referencia punteada (meta) */
+  --chart-grid:      var(--border-subtle);
+  --progress-track:  #e4e8f1;
+  --progress-fill:   var(--series-1);
+
+  /* chips de meta: texto >= 4.5:1 sobre su fondo */
+  --chip-ok-bg:      #d8f0e3;
+  --chip-ok-text:    #196b40;
+  --chip-off-bg:     #fbe5e1;
+  --chip-off-text:   #8b3030;
+  --chip-none-bg:    #e6e9f0;
+  --chip-none-text:  #4a5568;
+  /* delta vs periodo anterior (texto sobre --bg-surface >= 4.5:1) */
+  --delta-up:        #196b40;
+  --delta-down:      #8b3030;
+  --delta-flat:      #4a6168;
+  /* tarjeta KPI destacada rellena (maximo 1-2 por pantalla) */
+  --kpi-hero-bg:     #2e2a8f;
+  --kpi-hero-text:   #ffffff;
+  --kpi-hero-muted:  #d9dcff;
+  --kpi-hero-track:  #5a55b8;
+  --kpi-hero-fill:   #37bffa;
   --env-warn-bg:     #f2c14e;
   --env-warn-text:   #2b1d00;
   --env-banner-h:    32px;
@@ -90,7 +131,7 @@ html[data-theme="dark"] {
   --scrim:           rgb(0 0 0 / 72%);
   /* Dark mode derived from brand teal — not GitHub Dark */
   --bg-base:         #0d1e23;
-  --bg-sidebar:      #091418;
+  --bg-sidebar:      #0a0f1c;
   --bg-surface:      #162830;
   --bg-metric-from:  #1a2f37;
   --bg-metric-to:    #162830;
@@ -101,8 +142,16 @@ html[data-theme="dark"] {
   --bg-input:        #0d1e23;
   --bg-filter:       #162830;
   --bg-accent-panel: #162830;
-  --sidebar-label:        #8fb0b8;
+  --sidebar-label:        #9aa5bd;
   --sidebar-label-active: #ffffff;
+  --sidebar-text:         #b6bfd2;
+  --sidebar-text-strong:  #ffffff;
+  --sidebar-hover-bg:     rgb(255 255 255 / 8%);
+  --sidebar-active-bg:    #1b2233;
+  --sidebar-active-text:  #ffffff;
+  --sidebar-border:       #1f2638;
+  --sidebar-brand-bg:     #6d3fd0;
+  --sidebar-brand-text:   #ffffff;
   --pill-active-bg:   #226655;
   --pill-active-text: #ffffff;
 
@@ -141,6 +190,29 @@ html[data-theme="dark"] {
   --health-error:    #ff8a80;
   --health-unknown:  #93adb3;
   --shadow-card:     rgba(0, 0, 0, 0.45);
+  --series-1:        #9b7af0;
+  --series-2:        #7f8af5;
+  --series-3:        #2ed18a;
+  --series-4:        #38b6f5;
+  --series-5:        #f06ac9;
+  --series-6:        #8b97d6;
+  --series-muted:    #2a2350;
+  --chart-ref:       #cbd3e6;
+  --progress-track:  #243040;
+  --chip-ok-bg:      #0d2b1a;
+  --chip-ok-text:    #4ecf8a;
+  --chip-off-bg:     #3a1620;
+  --chip-off-text:   #f5a3a3;
+  --chip-none-bg:    #232c3d;
+  --chip-none-text:  #b7c0d4;
+  --delta-up:        #4ecf8a;
+  --delta-down:      #f08080;
+  --delta-flat:      #7a9ca4;
+  --kpi-hero-bg:     #3b3fbf;
+  --kpi-hero-text:   #ffffff;
+  --kpi-hero-muted:  #e0e2ff;
+  --kpi-hero-track:  #6368d6;
+  --kpi-hero-fill:   #37bffa;
   --env-warn-bg:     #6b4a00;
   --env-warn-text:   #ffe9b0;
 

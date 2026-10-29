@@ -579,26 +579,34 @@ td:first-child { font-weight: 700; }
   animation: pulse-badge 1.8s ease-in-out infinite;
 }
 
-/* ── Sidebar on brand teal — always dark bg, always light text ─────── */
+/* ── Sidebar azul marino (D1) — fondo siempre oscuro, texto claro ─────
+   Todos los colores salen de tokens --sidebar-* (index.css) con contraste vigilado
+   por designTokens.test.ts. El acento teal queda solo para interaccion fuera del menu. */
 .sidebar {
   background: var(--bg-sidebar);
   border-right: none;
 }
 .sidebar-brand,
-.sidebar-brand strong { color: rgba(255, 255, 255, 0.92); }
+.sidebar-brand strong { color: var(--sidebar-text-strong); }
 .sidebar-brand span {
-  background: #2a7a64;
-  color: #f0f8f6;
+  background: var(--sidebar-brand-bg);
+  color: var(--sidebar-brand-text);
 }
-.sidebar-item { color: rgba(255, 255, 255, 0.65); font-weight: 500; }
-.sidebar-item:hover { color: rgba(255, 255, 255, 0.92); background: rgba(255, 255, 255, 0.08); }
-.sidebar-item.active { color: #fff; background: #2a7a64; }
-.sidebar-close { color: rgba(255, 255, 255, 0.55); }
-.sidebar-close:hover { color: rgba(255, 255, 255, 0.90); background: rgba(255, 255, 255, 0.10); }
-.sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.12); }
-.theme-btn { color: rgba(255, 255, 255, 0.50); }
-.theme-btn:hover { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.08); }
-.theme-btn-icon { background: rgba(255, 255, 255, 0.10); }
+.sidebar-item { color: var(--sidebar-text); font-weight: 500; }
+.sidebar-item:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.sidebar-item.active { color: var(--sidebar-active-text); background: var(--sidebar-active-bg); font-weight: 700; }
+.sidebar-item:focus-visible, .sidebar-toggle:focus-visible, .channel-dashboard:focus-visible, .sidebar-expand:focus-visible, .theme-btn:focus-visible {
+  outline: 2px solid var(--series-4); outline-offset: 1px;
+}
+.sidebar-toggle { color: var(--sidebar-label); }
+.sidebar-toggle span { color: var(--sidebar-text); background: var(--sidebar-hover-bg); }
+.sidebar-section-label { color: var(--sidebar-label); }
+.sidebar-close { color: var(--sidebar-text); }
+.sidebar-close:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.sidebar-footer { border-top: 1px solid var(--sidebar-border); }
+.theme-btn { color: var(--sidebar-text); }
+.theme-btn:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.theme-btn-icon { background: var(--sidebar-hover-bg); }
 
 /* ── Provider group headings in sidebar ─────────────────────────────── */
 .channel-heading {
@@ -611,7 +619,7 @@ td:first-child { font-weight: 700; }
   font-size: 11px; font-weight: 800; letter-spacing: 0.12em;
   text-transform: uppercase; text-align: left;
 }
-.channel-dashboard:hover { color: var(--sidebar-label-active); background: rgba(255, 255, 255, 0.08); }
+.channel-dashboard:hover { color: var(--sidebar-label-active); background: var(--sidebar-hover-bg); }
 .channel-dashboard.active { color: var(--sidebar-label-active); text-decoration: underline; text-underline-offset: 4px; }
 .sidebar-expand {
   position: relative; display: grid; place-items: center; flex: none;
@@ -622,7 +630,7 @@ td:first-child { font-weight: 700; }
 .sidebar-expand > span { display: block; line-height: 1; }
 /* area clicable ampliada sin cambiar el tamaño visual */
 .sidebar-expand::after { content: ""; position: absolute; inset: -8px; }
-.sidebar-expand:hover { color: var(--sidebar-label-active); background: rgba(255, 255, 255, 0.08); }
+.sidebar-expand:hover { color: var(--sidebar-label-active); background: var(--sidebar-hover-bg); }
 
 /* ── Sync health dots ───────────────────────────────────────────────── */
 .health-dot {

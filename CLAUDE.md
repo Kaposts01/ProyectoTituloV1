@@ -206,7 +206,7 @@ Read [DESIGN.md](DESIGN.md) before any visual or UI work: defines fonts, colors,
 Key rules from DESIGN.md:
 - Cabinet Grotesk (Fontshare) for display/headings, General Sans (Fontshare) for body/UI
 - JetBrains Mono for ALL numeric data values: RUTs, IDs, amounts, timestamps
-- Sidebar always in brand teal (#1a3d47 light / #091418 dark)
+- Sidebar always navy blue (#111727 light / #0a0f1c dark), decision D1 2026-10-29
 - Dark mode derives from teal, not from any external palette
 - No nested cards; no colored left-border on cards; no Inter in any role
 

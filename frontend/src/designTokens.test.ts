@@ -157,3 +157,100 @@ describe("C5 escala tipografica de encabezados (DESIGN.md: display 22px/700)", (
     expect(finalDecl(allCss, ".eyebrow", "letter-spacing")).toBeDefined();
   });
 });
+
+const themesAll = { claro: lightTokens, oscuro: darkTokens } as const;
+const hexOf = (t: Record<string, string>, name: string) => {
+  const v = resolve(t, name);
+  if (!/^#[0-9a-f]{6}$/i.test(v)) throw new Error(`${name} debe ser hex de 6 digitos, es ${v}`);
+  return v;
+};
+
+describe("D1 menu azul marino: items, estados y marca >= 4.5:1", () => {
+  it("el fondo del menu es azul marino (canal azul domina sobre rojo y verde) en ambos temas", () => {
+    for (const t of Object.values(themesAll)) {
+      const h = hexOf(t, "--bg-sidebar").slice(1);
+      const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+      expect(b).toBeGreaterThan(g);
+      expect(b).toBeGreaterThan(r);
+    }
+    expect(lightTokens["--bg-sidebar"]).toMatch(/^#111727/);
+  });
+  for (const [name, t] of Object.entries(themesAll)) {
+    it(`${name}: texto de item sobre el menu, en hover y activo >= 4.5:1`, () => {
+      const bg = hexOf(t, "--bg-sidebar");
+      expect(ratio(hexOf(t, "--sidebar-text"), bg)).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-text-strong"), bg)).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-active-text"), hexOf(t, "--sidebar-active-bg"))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-label"), hexOf(t, "--sidebar-active-bg"))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-brand-text"), hexOf(t, "--sidebar-brand-bg"))).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${name}: el item activo se distingue del fondo del menu`, () => {
+      expect(ratio(hexOf(t, "--sidebar-active-bg"), hexOf(t, "--bg-sidebar"))).toBeGreaterThan(1.1);
+    });
+  }
+  it("el CSS del menu usa tokens, no colores teal fijos", () => {
+    expect(finalDecl(allCss, ".sidebar-item.active", "background")).toBe("var(--sidebar-active-bg)");
+    expect(finalDecl(allCss, ".sidebar-item", "color")).toBe("var(--sidebar-text)");
+    expect(finalDecl(allCss, ".sidebar-item:hover", "background")).toBe("var(--sidebar-hover-bg)");
+    expect(finalDecl(allCss, ".sidebar-brand span", "background")).toBe("var(--sidebar-brand-bg)");
+    expect(finalDecl(allCss, ".sidebar-item.active", "font-weight")).toBe("700");
+    const sidebarBlock = appCss.slice(appCss.indexOf("/* ── Sidebar azul marino"), appCss.indexOf("/* ── Provider group headings"));
+    expect(sidebarBlock).not.toMatch(/#2a7a64|#1a3d47|#091418/i);
+  });
+});
+
+describe("D19 paleta de series --series-N", () => {
+  const SERIES = ["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6"];
+  for (const [name, t] of Object.entries(themesAll)) {
+    it(`${name}: cada serie (marca) >= 3:1 sobre --bg-surface`, () => {
+      const surface = hexOf(t, "--bg-surface");
+      for (const s of SERIES) expect(ratio(hexOf(t, s), surface), `${s} ${name}`).toBeGreaterThanOrEqual(3);
+    });
+    it(`${name}: las series son todas distintas`, () => {
+      const vals = SERIES.map((s) => hexOf(t, s).toLowerCase());
+      expect(new Set(vals).size).toBe(SERIES.length);
+    });
+    it(`${name}: linea de referencia >= 3:1 sobre la superficie y relleno de barra de progreso visible`, () => {
+      const surface = hexOf(t, "--bg-surface");
+      expect(ratio(hexOf(t, "--chart-ref"), surface)).toBeGreaterThanOrEqual(3);
+      expect(ratio(hexOf(t, "--progress-fill"), surface)).toBeGreaterThanOrEqual(3);
+    });
+  }
+  it("series 1 y 2 son violeta e indigo (referencia de inspiracion)", () => {
+    const hue = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+      const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return ((h * 60) + 360) % 360;
+    };
+    for (const t of Object.values(themesAll)) {
+      expect(hue(hexOf(t, "--series-1"))).toBeGreaterThan(250);
+      expect(hue(hexOf(t, "--series-1"))).toBeLessThan(275);
+      expect(hue(hexOf(t, "--series-2"))).toBeGreaterThan(228);
+      expect(hue(hexOf(t, "--series-2"))).toBeLessThan(250);
+    }
+  });
+});
+
+describe("chips de meta, delta y semaforo", () => {
+  for (const [name, t] of Object.entries(themesAll)) {
+    it(`${name}: chips «en meta / lejos de meta / sin meta» con texto >= 4.5:1`, () => {
+      for (const k of ["ok", "off", "none"]) {
+        expect(ratio(hexOf(t, `--chip-${k}-text`), hexOf(t, `--chip-${k}-bg`)), `chip ${k}`).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+    it(`${name}: delta (texto) >= 4.5:1 sobre --bg-surface`, () => {
+      for (const k of ["up", "down", "flat"]) expect(ratio(hexOf(t, `--delta-${k}`), hexOf(t, "--bg-surface")), `delta ${k}`).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${name}: semaforo semantico (marcas) >= 3:1 sobre --bg-surface`, () => {
+      for (const k of ["paid", "rejected", "pending"]) expect(ratio(hexOf(t, `--status-${k}`), hexOf(t, "--bg-surface")), `status ${k}`).toBeGreaterThanOrEqual(3);
+    });
+    it(`${name}: tarjeta destacada: texto y subtexto >= 4.5:1, barra >= 3:1`, () => {
+      const bg = hexOf(t, "--kpi-hero-bg");
+      expect(ratio(hexOf(t, "--kpi-hero-text"), bg)).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--kpi-hero-muted"), bg)).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--kpi-hero-fill"), bg)).toBeGreaterThanOrEqual(3);
+      expect(ratio(hexOf(t, "--kpi-hero-fill"), hexOf(t, "--kpi-hero-track"))).toBeGreaterThanOrEqual(1.5);
+    });
+  }
+});

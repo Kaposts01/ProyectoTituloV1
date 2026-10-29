@@ -12,6 +12,15 @@ colors:
   success: "#196b40"
   warning: "#7a5200"
   error: "#8b3030"
+  sidebar: "#111727"
+  sidebar-dark: "#0a0f1c"
+  sidebar-active: "#242a38"
+  series-1: "#7f55da"
+  series-2: "#434ce6"
+  series-3: "#0e9f5c"
+  series-4: "#0b86c9"
+  series-5: "#ee46bc"
+  series-6: "#4e5ba6"
 typography:
   display:
     fontFamily: "Cabinet Grotesk, Barlow, system-ui, sans-serif"
@@ -55,7 +64,7 @@ components:
     backgroundColor: "{colors.surface}"
     rounded: "{rounded.lg}"
   nav-link:
-    textColor: "#7ca8a0"
+    textColor: "#c3cada"
 ---
 
 # SynkmetriX
@@ -74,9 +83,10 @@ components:
 **Reference sites:** Metabase (densidad de tabla), Linear (mono para IDs, zero decoration), Retool (ratio función/chrome alto)
 
 **Key characteristics:**
-- Sidebar en brand teal (#1a3d47) en modo claro: señal de "estoy en la herramienta", no decoración
+- Sidebar azul marino oscuro (#111727 claro / #0a0f1c oscuro): señal de "estoy en la herramienta", no decoración (D1, 2026-10-29; antes teal)
 - Todos los datos numéricos en JetBrains Mono — RUTs, IDs, montos, timestamps; los datos se leen como datos
-- Dark mode derivado del teal — no préstamo de GitHub Dark
+- Dark mode derivado del teal para superficies — no préstamo de GitHub Dark; el sidebar es azul marino en ambos temas
+- Gráficos con paleta categórica violeta/índigo (`--series-1..6`), no con el acento teal
 - Tablas first-class: filas de 38px, header en caps pequeñas, hover suave
 - Sin decoración: ni blobs, ni íconos en círculo de color, ni sombras agresivas
 
@@ -84,7 +94,28 @@ components:
 
 **Strategy:** Committed — el teal profundo (#1a3d47) es dueño de la marca. Los neutrales tienen base azul-verde, no gris puro.
 
-**Light or dark:** Ambos modos definidos. La sidebar siempre en brand teal (en modo oscuro deriva a #091418 — todavía más oscuro que el bg de base). No invertir ingenuamente: el modo oscuro tiene su propia paleta derivada del teal, verificada para contraste.
+**Light or dark:** Ambos modos definidos. La sidebar siempre en azul marino (#111727 en claro; en oscuro deriva a #0a0f1c, más oscuro que el bg de base). No invertir ingenuamente: el modo oscuro tiene su propia paleta, verificada para contraste. Las superficies oscuras siguen derivadas del teal (ver duda abierta al final).
+
+**Sidebar azul marino (D1).** Tonos muestreados píxel a píxel de `docs/dashboardeinspiracion.png`: fondo #111727, ítem activo/campo de búsqueda #242a38. Tokens: `--bg-sidebar`, `--sidebar-text` (#c3cada claro / #b6bfd2 oscuro, ≥ 4,5:1), `--sidebar-text-strong` (#ffffff), `--sidebar-label` (#a3adc2 / #9aa5bd), `--sidebar-hover-bg` (blanco 8 %), `--sidebar-active-bg` (#242a38 claro / #1b2233 oscuro) con `--sidebar-active-text` (#fff, además en peso 700: el activo no depende solo del color), `--sidebar-border`, marca `--sidebar-brand-bg` (#6d3fd0, violeta de la serie 1 oscurecido para texto blanco ≥ 4,5:1). Foco de teclado en el menú: anillo `--series-4` de 2px.
+
+**Paleta categórica de series (D19).** Derivada de la imagen de inspiración (violeta #7f55da, índigo #434ce6, verde #12b76a, azul #0aa5ec, rosa #ee46bc, índigo apagado #4e5ba6); donde el hex original no daba ≥ 3:1 sobre la superficie blanca se oscureció el tono. Las series son **marcas** (barras, líneas, puntos): ≥ 3:1 sobre `--bg-surface`; el texto de leyendas y ejes usa `--text-1/-2`, nunca el color de serie.
+
+| Token | Claro | Oscuro | Uso |
+|---|---|---|---|
+| `--series-1` | #7f55da (4,98:1) | #9b7af0 (4,66:1) | violeta: serie principal |
+| `--series-2` | #434ce6 (6,15:1) | #7f8af5 (4,97:1) | índigo: segunda serie, comparación |
+| `--series-3` | #0e9f5c (3,42:1) | #2ed18a (7,68:1) | verde (categoría extra; no es el verde «pagado») |
+| `--series-4` | #0b86c9 (3,99:1) | #38b6f5 (6,65:1) | azul |
+| `--series-5` | #ee46bc (3,37:1) | #f06ac9 (5,51:1) | rosa |
+| `--series-6` | #4e5ba6 (6,23:1) | #8b97d6 (5,43:1) | índigo apagado |
+| `--series-muted` | #f5eaff | #2a2350 | barras no seleccionadas, relleno de área |
+| `--chart-ref` | #2b3350 | #cbd3e6 | línea punteada de meta (≥ 3:1) |
+
+Orden de uso: series 1 y 2 primero; 3–6 solo si hay más categorías. Los estados de negocio (pagado/rechazado/pendiente) siguen en `--status-*` (statusColors.ts) y los canales en chartColors.ts: no se mezclan con `--series-N`. Con series 1 y 2 en el mismo gráfico, distinguirlas además por leyenda directa o etiqueta (violeta e índigo son cercanos para daltonismo).
+
+**Chips de meta y semáforo.** Tres chips pill con dot + texto (nunca solo color): «en meta» (`--chip-ok-*`, verde), «lejos de meta» (`--chip-off-*`, rojo), «sin meta» (`--chip-none-*`, neutro). Texto ≥ 4,5:1 sobre su fondo en ambos temas. Delta vs período anterior: `--delta-up` / `--delta-down` / `--delta-flat` (texto ≥ 4,5:1 sobre superficie) con flecha ▲ ▼ ▬ y texto «sube/baja/sin cambio». Semáforo semántico: `--status-paid`, `--status-rejected`, `--status-pending` ≥ 3:1 como marca.
+
+**Tarjeta KPI destacada.** `--kpi-hero-bg` (#2e2a8f claro / #3b3fbf oscuro), texto `--kpi-hero-text` y subtexto `--kpi-hero-muted` ≥ 4,5:1, barra `--kpi-hero-fill` sobre `--kpi-hero-track`. Máximo 1–2 por pantalla. Todas las razones de contraste las vigila `frontend/src/designTokens.test.ts`.
 
 El acento (#2a7a64) señala interacción: hover, focus ring, botón primario, nav item activo. En dark mode escala a #3a9d7e para mantener contraste sobre fondos oscuros. No usar el acento como decoración — solo para estados interactivos o alertas de acción positiva.
 
@@ -143,7 +174,11 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 **Alert banner:** Solo para estados que requieren acción. Warning bg + border + icono de info. Texto breve, link "Ver →" a la derecha.
 
-**Sidebar:** Siempre fondo `--sidebar`. Nav items con hover `rgba(255,255,255,.08)`. Active item en `--accent`. Section labels en 9px / 600 / uppercase / text-sidebar-muted. Footer con avatar y email del usuario.
+**Sidebar:** Siempre fondo `--bg-sidebar` (azul marino). Nav items con hover `--sidebar-hover-bg`. Item activo en `--sidebar-active-bg` + `--sidebar-active-text` + peso 700 (no `--accent`). Section labels en 9px / 600 / uppercase / `--sidebar-label`. Footer con avatar y email del usuario.
+
+**KPI card (v2).** Superficie normal con borde sutil (sin borde lateral de color, sin cards anidadas). Etiqueta, valor en JetBrains Mono (`—` con texto accesible «sin datos» si no hay dato), `delta` vs mes anterior con flecha y color semántico, chip de meta, barra de progreso hacia la meta (con `role="progressbar"` y texto «X % de la meta»), sparkline opcional (decorativo, `aria-hidden`; la tendencia va en texto). Variantes: `normal` y `destacada` rellena (máx. 1–2 por pantalla). Churn (D20): tarjeta con chip, meta y sparkline, no velocímetro.
+
+**Gráficos de evolución.** Barras apiladas por fuente con meta punteada (`--chart-ref`), línea acumulada vs ritmo meta vs proyección, eje en porcentaje cuando se pide, un único tooltip con total y % de la meta, botón «Ver datos» que alterna a una tabla accesible equivalente, selector de rango «Últimos 12 meses / Año / Todo».
 
 ## Interaction States
 
@@ -165,7 +200,8 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 **Do:**
 - Usar JetBrains Mono para cualquier valor que venga de la base de datos
-- Mantener la sidebar en `--sidebar` (teal) en ambos modos — es el ancla de identidad
+- Mantener la sidebar en `--bg-sidebar` (azul marino) en ambos modos — es el ancla de identidad
+- Usar `--series-N` para series de gráficos (violeta/índigo primero) y validar ≥ 3:1 de marcas y ≥ 4,5:1 de texto
 - Señalar estado con badge + dot + texto (nunca solo color)
 - Usar `font-variant-numeric: tabular-nums` en columnas de tabla numéricas
 - Derivar el dark mode del teal — no copiar paletas de otras herramientas
@@ -197,6 +233,11 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 | 2026-10-21 | Dark mode derivado del teal | El dark mode anterior pedía prestado a GitHub Dark; ahora tiene identidad propia |
 | 2026-10-21 | Cabinet Grotesk + General Sans (Fontshare) | Display + body con identidad; reemplazan Inter completamente. Preview proxy: Barlow + DM Sans |
 | 2026-10-21 | Nav sidebar expandible por proveedor (2 niveles) | Nav plana de 6 ítems era mockup ilustrativo — la nav real usa grupos colapsables por canal |
+| 2026-10-29 | D1: sidebar azul marino oscuro (#111727 claro / #0a0f1c oscuro; activo #242a38) en lugar de teal | Decisión del usuario, a partir de docs/dashboardeinspiracion.png. Revierte la decisión del 2026-10-21 «Sidebar en brand teal». El teal sigue siendo primario/acento interactivo fuera del menú |
+| 2026-10-29 | D19: paleta de series violeta e índigo (`--series-1..6`, con verde, azul y rosa como categorías extra), marcas ≥ 3:1 en claro y oscuro | Decisión del usuario (imagen de inspiración); cierra DEC-36 en lo cromático. Hex oscurecidos donde el original no pasaba 3:1 sobre blanco |
+| 2026-10-29 | D20: churn como tarjeta KPI con chip, meta y sparkline (no velocímetro) | Decisión del usuario; alineado con el tablero de la jefatura |
+| 2026-10-29 | D9: los cambios se avisarán por SSE | Decisión del usuario; sin cambios de diseño por ahora (se implementa aparte) |
+| 2026-10-29 | Chips de meta, delta, tarjeta KPI destacada y gráficos de evolución especificados (UX-01/02/03) | Referencia: tablero de la jefatura. Texto ≥ 4,5:1, marcas ≥ 3:1 |
 | 2026-10-21 | Estados UI especificados en tabla (tabla Interaction States) | Empty states son features: OperationalAlerts con null-return → estado positivo con warmth |
 
 ## Design Review Completion Summary
@@ -238,4 +279,9 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 
 **VERDICT:** Design Review completa — 6 brechas aprobadas para implementación. eng review required antes de ship.
 
-NO UNRESOLVED DECISIONS
+**Dudas abiertas para el usuario (2026-10-29), NO aplicadas:**
+1. Las superficies del modo oscuro siguen en teal (#0d1e23 / #162830) con sidebar azul marino; la referencia usa todo azul-gris. ¿Migrar también superficies, primario y acento a azul/violeta?
+2. El acento interactivo (botones, foco, enlaces) sigue en teal #2a7a64; la referencia usa azul (#2197d3 en enlaces). ¿Se cambia?
+3. El Layout sigue describiendo la navegación de 2 niveles por proveedor; se reescribe en UX-05 con la nueva IA.
+4. Título «hero» grande (DEC-41) y encabezado marino de página (C1/C4/C6 de la auditoría): sin aplicar.
+5. Colores de canal (chartColors.ts) y de MonthlyStatusChart siguen con sus hex propios; migrarlos a `--series-N` queda para una tarea posterior.
