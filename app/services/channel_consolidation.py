@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,7 @@ from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
 from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
 from app.services.core_tch_etl import _resolve_currency as _resolve_tch_currency
+from app.services.core_tch_etl import legacy_key_filter
 from app.services.status_events import (
     REASON_CODE_KEY,
     REASON_TEXT_KEY,
@@ -587,6 +588,12 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
 
 def _consolidate_tch_transactions(db: Session) -> int:
     """tch_transacciones → charges (procesadas en chunks por volumen ~150k)."""
+    # D13: la clave de la cuota es ficha|periodo|cuota; los cobros con la clave antigua que ya no estan en
+    # tch_transacciones quedarian duplicados tras la recarga completa.
+    pruned = db.execute(delete(Charge).where(legacy_key_filter(Charge, Charge.external_id))).rowcount or 0
+    if pruned:
+        logger.info("TCH: %d cobros con clave antigua eliminados de charges", pruned)
+        db.commit()
     total = 0
     offset = 0
     while True:

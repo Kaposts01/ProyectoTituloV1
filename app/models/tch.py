@@ -8,6 +8,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
 
+# Origen de una fila de tch_transacciones (TCH-PAR-04).
+ORIGEN_CARGO = "cargo"  # hojas CARGOS ACEPTADOS / CARGOS RECHAZADOS: intento real, con fecha de cobro
+ORIGEN_HISTORIAL = "historial"  # bloques de 12 meses de las hojas de mandatos: estado mensual, sin fecha de cobro
+
 
 class TchBanco(Base):
     __tablename__ = "tch_bancos"
@@ -100,6 +104,7 @@ class TchSuscripcion(Base):
     reajuste: Mapped[str | None] = mapped_column(String(10), nullable=True)
     firma: Mapped[str | None] = mapped_column(String(10), nullable=True)
     monto: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    moneda: Mapped[str | None] = mapped_column(String(3), nullable=True)  # CLP / UF / USD desde "Moneda Vigente"
     equivalente_pesos: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Fechas (strings ISO para flexibilidad con datos históricos)
@@ -121,9 +126,9 @@ class TchSuscripcion(Base):
 
 class TchTransaccion(Base):
     """
-    Una fila por cargo/intento mensual.
-    La clave de deduplicación evita repetir un mismo cargo histórico presente
-    en varios reportes mensuales.
+    Una fila por cuota: (ficha, periodo real, cuota) con el ÚLTIMO estado (D13).
+    La clave de deduplicación evita repetir una cuota presente en varios reportes; el rechazo previo de una cuota
+    luego aceptada queda como atributo de la misma fila (``rechazo_previo*``), no como segunda fila.
     """
 
     __tablename__ = "tch_transacciones"
@@ -143,6 +148,13 @@ class TchTransaccion(Base):
     razon_rechazo: Mapped[str | None] = mapped_column(String(500), nullable=True)
     archivo_origen: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    # D13 (TCH-PAR-03/04): clave = ficha|periodo real|cuota; UN estado final por cuota ("el ultimo reporte gana").
+    # origen: 'cargo' (hojas CARGOS, con fecha) o 'historial' (estado mensual sin fecha). NULL = fila anterior a la recarga.
+    origen: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    reporte_periodo: Mapped[str | None] = mapped_column(String(7), nullable=True)  # YYYY-MM del reporte que trajo la fila
+    rechazo_previo: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rechazo_previo_motivo: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    rechazo_previo_en: Mapped[str | None] = mapped_column(String(20), nullable=True)  # fecha ISO del intento rechazado
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

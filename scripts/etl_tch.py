@@ -23,11 +23,13 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select, true
 
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.models.tch import (
+    ORIGEN_CARGO,
+    ORIGEN_HISTORIAL,
     TchBanco,
     TchCentroCosto,
     TchCliente,
@@ -482,8 +484,8 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
         rut = _norm_rut(_col_val(row, c_rut))
 
         raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
-        # tch_suscripciones no tiene columna moneda: la moneda normalizada viaja en el payload.
-        raw["moneda_vigente"] = normalize_tch_currency(_col_val(row, c_moneda))
+        moneda = normalize_tch_currency(_col_val(row, c_moneda))
+        raw["moneda_vigente"] = moneda  # tambien en el payload: filas cargadas antes de la columna `moneda`
 
         sus = {
             "numero_ficha": ficha,
@@ -500,6 +502,7 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
             "reajuste": _norm_str(_col_val(row, c_reajuste), 10),
             "firma": _norm_str(_col_val(row, c_firma), 10),
             "monto": _norm_monto(_col_val(row, c_monto)),
+            "moneda": moneda,
             "equivalente_pesos": _norm_monto(_col_val(row, c_equivalente_pesos)),
             "fecha_activacion": _norm_date(_col_val(row, c_factivacion)),
             "fecha_entrega_banco": _norm_date(_col_val(row, c_fentrega)),
@@ -552,9 +555,14 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
 # Transformaciones — CARGOS ACEPTADOS / RECHAZADOS
 # ---------------------------------------------------------------------------
 
-def _dedupe_key(ficha: int, periodo: str | None, cuota: str | None, estado: str, monto: str | None) -> str:
-    # La cuota se normaliza aqui tambien: '12', '12.0' y 12.0 deben dar la misma clave.
-    return "|".join([str(ficha), periodo or "", _norm_cuota(cuota) or "", estado, monto or ""])
+def _dedupe_key(ficha: int, periodo: str | None, cuota: str | None) -> str:
+    """Clave estable de una cuota: ficha | periodo real | cuota (D13, TCH-PAR-03).
+
+    NO lleva estado ni monto: en la fuente cada cuota tiene un estado final, de modo que un rechazo seguido de un pago
+    (o un cambio de monto en un reporte posterior) actualiza la MISMA fila. La cuota se normaliza aqui tambien:
+    '12', '12.0' y 12.0 dan la misma clave.
+    """
+    return "|".join([str(ficha), periodo or "", _norm_cuota(cuota) or ""])
 
 
 def _estado_cargo(estado: str) -> str:
@@ -651,7 +659,12 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> lis
             "codigo_respuesta": codigo,
             "razon_rechazo": razon,
             "archivo_origen": archivo,
-            "dedupe_key": _dedupe_key(ficha, periodo, cuota, estado, monto),
+            "dedupe_key": _dedupe_key(ficha, periodo, cuota),
+            "origen": ORIGEN_CARGO,
+            "reporte_periodo": None,
+            "rechazo_previo": None,
+            "rechazo_previo_motivo": None,
+            "rechazo_previo_en": None,
             "raw_payload": raw,
         })
     if sin_periodo:
@@ -698,7 +711,12 @@ def _transform_historial_cargos(df: pd.DataFrame, archivo: str) -> list[dict]:
                     "codigo_respuesta": None,
                     "razon_rechazo": None,
                     "archivo_origen": archivo,
-                    "dedupe_key": _dedupe_key(ficha, period, cuota, estado, monto),
+                    "dedupe_key": _dedupe_key(ficha, period, cuota),
+                    "origen": ORIGEN_HISTORIAL,
+                    "reporte_periodo": None,
+                    "rechazo_previo": None,
+                    "rechazo_previo_motivo": None,
+                    "rechazo_previo_en": None,
                     "raw_payload": {"periodo": period, "numero_cuota": cuota, "estado_original": estado_original, "monto": monto},
                 }
             )
@@ -903,6 +921,7 @@ def _load_suscripciones(db, rows: list[dict]) -> tuple[int, int, int]:
                 "origen": pg_insert(TchSuscripcion).excluded.origen,
                 "centro_costo": pg_insert(TchSuscripcion).excluded.centro_costo,
                 "monto": pg_insert(TchSuscripcion).excluded.monto,
+                "moneda": pg_insert(TchSuscripcion).excluded.moneda,
                 "equivalente_pesos": pg_insert(TchSuscripcion).excluded.equivalente_pesos,
                 "fecha_activacion": pg_insert(TchSuscripcion).excluded.fecha_activacion,
                 "fecha_rechazo": pg_insert(TchSuscripcion).excluded.fecha_rechazo,
@@ -917,36 +936,107 @@ def _load_suscripciones(db, rows: list[dict]) -> tuple[int, int, int]:
     return len(unique_sus), 0, 0
 
 
-def _load_transacciones(db, rows: list[dict], archivo: str) -> int:
+_TX_OPTIONAL = {
+    "numero_mandato": None, "periodo": None, "numero_cuota": None, "total_cuotas": None, "monto": None,
+    "fecha_cargo": None, "tipo_transaccion": None, "entidad_recaudadora": None, "codigo_respuesta": None,
+    "razon_rechazo": None, "archivo_origen": None, "origen": ORIGEN_CARGO, "reporte_periodo": None,
+    "rechazo_previo": None, "rechazo_previo_motivo": None, "rechazo_previo_en": None, "raw_payload": None,
+}
+
+
+def _transaccion_upsert_set(stmt, table) -> dict:
+    """SET del ON CONFLICT: UN estado final por cuota, "el ultimo reporte gana" y cargo > historial (D13).
+
+    - ``newer``: el reporte entrante no es anterior al que trajo la fila (empate = el ultimo cargado gana).
+    - El estado y el monto salen del reporte mas nuevo.
+    - El detalle del cargo (fecha, entidad, tipo, motivo, payload) lo aporta una fila de origen 'cargo'; un historial
+      nunca lo borra ni lo reemplaza (precedencia cargo > historial).
+    - Una cuota que pasa de RECHAZADA a ACEPTADA (o al reves, si llega un reporte viejo tarde) conserva el motivo y la
+      fecha del rechazo como ``rechazo_previo*``; no se crea otra fila.
+    """
+    e, t = stmt.excluded, table.c
+    newer = or_(e.reporte_periodo.is_(None), t.reporte_periodo.is_(None), e.reporte_periodo >= t.reporte_periodo)
+    e_cargo = e.origen == ORIGEN_CARGO
+    t_cargo = func.coalesce(t.origen, "") == ORIGEN_CARGO
+    take = or_(and_(e_cargo, or_(~t_cargo, newer)), and_(~e_cargo, ~t_cargo, newer))
+    final = case((newer, e.estado), else_=t.estado)
+    rej_from_old = and_(newer, t.estado == "RECHAZADA", e.estado == "ACEPTADA")
+    rej_from_new = and_(~newer, e.estado == "RECHAZADA", t.estado == "ACEPTADA")
+
+    def detail(column: str):
+        return case((take, func.coalesce(e[column], t[column])), else_=t[column])
+
+    return {
+        "estado": final,
+        "monto": case((newer, func.coalesce(e.monto, t.monto)), else_=t.monto),
+        "reporte_periodo": case((newer, func.coalesce(e.reporte_periodo, t.reporte_periodo)), else_=t.reporte_periodo),
+        "origen": case((or_(e_cargo, t_cargo), ORIGEN_CARGO), else_=func.coalesce(e.origen, t.origen)),
+        "numero_mandato": func.coalesce(t.numero_mandato, e.numero_mandato),
+        "total_cuotas": detail("total_cuotas"),
+        "fecha_cargo": detail("fecha_cargo"),
+        "tipo_transaccion": detail("tipo_transaccion"),
+        "entidad_recaudadora": detail("entidad_recaudadora"),
+        "archivo_origen": case((take, e.archivo_origen), else_=t.archivo_origen),
+        "raw_payload": case((take, func.coalesce(e.raw_payload, t.raw_payload)), else_=t.raw_payload),
+        # Una cuota ACEPTADA no conserva el motivo como rechazo vigente: queda en rechazo_previo_motivo.
+        "razon_rechazo": case((final == "ACEPTADA", None), else_=detail("razon_rechazo")),
+        "codigo_respuesta": case((final == "ACEPTADA", None), else_=detail("codigo_respuesta")),
+        "rechazo_previo": case(
+            (or_(rej_from_old, rej_from_new), true()), else_=func.coalesce(t.rechazo_previo, e.rechazo_previo)
+        ),
+        "rechazo_previo_motivo": case(
+            (rej_from_old, func.coalesce(t.razon_rechazo, t.rechazo_previo_motivo)),
+            (rej_from_new, e.razon_rechazo),
+            else_=func.coalesce(t.rechazo_previo_motivo, e.rechazo_previo_motivo),
+        ),
+        "rechazo_previo_en": case(
+            (rej_from_old, func.coalesce(t.fecha_cargo, t.rechazo_previo_en)),
+            (rej_from_new, e.fecha_cargo),
+            else_=func.coalesce(t.rechazo_previo_en, e.rechazo_previo_en),
+        ),
+    }
+
+
+def _load_transacciones(db, rows: list[dict], archivo: str | None = None) -> int:
+    """Upsert por ``dedupe_key`` (ficha|periodo|cuota). Devuelve cuantas cuotas distintas trae el lote.
+
+    Si una misma cuota aparece varias veces en el lote (p. ej. rechazada y luego aceptada en el mismo reporte), las
+    repeticiones se aplican en pasadas sucesivas, en el orden recibido: una sentencia INSERT .. ON CONFLICT no puede
+    tocar dos veces la misma fila.
+    """
     if not rows:
         return 0
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    # Un mismo cargo puede estar en varios reportes. La clave natural conserva uno solo.
     CHUNK = 2000
-    unique_rows = {row["dedupe_key"]: row for row in rows}
-    to_insert = [{"id": uuid.uuid4(), **row} for row in unique_rows.values()]
-    for i in range(0, len(to_insert), CHUNK):
-        stmt = pg_insert(TchTransaccion).values(to_insert[i : i + CHUNK]).on_conflict_do_update(
-            constraint="uq_tch_transaccion_dedupe_key",
-            set_={
-                "fecha_cargo": func.coalesce(pg_insert(TchTransaccion).excluded.fecha_cargo, TchTransaccion.fecha_cargo),
-                "tipo_transaccion": case(
-                    (pg_insert(TchTransaccion).excluded.fecha_cargo.is_(None), TchTransaccion.tipo_transaccion),
-                    else_=pg_insert(TchTransaccion).excluded.tipo_transaccion,
-                ),
-                "entidad_recaudadora": func.coalesce(pg_insert(TchTransaccion).excluded.entidad_recaudadora, TchTransaccion.entidad_recaudadora),
-                "codigo_respuesta": func.coalesce(pg_insert(TchTransaccion).excluded.codigo_respuesta, TchTransaccion.codigo_respuesta),
-                "razon_rechazo": func.coalesce(pg_insert(TchTransaccion).excluded.razon_rechazo, TchTransaccion.razon_rechazo),
-                "archivo_origen": pg_insert(TchTransaccion).excluded.archivo_origen,
-                "raw_payload": case(
-                    (pg_insert(TchTransaccion).excluded.fecha_cargo.is_(None), TchTransaccion.raw_payload),
-                    else_=pg_insert(TchTransaccion).excluded.raw_payload,
-                ),
-            },
-        )
-        db.execute(stmt)
-    return len(to_insert)
+    layers: list[list[dict]] = []
+    occurrences: dict[str, int] = {}
+    for row in rows:
+        key = row["dedupe_key"]
+        index = occurrences.get(key, 0)
+        occurrences[key] = index + 1
+        if index == len(layers):
+            layers.append([])
+        layers[index].append({"id": uuid.uuid4(), **_TX_OPTIONAL, **row})
+
+    table = TchTransaccion.__table__
+    for layer in layers:
+        for i in range(0, len(layer), CHUNK):
+            stmt = pg_insert(TchTransaccion).values(layer[i : i + CHUNK])
+            db.execute(
+                stmt.on_conflict_do_update(
+                    constraint="uq_tch_transaccion_dedupe_key", set_=_transaccion_upsert_set(stmt, table)
+                )
+            )
+    return len(occurrences)
+
+
+def _has_legacy_dedupe_keys(db) -> bool:
+    """True si quedan filas con la clave antigua (ficha|periodo|cuota|estado|monto, 4 separadores).
+
+    Una carga incremental sobre ellas duplicaria todas las cuotas: primero hay que reconstruir con ``--mode full``.
+    """
+    return db.scalar(select(TchTransaccion.id).where(TchTransaccion.dedupe_key.like("%|%|%|%|%")).limit(1)) is not None
 
 
 def _load_recaudacion_mensual(db, rows: list[dict]) -> int:
@@ -1046,6 +1136,16 @@ class ReportAlreadyLoadedError(ValueError):
     """El contenido del reporte (sha256) ya fue cargado antes."""
 
 
+class LegacyDedupeKeysError(ValueError):
+    """La base aun tiene la clave antigua de cargos: hay que reconstruir con ``--mode full`` antes de cargar mas."""
+
+
+_LEGACY_KEYS_MESSAGE = (
+    "tch_transacciones conserva claves antiguas (ficha|periodo|cuota|estado|monto). Una carga incremental duplicaria "
+    "las cuotas: reconstruya primero con scripts/etl_tch.py --mode full (ver docs/data/tch-reload.md)."
+)
+
+
 def _unique_reports_by_sha256(files: list[Path]) -> tuple[list[Path], list[Path]]:
     """Separa los archivos con contenido repetido (el primero, en el orden dado, es el que se conserva)."""
     seen: set[str] = set()
@@ -1073,7 +1173,7 @@ def _clear_tch_data(db) -> None:
 # Procesamiento de un archivo
 # ---------------------------------------------------------------------------
 
-def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
+def _process_file(filepath: Path, db) -> dict:
     nombre = filepath.name
     log.info(f"Procesando: {nombre}")
 
@@ -1136,27 +1236,21 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     if not tiene_cartera:
         fichas.clear()  # sin hoja VIGENTES legible (p. ej. dic-2023) no se infieren bajas
 
-    # --- CARGOS ---
-    df_acep = _read_sheet(filepath, SHEET_ACEPTADOS)
-    if df_acep is not None:
-        trans_rows += _transform_transacciones(df_acep, "ACEPTADA", nombre)
-
+    # --- CARGOS --- (primero los rechazados: si la misma cuota figura tambien aceptada en el reporte, la aceptada
+    # se aplica despues, es el estado final, y el rechazo queda como atributo `rechazo_previo*`).
     df_rech = _read_sheet(filepath, SHEET_RECHAZADOS)
     if df_rech is not None:
         trans_rows += _transform_transacciones(df_rech, "RECHAZADA", nombre)
 
-    history_periods = {
-        row["periodo"]
-        for row in trans_rows
-        if row["tipo_transaccion"] == "HISTORIAL_MENSUAL" and row["periodo"]
-    }
-    new_history_periods = history_periods - loaded_history_periods
-    trans_rows = [
-        row
-        for row in trans_rows
-        if row["tipo_transaccion"] != "HISTORIAL_MENSUAL" or row["periodo"] in new_history_periods
-    ]
-    loaded_history_periods.update(new_history_periods)
+    df_acep = _read_sheet(filepath, SHEET_ACEPTADOS)
+    if df_acep is not None:
+        trans_rows += _transform_transacciones(df_acep, "ACEPTADA", nombre)
+
+    # "El ultimo reporte gana": cada fila lleva el mes del reporte que la trajo. Se procesan TODAS las ventanas de
+    # historial de cada reporte (un reporte posterior puede reexpresar el estado de un mes ya cargado).
+    reporte_periodo = _report_period(filepath)
+    for row in trans_rows:
+        row["reporte_periodo"] = reporte_periodo
     n_trans = _load_transacciones(db, trans_rows, nombre)
     totales["trans"] = n_trans
     log.info(f"  Transacciones: {n_trans}")
@@ -1202,8 +1296,10 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
         sha = report_registry.file_sha256(filepath)
         if report_registry.is_registered(db, sha):
             raise ReportAlreadyLoadedError("Este reporte ya fue cargado (mismo contenido, sha256 registrado).")
+        if _has_legacy_dedupe_keys(db):
+            raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
         ultimo_cargado = _last_closed_period(db)
-        totals = _process_file(filepath, db, set())
+        totals = _process_file(filepath, db)
         report_registry.register(db, sha, filepath.name, filepath.stat().st_size)
         total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
         if _is_latest_report(ultimo_cargado, _report_period(filepath)):
@@ -1261,7 +1357,6 @@ def main() -> None:
     log.info(f"EtlRun iniciado: {run.id}")
 
     total = 0
-    loaded_history_periods: set[str] = set()
     ultimo: dict = {}
     try:
         if args.mode == "full":
@@ -1272,7 +1367,9 @@ def main() -> None:
             ultimo_cargado = _last_closed_period(db)
             if args.mode == "incremental" and report_registry.is_registered(db, sha):
                 raise ReportAlreadyLoadedError("Este reporte ya fue cargado (mismo contenido, sha256 registrado).")
-            t = _process_file(archivo, db, loaded_history_periods)
+            if args.mode == "incremental" and _has_legacy_dedupe_keys(db):
+                raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
+            t = _process_file(archivo, db)
             report_registry.register(db, sha, archivo.name, archivo.stat().st_size)
             if args.mode == "incremental" and _is_latest_report(ultimo_cargado, _report_period(archivo)):
                 bajas = _apply_implicit_bajas(db, t["fichas"])

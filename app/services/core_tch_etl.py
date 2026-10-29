@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, delete, exists, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -69,9 +69,12 @@ def _resolve_currency(suscripcion: TchSuscripcion) -> str:
     """Moneda del mandato desde "Moneda Vigente" (TCH-PAR-05); CLP si el reporte no la trae.
 
     El campo ``reajuste`` ("SI" o vacio) indica reajuste del monto, no la moneda.
-    ``tch_suscripciones`` no tiene columna ``moneda``: se lee del payload, donde el ETL deja la
-    clave ``moneda_vigente`` y, en filas cargadas antes, el rotulo crudo de la columna.
+    Se lee la columna ``moneda`` (migracion 0047); en filas cargadas antes de ella, del payload, donde el ETL deja
+    la clave ``moneda_vigente`` y, en filas aun mas antiguas, el rotulo crudo de la columna.
     """
+    from_column = normalize_tch_currency(getattr(suscripcion, "moneda", None))
+    if from_column:
+        return from_column
     payload = getattr(suscripcion, "raw_payload", None) or {}
     value = payload.get("moneda_vigente")
     if value is None:
@@ -197,7 +200,29 @@ def _materialize_subscriptions(db: Session) -> int:
 
 # ── Paso 3: pagos ─────────────────────────────────────────────────────────────
 
+def legacy_key_filter(model, key_column):
+    """Filas TCH con la clave antigua (ficha|periodo|cuota|estado|monto) que ya no existe en ``tch_transacciones``.
+
+    Con la clave estable (ficha|periodo|cuota, D13) esas filas no se vuelven a generar: tras la recarga completa
+    quedarian como duplicados. Solo se consideran las de la forma antigua (4 separadores) y solo si su clave ya no
+    esta en ``tch_transacciones`` (si la recarga aun no ocurrio, siguen vigentes y no se tocan).
+    """
+    return and_(
+        model.source == _SOURCE,
+        key_column.like("%|%|%|%|%"),
+        ~exists().where(TchTransaccion.dedupe_key == key_column),
+    )
+
+
+def _prune_legacy_payments(db: Session) -> int:
+    result = db.execute(delete(CorePayment).where(legacy_key_filter(CorePayment, CorePayment.external_id)))
+    return result.rowcount or 0
+
+
 def _materialize_payments(db: Session) -> int:
+    pruned = _prune_legacy_payments(db)
+    if pruned:
+        log.info("TCH Core ETL: %d pagos con clave antigua eliminados (la clave ahora es ficha|periodo|cuota)", pruned)
     sub_index: dict[str, uuid.UUID] = {}
     for row in db.execute(
         select(CoreSubscription.external_id, CoreSubscription.id).where(
@@ -236,10 +261,21 @@ def _materialize_payments(db: Session) -> int:
     before = db.scalar(select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)) or 0
     for i in range(0, len(rows), _BATCH):
         batch = rows[i : i + _BATCH]
+        ins = insert(CorePayment).values(batch)
+        # Con la clave estable una cuota cambia de estado (rechazada -> aceptada) o de monto en reportes posteriores:
+        # el pago debe reflejar el ultimo estado, no quedarse con el primero.
         db.execute(
-            insert(CorePayment)
-            .values(batch)
-            .on_conflict_do_nothing(constraint="uq_core_payment_source_external_id")
+            ins.on_conflict_do_update(
+                constraint="uq_core_payment_source_external_id",
+                set_={
+                    "subscription_id": ins.excluded.subscription_id,
+                    "source_status": ins.excluded.source_status,
+                    "occurred_at": ins.excluded.occurred_at,
+                    "amount": ins.excluded.amount,
+                    "rejection_code": ins.excluded.rejection_code,
+                    "rejection_reason": ins.excluded.rejection_reason,
+                },
+            )
         )
     after = db.scalar(select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)) or 0
     return after - before
