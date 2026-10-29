@@ -199,6 +199,7 @@ def test_route_maps_abort_to_fixed_code_without_provider_text(monkeypatch, db_se
     client, h = client_for(db_session, user)
     r = client.delete("/api/v1/writes/toku/subscriptions/sub_fc", headers=h)
     assert r.status_code == 502
-    assert "INVOICE_LIST_FAILED" in r.json()["detail"]
+    assert r.json()["detail"]["code"] == "toku_deletion_aborted"
+    assert "INVOICE_LIST_FAILED" in r.json()["detail"]["message"]
     assert SECRET_TEXT not in r.text
     assert not _deleted()

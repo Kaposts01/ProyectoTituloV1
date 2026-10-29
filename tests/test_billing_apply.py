@@ -651,6 +651,7 @@ def test_route_plural_delete_409_with_mark_and_ok_without(monkeypatch, db_sessio
         c["status"] = "pendiente" if c["id"].startswith("auto") else c["status"]
     _mark(db_session)
     r = client.delete(f"{url}?dry_run=false", headers=h)
-    assert r.status_code == 409 and "charge_ids" in r.json()["detail"]
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "operation_conflict"
+    assert "charge_ids" in r.json()["detail"]["message"]
     assert "delete_plural" not in _names()
     assert client.delete(url, headers=h).status_code == 200  # dry_run por defecto: solo lectura

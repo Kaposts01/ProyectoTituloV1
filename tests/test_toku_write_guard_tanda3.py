@@ -326,9 +326,9 @@ def test_route_403_does_not_leak_variable_names(monkeypatch) -> None:
     with pytest.raises(HTTPException) as e:
         asyncio.run(writes_routes.delete_toku_customer("c1", None, SimpleNamespace(id=uuid.uuid4())))
     assert e.value.status_code == 403
-    assert e.value.detail == "Escritura Toku bloqueada por las guardas de ambiente (ID_NOT_ALLOWED)."
+    assert e.value.detail == {"code": "toku_write_blocked", "message": "Escritura Toku bloqueada por las guardas de ambiente (ID_NOT_ALLOWED)."}
     for name in (ENV_ALLOWED_IDS, ENV_MAX_WRITES, ENV_ARMED, "TOKU_SANDBOX"):
-        assert name not in e.value.detail
+        assert name not in e.value.detail["message"]
 
 
 # ---- (5) tope del cupo -------------------------------------------------------------
@@ -544,7 +544,7 @@ def test_full_api_route_csrf_permissions_and_guard_403(monkeypatch, db_session, 
         assert client.delete(url).status_code in (401, 403)  # sin CSRF
         r = client.delete(url, headers={"X-CSRF-Token": csrf})  # guarda: id no TEST- ni allowlist
         assert r.status_code == 403
-        detail = r.json()["detail"]
+        detail = r.json()["detail"]["message"]
         assert "ID_NOT_ALLOWED" in detail
         for name in (ENV_ALLOWED_IDS, ENV_MAX_WRITES, ENV_ARMED, "TOKU_SANDBOX"):
             assert name not in detail

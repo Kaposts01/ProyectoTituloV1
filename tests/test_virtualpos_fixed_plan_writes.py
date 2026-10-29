@@ -300,7 +300,7 @@ def test_route_reassign_and_create_422_when_flag_off(monkeypatch, db_session, _c
     )
     h = {"X-CSRF-Token": csrf}
     r = client.post(f"{BASE}/reassign-amount?dry_run=false", json=BODY, headers=h)
-    assert r.status_code == 422 and "monto fijo" in r.json()["detail"]
+    assert r.status_code == 422 and "monto fijo" in r.json()["detail"]["message"]
     r = client.post(f"{BASE}/charges", json={"charge_date": "2026-11-05", "amount": 5}, headers=h)
-    assert r.status_code == 422 and "monto fijo" in r.json()["detail"]
+    assert r.status_code == 422 and "monto fijo" in r.json()["detail"]["message"]
     assert CALLS == []

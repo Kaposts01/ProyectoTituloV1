@@ -217,7 +217,8 @@ def test_scheduler_trigger_disabled_channels(monkeypatch) -> None:
 
     res = client.post(url, json={"channels": ["payku", "virtualpos2"]})
     assert res.status_code == 409
-    assert "deshabilitado" in res.json()["detail"]
+    assert res.json()["detail"]["code"] == "channels_disabled"
+    assert "deshabilitado" in res.json()["detail"]["message"]
     assert ran == []
 
     res = client.post(url, json={"channels": ["virtualpos1", "payku"]})

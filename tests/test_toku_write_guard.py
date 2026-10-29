@@ -531,8 +531,9 @@ def test_routes_map_guard_block_to_403(monkeypatch, fn_name: str, args: tuple) -
         actor = SimpleNamespace(id=uuid.uuid4())  # MGT-01: las rutas reciben al usuario autenticado
         asyncio.run(getattr(writes_routes, fn_name)(*args, None, actor))
     assert e.value.status_code == 403
-    assert "NOT_ARMED" in e.value.detail
-    assert "falta el interruptor" not in e.value.detail  # el mensaje completo queda solo en write_runs
+    assert e.value.detail["code"] == "toku_write_blocked"
+    assert "NOT_ARMED" in e.value.detail["message"]
+    assert "falta el interruptor" not in e.value.detail["message"]  # el mensaje completo queda solo en write_runs
 
 
 def test_module_exports_and_defaults() -> None:
