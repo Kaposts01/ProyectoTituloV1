@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { formatDateTime } from "../billing/billingLabels";
 import { Cell, FiltersPanel, Notice } from "../billing/ui";
+import { CancellationActions } from "./CancellationActions";
 import { StatusBadge } from "./CancellationStatusBadge";
 import { CancellationDetailView } from "./CancellationDetailView";
 import * as api from "./cancellationsApi";
 import { describeCancellationError } from "./cancellationErrors";
 import { channelText, reasonText, statusText } from "./cancellationLabels";
 import { CHANNELS, EMPTY_CANCELLATION_FILTERS, TAB_STATUSES, type CancellationFilters, type CancellationTab } from "./cancellationsQuery";
-import type { CancellationChannel, CancellationList, CancellationStatus } from "./types";
+import { RequestCancellationDialog } from "./RequestCancellationDialog";
+import { PERM_CANCELLATION_REQUEST, type CancellationChannel, type CancellationDetail, type CancellationList, type CancellationStatus } from "./types";
 import "../billing/billing.css";
 import "./cancellations.css";
 
@@ -34,7 +36,6 @@ function lastPageOffset(total: number): number {
 }
 
 export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Props) {
-  void can; void currentUserId; void isAdmin; // las acciones por permiso se montan en el paso siguiente
   const [tab, setTab] = useState<CancellationTab>("pending");
   const [draft, setDraft] = useState<CancellationFilters>(EMPTY_CANCELLATION_FILTERS);
   const [applied, setApplied] = useState<CancellationFilters>(EMPTY_CANCELLATION_FILTERS);
@@ -43,6 +44,8 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusToken, setFocusToken] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const tabRefs = useRef<Partial<Record<CancellationTab, HTMLButtonElement | null>>>({});
 
   // La carga se deriva de la clave de la consulta: mientras el resultado guardado no sea el de la consulta vigente, se está cargando.
@@ -105,6 +108,24 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
     tabRefs.current[next]?.focus();
   }
 
+  function onCreated(created: CancellationDetail) {
+    setCreating(false);
+    setNotice(created.status === "approved" ? "Solicitud de baja creada y autoaprobada. Ya puede aplicarse." : "Solicitud de baja creada y pendiente de aprobación.");
+    // Pendientes sin filtro de estado ni página; el efecto carga la lista una vez (reloadKey cubre el caso en que nada cambia).
+    setTab("pending");
+    setOffset(0);
+    setDraft((d) => ({ ...d, status: "" }));
+    setApplied((a) => ({ ...a, status: "" }));
+    setSelectedId(created.id);
+    setFocusToken((t) => t + 1);
+    reload();
+  }
+
+  function openExisting(id: string) {
+    setCreating(false);
+    selectRequest(id);
+  }
+
   function selectRequest(id: string) {
     setSelectedId(id);
     setFocusToken((t) => t + 1);
@@ -121,6 +142,7 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
           <p className="eyebrow">Operación</p>
           <h1>Bajas</h1>
         </div>
+        {can(PERM_CANCELLATION_REQUEST) ? <button className="bx-btn bx-btn-primary" onClick={() => { setNotice(null); setCreating(true); }}>Solicitar baja</button> : null}
       </div>
 
       <div className="bx-tabs" role="tablist" aria-label="Vistas de bajas" onKeyDown={onTabKeyDown}>
@@ -134,6 +156,7 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
         ))}
       </div>
 
+      <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
       <div role="tabpanel" id="cx-tabpanel" aria-labelledby={`cx-tab-${tab}`}>
         <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de bajas">
           <FiltersPanel activeCount={activeFilterCount}>
@@ -169,7 +192,9 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
         {data && items.length === 0 && total === 0 && !error ? (
           <div className="bx-notice">
             <p style={{ margin: "0 0 8px" }}>{EMPTY_COPY[tab]}</p>
-            <button className="bx-btn bx-btn-ghost" onClick={clearFilters}>Limpiar filtros</button>
+            {can(PERM_CANCELLATION_REQUEST) && tab === "pending"
+              ? <button className="bx-btn bx-btn-ghost" onClick={() => { setNotice(null); setCreating(true); }}>Solicitar baja</button>
+              : <button className="bx-btn bx-btn-ghost" onClick={clearFilters}>Limpiar filtros</button>}
           </div>
         ) : null}
         {items.length > 0 ? (
@@ -212,7 +237,15 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
         ) : null}
       </div>
 
-      {selectedId ? <CancellationDetailView key={selectedId} id={selectedId} focusToken={focusToken} reloadToken={reloadKey} /> : null}
+      {selectedId ? (
+        <CancellationDetailView
+          key={selectedId} id={selectedId} focusToken={focusToken} reloadToken={reloadKey}
+          renderActions={(detail, reloadDetail) => (
+            <CancellationActions detail={detail} can={can} currentUserId={currentUserId} isAdmin={isAdmin} reload={reloadDetail} onChanged={reload} />
+          )}
+        />
+      ) : null}
+      {creating ? <RequestCancellationDialog onClose={() => setCreating(false)} onCreated={onCreated} onOpenExisting={openExisting} /> : null}
     </main>
   );
 }
