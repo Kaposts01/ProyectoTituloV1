@@ -156,7 +156,7 @@ Sidebar fijo de 220px, azul marino (D1). Contenido principal fluid, max-width 11
 2. **Grupos** (etiqueta 9px/600/uppercase en `--sidebar-label`; ítems planos de 13px, sin sangría):
    - *(sin etiqueta)* **Resumen** (`/central/resumen`)
    - **Cartera:** Socios (`/central/clientes`, clientes consolidados), Suscripciones (`/central/suscripciones`, consolidadas)
-   - **Operación:** Recuperador (`/virtualpos/recuperador-socios`), Cambios de cobro (`/general/cambios-de-cobro`)
+   - **Operación:** Recuperador (`/virtualpos/recuperador-socios`), Cambios de cobro (`/general/cambios-de-cobro`), Bajas (`/general/bajas`, con el permiso `subscriptions.cancellation.view`)
    - **Sistema:** Sincronización (`/admin/sincronizaciones`), Administración (`/admin/usuarios`), Reportes (`/central/reporte-automatico`)
 3. **Detalle por canal (TRANSITORIO):** grupo plegado por defecto al final, con la marca «Transitorio» y el aviso «Se retira cuando existan las vistas unificadas de Cobros, Socios y Suscripciones». Mientras tanto mantiene accesibles las pantallas por canal (VirtualPOS: Resumen, Clientes, Planes, Suscripciones, Cargos, Transacciones; Toku; Payku; TCH), con los mismos permisos por canal de antes. Se despliega solo al entrar a una pantalla de canal. Se retira con UX-09 a UX-11.
 4. **Pie:** tema claro/oscuro, Mi perfil, Cerrar sesión.
