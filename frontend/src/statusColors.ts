@@ -15,7 +15,7 @@
 export const STATUS_KINDS = ["paid", "rejected", "pending", "processing", "neutral", "unknown"] as const;
 export type StatusKind = (typeof STATUS_KINDS)[number];
 
-const KEYWORDS: [StatusKind, string[]][] = [
+export const STATUS_KEYWORDS: [StatusKind, string[]][] = [
   // El orden importa: «inactiva» contiene «activ», «unpaid» contiene «paid», «incobrable» contiene «cobrable».
   ["rejected", ["rechaz", "reject", "fail", "fallid", "declin", "denied", "error"]],
   ["neutral", ["cancel", "expir", "anul", "void", "delet", "elimin", "abort", "paus", "suspend", "inactiv", "incobrab", "closed", "cerrad"]],
@@ -35,7 +35,7 @@ export function normalizeStatus(status: unknown): StatusKind {
     .replace(/\s+/g, " ")
     .trim();
   if (!s) return "unknown";
-  for (const [kind, words] of KEYWORDS) if (words.some((w) => s.includes(w))) return kind;
+  for (const [kind, words] of STATUS_KEYWORDS) if (words.some((w) => s.includes(w))) return kind;
   return "unknown";
 }
 
