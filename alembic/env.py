@@ -45,6 +45,10 @@ from app.models.payku_channel import (  # noqa: F401
     PaykuTransaction,
 )
 from app.models.source_record import SourceRecord  # noqa: F401
+from app.models.status_change import (  # noqa: F401
+    RejectionReasonCatalog,
+    StatusChangeEvent,
+)
 from app.models.stg_payku_webhook_event import StgPaykuWebhookEvent  # noqa: F401
 from app.models.stg_toku_webhook_event import StgTokuWebhookEvent  # noqa: F401
 from app.models.stg_vpos_webhook_event import StgVposWebhookEvent  # noqa: F401
