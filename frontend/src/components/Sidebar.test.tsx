@@ -38,11 +38,11 @@ describe("Sidebar (menú de un solo nivel)", () => {
     expect(active()).not.toContain("Resumen");
   });
   it("admin marca solo Administración y no Resumen", () => {
-    setup({ adminOpen: true, adminTab: "usuarios" });
+    setup({ adminOpen: true, adminTab: "users" });
     expect(active()).toEqual(["Administración"]);
   });
   it("sincronización marca solo Sincronización", () => {
-    setup({ adminOpen: true, adminTab: "sincronizacion" });
+    setup({ adminOpen: true, adminTab: "sync" });
     expect(active()).toEqual(["Sincronización"]);
   });
   // Cambio deliberado: el recuperador ya no cuelga del grupo VirtualPOS; se llama «Recuperador» y vive en Operación.
@@ -80,7 +80,7 @@ describe("Sidebar (menú de un solo nivel)", () => {
     expect(within(tchGroup()).getByText("Transacciones")).toBeInTheDocument();
   });
   it("las fichas de TCH marcan su lista en «Detalle por canal»", () => {
-    setup({ detailOpen: true, tchView: "suscripcion-detalle" });
+    setup({ detailOpen: true, tchView: "subscription-detail" });
     expect(within(tchGroup()).getByRole("button", { name: "Suscripciones" })).toHaveAttribute("aria-current", "page");
   });
   it("«Detalle por canal» arranca plegado y su botón anuncia aria-expanded y el estado transitorio", () => {

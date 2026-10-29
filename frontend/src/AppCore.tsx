@@ -7,7 +7,7 @@ import { providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
 import "./App.css";
 import "./Staging.css";
-import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
+import { legacyRedirectPath, parseRoute, routePath, tchPermissionSegment, type AppRoute, type ProviderSource, type TchRouteView } from "./routes";
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
 import type { ChannelDashboard, AuthSession } from "./features/shared/types";
@@ -68,7 +68,7 @@ function AppCore() {
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
   const [routeLocation, setRouteLocation] = useState(() => window.location.pathname + window.location.search);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [adminTab, setAdminTab] = useState<"usuarios" | "sincronizacion">("usuarios");
+  const [adminTab, setAdminTab] = useState<"users" | "sync">("users");
   const [activeSection, setActiveSection] = useState<ProviderSection | null>(
     null,
   );
@@ -179,8 +179,8 @@ function AppCore() {
     if (route.kind === "tchSubscription") return can("tch.suscripciones.view");
     if (route.kind === "tch") return route.view === "summary"
       ? can("tch.dashboard.view")
-      : can(`tch.${route.view}.view`);
-    if (route.kind === "admin") return route.view === "usuarios"
+      : can(`tch.${tchPermissionSegment(route.view)}.view`);
+    if (route.kind === "admin") return route.view === "users"
       ? can("users.manage") || can("roles.manage")
       : can("sync_runs.view") || can("sync.run");
     return true;
@@ -194,7 +194,7 @@ function AppCore() {
       : { kind: "profile", view: "summary" } as const;
   }
 
-  function showAdmin(view: "usuarios" | "sincronizacion", updateUrl = true) {
+  function showAdmin(view: "users" | "sync", updateUrl = true) {
     clearDetails();
     setGeneralView("summary");
     setChannel(null);
@@ -248,7 +248,7 @@ function AppCore() {
     if (updateUrl) navigate({ kind: "central", view: "report" });
   }
 
-  function showTch(view: "summary" | "clientes" | "suscripciones" | "transacciones", updateUrl = true) {
+  function showTch(view: TchRouteView, updateUrl = true) {
     clearDetails();
     setGeneralView("summary");
     setChannel(null);
@@ -268,10 +268,10 @@ function AppCore() {
 
   function showTchSubscription(fileNumber: number, updateUrl = true) {
     if (updateUrl) {
-      navigate({ kind: "tchSubscription", numeroFicha: fileNumber });
+      navigate({ kind: "tchSubscription", fileNumber });
       return;
     }
-    showTch("suscripciones", false);
+    showTch("subscriptions", false);
     setTchSubscriptionDetail(provisionalTchSubscriptionDetail(fileNumber));
     setTchView("subscription-detail");
   }
@@ -439,7 +439,7 @@ function AppCore() {
     } else if (route.kind === "tch") {
       showTch(route.view, false);
     } else if (route.kind === "tchSubscription") {
-      showTchSubscription(route.numeroFicha, false);
+      showTchSubscription(route.fileNumber, false);
     } else if (route.kind === "admin") {
       showAdmin(route.view, false);
     } else {

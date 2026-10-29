@@ -1,6 +1,6 @@
 /** Grupos de proveedor, secciones y helpers de permisos de navegación. */
 
-import type { ProviderSection, ProviderSource } from "./routes";
+import type { ProviderSection, ProviderSource, TchRouteView } from "./routes";
 
 export type { ProviderSection, ProviderSource };
 
@@ -58,7 +58,7 @@ export type MenuAction =
   | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "report" }
   | { kind: "recovery" }
   | { kind: "billing" }
-  | { kind: "admin"; view: "usuarios" | "sincronizacion" };
+  | { kind: "admin"; view: "users" | "sync" };
 
 export type MenuItem = { id: string; label: string; action: MenuAction; allowed: (can: Can) => boolean };
 /** `label: null` = grupo sin encabezado (Resumen). */
@@ -88,8 +88,8 @@ export const menuGroups: MenuGroup[] = [
     id: "sistema",
     label: "Sistema",
     items: [
-      { id: "sync", label: "Sincronización", action: { kind: "admin", view: "sincronizacion" }, allowed: (can) => can("sync_runs.view") || can("sync.run") },
-      { id: "admin", label: "Administración", action: { kind: "admin", view: "usuarios" }, allowed: (can) => can("users.manage") || can("roles.manage") },
+      { id: "sync", label: "Sincronización", action: { kind: "admin", view: "sync" }, allowed: (can) => can("sync_runs.view") || can("sync.run") },
+      { id: "admin", label: "Administración", action: { kind: "admin", view: "users" }, allowed: (can) => can("users.manage") || can("roles.manage") },
       { id: "report", label: "Reportes", action: { kind: "central", view: "report" }, allowed: canDashboard },
     ],
   },
@@ -102,7 +102,7 @@ export function visibleMenu(can: Can): MenuGroup[] {
     .filter((group) => group.items.length > 0);
 }
 
-export type TchView = "summary" | "clientes" | "suscripciones" | "transacciones";
+export type TchView = TchRouteView;
 export type DetailAction =
   | { kind: "channel"; source: ProviderSource }
   | { kind: "section"; section: ProviderSection }
@@ -131,9 +131,9 @@ export function detailChannels(can: Can): DetailChannel[] {
   }
   if (can("tch.dashboard.view")) {
     const items: DetailItem[] = [{ id: "tch:resumen", label: "Resumen", action: { kind: "tch", view: "summary" } }];
-    if (can("tch.clientes.view")) items.push({ id: "tch:clientes", label: "Clientes", action: { kind: "tch", view: "clientes" } });
-    if (can("tch.suscripciones.view")) items.push({ id: "tch:suscripciones", label: "Suscripciones", action: { kind: "tch", view: "suscripciones" } });
-    if (can("tch.transacciones.view")) items.push({ id: "tch:transacciones", label: "Transacciones", action: { kind: "tch", view: "transacciones" } });
+    if (can("tch.clientes.view")) items.push({ id: "tch:clientes", label: "Clientes", action: { kind: "tch", view: "clients" } });
+    if (can("tch.suscripciones.view")) items.push({ id: "tch:suscripciones", label: "Suscripciones", action: { kind: "tch", view: "subscriptions" } });
+    if (can("tch.transacciones.view")) items.push({ id: "tch:transacciones", label: "Transacciones", action: { kind: "tch", view: "transactions" } });
     out.push({ id: "tch", name: "TCH", items });
   }
   return out;

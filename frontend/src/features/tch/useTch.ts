@@ -12,7 +12,7 @@ import type {
   TchClientDetail, TchClientsPage, TchSubscriptionDetail, TchSubscriptionsPage, TchSummary, TchTransactionDetail, TchTransactionsPage,
 } from "./tchTypes";
 
-export type TchViewName = "summary" | "clientes" | "suscripciones" | "transacciones" | "client-detail" | "subscription-detail" | "transaction-detail";
+export type TchViewName = "summary" | "clients" | "subscriptions" | "transactions" | "client-detail" | "subscription-detail" | "transaction-detail";
 
 /**
  * Estado y carga de las vistas TCH. Se llama desde AppCore (no desde la vista) para que el estado
@@ -77,7 +77,7 @@ export function useTch(session: AuthSession | null | undefined) {
         })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudo cargar el resumen TCH.")); })
         .finally(() => { if (mounted) { setTchLoading(false); setTchRefreshing(false); } });
-    } else if (tchView === "clientes") {
+    } else if (tchView === "clients") {
       setTchLoading(true);
       const params = new URLSearchParams({ limit: "50", page: String(tchClientPage) });
       if (tchClientFilter) params.set("nombre", tchClientFilter);
@@ -85,7 +85,7 @@ export function useTch(session: AuthSession | null | undefined) {
         .then((d) => { if (mounted) setTchClients(adaptTchClientsPage(d)); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar los clientes TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
-    } else if (tchView === "suscripciones") {
+    } else if (tchView === "subscriptions") {
       setTchLoading(true);
       const params = new URLSearchParams({ limit: "50", page: String(tchSubscriptionPage) });
       if (tchSubscriptionStatusFilter) params.set("estado", tchSubscriptionStatusFilter);
@@ -93,7 +93,7 @@ export function useTch(session: AuthSession | null | undefined) {
         .then((d) => { if (mounted) setTchSubscriptions(adaptTchSubscriptionsPage(d)); })
         .catch((err: unknown) => { if (mounted) setTchError(friendlyError(err, "No se pudieron cargar las suscripciones TCH.")); })
         .finally(() => { if (mounted) setTchLoading(false); });
-    } else if (tchView === "transacciones") {
+    } else if (tchView === "transactions") {
       setTchLoading(true);
       const params = new URLSearchParams({ limit: "100", page: String(tchTransactionPage) });
       if (tchTransactionPeriodFilter) params.set("periodo", tchTransactionPeriodFilter);

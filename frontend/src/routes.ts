@@ -2,6 +2,13 @@ export type ProviderSource = "virtualpos" | "toku" | "payku";
 
 export type ProviderSection = { source: ProviderSource; resource: string; label: string };
 
+/** Vistas de TCH. Las URLs siguen en español (`/tch/clientes`…) y los permisos también (`tch.clientes.view`): solo el nombre interno es inglés. */
+export type TchRouteView = "summary" | "clients" | "subscriptions" | "transactions";
+const TCH_URL_SEGMENT: Record<Exclude<TchRouteView, "summary">, string> = { clients: "clientes", subscriptions: "suscripciones", transactions: "transacciones" };
+
+/** Segmento español de la vista de TCH, para armar el permiso `tch.<segmento>.view` (contrato con el backend). */
+export const tchPermissionSegment = (view: Exclude<TchRouteView, "summary">): string => TCH_URL_SEGMENT[view];
+
 export type AppRoute =
   | { kind: "central"; view: "summary" | "classic" | "clients" | "subscriptions" | "report" }
   | { kind: "channel"; source: ProviderSource }
@@ -9,9 +16,9 @@ export type AppRoute =
   | { kind: "record"; source: ProviderSource; resource: string; externalId: string }
   | { kind: "recovery" }
   | { kind: "billingChanges" }
-  | { kind: "tch"; view: "summary" | "clientes" | "suscripciones" | "transacciones" }
-  | { kind: "tchSubscription"; numeroFicha: number }
-  | { kind: "admin"; view: "usuarios" | "sincronizacion" }
+  | { kind: "tch"; view: TchRouteView }
+  | { kind: "tchSubscription"; fileNumber: number }
+  | { kind: "admin"; view: "users" | "sync" }
   | { kind: "profile"; view: "summary" | "edit" };
 
 const resourceRoutes: Record<string, Record<string, string>> = {
@@ -65,19 +72,20 @@ export function parseRoute(pathname: string): AppRoute | null {
   }
 
   if (parts[0] === "admin") {
-    if (parts[1] === "usuarios") return { kind: "admin", view: "usuarios" };
-    if (parts[1] === "sincronizaciones") return { kind: "admin", view: "sincronizacion" };
+    if (parts[1] === "usuarios") return { kind: "admin", view: "users" };
+    if (parts[1] === "sincronizaciones") return { kind: "admin", view: "sync" };
     return null;
   }
 
   if (parts[0] === "tch") {
     if (parts[1] === "suscripciones" && parts.length === 3) {
-      const numeroFicha = Number(parts[2]);
-      if (Number.isSafeInteger(numeroFicha) && numeroFicha > 0) return { kind: "tchSubscription", numeroFicha };
+      const fileNumber = Number(parts[2]);
+      if (Number.isSafeInteger(fileNumber) && fileNumber > 0) return { kind: "tchSubscription", fileNumber };
       return null;
     }
-    if (parts.length === 2 && (parts[1] === "clientes" || parts[1] === "suscripciones" || parts[1] === "transacciones")) {
-      return { kind: "tch", view: parts[1] };
+    if (parts.length === 2) {
+      const view = (Object.keys(TCH_URL_SEGMENT) as Array<Exclude<TchRouteView, "summary">>).find((key) => TCH_URL_SEGMENT[key] === parts[1]);
+      if (view) return { kind: "tch", view };
     }
     if (parts.length === 2 && parts[1] === "resumen") return { kind: "tch", view: "summary" };
     return null;
@@ -121,9 +129,9 @@ export function routePath(route: AppRoute): string {
   if (route.kind === "channel") return `/${route.source}/resumen`;
   if (route.kind === "recovery") return "/virtualpos/recuperador-socios";
   if (route.kind === "billingChanges") return "/general/cambios-de-cobro";
-  if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : route.view}`;
-  if (route.kind === "tchSubscription") return `/tch/suscripciones/${route.numeroFicha}`;
-  if (route.kind === "admin") return `/admin/${route.view === "usuarios" ? "usuarios" : "sincronizaciones"}`;
+  if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : TCH_URL_SEGMENT[route.view]}`;
+  if (route.kind === "tchSubscription") return `/tch/suscripciones/${route.fileNumber}`;
+  if (route.kind === "admin") return `/admin/${route.view === "users" ? "usuarios" : "sincronizaciones"}`;
   if (route.kind === "profile") return route.view === "edit" ? "/mi-perfil/editar" : "/mi-perfil";
 
   const paths: Record<string, Record<string, string>> = {

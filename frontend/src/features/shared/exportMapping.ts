@@ -163,17 +163,17 @@ export function consolidatedExportTarget(
 
 /** Listas TCH. `period` llega como `AAAA-MM` y se traduce al mes completo en `date_from`/`date_to`. */
 export function tchExportTarget(
-  view: "clientes" | "suscripciones" | "transacciones",
+  view: "clients" | "subscriptions" | "transactions",
   filters: { name?: string; status?: string; period?: string },
 ): ExportTarget {
-  const entity: ExportEntity = view === "transacciones" ? "cobros" : view;
+  const entity: ExportEntity = view === "transactions" ? "cobros" : view === "clients" ? "clientes" : "suscripciones";
   const params: ExportParams = {};
-  if (view === "clientes" && filters.name?.trim()) {
+  if (view === "clients" && filters.name?.trim()) {
     params.filter_field = "name";
     params.query = filters.name.trim();
   }
-  if (view === "suscripciones" && filters.status) params.status = filters.status;
-  if (view === "transacciones" && filters.period && /^\d{4}-\d{2}$/.test(filters.period)) {
+  if (view === "subscriptions" && filters.status) params.status = filters.status;
+  if (view === "transactions" && filters.period && /^\d{4}-\d{2}$/.test(filters.period)) {
     const [year, month] = filters.period.split("-").map(Number);
     const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
     params.date_from = `${filters.period}-01`;

@@ -81,14 +81,14 @@ describe("consolidatedExportTarget", () => {
 
 describe("tchExportTarget", () => {
   it("transacciones se exporta como cobros y el período se traduce al mes completo", () => {
-    const t = tchExportTarget("transacciones", { period: "2024-02" });
+    const t = tchExportTarget("transactions", { period: "2024-02" });
     expect(t).toMatchObject({ entity: "cobros", canal: "tch", viewPermission: "tch.transacciones.view" });
     expect(t.params).toEqual({ date_from: "2024-02-01", date_to: "2024-02-29" });
   });
   it("clientes por nombre y suscripciones por estado", () => {
-    expect(tchExportTarget("clientes", { name: " ana " }).params).toEqual({ filter_field: "name", query: "ana" });
-    expect(tchExportTarget("suscripciones", { status: "VIGENTE" }).params).toEqual({ status: "VIGENTE" });
-    expect(tchExportTarget("suscripciones", {}).params).toEqual({});
+    expect(tchExportTarget("clients", { name: " ana " }).params).toEqual({ filter_field: "name", query: "ana" });
+    expect(tchExportTarget("subscriptions", { status: "VIGENTE" }).params).toEqual({ status: "VIGENTE" });
+    expect(tchExportTarget("subscriptions", {}).params).toEqual({});
   });
 });
 

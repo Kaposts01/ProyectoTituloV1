@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detailChannels, filterMenu, menuGroups, visibleMenu, type DetailAction, type MenuAction } from "./navigation";
-import { legacyRedirectPath, parseRoute, routePath, type AppRoute } from "./routes";
+import { legacyRedirectPath, parseRoute, routePath, tchPermissionSegment, type AppRoute } from "./routes";
 
 const canAll = () => true;
 const canOnly = (...perms: string[]) => (p: string) => perms.includes(p);
@@ -155,7 +155,7 @@ describe("redirecciones de rutas viejas", () => {
   it("las fichas por canal conservan su ruta (no se rompen enlaces profundos)", () => {
     expect(legacyRedirectPath("/virtualpos/clientes/abc123")).toBeNull();
     expect(parseRoute("/toku/clientes/cus_1")).toEqual({ kind: "record", source: "toku", resource: "customer", externalId: "cus_1" });
-    expect(parseRoute("/tch/suscripciones/12")).toEqual({ kind: "tchSubscription", numeroFicha: 12 });
+    expect(parseRoute("/tch/suscripciones/12")).toEqual({ kind: "tchSubscription", fileNumber: 12 });
   });
 
   it("rutas desconocidas no se redirigen (AppCore las manda a la pantalla permitida)", () => {
@@ -178,5 +178,30 @@ describe("Resumen anterior (transitorio, fuera del menú; se retira con UX-15)",
     const paths = menuGroups.flatMap((g) => g.items.map((i) => routePath(menuRoute(i.action))));
     expect(paths).not.toContain("/central/resumen-clasico");
     expect(paths).toContain("/central/resumen");
+  });
+});
+
+describe("rutas internas en inglés, URLs en español (paso 18)", () => {
+  const pairs: Array<[string, AppRoute]> = [
+    ["/tch/resumen", { kind: "tch", view: "summary" }],
+    ["/tch/clientes", { kind: "tch", view: "clients" }],
+    ["/tch/suscripciones", { kind: "tch", view: "subscriptions" }],
+    ["/tch/transacciones", { kind: "tch", view: "transactions" }],
+    ["/tch/suscripciones/12", { kind: "tchSubscription", fileNumber: 12 }],
+    ["/admin/usuarios", { kind: "admin", view: "users" }],
+    ["/admin/sincronizaciones", { kind: "admin", view: "sync" }],
+  ];
+  it.each(pairs)("%s ida y vuelta con la ruta interna", (path, route) => {
+    expect(parseRoute(path)).toEqual(route);
+    expect(routePath(route)).toBe(path);
+    expect(legacyRedirectPath(path)).toBeNull();
+  });
+  it("el permiso de cada lista de TCH conserva el segmento en español (contrato con el backend)", () => {
+    expect(tchPermissionSegment("clients")).toBe("clientes");
+    expect(tchPermissionSegment("subscriptions")).toBe("suscripciones");
+    expect(tchPermissionSegment("transactions")).toBe("transacciones");
+  });
+  it("las URLs en inglés de las vistas internas no existen", () => {
+    for (const path of ["/tch/clients", "/tch/transactions", "/admin/users", "/admin/sync"]) expect(parseRoute(path), path).toBeNull();
   });
 });

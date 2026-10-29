@@ -22,7 +22,7 @@ export type SidebarProps = {
   onTheme: () => void;
   onTch: (view: TchView) => void;
   permissions: string[];
-  onAdmin: (view: "usuarios" | "sincronizacion") => void;
+  onAdmin: (view: "users" | "sync") => void;
   adminOpen: boolean;
   adminTab: string | null;
   onLogout: () => void;
@@ -118,7 +118,7 @@ export function Sidebar({
     if (action.kind === "channel") return channel === action.source;
     if (action.kind === "section") return activeSection?.source === action.section.source && activeSection.resource === action.section.resource;
     // las fichas de TCH (cliente, suscripción, transacción) marcan su lista
-    return tchView === action.view || tchView === `${action.view === "clientes" ? "cliente" : action.view === "suscripciones" ? "suscripcion" : "transaccion"}-detalle`;
+    return tchView === action.view || tchView === `${action.view === "clients" ? "client" : action.view === "subscriptions" ? "subscription" : "transaction"}-detail`;
   };
   const itemClass = (active: boolean) => (active ? "sidebar-item active" : "sidebar-item");
 
