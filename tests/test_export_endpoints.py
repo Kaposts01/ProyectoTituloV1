@@ -20,7 +20,7 @@ from app.models.write_run import WriteRun
 from app.services.charge_stats import chile_today
 from app.services.rbac import seed_permissions
 
-PII_HEADERS = {"rut_cliente", "nombre_cliente", "correo", "telefono", "direccion", "rut", "nombre"}
+PII_HEADERS = {"RUT del cliente", "Nombre del cliente", "Correo", "Teléfono", "Dirección", "RUT", "Nombre"}
 
 
 def _login(monkeypatch, suffix: str, perms: list[str]) -> TestClient:
@@ -107,7 +107,7 @@ def test_clientes_without_pii_permission_has_no_personal_columns(monkeypatch) ->
     resp = client.get("/api/v1/export/clientes", params={"query": sfx, "filter_field": "name", "all": "true"})
     header, rows = _parse(resp)
     assert not (set(header) & PII_HEADERS), header
-    assert {r["canal"] for r in rows} == {"virtualpos1", "toku", "tch"}
+    assert {r["Canal"] for r in rows} == {"virtualpos1", "toku", "tch"}
     text = resp.content.decode("utf-8-sig")
     for leaked in ("11111111-1", "example.test", "+569", "Calle Falsa", f"Ana{sfx}"):
         assert leaked not in text
@@ -118,10 +118,10 @@ def test_clientes_with_export_pii_includes_personal_columns(monkeypatch) -> None
     _seed_clients(sfx)
     client = _login(monkeypatch, sfx, [*ALL_VIEW, "export.pii"])
     header, rows = _parse(client.get("/api/v1/export/clientes", params={"query": sfx, "filter_field": "name", "all": "true"}))
-    assert {"rut", "nombre", "correo", "telefono", "direccion"} <= set(header)
-    by_canal = {r["canal"]: r for r in rows}
-    assert by_canal["virtualpos1"]["rut"] == "11111111-1" and by_canal["virtualpos1"]["correo"] == f"ana{sfx}@example.test"
-    assert by_canal["tch"]["direccion"].startswith("Calle Falsa 123")
+    assert {"RUT", "Nombre", "Correo", "Teléfono", "Dirección"} <= set(header)
+    by_canal = {r["Canal"]: r for r in rows}
+    assert by_canal["virtualpos1"]["RUT"] == "11111111-1" and by_canal["virtualpos1"]["Correo"] == f"ana{sfx}@example.test"
+    assert by_canal["tch"]["Dirección"].startswith("Calle Falsa 123")
 
 
 def test_channel_permissions_filter_on_server(monkeypatch) -> None:
@@ -129,7 +129,7 @@ def test_channel_permissions_filter_on_server(monkeypatch) -> None:
     _seed_clients(sfx)
     only_tch = _login(monkeypatch, sfx + "a", ["tch.clientes.view"])
     _, rows = _parse(only_tch.get("/api/v1/export/clientes", params={"query": sfx, "filter_field": "name", "all": "true"}))
-    assert {r["canal"] for r in rows} == {"tch"}
+    assert {r["Canal"] for r in rows} == {"tch"}
     assert only_tch.get("/api/v1/export/clientes", params={"canal": "toku"}).status_code == 403
     assert only_tch.get("/api/v1/export/cobros").status_code == 403  # sin permiso de vista de cobros
     nothing = _login(monkeypatch, sfx + "b", ["dashboard.view"])
@@ -167,8 +167,8 @@ def test_cobros_filters_pagination_all_formulas_and_headers(monkeypatch) -> None
     assert disposition.startswith("attachment;") and f"cobros-{chile_today():%Y%m%d}" in disposition
     assert resp.content.startswith(b"\xef\xbb\xbf")
     header, rows = _parse(resp)
-    assert header[:5] == ["canal", "id_cobro", "id_suscripcion", "estado", "fecha_cobro"] and len(rows) == 5
-    assert "'=cmd" in {r["estado"] for r in rows}  # formula neutralizada
+    assert header[:5] == ["Canal", "ID de cobro", "ID de suscripción", "Estado", "Fecha de cobro"] and len(rows) == 5
+    assert "'=cmd" in {r["Estado"] for r in rows}  # formula neutralizada
     assert not (set(header) & PII_HEADERS)
     # paginacion: sin `all` se exporta solo la pagina; con `all` se ignora
     assert len(_parse(client.get("/api/v1/export/cobros", params={**base, "limit": 2}))[1]) == 2
@@ -202,10 +202,10 @@ def test_cobros_vp_pii_requires_permission_and_audit_has_no_content(monkeypatch)
     params = {"query": sfx, "filter_field": "id", "all": "true"}
     plain = _login(monkeypatch, sfx + "p", ["virtualpos.charges.view"])
     header, rows = _parse(plain.get("/api/v1/export/cobros", params=params))
-    assert "rut_cliente" not in header and "44444444-4" not in str(rows)
+    assert "RUT del cliente" not in header and "44444444-4" not in str(rows)
     pii = _login(monkeypatch, sfx + "q", ["virtualpos.charges.view", "export.pii"])
     header, rows = _parse(pii.get("/api/v1/export/cobros", params=params))
-    assert rows[0]["rut_cliente"] == "44444444-4" and rows[0]["nombre_cliente"] == f"Dora{sfx} Prueba"
+    assert rows[0]["RUT del cliente"] == "44444444-4" and rows[0]["Nombre del cliente"] == f"Dora{sfx} Prueba"
     db = SessionLocal()
     try:
         run = db.scalars(select(WriteRun).where(
@@ -261,21 +261,21 @@ def test_suscripciones_vp_and_tch_with_filters(monkeypatch) -> None:
     client = _login(monkeypatch, sfx, perms)
     by_id = {"query": sfx, "filter_field": "id", "all": "true"}
     _, rows = _parse(client.get("/api/v1/export/suscripciones", params=by_id))
-    assert {r["id_suscripcion"] for r in rows} == {f"s1-{sfx}", f"s2-{sfx}"}  # la fallida queda excluida, como en la vista
-    s1 = next(r for r in rows if r["id_suscripcion"] == f"s1-{sfx}")
-    assert s1["ultimo_cobro"] == "2026-03-03" and s1["estado"] == "activa" and s1["monto"] == "3000"
+    assert {r["ID de suscripción"] for r in rows} == {f"s1-{sfx}", f"s2-{sfx}"}  # la fallida queda excluida, como en la vista
+    s1 = next(r for r in rows if r["ID de suscripción"] == f"s1-{sfx}")
+    assert s1["Último cobro"] == "2026-03-03" and s1["Estado"] == "activa" and s1["Monto"] == "3000"
     _, rows = _parse(client.get("/api/v1/export/suscripciones", params={**by_id, "status": "cancelada"}))
-    assert [r["id_suscripcion"] for r in rows] == [f"s2-{sfx}"]
+    assert [r["ID de suscripción"] for r in rows] == [f"s2-{sfx}"]
     tch_params = {"canal": "tch", "query": str(ficha), "filter_field": "id", "all": "true"}
     header, rows = _parse(client.get("/api/v1/export/suscripciones", params=tch_params))
-    assert len(rows) == 1 and rows[0]["canal"] == "tch" and rows[0]["estado"] == "VIGENTE" and rows[0]["monto"] == "5000"
+    assert len(rows) == 1 and rows[0]["Canal"] == "tch" and rows[0]["Estado"] == "VIGENTE" and rows[0]["Monto"] == "5000"
     assert not (set(header) & PII_HEADERS)
     pii = _login(monkeypatch, sfx + "x", [*perms, "export.pii"])
     _, rows = _parse(pii.get("/api/v1/export/suscripciones", params=tch_params))
-    assert rows[0]["rut_cliente"] == rut and rows[0]["nombre_cliente"] == f"Fer{sfx} Prueba"
+    assert rows[0]["RUT del cliente"] == rut and rows[0]["Nombre del cliente"] == f"Fer{sfx} Prueba"
     by_client = {"query": f"Eva{sfx}", "filter_field": "client", "all": "true"}
     _, rows = _parse(pii.get("/api/v1/export/suscripciones", params=by_client))
-    assert [r["rut_cliente"] for r in rows] == ["77777777-7"]
+    assert [r["RUT del cliente"] for r in rows] == ["77777777-7"]
 
 
 def test_cobros_tch_and_pagos(monkeypatch) -> None:
@@ -298,12 +298,12 @@ def test_cobros_tch_and_pagos(monkeypatch) -> None:
     client = _login(monkeypatch, sfx, ["tch.transacciones.view", "toku.transactions.view"])
     tch = {"query": str(ficha), "filter_field": "subscription_id", "all": "true"}
     _, rows = _parse(client.get("/api/v1/export/cobros", params=tch))
-    assert {(r["canal"], r["estado"], r["periodo"]) for r in rows} == {("tch", "ACEPTADA", "2026-01"), ("tch", "RECHAZADA", "2026-02")}
-    assert next(r for r in rows if r["estado"] == "RECHAZADA")["motivo_rechazo"] == "Sin fondos"
+    assert {(r["Canal"], r["Estado"], r["Período"]) for r in rows} == {("tch", "ACEPTADA", "2026-01"), ("tch", "RECHAZADA", "2026-02")}
+    assert next(r for r in rows if r["Estado"] == "RECHAZADA")["Motivo de rechazo"] == "Sin fondos"
     _, rows = _parse(client.get("/api/v1/export/cobros", params={**tch, "status": "rechazada"}))
     assert len(rows) == 1
     # pagos: falta payku.transactions.view -> solo toku
     header, rows = _parse(client.get("/api/v1/export/pagos", params={"query": sfx, "filter_field": "id", "all": "true"}))
-    assert header[:5] == ["canal", "id_pago", "id_cobro", "estado", "fecha_pago"]
-    assert [(r["canal"], r["id_pago"], r["monto"]) for r in rows] == [("toku", f"pay-{sfx}", "900")]
+    assert header[:5] == ["Canal", "ID de pago", "ID de cobro", "Estado", "Fecha de pago"]
+    assert [(r["Canal"], r["ID de pago"], r["Monto"]) for r in rows] == [("toku", f"pay-{sfx}", "900")]
     assert client.get("/api/v1/export/pagos", params={"canal": "payku"}).status_code == 403

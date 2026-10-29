@@ -15,7 +15,7 @@ from app.models.vp import VpCharge, VpPlan, VpSubscription
 from app.services import channel_consolidation as cc
 from app.services import vp_current_amount
 from app.services.rejected_month import now_chile
-from app.services.vp_current_amount import load_monto_vigente, pick_monto_vigente
+from app.services.vp_current_amount import load_current_amount, pick_current_amount
 from tests.test_charge_recovery import db_session  # noqa: F401  (fixture)
 
 P = "virtualpos1"
@@ -65,7 +65,7 @@ def test_helper_ultimo_pagado_procesando_futuros_plan_y_desempate(db_session: Se
     ])
     db_session.flush()
 
-    result = load_monto_vigente(db_session, family="vp", sources=[P])
+    result = load_current_amount(db_session, family="vp", sources=[P])
     assert result[(P, "vca-a")] == Decimal("6000")
     assert result[(P, "vca-b")] == Decimal("5700")
     assert result[(P, "vca-c")] == Decimal("4000")
@@ -84,7 +84,7 @@ def test_helper_una_sola_consulta_de_cargos_sin_n_mas_1(db_session: Session) -> 
     listener = lambda _c, _cur, stmt, *_a: statements.append(stmt)  # noqa: E731
     event.listen(conn, "before_cursor_execute", listener)
     try:
-        load_monto_vigente(db_session, family="vp", sources=[P])
+        load_current_amount(db_session, family="vp", sources=[P])
     finally:
         event.remove(conn, "before_cursor_execute", listener)
     assert len(statements) == 3  # cargos (DISTINCT ON) + planes + suscripciones
@@ -97,9 +97,9 @@ def test_pick_monto_vigente_pura() -> None:
         ("c3", "pagado", _d(90), "999"),
         ("c4", "rechazado", _d(-1), "777"),
     ]
-    assert pick_monto_vigente(rows, fallback="50") == Decimal("250")
-    assert pick_monto_vigente([rows[2], rows[3]], fallback="50") == Decimal("50")
-    assert pick_monto_vigente([], fallback=None) is None
+    assert pick_current_amount(rows, fallback="50") == Decimal("250")
+    assert pick_current_amount([rows[2], rows[3]], fallback="50") == Decimal("50")
+    assert pick_current_amount([], fallback=None) is None
 
 
 # -- 'Hoy' en hora Chile (no UTC) ----------------------------------------------
@@ -115,8 +115,8 @@ def test_pick_borde_chile_31_enero_noche_utc_ya_es_febrero(monkeypatch) -> None:
     fake = _fake_chile(monkeypatch, 2099, 1, 31, 22, 0)
     assert fake.astimezone(ZoneInfo("UTC")).date() == date(2099, 2, 1)
     rows = [("c1", "pagado", "2099-01-31", "100"), ("c2", "pagado", "2099-02-01", "200")]
-    assert pick_monto_vigente(rows, fallback="50") == Decimal("100")
-    assert pick_monto_vigente([rows[1]], fallback="50") == Decimal("50")
+    assert pick_current_amount(rows, fallback="50") == Decimal("100")
+    assert pick_current_amount([rows[1]], fallback="50") == Decimal("50")
 
 
 def test_pick_borde_chile_1_febrero_madrugada_utc_aun_es_enero(monkeypatch) -> None:
@@ -125,27 +125,27 @@ def test_pick_borde_chile_1_febrero_madrugada_utc_aun_es_enero(monkeypatch) -> N
     fake = _fake_chile(monkeypatch, 2099, 2, 1, 0, 30)
     rows = [("c1", "pagado", "2099-01-31", "100"), ("c2", "pagado", "2099-02-01", "200")]
     assert fake.date() == date(2099, 2, 1)
-    assert pick_monto_vigente(rows, fallback="50") == Decimal("200")
+    assert pick_current_amount(rows, fallback="50") == Decimal("200")
 
 
 def test_pick_cargo_con_fecha_igual_a_hoy_se_incluye(monkeypatch) -> None:
     _fake_chile(monkeypatch, 2099, 6, 15, 12, 0)
     rows = [("c1", "pagado", "2099-06-14", "100"), ("c2", "procesando", "2099-06-15", "300"), ("c3", "pagado", "2099-06-16", "999")]
-    assert pick_monto_vigente(rows) == Decimal("300")
+    assert pick_current_amount(rows) == Decimal("300")
 
 
 def test_pick_charge_date_con_timestamp_iso(monkeypatch) -> None:
     _fake_chile(monkeypatch, 2099, 1, 31, 22, 0)
     rows = [("c1", "pagado", "2099-01-30T10:00:00", "100"), ("c2", "pagado", "2099-01-31T23:30:00", "250"),
             ("c3", "pagado", "2099-02-01T00:10:00", "999")]
-    assert pick_monto_vigente(rows) == Decimal("250")
+    assert pick_current_amount(rows) == Decimal("250")
 
 
 def test_pick_today_explicito_gana_sobre_now_chile(monkeypatch) -> None:
     _fake_chile(monkeypatch, 2099, 1, 31, 22, 0)
     rows = [("c1", "pagado", "2099-01-31", "100"), ("c2", "pagado", "2099-02-01", "200")]
-    assert pick_monto_vigente(rows, today=date(2099, 2, 1)) == Decimal("200")
-    assert pick_monto_vigente(rows, today=date(2099, 1, 30)) is None
+    assert pick_current_amount(rows, today=date(2099, 2, 1)) == Decimal("200")
+    assert pick_current_amount(rows, today=date(2099, 1, 30)) is None
 
 
 def test_load_today_explicito_gana_sobre_now_chile(db_session: Session, monkeypatch) -> None:  # noqa: F811
@@ -153,8 +153,8 @@ def test_load_today_explicito_gana_sobre_now_chile(db_session: Session, monkeypa
     db_session.add_all([_vp_sub("vtd-1", None), VpCharge(platform=P, external_id="vtd-c1", subscription_external_id="vtd-1",
                                                         status="pagado", charge_date="2099-02-01", amount="200")])
     db_session.flush()
-    assert (P, "vtd-1") not in load_monto_vigente(db_session, family="vp", sources=[P])
-    assert load_monto_vigente(db_session, family="vp", sources=[P], today=date(2099, 2, 1))[(P, "vtd-1")] == Decimal("200")
+    assert (P, "vtd-1") not in load_current_amount(db_session, family="vp", sources=[P])
+    assert load_current_amount(db_session, family="vp", sources=[P], today=date(2099, 2, 1))[(P, "vtd-1")] == Decimal("200")
 
 
 def test_paridad_pick_y_load_con_mismo_now_chile(db_session: Session, monkeypatch) -> None:  # noqa: F811
@@ -172,8 +172,8 @@ def test_paridad_pick_y_load_con_mismo_now_chile(db_session: Session, monkeypatc
     for moment, expected in [((2099, 1, 31, 22, 0), Decimal("250")), ((2099, 1, 30, 22, 0), Decimal("100")),
                              ((2099, 2, 1, 0, 30), Decimal("999")), ((2099, 1, 29, 12, 0), Decimal("50"))]:
         _fake_chile(monkeypatch, *moment)
-        pick = pick_monto_vigente(charges, fallback="50")
-        load = load_monto_vigente(db_session, family="vp", sources=[P])[(P, "vpp-1")]
+        pick = pick_current_amount(charges, fallback="50")
+        load = load_current_amount(db_session, family="vp", sources=[P])[(P, "vpp-1")]
         assert pick == load == expected, moment
 
 

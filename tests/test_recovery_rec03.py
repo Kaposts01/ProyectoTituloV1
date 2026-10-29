@@ -91,14 +91,16 @@ def test_csv_columns_order_neutralization_and_pii() -> None:
     row = {"account": "virtualpos1", "subscription_id": "=cmd", "charge_id": "c1", "monto": 10.0, "rejection_at": "2099-01-01",
            "rejection_code": "-8", "rejection_reason": "+SUM(1)", "estado": "rechazado", "attempts": 2, "last_paid_date": None,
            "cancelled_at": None, "source_record_id": None, "external_id": "c1", "rut": "@x", "client_name": "-Ana", "email": "a@b.cl", "phone": "123"}
-    expected = ["cuenta", "id_suscripcion", "id_cargo", "monto", "fecha_rechazo", "codigo_rechazo", "motivo_rechazo", "estado", "intentos",
-                "ultimo_cobro", "fecha_cancelacion", "source_record_id", "external_id", "rut", "nombre", "email", "telefono"]
-    assert list(CSV_COLUMNS) == expected
+    expected = ["Cuenta", "ID de suscripción", "ID de cargo", "Monto", "Fecha de rechazo", "Código de rechazo", "Motivo de rechazo",
+                "Estado", "Intentos", "Último cobro", "Fecha de cancelación", "ID de registro de origen", "ID externo", "RUT", "Nombre",
+                "Correo", "Teléfono"]
+    assert [column.header for column in CSV_COLUMNS] == expected
+    assert [column.key for column in CSV_COLUMNS][:3] == ["account", "subscription_id", "charge_id"]
     full = list(csv.reader(io.StringIO(_csv_response([row], "f.csv", True).body.decode("utf-8-sig"))))
     assert full[0] == expected
     data = dict(zip(full[0], full[1], strict=True))
-    assert data["id_suscripcion"] == "'=cmd" and data["motivo_rechazo"] == "'+SUM(1)" and data["rut"] == "'@x" and data["nombre"] == "'-Ana"
-    assert data["codigo_rechazo"] == "'-8"
+    assert data["ID de suscripción"] == "'=cmd" and data["Motivo de rechazo"] == "'+SUM(1)" and data["RUT"] == "'@x" and data["Nombre"] == "'-Ana"
+    assert data["Código de rechazo"] == "'-8"
     assert _csv_safe(5) == 5 and _csv_safe(None) is None
     masked = list(csv.reader(io.StringIO(_csv_response([row], "f.csv", False).body.decode("utf-8-sig"))))
     assert masked[0] == expected[:13]
@@ -139,10 +141,10 @@ def test_export_endpoint_includes_pii_audits_without_content_and_view_cannot_exp
     resp = exporter.get("/api/v1/recovery/rejected/export", params={"rejection_code": code, "account": "virtualpos1"})
     assert resp.status_code == 200
     rows = list(csv.reader(io.StringIO(resp.content.decode("utf-8-sig"))))
-    assert rows[0] == list(CSV_COLUMNS) and len(rows) == 2
+    assert rows[0] == [column.header for column in CSV_COLUMNS] and len(rows) == 2
     data = dict(zip(rows[0], rows[1], strict=True))
-    assert data["rut"] == "11111111-1" and data["nombre"] == "Ana Rios" and data["id_cargo"] == f"ch-{suffix}"
-    assert data["codigo_rechazo"] == "'" + code
+    assert data["RUT"] == "11111111-1" and data["Nombre"] == "Ana Rios" and data["ID de cargo"] == f"ch-{suffix}"
+    assert data["Código de rechazo"] == "'" + code
 
     db = SessionLocal()
     try:
