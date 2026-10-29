@@ -95,7 +95,7 @@ CASES = {
 
 
 @pytest.mark.parametrize("channel", list(CASES))
-def test_alta_cambio_de_estado_de_monto_y_sin_cambio(db_session: Session, channel: str) -> None:
+def test_signup_change_of_status_of_amount_and_without_change(db_session: Session, channel: str) -> None:
     setup, source, entity, (first, second) = CASES[channel]
     run = uuid.uuid4()
 
@@ -124,7 +124,7 @@ def test_alta_cambio_de_estado_de_monto_y_sin_cambio(db_session: Session, channe
     assert amount_ev[0].from_value in {"5000", "7000", "4000"}
 
 
-def test_misma_corrida_repetida_no_duplica_eventos(db_session: Session) -> None:
+def test_same_run_repeated_no_duplica_events(db_session: Session) -> None:
     run = uuid.uuid4()
     _vp_charge(db_session)
     consolidate_to_centralized(db_session, ["virtualpos"], run_id=run)
@@ -139,7 +139,7 @@ def test_misma_corrida_repetida_no_duplica_eventos(db_session: Session) -> None:
     assert len(_events(db_session, event_kind="status_changed")) == 1
 
 
-def test_suscripcion_cambia_de_estado_y_monto_con_su_propio_id(db_session: Session) -> None:
+def test_subscription_changes_of_status_and_amount_with_its_own_id(db_session: Session) -> None:
     db_session.add(VpSubscription(external_id="vps-9", platform="virtualpos2", status="ACTIVA", amount="6500"))
     db_session.flush()
     consolidate_to_centralized(db_session, ["virtualpos"], run_id=uuid.uuid4())
@@ -154,7 +154,7 @@ def test_suscripcion_cambia_de_estado_y_monto_con_su_propio_id(db_session: Sessi
     assert db_session.scalars(select(Subscription).where(Subscription.external_id == "vps-9")).one().status == "CANCELADA"
 
 
-def test_monto_equivalente_no_es_cambio(db_session: Session) -> None:
+def test_amount_equivalente_no_is_change(db_session: Session) -> None:
     _toku_invoice(db_session, "UNPAID", "5000")
     consolidate_to_centralized(db_session, ["toku"], run_id=uuid.uuid4())
     before = _count(db_session)
@@ -163,7 +163,7 @@ def test_monto_equivalente_no_es_cambio(db_session: Session) -> None:
     assert _count(db_session) == before
 
 
-def test_sin_corrida_usa_token_propio_y_no_duplica(db_session: Session) -> None:
+def test_without_run_uses_token_own_and_no_duplica(db_session: Session) -> None:
     _vp_charge(db_session)
     consolidate_to_centralized(db_session, ["virtualpos"])  # sin run_id
     ev = _events(db_session, event_kind="created")
@@ -172,7 +172,7 @@ def test_sin_corrida_usa_token_propio_y_no_duplica(db_session: Session) -> None:
     assert len(_events(db_session, event_kind="created")) == 1
 
 
-def test_a_b_a_genera_eventos_distintos(db_session: Session) -> None:
+def test_a_b_a_generates_events_different(db_session: Session) -> None:
     _toku_invoice(db_session, "UNPAID")
     consolidate_to_centralized(db_session, ["toku"], run_id=uuid.uuid4())
     for status in ("PAID", "UNPAID"):
@@ -185,7 +185,7 @@ def test_a_b_a_genera_eventos_distintos(db_session: Session) -> None:
 # ── Glosas ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_glosa_nueva_emite_reason_changed_una_vez_y_cuenta_ocurrencias(db_session: Session) -> None:
+def test_reason_text_new_emits_reason_changed_a_time_and_account_occurrences(db_session: Session) -> None:
     _tch_tx(db_session, "RECHAZADA", code="51", reason="Fondos insuficientes", key="tch-r1")
     _tch_tx(db_session, "RECHAZADA", code="51", reason="Fondos insuficientes", key="tch-r2")
     consolidate_to_centralized(db_session, ["tch"], run_id=uuid.uuid4())
@@ -203,7 +203,7 @@ def test_glosa_nueva_emite_reason_changed_una_vez_y_cuenta_ocurrencias(db_sessio
     assert len(_events(db_session, event_kind="reason_changed")) == 2
 
 
-def test_la_glosa_no_se_guarda_en_la_tabla_canonica(db_session: Session) -> None:
+def test_the_reason_text_no_guard_in_the_table_centralized(db_session: Session) -> None:
     _tch_tx(db_session, "RECHAZADA", code="51", reason="Fondos insuficientes", key="tch-r9")
     consolidate_to_centralized(db_session, ["tch"], run_id=uuid.uuid4())
     charge = db_session.scalars(select(Charge).where(Charge.external_id == "tch-r9")).one()
@@ -213,7 +213,7 @@ def test_la_glosa_no_se_guarda_en_la_tabla_canonica(db_session: Session) -> None
 # ── Resiliencia ─────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_si_la_tabla_de_eventos_falla_la_consolidacion_sigue(db_session: Session, caplog) -> None:
+def test_if_the_table_of_events_fails_the_consolidation_keeps(db_session: Session, caplog) -> None:
     db_session.execute(text("ALTER TABLE status_change_events RENAME TO status_change_events_off"))  # se revierte al final
     try:
         _vp_charge(db_session)
@@ -226,7 +226,7 @@ def test_si_la_tabla_de_eventos_falla_la_consolidacion_sigue(db_session: Session
         db_session.rollback()
 
 
-def test_error_inesperado_en_el_diff_no_tumba_la_consolidacion(db_session: Session, monkeypatch) -> None:
+def test_error_unexpected_in_the_diff_no_breaks_the_consolidation(db_session: Session, monkeypatch) -> None:
     def boom(*_a, **_k):
         raise RuntimeError("diff roto")
 
@@ -238,14 +238,14 @@ def test_error_inesperado_en_el_diff_no_tumba_la_consolidacion(db_session: Sessi
     assert db_session.scalars(select(Charge).where(Charge.external_id == "vpc-1")).one() is not None
 
 
-def test_apagado_por_configuracion(db_session: Session, monkeypatch) -> None:
+def test_disabled_by_configuration(db_session: Session, monkeypatch) -> None:
     monkeypatch.setattr(status_events.settings, "status_events_enabled", False)
     _vp_charge(db_session)
     consolidate_to_centralized(db_session, ["virtualpos"])
     assert _count(db_session) == 0
 
 
-def test_eventos_sin_datos_personales(db_session: Session) -> None:
+def test_events_without_data_personal(db_session: Session) -> None:
     _tch_tx(db_session, "RECHAZADA", code="51", reason="Fondos insuficientes")
     consolidate_to_centralized(db_session, ["tch"], run_id=uuid.uuid4())
     cols = {c.name for c in StatusChangeEvent.__table__.columns}

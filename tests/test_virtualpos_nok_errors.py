@@ -119,7 +119,7 @@ def _run(db, operation, external_id=SUB):
         ("GET", lambda c: c.retry_charge("c1")),
     ],
 )
-def test_nok_con_http_200_lanza_error_con_codigo(method, call) -> None:
+def test_nok_with_http_200_raises_error_with_code(method, call) -> None:
     provider = Provider({})
     provider.handler = lambda request: httpx.Response(200, json=_nok("E-078", "Fecha inválida"), request=request)
     client = provider.client()
@@ -135,14 +135,14 @@ def test_nok_con_http_200_lanza_error_con_codigo(method, call) -> None:
     assert json.loads(exc.response.text)["error"]["error_code"] == "E-078"
 
 
-def test_error_con_dict_error_y_status_ok_tambien_se_detecta() -> None:
+def test_error_with_dict_error_and_status_ok_also_detects() -> None:
     provider = Provider({("GET", "/v3/charge/c1"): {"status": "OK", "error": {"error_code": "E-059", "message": "m"}}})
     with pytest.raises(VirtualPOSAPIError) as info:
         asyncio.run(provider.client().get_charge("c1"))
     assert info.value.error_code == "E-059"
 
 
-def test_mensaje_del_error_se_sanea() -> None:
+def test_message_of_the_error_sanitizes() -> None:
     body = _nok("E-086", "dup 4111111111111111\nlinea")
     provider = Provider({("POST", "/v3/charge"): body})
     with pytest.raises(VirtualPOSAPIError) as info:
@@ -150,7 +150,7 @@ def test_mensaje_del_error_se_sanea() -> None:
     assert "4111111111111111" not in str(info.value) and "\n" not in info.value.message
 
 
-def test_respuestas_normales_no_se_ven_afectadas() -> None:
+def test_responses_normal_no_see_affected() -> None:
     ok = {"status": "OK", "code": 200, "charge": {"id": "c1", "status": "pendiente"}}
     provider = Provider({
         ("GET", "/v3/charge/c1"): ok,
@@ -165,7 +165,7 @@ def test_respuestas_normales_no_se_ven_afectadas() -> None:
     assert asyncio.run(client.list_plans()) == [{"id": "p1"}]
 
 
-def test_http_error_real_sigue_siendo_http_status_error() -> None:
+def test_http_error_real_keeps_being_http_status_error() -> None:
     provider = Provider({})
     provider.handler = lambda request: httpx.Response(400, json=_nok("E-079"), request=request)
     with pytest.raises(httpx.HTTPStatusError) as info:
@@ -173,7 +173,7 @@ def test_http_error_real_sigue_siendo_http_status_error() -> None:
     assert svc._provider_error_code(info.value) == "E-079"
 
 
-def test_nok_en_lectura_no_se_reintenta(monkeypatch) -> None:
+def test_nok_in_read_no_retries(monkeypatch) -> None:
     monkeypatch.setattr(settings, "virtualpos_read_retries", 3)
     provider = Provider({("GET", "/v3/charge/c1"): _nok("E-059")})
     with pytest.raises(VirtualPOSAPIError):
@@ -184,7 +184,7 @@ def test_nok_en_lectura_no_se_reintenta(monkeypatch) -> None:
 # ---- write_virtualpos ------------------------------------------------------------------------------------
 
 
-def test_cancel_selected_nok_e059_queda_skipped_y_no_se_reconcilia(monkeypatch, db_session) -> None:
+def test_cancel_selected_nok_e059_stays_skipped_and_no_reconciles(monkeypatch, db_session) -> None:
     _seed(db_session)
     provider = _install(monkeypatch, {
         ("GET", f"/v3/suscription/{SUB}/charges"): _pending_listing(),
@@ -198,7 +198,7 @@ def test_cancel_selected_nok_e059_queda_skipped_y_no_se_reconcilia(monkeypatch, 
     assert _run(db_session, "cancel_future_charges")[0].status == "completed"
 
 
-def test_cancel_selected_otro_nok_falla_y_no_marca_cancelado(monkeypatch, db_session) -> None:
+def test_cancel_selected_other_nok_fails_and_no_marks_cancelled(monkeypatch, db_session) -> None:
     _seed(db_session)
     _install(monkeypatch, {
         ("GET", f"/v3/suscription/{SUB}/charges"): _pending_listing(),
@@ -223,7 +223,7 @@ def test_cancel_plural_nok_e079_es_noop(monkeypatch, db_session) -> None:
     assert db_session.scalar(select(Charge).where(Charge.external_id == "c-1")).status == "pendiente"
 
 
-def test_create_charge_nok_e078_falla_con_codigo(monkeypatch, db_session) -> None:
+def test_create_charge_nok_e078_fails_with_code(monkeypatch, db_session) -> None:
     _seed(db_session)
     _install(monkeypatch, {("POST", "/v3/charge"): _nok("E-078", "La fecha debe ser mayor o igual a hoy")})
     with pytest.raises(VirtualPOSAPIError) as info:
@@ -234,7 +234,7 @@ def test_create_charge_nok_e078_falla_con_codigo(monkeypatch, db_session) -> Non
     assert db_session.scalar(select(Charge).where(Charge.external_id == "cid_new")) is None
 
 
-def test_reassign_con_nok_en_post_no_cancela_nada(monkeypatch, db_session) -> None:
+def test_reassign_with_nok_in_post_no_cancels_nothing(monkeypatch, db_session) -> None:
     _seed(db_session)
     provider = _install(monkeypatch, {
         ("GET", f"/v3/suscription/{SUB}/charges"): _pending_listing(),
@@ -247,7 +247,7 @@ def test_reassign_con_nok_en_post_no_cancela_nada(monkeypatch, db_session) -> No
     assert run.status == "failed" and "E-078" in run.error_message
 
 
-def test_cancel_charge_nok_marca_failed_y_no_cancela_local(monkeypatch, db_session) -> None:
+def test_cancel_charge_nok_marks_failed_and_no_cancels_local(monkeypatch, db_session) -> None:
     _seed(db_session)
     _install(monkeypatch, {("DELETE", "/v3/charge/c-1"): _nok("E-059")})
     with pytest.raises(VirtualPOSAPIError):
@@ -256,7 +256,7 @@ def test_cancel_charge_nok_marca_failed_y_no_cancela_local(monkeypatch, db_sessi
     assert db_session.scalar(select(Charge).where(Charge.external_id == "c-1")).status == "pendiente"
 
 
-def test_retry_charge_nok_marca_failed(monkeypatch, db_session) -> None:
+def test_retry_charge_nok_marks_failed(monkeypatch, db_session) -> None:
     _seed(db_session)
     _install(monkeypatch, {("GET", "/v3/charge/c-1/retry"): _nok("E-060")})
     with pytest.raises(VirtualPOSAPIError):
@@ -268,7 +268,7 @@ def test_retry_charge_nok_marca_failed(monkeypatch, db_session) -> None:
 # ---- sync ---------------------------------------------------------------------------------------------------
 
 
-def test_sync_con_nok_falla_el_run_con_el_codigo(monkeypatch, db_session) -> None:
+def test_sync_with_nok_fails_the_run_with_the_code(monkeypatch, db_session) -> None:
     provider = Provider({("GET", "/v3/clients"): _nok("E-001", "Credenciales inválidas", 401)})
     monkeypatch.setattr(virtualpos_sync, "VirtualPOSClient", lambda *a: provider.client())
     with pytest.raises(VirtualPOSAPIError):

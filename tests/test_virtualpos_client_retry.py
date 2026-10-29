@@ -36,13 +36,13 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr(settings, "virtualpos_read_retries", 2)
 
 
-def test_lecturas_normales_se_reintentan_ante_timeout():
+def test_reads_normal_retry_on_timeout():
     fake = _TimeoutThenOk(fail=2)
     assert asyncio.run(_client(fake).get_charge("c1")) == {"ok": True}
     assert fake.calls == 3
 
 
-def test_retry_charge_no_se_reintenta_ante_timeout():
+def test_retry_charge_no_retries_on_timeout():
     # /retry cambia estado: un timeout no puede disparar un segundo reintento de cobro.
     fake = _TimeoutThenOk(fail=1)
     with pytest.raises(httpx.ReadTimeout):
@@ -50,7 +50,7 @@ def test_retry_charge_no_se_reintenta_ante_timeout():
     assert fake.calls == 1
 
 
-def test_retry_charge_exitoso_hace_una_sola_llamada():
+def test_retry_charge_successful_makes_a_single_call():
     fake = _TimeoutThenOk(fail=0)
     assert asyncio.run(_client(fake).retry_charge("c1")) == {"ok": True}
     assert fake.calls == 1

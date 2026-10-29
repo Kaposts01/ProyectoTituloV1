@@ -66,7 +66,7 @@ def _day_setup(db, paid, **over):
     return _setup(db, previous_charge_day=None, **over)
 
 
-def test_dia_31_con_pagados_31ene_y_28feb_calendario_del_31(db_session) -> None:
+def test_day_31_with_paid_31ene_and_28feb_calendar_of_the_31(db_session) -> None:
     _user, req = _day_setup(db_session, [_paid("p1", "2026-01-31"), _paid("p2", "2026-02-28")])
     plan = PREVIEW(db_session, req)
     dates = [a.charge_date for a in plan.create]
@@ -74,14 +74,14 @@ def test_dia_31_con_pagados_31ene_y_28feb_calendario_del_31(db_session) -> None:
     assert dates[3] == date(2027, 2, 28)
 
 
-def test_dia_31_en_febrero_bisiesto(db_session) -> None:
+def test_day_31_in_february_leap(db_session) -> None:
     _user, req = _day_setup(db_session, [_paid("p1", "2026-01-31"), _paid("p2", "2026-02-28")],
                             horizon_start_month="2028-01", horizon_months=3)
     assert [a.charge_date for a in PREVIEW(db_session, req).create] == [
         date(2028, 1, 31), date(2028, 2, 29), date(2028, 3, 31)]
 
 
-def test_marca_activa_gana_sobre_los_cobros(db_session) -> None:
+def test_marks_active_wins_over_the_charges(db_session) -> None:
     STATE["charges"] = [_paid("p1", "2026-01-28"), _paid("p2", "2026-02-28")]
     _user, req = _setup(db_session, previous_charge_day=None, horizon_months=2)
     db_session.add(VpCalendarMark(platform="virtualpos1", subscription_external_id=SUB, last_scheduled_month="2027-10",
@@ -93,7 +93,7 @@ def test_marca_activa_gana_sobre_los_cobros(db_session) -> None:
     assert {a.charge_date.day for a in PREVIEW(db_session, req).create} == {28}
 
 
-def test_previous_charge_day_de_la_solicitud_gana_sobre_la_marca(db_session) -> None:
+def test_previous_charge_day_of_the_request_wins_over_the_marks(db_session) -> None:
     STATE["charges"] = [_paid("p1", "2026-02-28")]
     _user, req = _setup(db_session, previous_charge_day=12, horizon_months=2)
     db_session.add(VpCalendarMark(platform="virtualpos1", subscription_external_id=SUB, last_scheduled_month="2027-10",
@@ -102,7 +102,7 @@ def test_previous_charge_day_de_la_solicitud_gana_sobre_la_marca(db_session) -> 
     assert {a.charge_date.day for a in PREVIEW(db_session, req).create} == {12}
 
 
-def test_el_dia_no_cuenta_puntuales_ni_reemplazos_de_ventana(db_session) -> None:
+def test_the_day_no_account_one_off_nor_replacements_of_window(db_session) -> None:
     STATE["charges"] = [
         _paid("r1", "2026-06-10"), _paid("r2", "2026-07-10"),
         _paid("o1", "2026-08-25", code=f"{SUB}-T3-20260825-9900"), _paid("o2", "2026-09-25", code=f"{SUB}-20260925-9900-oneoff"),
@@ -124,7 +124,7 @@ def test_el_dia_no_cuenta_puntuales_ni_reemplazos_de_ventana(db_session) -> None
 # ----------------------------- 2. puntuales (capa de aplicacion) -----------------------------
 
 
-def test_puntual_del_crm_no_se_cancela_al_cambiar_el_monto(db_session) -> None:
+def test_one_off_of_the_crm_no_cancels_on_change_the_amount(db_session) -> None:
     """Reconocido por la solicitud de origen (request_type='one_off_charge'), aunque su internal_code no tenga el patron."""
     user = _seed_user_sub(db_session)
     origin = BillingChangeRequest(
@@ -149,7 +149,7 @@ def test_puntual_del_crm_no_se_cancela_al_cambiar_el_monto(db_session) -> None:
 # ----------------------------- 4. cobro con fecha de hoy -----------------------------
 
 
-def test_pendiente_de_hoy_se_conserva_y_la_verificacion_lo_acepta(db_session) -> None:
+def test_pending_of_today_keeps_and_the_verification_lo_accepts(db_session) -> None:
     STATE["charges"] = [c for c in STATE["charges"] if c["id"] != "paid-0"]
     STATE["charges"].append({"id": "today-1", "charge_date": "2026-10-28", "amount": 9900, "status": "pendiente"})
     _user, req = _setup(db_session, horizon_start_month="2026-10")
@@ -172,7 +172,7 @@ class E079PaidVP(FakeVP):
         return await super().delete_charge(charge_id)
 
 
-def test_e079_sobre_antiguo_ya_pagado_cancela_el_nuevo_del_mes(monkeypatch, db_session) -> None:
+def test_e079_over_old_already_paid_cancels_the_new_of_the_month(monkeypatch, db_session) -> None:
     monkeypatch.setattr(wv, "VirtualPOSClient", E079PaidVP)
     STATE["e079_paid"] = {"auto-04"}  # 2027-02
     user, req = _setup(db_session)
@@ -184,7 +184,7 @@ def test_e079_sobre_antiguo_ya_pagado_cancela_el_nuevo_del_mes(monkeypatch, db_s
     assert _managed(db_session, req)["new-4"].status == "cancelado"
 
 
-def test_e079_con_antiguo_aun_pendiente_es_fallo(monkeypatch, db_session) -> None:
+def test_e079_with_old_still_pending_is_failure(monkeypatch, db_session) -> None:
     class StillPending(FakeVP):
         async def delete_charge(self, charge_id):
             if charge_id == "auto-04":
@@ -199,7 +199,7 @@ def test_e079_con_antiguo_aun_pendiente_es_fallo(monkeypatch, db_session) -> Non
     assert _status(db_session, req) == "requiere_conciliacion"
 
 
-def test_verificacion_detecta_mes_cubierto_con_pendiente_creado_por_la_solicitud(db_session) -> None:
+def test_verification_detects_month_covered_with_pending_created_by_the_request(db_session) -> None:
     STATE["e059"] = {"auto-04"}      # el antiguo de feb-2027 queda 'procesando'
     STATE["delete_noop"] = {"new-4"}  # y el DELETE del nuevo 'responde OK' sin cancelar
     user, req = _setup(db_session)
@@ -234,21 +234,21 @@ def _row(i, **over):
     None,
     {"charges": [_row(1), "no-dict"], "pagination": {"pages": 1}},                 # item no dict
 ])
-def test_listado_incompleto_o_inesperado_falla_cerrado(monkeypatch, raw) -> None:
+def test_listing_incomplete_or_unexpected_fails_closed(monkeypatch, raw) -> None:
     monkeypatch.setattr(wv, "VirtualPOSClient", RawVP)
     STATE["raw"] = raw
     with pytest.raises(ba.ProviderListingError):
         asyncio.run(ba._fetch_charges("virtualpos1", SUB))
 
 
-def test_listado_corto_sin_pagination_es_una_sola_pagina(monkeypatch) -> None:
+def test_listing_short_without_pagination_is_a_single_page(monkeypatch) -> None:
     monkeypatch.setattr(wv, "VirtualPOSClient", RawVP)
     STATE["raw"] = {"charges": [_row(i) for i in range(3)]}
     assert len(asyncio.run(ba._fetch_charges("virtualpos1", SUB))) == 3
 
 
 @pytest.mark.parametrize("field,value", [("amount", "1000.5"), ("charge_date", "2027-13-45"), ("id", None), ("amount", None)])
-def test_cobro_no_interpretable_aborta_el_plan_sin_escribir(monkeypatch, db_session, field, value) -> None:
+def test_charge_no_interpretable_aborts_the_plan_without_write(monkeypatch, db_session, field, value) -> None:
     user, req = _setup(db_session)
     STATE["charges"].append(_row(99, **{field: value}))
     with pytest.raises(ba.UnparseableChargesError) as ei:
@@ -258,7 +258,7 @@ def test_cobro_no_interpretable_aborta_el_plan_sin_escribir(monkeypatch, db_sess
     assert set(_names()) == {"list_charges"} and _status(db_session, req) == "aprobada"
 
 
-def test_cobro_cancelado_no_interpretable_se_ignora(db_session) -> None:
+def test_charge_cancelled_no_interpretable_ignores(db_session) -> None:
     user, req = _setup(db_session)
     STATE["charges"].append(_row(98, amount="n/a", status="cancelado"))
     assert _apply(db_session, req, user).status == "ejecutada"
@@ -267,7 +267,7 @@ def test_cobro_cancelado_no_interpretable_se_ignora(db_session) -> None:
 # ----------------------------- 7. solicitud atascada / cobro sin registro -----------------------------
 
 
-def test_cancelled_error_tras_el_claim_deja_requiere_conciliacion(monkeypatch, db_session) -> None:
+def test_cancelled_error_after_the_claim_leaves_requires_reconciliation(monkeypatch, db_session) -> None:
     user, req = _setup(db_session)
 
     async def boom(ctx, plan):
@@ -281,7 +281,7 @@ def test_cancelled_error_tras_el_claim_deja_requiere_conciliacion(monkeypatch, d
     assert db_session.get(WriteRun, req.write_run_id).status == "reconciliation_required"
 
 
-def test_fallo_local_entre_post_exitoso_y_registro_se_reconoce_por_internal_code(monkeypatch, db_session) -> None:
+def test_failure_local_between_post_successful_and_record_recognizes_by_internal_code(monkeypatch, db_session) -> None:
     user, req = _setup(db_session)
     real = ba._upsert_managed
     calls = {"n": 0}
@@ -329,14 +329,14 @@ def test_sweep_stuck_applying(db_session) -> None:
     assert ba.sweep_stuck_applying(db_session, older_than_minutes=30) == []  # idempotente
 
 
-def test_sweep_respeta_recientes_y_otros_estados(db_session) -> None:
+def test_sweep_respects_recent_and_other_statuses(db_session) -> None:
     _user, req = _setup(db_session)
     _stuck(db_session, req, 5)
     assert ba.sweep_stuck_applying(db_session, older_than_minutes=30) == []
     assert _status(db_session, req) == "aplicando"
 
 
-def test_sweep_no_toca_una_aplicacion_viva_con_el_lock_tomado(db_session) -> None:
+def test_sweep_no_touches_a_application_live_with_the_lock_taken(db_session) -> None:
     _user, req = _setup(db_session)
     _stuck(db_session, req, 120)
     with ba.subscription_lock(db_session, "virtualpos1", SUB):
@@ -347,7 +347,7 @@ def test_sweep_no_toca_una_aplicacion_viva_con_el_lock_tomado(db_session) -> Non
 # ----------------------------- 8. guardianes del flujo viejo -----------------------------
 
 
-def test_delete_plural_bloqueado_con_cobros_vivos_aunque_no_haya_marca(db_session) -> None:
+def test_delete_plural_blocked_with_charges_live_even_if_no_exists_marks(db_session) -> None:
     _user, req = _setup(db_session)
     db_session.add(VpManagedCharge(platform="virtualpos1", charge_id="m-1", subscription_external_id=SUB, internal_code="c",
                                    month="2026-11", amount=1, request_id=req.id, status="requiere_conciliacion"))
@@ -361,7 +361,7 @@ def _reassign(db, **kw):
     return asyncio.run(wv.reassign_subscription_amount(db, SUB, 12000, "2026-11-15", dry_run=False, **kw))
 
 
-def test_reassign_viejo_rechazado_con_marca_activa(db_session) -> None:
+def test_reassign_old_rejected_with_marks_active(db_session) -> None:
     _seed_user_sub(db_session)
     _mark(db_session)
     with pytest.raises(wv.BillingFlowConflictError):
@@ -369,7 +369,7 @@ def test_reassign_viejo_rechazado_con_marca_activa(db_session) -> None:
     assert not [n for n in _names() if n in ("create_charge", "delete_charge")]
 
 
-def test_reassign_viejo_rechazado_con_cobros_crm_vivos(db_session) -> None:
+def test_reassign_old_rejected_with_charges_crm_live(db_session) -> None:
     _seed_user_sub(db_session)
     db_session.add(VpManagedCharge(platform="virtualpos1", charge_id="m-1", subscription_external_id=SUB, internal_code="c",
                                    month="2026-11", amount=1, status="creado"))
@@ -378,14 +378,14 @@ def test_reassign_viejo_rechazado_con_cobros_crm_vivos(db_session) -> None:
         _reassign(db_session)
 
 
-def test_reassign_viejo_rechazado_con_solicitud_abierta(db_session) -> None:
+def test_reassign_old_rejected_with_request_open(db_session) -> None:
     _setup(db_session)  # solicitud 'aprobada' abierta
     with pytest.raises(wv.BillingFlowConflictError):
         _reassign(db_session)
     assert not [n for n in _names() if n in ("create_charge", "delete_charge")]
 
 
-def test_reassign_viejo_toma_el_lock_de_la_suscripcion(db_session) -> None:
+def test_reassign_old_takes_the_lock_of_the_subscription(db_session) -> None:
     _seed_user_sub(db_session)
     other = engine.connect()
     other.begin()
@@ -400,13 +400,13 @@ def test_reassign_viejo_toma_el_lock_de_la_suscripcion(db_session) -> None:
     assert not [n for n in _names() if n in ("create_charge", "delete_charge")]
 
 
-def test_reassign_viejo_sin_conflictos_sigue_funcionando(db_session) -> None:
+def test_reassign_old_without_conflicts_keeps_working(db_session) -> None:
     _seed_user_sub(db_session)
     res = _reassign(db_session)
     assert res["created_charge_id"]
 
 
-def test_ruta_reassign_409_con_conflicto_del_flujo_nuevo(monkeypatch, db_session, _cleanup) -> None:
+def test_route_reassign_409_with_conflict_of_the_flow_new(monkeypatch, db_session, _cleanup) -> None:
     from app.core.config import settings
     _seed_user_sub(db_session)
     _mark(db_session)
@@ -419,7 +419,7 @@ def test_ruta_reassign_409_con_conflicto_del_flujo_nuevo(monkeypatch, db_session
     assert not [n for n in _names() if n in ("create_charge", "delete_charge")]
 
 
-def test_ruta_reassign_409_con_lock_ocupado(monkeypatch, db_session, _cleanup) -> None:
+def test_route_reassign_409_with_lock_busy(monkeypatch, db_session, _cleanup) -> None:
     from sqlalchemy import text
     _seed_user_sub(db_session)
     client, csrf = _route_client(monkeypatch, db_session, ["virtualpos.charges.create", "virtualpos.charges.cancel"])
@@ -438,7 +438,7 @@ def test_ruta_reassign_409_con_lock_ocupado(monkeypatch, db_session, _cleanup) -
 # ----------------------------- 9. lock sin comprobacion -----------------------------
 
 
-def test_lock_roto_antes_de_las_cancelaciones_aborta_la_fase(monkeypatch, db_session) -> None:
+def test_lock_broken_before_of_the_cancellations_aborts_the_phase(monkeypatch, db_session) -> None:
     real = ba.subscription_lock
 
     class BrokenConn:
@@ -463,7 +463,7 @@ def test_lock_roto_antes_de_las_cancelaciones_aborta_la_fase(monkeypatch, db_ses
 # ----------------------------- 10. menores -----------------------------
 
 
-def test_estado_pendiente_se_normaliza_igual_en_todas_partes() -> None:
+def test_status_pending_normalizes_equal_in_all_parts() -> None:
     class P:
         async def list_charges(self, sid, page=1, limit=100, status=None):
             return {"charges": [{"id": "a", "status": " Pendiente "}, {"id": "b", "status": "pending"},
@@ -473,7 +473,7 @@ def test_estado_pendiente_se_normaliza_igual_en_todas_partes() -> None:
     assert [c["id"] for c in got] == ["a", "b"]
 
 
-def test_find_por_internal_code_ignora_cancelados_en_las_4_variantes_y_no_adopta_no_pendientes() -> None:
+def test_find_by_internal_code_ignores_cancelled_in_the_4_variants_and_no_adopts_no_pending() -> None:
     class P:
         def __init__(self, status):
             self.status = status
@@ -487,7 +487,7 @@ def test_find_por_internal_code_ignora_cancelados_en_las_4_variantes_y_no_adopta
         assert asyncio.run(wv._find_charge_by_internal_code(P(st), SUB, "k")) is not None, st
 
 
-def test_huerfano_cancelado_en_variante_inglesa_no_se_adopta_al_fallar_un_create(monkeypatch, db_session) -> None:
+def test_orphan_cancelled_in_variant_english_no_adopts_on_fail_a_create(monkeypatch, db_session) -> None:
     class Cancelled3(FakeVP):
         async def create_charge(self, data):
             STATE["n_create"] += 1
@@ -510,7 +510,7 @@ def test_huerfano_cancelado_en_variante_inglesa_no_se_adopta_al_fallar_un_create
     assert "ghost" not in _deleted()
 
 
-def test_timeout_de_cancelacion_aplicado_anota_el_writerun_hijo(db_session) -> None:
+def test_timeout_of_cancellation_applied_annotates_the_writerun_child(db_session) -> None:
     STATE["timeout_applied"] = {"auto-03"}
     user, req = _setup(db_session)
     assert _apply(db_session, req, user).status == "ejecutada"

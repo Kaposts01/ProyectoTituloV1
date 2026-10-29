@@ -41,7 +41,7 @@ def test_toku_prefers_catalog_message_for_long_and_short_codes() -> None:
     assert format_rejection_reason("toku", "TEPSP2070", None) == "Excede límite de reintentos"
 
 
-def test_toku_without_catalog_hit_uses_normalized_glosa_then_code() -> None:
+def test_toku_without_catalog_hit_uses_normalized_reason_text_then_code() -> None:
     assert (
         format_rejection_reason("toku", "TEPSP7777", "[51] RECHAZADA- REINTENTAR EL 01-10-2025 A LAS 07:33")
         == "RECHAZADA- REINTENTAR"

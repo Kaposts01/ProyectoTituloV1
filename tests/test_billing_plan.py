@@ -43,7 +43,7 @@ def _autos_12(day=15, start=(2026, 11), amount=5000, n=12):
     return out
 
 
-def test_cambio_de_monto_simple_12_meses_sin_cobros_previos() -> None:
+def test_change_of_amount_simple_12_months_without_charges_previous() -> None:
     r = build_amount_change_plan(_inp())
     assert len(r.create) == 12 and not r.cancel and not r.noop
     assert r.create[0].month == "2026-11" and r.create[0].charge_date == date(2026, 11, 15)
@@ -52,14 +52,14 @@ def test_cambio_de_monto_simple_12_meses_sin_cobros_previos() -> None:
     assert r.summary.horizon_end == "2027-10"
 
 
-def test_automaticos_dentro_del_horizonte_se_cancelan_y_fuera_se_conservan() -> None:
+def test_automatic_within_of_the_horizon_cancel_and_outside_keep() -> None:
     r = build_amount_change_plan(_inp(charges=_autos_12(n=15)))
     assert len(r.create) == 12 and len(r.cancel) == 12
     assert {c.charge_id for c in r.cancel} == {f"a{i}" for i in range(12)}
     assert [k.charge_id for k in r.kept_automatic_after_horizon] == ["a12", "a13", "a14"]
 
 
-def test_mes_con_pagado_procesando_rechazado_queda_cubierto() -> None:
+def test_month_with_paid_processing_rejected_stays_covered() -> None:
     ch = [_auto(0, date(2026, 11, 15), status="Pagado"), _auto(1, date(2026, 12, 15), status="procesando"),
           _auto(2, date(2027, 1, 15), status="rechazado"), _auto(3, date(2027, 2, 15))]
     r = build_amount_change_plan(_inp(charges=ch, horizon_months=4))
@@ -68,13 +68,13 @@ def test_mes_con_pagado_procesando_rechazado_queda_cubierto() -> None:
     assert [a.month for a in r.create] == ["2027-02"] and [a.charge_id for a in r.cancel] == ["a3"]
 
 
-def test_estado_desconocido_es_bloqueante_con_warning() -> None:
+def test_status_unknown_is_blocking_with_warning() -> None:
     r = build_amount_change_plan(_inp(charges=[_auto(0, date(2026, 11, 15), status="raro")], horizon_months=1))
     assert r.covered[0].reason == "unknown_status" and not r.create
     assert r.warnings[0].code == "unknown_status"
 
 
-def test_ventana_31_vs_32_dias_y_fecha_de_manana() -> None:
+def test_window_31_vs_32_days_and_date_of_tomorrow() -> None:
     # charge_day 10 -> dia 10 de cada mes. Hoy 2026-11-10.
     # Oct 10 esta 31 dias atras (borde incluido); Sep 10 esta 61 dias atras.
     # Tanda 1: el reemplazo debe caer en SU mes; 'manana' (11-nov) ya no es octubre -> revision manual.
@@ -90,26 +90,26 @@ def test_ventana_31_vs_32_dias_y_fecha_de_manana() -> None:
     assert rr.manual_review and not rr.cancel
 
 
-def test_pendiente_vencido_dentro_de_ventana_se_reemplaza_y_cancela() -> None:
+def test_pending_overdue_within_of_window_replaces_and_cancels() -> None:
     r = build_amount_change_plan(_inp(charge_day=5, horizon_months=1, charges=[_auto(0, date(2026, 11, 5))]))
     assert r.create[0].charge_date == date(2026, 11, 11) and r.cancel[0].charge_id == "a0"
 
 
-def test_hoy_en_hora_chile_cruce_de_medianoche_utc(monkeypatch) -> None:
+def test_today_in_chile_time_crossing_of_midnight_utc(monkeypatch) -> None:
     # 2026-11-11 01:00 UTC = 2026-11-10 22:00 en Chile (UTC-3): hoy sigue siendo el 10.
     monkeypatch.setattr(bp, "now_chile", lambda: datetime(2026, 11, 11, 1, 0, tzinfo=UTC).astimezone(CHILE_TZ))
     r = build_amount_change_plan(_inp(today=None, charge_day=5, horizon_months=1))
     assert r.create[0].charge_date == date(2026, 11, 11)  # manana en Chile, no el 12
 
 
-def test_varios_meses_atrasados_solo_el_mes_actual_se_reemplaza() -> None:
+def test_varios_months_overdue_only_the_month_current_replaces() -> None:
     # (antes se espaciaban un dia; con la fecha acotada a su mes solo cabe el mes en curso: ver test_billing_plan_tanda1)
     r = build_amount_change_plan(_inp(charge_day=10, effective_month="2026-10", horizon_months=2))
     assert [a.charge_date for a in r.create] == [date(2026, 11, 11)]
     assert [m.month for m in r.manual_review] == ["2026-10"]
 
 
-def test_manual_preexistente_del_crm_se_cancela_y_ajeno_queda_intacto() -> None:
+def test_manual_preexisting_of_the_crm_cancels_and_foreign_stays_intact() -> None:
     ch = [_manual(1, date(2026, 11, 15), crm=True), _manual(2, date(2026, 12, 15), crm=False)]
     r = build_amount_change_plan(_inp(charges=ch, horizon_months=2))
     assert [a.charge_id for a in r.cancel] == ["m1"]
@@ -118,7 +118,7 @@ def test_manual_preexistente_del_crm_se_cancela_y_ajeno_queda_intacto() -> None:
     assert [a.month for a in r.create] == ["2026-11", "2026-12"]  # el ajeno no cuenta como reemplazo
 
 
-def test_noop_cuando_ya_hay_un_pendiente_correcto_por_mes() -> None:
+def test_noop_when_already_there_is_a_pending_correct_by_month() -> None:
     r = build_amount_change_plan(_inp(charges=_autos_12(amount=7000)))
     assert r.noop and not r.create and not r.cancel and len(r.unchanged) == 12
     # idempotencia tras aplicar: crear 12 y reinyectarlos como manuales del CRM -> noop
@@ -127,13 +127,13 @@ def test_noop_cuando_ya_hay_un_pendiente_correcto_por_mes() -> None:
     assert build_amount_change_plan(_inp(charges=applied)).noop
 
 
-def test_noop_cambio_de_fecha_requiere_misma_fecha() -> None:
+def test_noop_change_of_date_requires_same_date() -> None:
     ch = _autos_12(day=20, amount=7000)
     assert build_date_change_plan(_inp("change_date", ch, new_charge_day=20)).noop
     assert not build_date_change_plan(_inp("change_date", ch, new_charge_day=25)).noop
 
 
-def test_charge_day_31_en_febrero_y_bisiesto() -> None:
+def test_charge_day_31_in_february_and_leap() -> None:
     r = build_amount_change_plan(_inp(charge_day=31, effective_month="2027-01", horizon_months=2, today=date(2026, 12, 1)))
     assert [a.charge_date for a in r.create] == [date(2027, 1, 31), date(2027, 2, 28)]
     r2 = build_amount_change_plan(_inp(charge_day=30, effective_month="2028-02", horizon_months=2, today=date(2026, 12, 1)))
@@ -141,7 +141,7 @@ def test_charge_day_31_en_febrero_y_bisiesto() -> None:
     assert bp.month_date((2027, 4), 31) == date(2027, 4, 30)
 
 
-def test_renovacion_desde_el_ultimo_mes_programado_por_el_crm() -> None:
+def test_renewal_from_the_last_month_scheduled_by_the_crm() -> None:
     crm = [PlanCharge(f"c{i}", "pendiente", date(*bp._add_months((2026, 11), i), 15), 7000, f"X{i}", True)
            for i in range(12)]
     autos_after = _autos_12(start=(2027, 11), n=3)  # automaticos de VP posteriores (monto antiguo)
@@ -152,7 +152,7 @@ def test_renovacion_desde_el_ultimo_mes_programado_por_el_crm() -> None:
     assert err.errors[0].code == "no_crm_calendar"
 
 
-def test_cobro_puntual() -> None:
+def test_charge_one_off() -> None:
     r = build_one_off_plan(_inp("one_off", [_auto(0, date(2026, 12, 15))], one_off_date=date(2026, 12, 20), task_ref="42"))
     assert len(r.create) == 1 and not r.cancel
     assert r.create[0].internal_code == "sub-1-T42-20261220-7000"
@@ -164,7 +164,7 @@ def test_cobro_puntual() -> None:
     assert past.errors[0].code == "past_charge_date"
 
 
-def test_cambio_de_fecha_reprograma_y_conserva_m0_futuro() -> None:
+def test_change_of_date_reschedules_and_keeps_m0_future() -> None:
     # hoy 10; dia 25 -> 5. M0 (nov) conserva su cobro del 25; dic en adelante pasa al dia 5.
     ch = [_auto(0, date(2026, 11, 25), 7000), _auto(1, date(2026, 12, 25), 7000)]
     r = build_date_change_plan(_inp("change_date", ch, new_charge_day=5, horizon_months=2))
@@ -184,7 +184,7 @@ def test_determinismo_y_serializacion() -> None:
     assert set(pa) >= {"create", "cancel", "covered", "manual_review"}
 
 
-def test_cancel_depende_de_todos_los_create_y_van_despues() -> None:
+def test_cancel_depends_of_all_the_create_and_go_after() -> None:
     r = build_amount_change_plan(_inp(charges=_autos_12(), horizon_months=3))
     codes = tuple(a.internal_code for a in r.create)
     assert len(codes) == 3 and all(c.depends_on == codes for c in r.cancel)
@@ -192,7 +192,7 @@ def test_cancel_depende_de_todos_los_create_y_van_despues() -> None:
     assert [a.kind for a in order] == ["create"] * 3 + ["cancel"] * 3
 
 
-def test_doble_pendiente_en_un_mes_emite_warning() -> None:
+def test_double_pending_in_a_month_emits_warning() -> None:
     ch = [_auto(0, date(2026, 11, 15)), _manual(1, date(2026, 11, 20))]
     r = build_amount_change_plan(_inp(charges=ch, horizon_months=1))
     assert any(w.code == "multiple_pending" for w in r.warnings)
@@ -208,7 +208,7 @@ def test_validaciones_tipadas() -> None:
     assert build_amount_change_plan(_inp(charge_day=None)).errors[0].code == "missing_charge_day"
 
 
-def test_variation_pct_y_cobros_afectados() -> None:
+def test_variation_pct_and_charges_affected() -> None:
     up = build_amount_change_plan(_inp(charges=_autos_12(), new_amount=7500, horizon_months=4))
     s = up.summary
     assert s.variation_pct == 50.0 and s.previous_amount == 5000 and s.amount_delta == 2500

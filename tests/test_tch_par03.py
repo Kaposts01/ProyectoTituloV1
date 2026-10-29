@@ -32,11 +32,11 @@ def db_session():
         connection.close()
 
 
-def _filas(db, ficha: int) -> list[TchTransaction]:
-    return list(db.scalars(select(TchTransaction).where(TchTransaction.file_number == ficha).order_by(TchTransaction.period, TchTransaction.installment_number)))
+def _filas(db, file_number: int) -> list[TchTransaction]:
+    return list(db.scalars(select(TchTransaction).where(TchTransaction.file_number == file_number).order_by(TchTransaction.period, TchTransaction.installment_number)))
 
 
-def _reporte_enero(tmp_path):
+def _report_january(tmp_path):
     # Enero: la cuota 3 de F1 fue RECHAZADA (con motivo y fecha); la cuota 1 de F2 fue aceptada.
     return write_report(
         tmp_path / "20260131 TCH IG ENERO 2026.xlsx",
@@ -45,12 +45,12 @@ def _reporte_enero(tmp_path):
     )
 
 
-def _reporte_febrero(tmp_path):
+def _report_february(tmp_path):
     # Febrero: el historial de 12 meses dice que la cuota 3 de enero ya esta PAGADA (reintento); F2/enero se repite
     # (cuota repetida entre reportes). Los cargos de febrero traen la cuota 4.
     return write_report(
         tmp_path / "20260228 TCH IG FEBRERO 2026.xlsx",
-        vigentes=[
+        active=[
             {"ficha": F1, "historial": {(2026, 1): (3, "Pagada", 10000), (2026, 2): (4, "Pagada", 10000)}},
             {"ficha": F2, "historial": {(2026, 1): (1, "Pagada", 10000), (2026, 2): (2, "Pagada", 10000)}},
         ],
@@ -65,24 +65,24 @@ def _reporte_marzo(tmp_path):
     # Marzo reexpresa febrero: la cuota 4 de F1 ahora figura RECHAZADA y con otro monto.
     return write_report(
         tmp_path / "20260331 TCH IG MARZO 2026.xlsx",
-        vigentes=[{"ficha": F1, "historial": {(2026, 2): (4, "Rechazada", 12000), (2026, 3): (5, "Pagada", 12000)}}],
+        active=[{"ficha": F1, "historial": {(2026, 2): (4, "Rechazada", 12000), (2026, 3): (5, "Pagada", 12000)}}],
         aceptados=[{"ficha": F1, "cuota": 5, "mes": "MAR 26", "monto": 12000, "fecha": date(2026, 3, 10)}],
     )
 
 
-def test_dedupe_key_is_ficha_periodo_cuota_without_estado_nor_monto() -> None:
+def test_dedupe_key_is_file_number_period_installment_without_status_nor_amount() -> None:
     assert etl_tch._dedupe_key(101, "2026-08", "3") == "101|2026-08|3"
     assert etl_tch._dedupe_key(101, "2026-08", 3.0) == "101|2026-08|3"
     assert etl_tch._dedupe_key(101, None, None) == "101||"
 
 
-def test_same_cuota_rejected_then_accepted_is_one_row_with_the_previous_rejection(db_session, tmp_path) -> None:
-    etl_tch._process_file(_reporte_enero(tmp_path), db_session)
-    etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
+def test_same_installment_rejected_then_accepted_is_one_row_with_the_previous_rejection(db_session, tmp_path) -> None:
+    etl_tch._process_file(_report_january(tmp_path), db_session)
+    etl_tch._process_file(_report_february(tmp_path), db_session)
 
-    enero = [r for r in _filas(db_session, F1) if r.period == "2026-01"]
-    assert len(enero) == 1  # antes: una fila RECHAZADA y otra ACEPTADA
-    fila = enero[0]
+    january = [r for r in _filas(db_session, F1) if r.period == "2026-01"]
+    assert len(january) == 1  # antes: una fila RECHAZADA y otra ACEPTADA
+    fila = january[0]
     assert fila.installment_number == "3"
     assert fila.status == "ACEPTADA"  # el ultimo reporte gana
     assert fila.previous_rejection is True
@@ -92,9 +92,9 @@ def test_same_cuota_rejected_then_accepted_is_one_row_with_the_previous_rejectio
     assert fila.origin == "cargo"  # el detalle del cargo (fecha, entidad) no lo pisa el historial
 
 
-def test_cuota_repeated_between_monthly_and_closing_report_is_one_row(db_session, tmp_path) -> None:
-    etl_tch._process_file(_reporte_enero(tmp_path), db_session)
-    etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
+def test_installment_repeated_between_monthly_and_closing_report_is_one_row(db_session, tmp_path) -> None:
+    etl_tch._process_file(_report_january(tmp_path), db_session)
+    etl_tch._process_file(_report_february(tmp_path), db_session)
 
     filas = [r for r in _filas(db_session, F2) if r.period == "2026-01"]
     assert len(filas) == 1
@@ -102,60 +102,60 @@ def test_cuota_repeated_between_monthly_and_closing_report_is_one_row(db_session
     assert filas[0].previous_rejection in (None, False)
 
 
-def test_three_consecutive_reports_keep_a_single_row_per_cuota(db_session, tmp_path) -> None:
-    for build in (_reporte_enero, _reporte_febrero, _reporte_marzo):
+def test_three_consecutive_reports_keep_a_single_row_per_installment(db_session, tmp_path) -> None:
+    for build in (_report_january, _report_february, _reporte_marzo):
         etl_tch._process_file(build(tmp_path), db_session)
 
     keys = list(db_session.scalars(select(TchTransaction.dedupe_key).where(TchTransaction.file_number.in_((F1, F2)))))
     assert len(keys) == len(set(keys))
-    por_cuota = db_session.execute(
+    per_installment = db_session.execute(
         select(TchTransaction.file_number, TchTransaction.period, TchTransaction.installment_number, func.count())
         .where(TchTransaction.file_number.in_((F1, F2)))
         .group_by(TchTransaction.file_number, TchTransaction.period, TchTransaction.installment_number)
     ).all()
-    assert all(cantidad == 1 for *_, cantidad in por_cuota)
-    assert len(por_cuota) == 5  # F1: ene/3, feb/4, mar/5; F2: ene/1, feb/2
+    assert all(cantidad == 1 for *_, cantidad in per_installment)
+    assert len(per_installment) == 5  # F1: ene/3, feb/4, mar/5; F2: ene/1, feb/2
 
 
-def test_restatement_in_a_later_report_replaces_estado_and_monto(db_session, tmp_path) -> None:
-    for build in (_reporte_enero, _reporte_febrero, _reporte_marzo):
+def test_restatement_in_a_later_report_replaces_status_and_amount(db_session, tmp_path) -> None:
+    for build in (_report_january, _report_february, _reporte_marzo):
         etl_tch._process_file(build(tmp_path), db_session)
 
-    febrero = [r for r in _filas(db_session, F1) if r.period == "2026-02"]
-    assert len(febrero) == 1
-    assert febrero[0].status == "RECHAZADA"  # marzo reexpreso febrero
-    assert febrero[0].amount == "12000"
-    assert febrero[0].origin == "cargo"  # conserva el detalle del cargo de febrero
+    february = [r for r in _filas(db_session, F1) if r.period == "2026-02"]
+    assert len(february) == 1
+    assert february[0].status == "RECHAZADA"  # marzo reexpreso febrero
+    assert february[0].amount == "12000"
+    assert february[0].origin == "cargo"  # conserva el detalle del cargo de febrero
 
 
 def test_an_older_report_loaded_late_does_not_overwrite_a_newer_state(db_session, tmp_path) -> None:
-    etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
-    etl_tch._process_file(_reporte_enero(tmp_path), db_session)  # fuera de orden: enero llega despues
+    etl_tch._process_file(_report_february(tmp_path), db_session)
+    etl_tch._process_file(_report_january(tmp_path), db_session)  # fuera de orden: enero llega despues
 
-    enero = [r for r in _filas(db_session, F1) if r.period == "2026-01"]
-    assert len(enero) == 1
-    assert enero[0].status == "ACEPTADA"  # febrero (mas nuevo) ya habia dicho PAGADA
-    assert enero[0].origin == "cargo"  # pero el detalle del cargo de enero si completa la fila
+    january = [r for r in _filas(db_session, F1) if r.period == "2026-01"]
+    assert len(january) == 1
+    assert january[0].status == "ACEPTADA"  # febrero (mas nuevo) ya habia dicho PAGADA
+    assert january[0].origin == "cargo"  # pero el detalle del cargo de enero si completa la fila
 
 
 def test_reprocessing_the_same_report_is_idempotent(db_session, tmp_path) -> None:
-    etl_tch._process_file(_reporte_enero(tmp_path), db_session)
-    etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
-    antes = db_session.scalar(select(func.count()).select_from(TchTransaction).where(TchTransaction.file_number.in_((F1, F2))))
-    etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
-    despues = db_session.scalar(select(func.count()).select_from(TchTransaction).where(TchTransaction.file_number.in_((F1, F2))))
-    assert antes == despues
+    etl_tch._process_file(_report_january(tmp_path), db_session)
+    etl_tch._process_file(_report_february(tmp_path), db_session)
+    before = db_session.scalar(select(func.count()).select_from(TchTransaction).where(TchTransaction.file_number.in_((F1, F2))))
+    etl_tch._process_file(_report_february(tmp_path), db_session)
+    after = db_session.scalar(select(func.count()).select_from(TchTransaction).where(TchTransaction.file_number.in_((F1, F2))))
+    assert before == after
     fila = next(r for r in _filas(db_session, F1) if r.period == "2026-01")
     assert fila.previous_rejection is True and fila.previous_rejection_reason == "Fondos insuficientes"
 
 
-def test_same_report_with_accepted_and_rejected_rows_for_one_cuota_keeps_the_accepted(db_session, tmp_path) -> None:
-    ruta = write_report(
+def test_same_report_with_accepted_and_rejected_rows_for_one_installment_keeps_the_accepted(db_session, tmp_path) -> None:
+    path = write_report(
         tmp_path / "20260131 TCH IG ENERO 2026.xlsx",
         rechazados=[{"ficha": F1, "cuota": 3, "mes": "ENE 26", "fecha": date(2026, 1, 5), "motivo": "Cuenta cerrada", "transaccion": "Normal"}],
         aceptados=[{"ficha": F1, "cuota": 3, "mes": "ENE 26", "fecha": date(2026, 1, 12), "transaccion": "Reintento"}],
     )
-    etl_tch._process_file(ruta, db_session)
+    etl_tch._process_file(path, db_session)
     filas = _filas(db_session, F1)
     assert len(filas) == 1
     assert filas[0].status == "ACEPTADA"
@@ -172,7 +172,7 @@ def test_legacy_keys_are_detected_before_an_incremental_load(db_session) -> None
     assert etl_tch._has_legacy_dedupe_keys(db_session) is True
 
 
-def test_moneda_column_wins_over_the_payload_when_resolving_currency() -> None:
+def test_currency_column_wins_over_the_payload_when_resolving_currency() -> None:
     from types import SimpleNamespace
 
     from app.services.core_tch_etl import _resolve_currency

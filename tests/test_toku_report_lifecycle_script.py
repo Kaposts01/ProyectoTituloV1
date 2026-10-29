@@ -50,7 +50,7 @@ def test_signals_dry_run_prints_counts_only_and_apply_writes_them(script, db_ses
     assert signal is not None and signal.lifecycle_status == "deleted" and not signal.is_recoverable
 
 
-def test_apply_creates_the_baja_record(script, db_session, capsys):  # noqa: F811
+def test_apply_creates_the_cancellation_record(script, db_session, capsys):  # noqa: F811
     sub = uid("sub")
     World(db_session).product(sub, deleted=datetime(2025, 1, 15, 15, 0, tzinfo=UTC))
     assert script.main(["--apply"], session_factory=lambda: db_session) == 0

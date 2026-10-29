@@ -113,7 +113,7 @@ def test_upload_is_audited_in_write_runs_without_content(world, tmp_path):
     assert "sub_T" not in str(payload) and not any(s in str(payload) for s in PII_SENTINELS)
 
 
-def test_intentos_report_with_catalog_is_accepted(world, tmp_path):
+def test_attempts_report_with_catalog_is_accepted(world, tmp_path):
     r = world.post("admin", _xlsx(tmp_path, "intentos", "Intentos.xlsx"))
     assert r.status_code == 200 and r.json()["report_type"] == "intentos" and r.json()["catalog_codes"] == 4
 

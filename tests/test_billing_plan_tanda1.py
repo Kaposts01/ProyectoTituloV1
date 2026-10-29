@@ -36,7 +36,7 @@ def _month_of(a) -> str:
     return a.charge_date.strftime("%Y-%m")
 
 
-def test_reemplazo_que_cae_en_el_mes_siguiente_va_a_revision_manual() -> None:
+def test_replacement_that_falls_in_the_month_next_goes_a_review_manual() -> None:
     """Hoy 31-oct, octubre atrasado: 'manana' (1-nov) ya es noviembre -> octubre a revision, noviembre sin duplicado."""
     today = date(2026, 10, 31)
     ch = [_auto(0, date(2026, 10, 15)), _auto(1, date(2026, 11, 15))]
@@ -51,7 +51,7 @@ def test_reemplazo_que_cae_en_el_mes_siguiente_va_a_revision_manual() -> None:
     assert not again.create and not again.cancel and again.unchanged == ("2026-11",)
 
 
-def test_varios_meses_atrasados_solo_el_del_mes_actual_se_reemplaza() -> None:
+def test_varios_months_overdue_only_the_of_the_month_current_replaces() -> None:
     """Hoy 10-nov, dia 10: octubre (ya cerrado) a revision; noviembre se reemplaza dentro de noviembre."""
     r = build_amount_change_plan(_inp(charge_day=10, effective_month="2026-10", horizon_months=3))
     assert [m.month for m in r.manual_review] == ["2026-10"]
@@ -59,7 +59,7 @@ def test_varios_meses_atrasados_solo_el_del_mes_actual_se_reemplaza() -> None:
     assert all(_month_of(a) == a.month for a in r.create)
 
 
-def test_ultimo_dia_del_mes_el_reemplazo_no_cruza_a_otro_mes() -> None:
+def test_last_day_of_the_month_the_replacement_no_crosses_a_other_month() -> None:
     r = build_amount_change_plan(_inp(charge_day=30, today=date(2026, 11, 30), horizon_months=1,
                                       charges=[_auto(0, date(2026, 11, 30))]))
     # el pendiente de HOY no se toca (item 4); sin pendiente, el reemplazo (1-dic) cruzaria de mes -> revision
@@ -71,21 +71,21 @@ def test_ultimo_dia_del_mes_el_reemplazo_no_cruza_a_otro_mes() -> None:
 # ----------------------------- 2. cobros puntuales -----------------------------
 
 
-def test_puntual_pendiente_en_el_mismo_mes_no_se_cancela() -> None:
+def test_one_off_pending_in_the_same_month_no_cancels() -> None:
     ch = [_auto(0, date(2026, 11, 15)), _one_off(7, date(2026, 11, 20))]
     r = build_amount_change_plan(_inp(charges=ch, horizon_months=1))
     assert [a.charge_id for a in r.cancel] == ["a0"]
     assert [a.month for a in r.create] == ["2026-11"]
 
 
-def test_puntual_con_el_monto_nuevo_no_sustituye_al_regular() -> None:
+def test_one_off_with_the_amount_new_no_replaces_on_regular() -> None:
     ch = [_auto(0, date(2026, 11, 15)), _one_off(7, date(2026, 11, 20), amount=7000)]
     r = build_amount_change_plan(_inp(charges=ch, horizon_months=1))
     assert [a.month for a in r.create] == ["2026-11"] and [a.charge_id for a in r.cancel] == ["a0"]
     assert not r.unchanged
 
 
-def test_puntual_se_reconoce_por_patron_de_internal_code_aunque_no_venga_la_bandera() -> None:
+def test_one_off_recognizes_by_pattern_of_internal_code_even_if_no_comes_the_flag() -> None:
     for code in (f"{SUB}-T42-20261120-5000", f"{SUB}-20261120-5000-oneoff"):
         c = PlanCharge("o1", "pendiente", date(2026, 11, 20), 5000, internal_code=code, is_crm=True)
         r = build_amount_change_plan(_inp(charges=[_auto(0, date(2026, 11, 15)), c], horizon_months=1))
@@ -95,12 +95,12 @@ def test_puntual_se_reconoce_por_patron_de_internal_code_aunque_no_venga_la_band
     assert [a.charge_id for a in r.cancel] == ["m1"]  # un manual regular del CRM si se cancela
 
 
-def test_puntual_pagado_sigue_cubriendo_el_mes() -> None:
+def test_one_off_paid_keeps_covering_the_month() -> None:
     r = build_amount_change_plan(_inp(charges=[_one_off(7, date(2026, 11, 3), status="pagado")], horizon_months=1))
     assert [(c.month, c.reason) for c in r.covered] == [("2026-11", "pagado")] and not r.create
 
 
-def test_renovacion_no_salta_meses_por_un_puntual_lejano() -> None:
+def test_renewal_no_skips_months_by_a_one_off_far() -> None:
     crm = [PlanCharge(f"c{i}", "pendiente", date(*bp._add_months((2026, 11), i), 15), 7000, f"X{i}", True)
            for i in range(12)]
     far = _one_off(9, date(2028, 3, 20))
@@ -110,7 +110,7 @@ def test_renovacion_no_salta_meses_por_un_puntual_lejano() -> None:
     assert only_one_off.errors[0].code == "no_crm_calendar"
 
 
-def test_el_dia_de_cobro_no_se_deduce_de_un_puntual() -> None:
+def test_the_day_of_charge_no_deduced_of_a_one_off() -> None:
     ch = [_auto(0, date(2026, 10, 15), status="pagado"), _one_off(9, date(2026, 11, 3), status="pagado")]
     r = build_amount_change_plan(_inp(charges=ch, charge_day=None, effective_month="2026-12", horizon_months=1))
     assert r.create[0].charge_date == date(2026, 12, 15)
@@ -119,7 +119,7 @@ def test_el_dia_de_cobro_no_se_deduce_de_un_puntual() -> None:
 # ----------------------------- 4. cobro con fecha de hoy -----------------------------
 
 
-def test_pendiente_fechado_hoy_no_se_cancela_ni_se_reemplaza() -> None:
+def test_pending_dated_today_no_cancels_nor_replaces() -> None:
     today = date(2026, 11, 10)
     r = build_amount_change_plan(_inp(charge_day=10, horizon_months=2, today=today,
                                       charges=[_auto(0, today), _auto(1, date(2026, 12, 10))]))
@@ -133,7 +133,7 @@ def plan_json_has_kept(r) -> bool:
     return bp.plan_to_preview_json(r)["kept_due_today"] == ["2026-11"]
 
 
-def test_sin_pendiente_de_hoy_el_mes_atrasado_sigue_la_logica_de_ventana() -> None:
+def test_without_pending_of_today_the_month_overdue_keeps_the_logic_of_window() -> None:
     r = build_amount_change_plan(_inp(charge_day=10, horizon_months=1, charges=[_auto(0, date(2026, 11, 5))]))
     assert r.create[0].charge_date == date(2026, 11, 11) and [a.charge_id for a in r.cancel] == ["a0"]
     assert not r.kept_due_today

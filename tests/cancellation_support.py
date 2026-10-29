@@ -92,10 +92,10 @@ def seed_payku(db: Session, sub: str = "sus_pk1", pending: int = 1, status: str 
     db.commit()
 
 
-def seed_tch(db: Session, ficha: int = 910001, eliminated: bool = False) -> str:
-    db.add(TchSubscription(file_number=ficha, status="VIGENTE", deletion_date="2026-10-30" if eliminated else None))
+def seed_tch(db: Session, file_number: int = 910001, eliminated: bool = False) -> str:
+    db.add(TchSubscription(file_number=file_number, status="VIGENTE", deletion_date="2026-10-30" if eliminated else None))
     db.commit()
-    return str(ficha)
+    return str(file_number)
 
 
 def params(channel: str = "virtualpos1", sub: str = "sub-c1", **over) -> cr.CancellationParams:

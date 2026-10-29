@@ -105,7 +105,7 @@ def _runs(db):
     return list(db.scalars(select(WriteRun).where(WriteRun.operation == "create_charge")))
 
 
-def test_adopta_pendiente_con_mismo_codigo_sin_post(monkeypatch, db_session) -> None:
+def test_adopts_pending_with_same_code_without_post(monkeypatch, db_session) -> None:
     fake = _setup(monkeypatch, db_session, FakeVP([_existing("pendiente")]))
     charge = _create(db_session)
     assert fake.posts() == 0
@@ -114,26 +114,26 @@ def test_adopta_pendiente_con_mismo_codigo_sin_post(monkeypatch, db_session) -> 
     assert run.status == "completed" and run.response_payload == {"adopted": True, "charge_id": "old-1"}
 
 
-def test_crea_si_solo_hay_cancelado_con_ese_codigo(monkeypatch, db_session) -> None:
+def test_creates_if_only_there_is_cancelled_with_that_code(monkeypatch, db_session) -> None:
     fake = _setup(monkeypatch, db_session, FakeVP([_existing("cancelado")]))
     charge = _create(db_session)
     assert fake.posts() == 1 and charge.external_id == "new-1"
     assert _runs(db_session)[0].status == "completed"
 
 
-def test_crea_si_no_existe(monkeypatch, db_session) -> None:
+def test_creates_if_no_exists(monkeypatch, db_session) -> None:
     fake = _setup(monkeypatch, db_session, FakeVP([_existing("pendiente", code="OTRO")]))
     charge = _create(db_session)
     assert fake.posts() == 1 and charge.external_id == "new-1"
 
 
-def test_sin_internal_code_no_consulta_listado(monkeypatch, db_session) -> None:
+def test_without_internal_code_no_query_listing(monkeypatch, db_session) -> None:
     fake = _setup(monkeypatch, db_session, FakeVP())
     _create(db_session, code=None)
     assert fake.posts() == 1 and not any(m == "GET" for m, _ in fake.requests)
 
 
-def test_timeout_en_post_y_reintento_adopta(monkeypatch, db_session) -> None:
+def test_timeout_in_post_and_retry_adopts(monkeypatch, db_session) -> None:
     fake = _setup(monkeypatch, db_session, FakeVP())
     fake.timeout_first_post = True
     with pytest.raises(httpx.ReadTimeout):
@@ -144,7 +144,7 @@ def test_timeout_en_post_y_reintento_adopta(monkeypatch, db_session) -> None:
     assert [r.status for r in sorted(_runs(db_session), key=lambda r: r.started_at)] == ["failed", "completed"]
 
 
-def test_error_del_listado_impide_crear(monkeypatch, db_session) -> None:
+def test_error_of_the_listing_prevents_create(monkeypatch, db_session) -> None:
     fake = _setup(monkeypatch, db_session, FakeVP())
     fake.fail_list = True
     with pytest.raises(VirtualPOSAPIError):
@@ -154,7 +154,7 @@ def test_error_del_listado_impide_crear(monkeypatch, db_session) -> None:
     assert db_session.scalar(select(Charge).where(Charge.subscription_external_id == SUB)) is None
 
 
-def test_reassign_dos_veces_es_idempotente(monkeypatch, db_session) -> None:
+def test_reassign_two_times_is_idempotent(monkeypatch, db_session) -> None:
     fake = _setup(monkeypatch, db_session, FakeVP([_existing("pendiente", "old-pend", code="otro")]))
     first = asyncio.run(svc.reassign_subscription_amount(db_session, SUB, 7000, "2099-01-05", dry_run=False))
     second = asyncio.run(svc.reassign_subscription_amount(db_session, SUB, 7000, "2099-01-05", dry_run=False))

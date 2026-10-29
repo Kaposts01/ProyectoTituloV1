@@ -53,7 +53,7 @@ def _flags(db: Session) -> list[tuple[str, str, bool]]:
         select(StatusChangeEvent).order_by(StatusChangeEvent.detected_at, StatusChangeEvent.external_id))]
 
 
-def test_baseline_marca_los_eventos_de_la_corrida(db_session: Session) -> None:
+def test_baseline_marks_the_events_of_the_run(db_session: Session) -> None:
     _invoice(db_session)
     consolidate_to_centralized(db_session, ["toku"], run_id=uuid.uuid4(), baseline=True)
     assert _flags(db_session) == [("created", "in_b1", True)]
@@ -62,7 +62,7 @@ def test_baseline_marca_los_eventos_de_la_corrida(db_session: Session) -> None:
     assert _flags(db_session)[-1] == ("status_changed", "in_b1", False)
 
 
-def test_baseline_en_las_cuatro_fuentes(db_session: Session) -> None:
+def test_baseline_in_the_four_sources(db_session: Session) -> None:
     db_session.add(VpCharge(external_id="vpb", platform="virtualpos2", status="PAGADO", amount="1"))
     _invoice(db_session)
     db_session.flush()
@@ -72,7 +72,7 @@ def test_baseline_en_las_cuatro_fuentes(db_session: Session) -> None:
         select(func.count()).select_from(StatusChangeEvent).where(StatusChangeEvent.is_baseline.is_(False))) == 0
 
 
-def test_configuracion_activa_baseline_y_el_parametro_manda(db_session: Session, monkeypatch) -> None:
+def test_configuration_active_baseline_and_the_parameter_rules(db_session: Session, monkeypatch) -> None:
     monkeypatch.setattr(status_events.settings, "status_events_baseline", True)
     _invoice(db_session, "in_c1")
     consolidate_to_centralized(db_session, ["toku"])  # sin parametro: usa la configuracion
@@ -84,7 +84,7 @@ def test_configuracion_activa_baseline_y_el_parametro_manda(db_session: Session,
 # ── Comando manual ─────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_guarda_de_confirmacion_de_base() -> None:
+def test_guard_of_confirmation_of_base() -> None:
     script = _load_script()
     with pytest.raises(script.BaselineNotConfirmedError):
         script.check_apply_allowed("crm", None)
@@ -93,7 +93,7 @@ def test_guarda_de_confirmacion_de_base() -> None:
     script.check_apply_allowed("crm_test", "crm_test")
 
 
-def test_comando_dry_run_no_escribe(db_session: Session, monkeypatch) -> None:
+def test_command_dry_run_no_writes(db_session: Session, monkeypatch) -> None:
     script = _load_script()
     monkeypatch.setattr(db_session_module, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(db_session, "close", lambda: None)  # el comando cierra su sesion; la del test debe sobrevivir
@@ -103,7 +103,7 @@ def test_comando_dry_run_no_escribe(db_session: Session, monkeypatch) -> None:
     assert db_session.scalar(select(func.count()).select_from(StatusChangeEvent)) == 0
 
 
-def test_comando_apply_exige_confirmacion_y_marca_baseline(db_session: Session, monkeypatch) -> None:
+def test_command_apply_requires_confirmation_and_marks_baseline(db_session: Session, monkeypatch) -> None:
     script = _load_script()
     monkeypatch.setattr(db_session_module, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(db_session, "close", lambda: None)  # el comando cierra su sesion; la del test debe sobrevivir

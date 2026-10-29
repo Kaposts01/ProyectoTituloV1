@@ -406,7 +406,7 @@ def test_apply_with_fixed_plan_flag_off_is_422(w, monkeypatch):
     assert "create_charge" not in names()
 
 
-def test_apply_failure_is_502_fallida_then_reopen_and_retry(w):
+def test_apply_failure_is_502_failed_then_reopen_and_retry(w):
     """RA-07: fallo con compensacion limpia -> 502 y 'fallida'; reabrir exige comentario; luego se reaplica a mano."""
     rid = w.create("admin1")["id"]
     STATE["create_fail"] = {"at": 5}

@@ -331,7 +331,7 @@ def _status_events(db, sid: str):
         StatusChangeEvent.entity_type == "subscription", StatusChangeEvent.external_id == sid)))
 
 
-def test_toku_deleted_confirmed_by_404_marks_baja_once(db_session) -> None:
+def test_toku_deleted_confirmed_by_404_marks_cancellation_once(db_session) -> None:
     _seed_toku_sub(db_session, "sub_del")
     ev = _add(db_session, "toku", "subscription.deleted", resource="sub_del", sub="sub_del")
     rec = Recorder(fail={("toku", "sub_del"): _refresh_error_from_404()})
@@ -359,7 +359,7 @@ def test_toku_deleted_with_transient_failure_is_retried_not_marked(db_session) -
     assert db_session.scalar(select(Subscription.status).where(Subscription.external_id == "sub_del2")) == "ACTIVE"
 
 
-def test_404_on_non_deleted_event_is_not_a_baja(db_session) -> None:
+def test_404_on_non_deleted_event_is_not_a_cancellation(db_session) -> None:
     _seed_toku_sub(db_session, "sub_upd")
     ev = _add(db_session, "toku", "subscription.updated", resource="sub_upd", sub="sub_upd")
     _run(db_session, Recorder(fail={("toku", "sub_upd"): _refresh_error_from_404()}))

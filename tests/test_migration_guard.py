@@ -17,31 +17,31 @@ from app.db.migration_guard import (
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_downgrade_sobre_crm_bloqueado():
+def test_downgrade_over_crm_blocked():
     with pytest.raises(DowngradeBlockedError):
         check_downgrade_allowed("crm", True, {})
 
 
 @pytest.mark.parametrize("name", ["crm_sandbox", "crm_test", "crm_qa", "qa_crm", "sandbox_x"])
-def test_downgrade_permitido_en_bases_seguras(name):
+def test_downgrade_allowed_in_databases_safe(name):
     check_downgrade_allowed(name, True, {})
 
 
-def test_upgrade_sobre_crm_permitido():
+def test_upgrade_over_crm_allowed():
     check_downgrade_allowed("crm", False, {})
 
 
-def test_downgrade_crm_con_confirmacion_explicita():
+def test_downgrade_crm_with_confirmation_explicit():
     check_downgrade_allowed("crm", True, {ALLOW_DOWNGRADE_ENV: "1"})
 
 
 @pytest.mark.parametrize("value", ["0", "true", "yes", "", "11", " 1"])
-def test_downgrade_crm_con_valor_distinto_de_1_bloqueado(value):
+def test_downgrade_crm_with_value_different_of_1_blocked(value):
     with pytest.raises(DowngradeBlockedError):
         check_downgrade_allowed("crm", True, {ALLOW_DOWNGRADE_ENV: value})
 
 
-def test_mensaje_sin_credenciales_y_con_nombre_y_variable():
+def test_message_without_credentials_and_with_name_and_variable():
     with pytest.raises(DowngradeBlockedError) as exc:
         check_downgrade_allowed("crm", True, {"DATABASE_URL": "postgresql://user:s3cr3t@host/crm"})
     msg = str(exc.value)
@@ -49,7 +49,7 @@ def test_mensaje_sin_credenciales_y_con_nombre_y_variable():
     assert "s3cr3t" not in msg and "postgresql://" not in msg and "@" not in msg
 
 
-def test_deteccion_de_direccion():
+def test_detection_of_address():
     def downgrade(rev, context): ...
 
     def upgrade(rev, context): ...
@@ -60,7 +60,7 @@ def test_deteccion_de_direccion():
     assert is_downgrade_command(None) is True
 
 
-def test_env_py_llama_a_la_guarda():
+def test_env_py_calls_a_the_guard():
     text = (ROOT / "alembic" / "env.py").read_text(encoding="utf-8")
     assert "check_downgrade_allowed(" in text
     assert "is_downgrade_command(" in text
@@ -69,7 +69,7 @@ def test_env_py_llama_a_la_guarda():
     assert text.index("check_downgrade_allowed(") < text.index("run_migrations_online()")
 
 
-def test_downgrade_programatico_roundtrip_en_crm_test():
+def test_downgrade_programmatic_roundtrip_in_crm_test():
     """API `alembic.command.downgrade` real, solo contra la base de la suite (conftest la fija a *_test)."""
     from app.core.config import settings
 

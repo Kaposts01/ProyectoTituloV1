@@ -227,7 +227,7 @@ def test_payku_arpu_subtext_count_has_no_floor_of_one() -> None:
     assert kpis["churn_rate"] == 100.0
 
 
-def test_vp_churn_is_none_without_base_and_zero_with_base_and_no_bajas() -> None:
+def test_vp_churn_is_none_without_base_and_zero_with_base_and_no_cancellations() -> None:
     assert staging._vp_extended_data([])["kpis"]["churn_rate"] is None
     kpis = staging._vp_extended_data([_rec("subscription", {"status": "ACTIVA", "amount": 100, "suscription_date": "2026-01-05"})])["kpis"]
     assert kpis["churn_rate"] == 0.0
@@ -237,9 +237,9 @@ def test_vp_churn_is_none_without_base_and_zero_with_base_and_no_bajas() -> None
 def test_churn_alert_text_says_what_it_measures() -> None:
     kpis = {"churn_rate": 15.0, "churn_window_label": "promedio de 3 meses"}
     alerts = staging._channel_alerts([], [], [], kpis, "VirtualPOS")
-    detalle = alerts[0]["detalle"]
+    detail = alerts[0]["detalle"]
     assert alerts[0]["tipo"] == "Churn rate elevado" and alerts[0]["canal"] == "VirtualPOS"
-    assert "promedio de 3 meses" in detalle and "15,0%" in detalle and "histórica" not in detalle
+    assert "promedio de 3 meses" in detail and "15,0%" in detail and "histórica" not in detail
 
 
 def test_channel_alert_ignores_none_churn() -> None:

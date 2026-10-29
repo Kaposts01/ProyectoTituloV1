@@ -221,9 +221,9 @@ def test_apply_failure_midway_503_then_reopen_and_resume(db_session, providers) 
 
 
 def test_tch_apply_through_api_is_in_process(db_session, providers) -> None:
-    ficha = seed_tch(db_session, 910200)
+    file_number = seed_tch(db_session, 910200)
     _, client, h = _client(db_session, "jefatura")
-    req_id = client.post(BASE, json={"channel": "tch", "subscription_external_id": ficha,
+    req_id = client.post(BASE, json={"channel": "tch", "subscription_external_id": file_number,
                                      "reason_code": "member_request", "reason_comment": "mandato"}, headers=h).json()["id"]
     r = client.post(f"{BASE}/{req_id}/apply", json={}, headers=h)
     assert r.status_code == 200 and r.json()["status"] == "pending_external"

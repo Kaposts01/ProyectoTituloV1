@@ -100,10 +100,10 @@ def test_the_mark_does_not_pollute_the_report_registry(db_session) -> None:
 # --- equivalencia del resultado final -----------------------------------------------------------------
 
 
-def _canonical_tch(db: Session, ficha_numbers: set[str], dedupe: set[str]) -> dict:
+def _canonical_tch(db: Session, file_number_numbers: set[str], dedupe: set[str]) -> dict:
     subs = sorted(
         (s.external_id, s.status, s.amount) for s in db.scalars(select(Subscription).where(Subscription.source == "tch"))
-        if s.external_id in ficha_numbers
+        if s.external_id in file_number_numbers
     )
     charges = sorted(
         (c.external_id, c.status, c.amount, c.subscription_external_id)
@@ -116,21 +116,21 @@ def _canonical_tch(db: Session, ficha_numbers: set[str], dedupe: set[str]) -> di
     return {"subs": subs, "charges": charges, "clients": clients}
 
 
-def _load_report(db: Session, n: int, ficha_base: int) -> tuple[set[str], set[str]]:
+def _load_report(db: Session, n: int, file_number_base: int) -> tuple[set[str], set[str]]:
     """Simula una carga de Excel: filas en tch_* y el reporte registrado (lo que deja `import_incremental_file`)."""
-    fichas, keys = set(), set()
+    file_numbers, keys = set(), set()
     for i in range(n):
-        ficha = ficha_base + i
-        db.add(TchClient(rut=f"EQ-{ficha}", name=f"Socio {ficha}"))
-        db.add(TchSubscription(file_number=ficha, client_rut=f"EQ-{ficha}", status="VIGENTE", amount="5000"))
-        key = f"eq-{ficha}-2026-09"
-        db.add(TchTransaction(file_number=ficha, period="2026-09", status="ACEPTADA", amount="5000",
-                              dedupe_key=key, source_file=f"r{ficha_base}.xlsx"))
-        fichas.add(str(ficha))
+        file_number = file_number_base + i
+        db.add(TchClient(rut=f"EQ-{file_number}", name=f"Socio {file_number}"))
+        db.add(TchSubscription(file_number=file_number, client_rut=f"EQ-{file_number}", status="VIGENTE", amount="5000"))
+        key = f"eq-{file_number}-2026-09"
+        db.add(TchTransaction(file_number=file_number, period="2026-09", status="ACEPTADA", amount="5000",
+                              dedupe_key=key, source_file=f"r{file_number_base}.xlsx"))
+        file_numbers.add(str(file_number))
         keys.add(key)
-    registry.register(db, _sha(), f"r{ficha_base}.xlsx", 100)
+    registry.register(db, _sha(), f"r{file_number_base}.xlsx", 100)
     db.flush()
-    return fichas, keys
+    return file_numbers, keys
 
 
 def _conditional_night(db: Session) -> bool:

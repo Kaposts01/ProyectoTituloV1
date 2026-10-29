@@ -483,9 +483,9 @@ def test_payku_confirmation_cannot_be_removed_from_the_request(db_session, provi
 
 
 def test_tch_apply_leaves_request_in_process_without_provider_and_closes_with_report(db_session, providers) -> None:
-    ficha = seed_tch(db_session, 910100)
+    file_number = seed_tch(db_session, 910100)
     jefa = _jefa(db_session)
-    req = approved_request(db_session, jefa, "tch", ficha)
+    req = approved_request(db_session, jefa, "tch", file_number)
     res = _apply(db_session, req, jefa)
     assert res.status == "pending_external"
     req = _reload(db_session, req)
@@ -498,8 +498,8 @@ def test_tch_apply_leaves_request_in_process_without_provider_and_closes_with_re
     assert ca.close_tch_cancellations_from_report(db_session) == []
     assert _reload(db_session, req).status == "pending_external"
     # el siguiente Excel trae fecha_eliminacion
-    ficha_row = db_session.scalar(select(TchSubscription).where(TchSubscription.file_number == 910100))
-    ficha_row.deletion_date = "2026-11-03"
+    file_number_row = db_session.scalar(select(TchSubscription).where(TchSubscription.file_number == 910100))
+    file_number_row.deletion_date = "2026-11-03"
     db_session.commit()
     assert ca.close_tch_cancellations_from_report(db_session) == [req.id]
     assert ca.close_tch_cancellations_from_report(db_session) == []  # idempotente
@@ -510,12 +510,12 @@ def test_tch_apply_leaves_request_in_process_without_provider_and_closes_with_re
 
 
 def test_tch_open_request_blocks_a_second_one_until_closed(db_session, providers) -> None:
-    ficha = seed_tch(db_session, 910101)
+    file_number = seed_tch(db_session, 910101)
     jefa = _jefa(db_session)
-    req = approved_request(db_session, jefa, "tch", ficha)
+    req = approved_request(db_session, jefa, "tch", file_number)
     _apply(db_session, req, jefa)
     with pytest.raises(cr.OpenRequestExistsError):
-        approved_request(db_session, jefa, "tch", ficha)  # «en tramite» sigue ocupando el cupo
+        approved_request(db_session, jefa, "tch", file_number)  # «en tramite» sigue ocupando el cupo
 
 
 # ============================== barredor ==============================

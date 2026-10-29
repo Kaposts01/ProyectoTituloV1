@@ -13,7 +13,7 @@ from typing import Any
 
 import openpyxl
 
-MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
+MONTHS = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
 
 _BASE_HEADERS = {
     0: ("Ficha DUES", "Ficha DUES"),
@@ -23,11 +23,11 @@ _BASE_HEADERS = {
     4: ("MANDATO ACTUAL", "Monto Vigente"),
 }
 _FIRST_EXTRA = 5
-_HISTORIAL_START = 62
+_HISTORY_START = 62
 
 
 def mes_label(year: int, month: int) -> str:
-    return f"{MESES[month - 1]} {year}"
+    return f"{MONTHS[month - 1]} {year}"
 
 
 def _empty_rows(ws) -> None:
@@ -44,7 +44,7 @@ def mandate_sheet(
     """Hoja de mandatos. Cada fila: ficha, rut, estado, monto, moneda, extra={cabecera: valor}, historial={(anio, mes): (cuota, estado, monto)}."""
     extra_headers = extra_headers or []
     ws = wb.create_sheet(title)
-    headers: list[tuple[str, str]] = [("RELLENO", f"c{i}") for i in range(_HISTORIAL_START)]
+    headers: list[tuple[str, str]] = [("RELLENO", f"c{i}") for i in range(_HISTORY_START)]
     for index, header in _BASE_HEADERS.items():
         headers[index] = header
     for offset, header in enumerate(extra_headers):
@@ -61,7 +61,7 @@ def mandate_sheet(
     ws.append(group)
     ws.append(leaf)
     for row in rows:
-        values: list[Any] = [None] * _HISTORIAL_START
+        values: list[Any] = [None] * _HISTORY_START
         values[0] = row["ficha"]
         values[1] = row.get("rut", "11111111-1")
         values[2] = row.get("estado", "Activo")
@@ -70,12 +70,12 @@ def mandate_sheet(
         for offset, header in enumerate(extra_headers):
             values[_FIRST_EXTRA + offset] = row.get("extra", {}).get(header)
         for year, month in all_months:
-            cuota, estado, monto = row.get("historial", {}).get((year, month), (None, None, None))
-            values += [cuota, estado, monto]
+            installment, status, amount = row.get("historial", {}).get((year, month), (None, None, None))
+            values += [installment, status, amount]
         ws.append(values)
 
 
-def cargos_sheet(wb: openpyxl.Workbook, title: str, rows: list[dict[str, Any]], rechazados: bool) -> None:
+def charges_sheet(wb: openpyxl.Workbook, title: str, rows: list[dict[str, Any]], rechazados: bool) -> None:
     """Hoja CARGOS. Cada fila: ficha, cuota, mes ("ENE 26"), monto, fecha (date), motivo."""
     ws = wb.create_sheet(title)
     _empty_rows(ws)
@@ -106,7 +106,7 @@ def control_sheets(wb: openpyxl.Workbook, periodos: list[tuple[str, int, int]]) 
 def write_report(
     path: Path,
     *,
-    vigentes: list[dict[str, Any]] | None = None,
+    active: list[dict[str, Any]] | None = None,
     eliminados: list[dict[str, Any]] | None = None,
     rechazados_mandatos: list[dict[str, Any]] | None = None,
     aceptados: list[dict[str, Any]] | None = None,
@@ -116,16 +116,16 @@ def write_report(
 ) -> Path:
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    if vigentes is not None:
-        mandate_sheet(wb, "VIGENTES", vigentes, extra_headers)
+    if active is not None:
+        mandate_sheet(wb, "VIGENTES", active, extra_headers)
     if eliminados is not None:
         mandate_sheet(wb, "ELIMINADOS", eliminados, extra_headers)
     if rechazados_mandatos is not None:
         mandate_sheet(wb, "RECHAZADOS", rechazados_mandatos, extra_headers)
     if aceptados is not None:
-        cargos_sheet(wb, "CARGOS ACEPTADOS", aceptados, rechazados=False)
+        charges_sheet(wb, "CARGOS ACEPTADOS", aceptados, rechazados=False)
     if rechazados is not None:
-        cargos_sheet(wb, "CARGOS RECHAZADOS", rechazados, rechazados=True)
+        charges_sheet(wb, "CARGOS RECHAZADOS", rechazados, rechazados=True)
     if control is not None:
         control_sheets(wb, control)
     wb.save(path)

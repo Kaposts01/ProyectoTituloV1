@@ -27,7 +27,7 @@ def _operations() -> dict[str, list[str]]:
 
 def test_routes_and_query_parameters_are_unchanged() -> None:
     expected = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    actual = _operations()
-    assert set(actual) == set(expected), {"faltan": sorted(set(expected) - set(actual)), "sobran": sorted(set(actual) - set(expected))}
-    changed = {key: (expected[key], actual[key]) for key in expected if expected[key] != actual[key]}
+    current = _operations()
+    assert set(current) == set(expected), {"faltan": sorted(set(expected) - set(current)), "sobran": sorted(set(current) - set(expected))}
+    changed = {key: (expected[key], current[key]) for key in expected if expected[key] != current[key]}
     assert not changed, changed

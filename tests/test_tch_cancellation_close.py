@@ -21,10 +21,10 @@ def _factory(db):
     return lambda: Session(bind=db.get_bind(), join_transaction_mode="create_savepoint")
 
 
-def _pending_request(db, ficha: int):
-    seed_tch(db, ficha)
+def _pending_request(db, file_number: int):
+    seed_tch(db, file_number)
     jefa = make_user(db, make_roles(db)["jefatura"])
-    req = approved_request(db, jefa, "tch", str(ficha))
+    req = approved_request(db, jefa, "tch", str(file_number))
     req.status = "pending_external"
     db.commit()
     return req.id
@@ -39,14 +39,14 @@ def _status(db, req_id):
 def importer(db_session, monkeypatch, tmp_path):
     """Importa un reporte sintetico: `_process_file` es falso y, si `eliminar`, marca la ficha como eliminada."""
     monkeypatch.setattr(etl_tch, "SessionLocal", _factory(db_session))
-    monkeypatch.setattr(etl_tch, "_apply_implicit_cancellations", lambda db, fichas: 0)
+    monkeypatch.setattr(etl_tch, "_apply_implicit_cancellations", lambda db, file_numbers: 0)
     monkeypatch.setattr(etl_tch, "_has_legacy_dedupe_keys", lambda db: False)
     counter = {"n": 0}
 
-    def run(ficha: int, eliminar: bool):
+    def run(file_number: int, eliminar: bool):
         def fake_process(path, db):
             if eliminar:
-                row = db.scalar(select(TchSubscription).where(TchSubscription.file_number == ficha))
+                row = db.scalar(select(TchSubscription).where(TchSubscription.file_number == file_number))
                 row.deletion_date = "2026-11-03"
                 db.flush()
             return {"sus_ins": 0, "sus_upd": 1, "trans": 0, "controles": 0, "fichas": set(), "err": 0}
@@ -60,13 +60,13 @@ def importer(db_session, monkeypatch, tmp_path):
     return run
 
 
-def test_import_closes_a_pending_external_request_when_the_ficha_is_eliminated(db_session, importer):
+def test_import_closes_a_pending_external_request_when_the_file_number_is_eliminated(db_session, importer):
     req_id = _pending_request(db_session, 910201)
     importer(910201, eliminar=True)
     assert _status(db_session, req_id) == "completed"
 
 
-def test_import_leaves_the_request_in_process_when_the_ficha_is_not_eliminated(db_session, importer):
+def test_import_leaves_the_request_in_process_when_the_file_number_is_not_eliminated(db_session, importer):
     req_id = _pending_request(db_session, 910202)
     importer(910202, eliminar=False)
     assert _status(db_session, req_id) == "pending_external"

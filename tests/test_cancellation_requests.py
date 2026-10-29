@@ -179,8 +179,8 @@ def test_toku_preview_flags_in_progress_invoices_as_blocker(db_session) -> None:
 def test_tch_request_has_internal_steps_and_no_charges(db_session) -> None:
     roles = make_roles(db_session)
     jefa = make_user(db_session, roles["jefatura"])
-    ficha = seed_tch(db_session)
-    req = cr.create_request(db_session, jefa, params("tch", ficha), now=NOW)
+    file_number = seed_tch(db_session)
+    req = cr.create_request(db_session, jefa, params("tch", file_number), now=NOW)
     assert [s["step"] for s in req.cascade_preview["steps"]] == ["register_internal", "bank_mandate"]
     assert req.cascade_preview["pending_charges"] == 0
     seed_tch(db_session, 910002, eliminated=True)

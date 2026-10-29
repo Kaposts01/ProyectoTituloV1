@@ -170,7 +170,7 @@ def test_cancel_subscription_wrapper_keeps_signature_and_returns_subscription(db
 # ------------------------------------------------------------------ guard, lock y solicitudes abiertas
 
 
-def test_open_requests_closed_as_no_ejecutable_and_calendar_mark_retired(db_session) -> None:
+def test_open_requests_closed_as_no_executable_and_calendar_mark_retired(db_session) -> None:
     user = _seed(db_session)
     pend = _request(db_session, user, "pendiente")
     db_session.add(VpCalendarMark(platform=PLATFORM, subscription_external_id=SUB, last_scheduled_month="2027-10",

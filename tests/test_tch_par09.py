@@ -59,11 +59,11 @@ def test_captation_and_identification_fields_are_loaded() -> None:
     assert row["_cliente"]["region"] == "Metropolitana"
 
 
-@pytest.mark.parametrize(("valor", "esperado"), [("Natural", "Natural"), ("JURIDICA", "Juridica"), ("Jurídica", "Juridica")])
-def test_personalidad_is_real_not_always_natural(valor: str, esperado: str) -> None:
+@pytest.mark.parametrize(("valor", "expected"), [("Natural", "Natural"), ("JURIDICA", "Juridica"), ("Jurídica", "Juridica")])
+def test_personalidad_is_real_not_always_natural(valor: str, expected: str) -> None:
     row = _row(pers=valor)
-    assert row["personalidad"] == esperado
-    assert row["_cliente"]["tipo_persona"] == esperado
+    assert row["personalidad"] == expected
+    assert row["_cliente"]["tipo_persona"] == expected
 
 
 def test_personalidad_defaults_to_natural_when_the_column_is_missing() -> None:
@@ -71,11 +71,11 @@ def test_personalidad_defaults_to_natural_when_the_column_is_missing() -> None:
 
 
 def test_titular_is_only_a_boolean_indicator_and_is_never_stored() -> None:
-    distinto = _row(t_rut="98765432-1", t_nombre="Otra Persona")
-    mismo = _row(t_rut="12345678-9", t_nombre="Mismo")
-    assert distinto["titular_distinto"] is True and mismo["titular_distinto"] is False
-    assert distinto["_cliente_titular"] is None  # ya no se crea un cliente con los datos del tercero
-    guardado = str(distinto["raw_payload"]) + str(distinto["_cliente"])
+    different = _row(t_rut="98765432-1", t_nombre="Otra Persona")
+    same = _row(t_rut="12345678-9", t_nombre="Mismo")
+    assert different["titular_distinto"] is True and same["titular_distinto"] is False
+    assert different["_cliente_titular"] is None  # ya no se crea un cliente con los datos del tercero
+    guardado = str(different["raw_payload"]) + str(different["_cliente"])
     assert "98765432" not in guardado and "Otra Persona" not in guardado
     assert _row()["titular_distinto"] is None  # sin columna de titular no se sabe
 
@@ -114,7 +114,7 @@ def test_fields_reach_the_database_from_a_synthetic_report(db_session, tmp_path)
     headers = [H["estrategia"], H["pers"], H["t_rut"], H["region"], H["ap_cuotas"], H["nvo"]]
     xlsx = write_report(
         tmp_path / "20260131 TCH IG ENERO 2026.xlsx",
-        vigentes=[{
+        active=[{
             "ficha": 940001, "rut": "12345678-9",
             "extra": {H["estrategia"]: "Calle", H["pers"]: "Juridica", H["t_rut"]: "98765432-1", H["region"]: "Valparaiso", H["ap_cuotas"]: 7, H["nvo"]: 1},
         }],

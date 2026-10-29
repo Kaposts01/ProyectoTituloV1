@@ -174,7 +174,7 @@ def test_open_task_turns_overdue_over_time_and_priority_rises_under_15_days(worl
 
 
 @pytest.mark.parametrize("status", ["CANCELADA", "FINALIZADA", "SUSCRIPCION_FALLIDA"])
-def test_task_closed_no_aplica_when_subscription_not_active(world, status):
+def test_task_closed_no_applies_when_subscription_not_active(world, status):
     """JB-35: la suscripcion deja de estar ACTIVA -> la abierta se cierra `no_aplica`; no se vuelve a abrir."""
     mark(world, 20)
     check(world)

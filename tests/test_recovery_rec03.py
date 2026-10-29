@@ -62,7 +62,7 @@ def test_rejected_rows_prefer_core_rejection_and_fallback_to_raw_payload(db_sess
     assert rows["rec03-unknown"]["rejection_reason"] == "-7777"
 
 
-def test_filters_apply_globally_and_monto_vigente(db_session: Session, monkeypatch) -> None:  # noqa: F811
+def test_filters_apply_globally_and_current_amount(db_session: Session, monkeypatch) -> None:  # noqa: F811
     # Los cobros de prueba llevan fecha 2099: "hoy" (Chile) se fija despues para que no sean futuros (VP-PAR-10).
     monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2099, 12, 31, 12, tzinfo=rejected_month.CHILE_TZ))
     db_session.add_all([

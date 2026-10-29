@@ -44,13 +44,13 @@ def _event(**overrides) -> StatusChangeEvent:
     return StatusChangeEvent(**values)
 
 
-def test_unico_head_de_alembic():
+def test_single_head_of_alembic():
     cfg = Config()
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
     assert len(ScriptDirectory.from_config(cfg).get_heads()) == 1
 
 
-def test_tablas_e_indices_existen():
+def test_tablas_and_indexes_exist():
     insp = inspect(engine)
     assert {"status_change_events", "rejection_reason_catalog"} <= set(insp.get_table_names())
     cols = {c["name"] for c in insp.get_columns("status_change_events")}
@@ -69,14 +69,14 @@ def test_tablas_e_indices_existen():
     assert cat_cols == {"id", "source", "code", "reason", "first_seen_at", "last_seen_at", "occurrences"}
 
 
-def test_inserta_con_defaults(db_session: Session) -> None:
+def test_inserts_with_defaults(db_session: Session) -> None:
     ev = _event()
     db_session.add(ev)
     db_session.flush()
     assert ev.id is not None and ev.detected_at is not None and ev.is_baseline is False
 
 
-def test_dedupe_key_unico(db_session: Session) -> None:
+def test_dedupe_key_single(db_session: Session) -> None:
     key = "a" * 64
     db_session.add(_event(dedupe_key=key))
     db_session.flush()
@@ -94,7 +94,7 @@ def test_check_constraints(db_session: Session, overrides: dict) -> None:
             db_session.flush()
 
 
-def test_eventos_son_inmutables(db_session: Session) -> None:
+def test_events_are_immutable(db_session: Session) -> None:
     ev = _event()
     db_session.add(ev)
     db_session.flush()
@@ -106,7 +106,7 @@ def test_eventos_son_inmutables(db_session: Session) -> None:
             db_session.execute(text("DELETE FROM status_change_events WHERE id = :i"), {"i": ev.id})
 
 
-def test_catalogo_unico_y_actualizable(db_session: Session) -> None:
+def test_catalogo_single_and_actualizable(db_session: Session) -> None:
     cat = RejectionReasonCatalog(source="toku", code="2070", reason="Fondos insuficientes")
     db_session.add(cat)
     db_session.flush()

@@ -66,7 +66,7 @@ def test_not_chargeable_payment_method_is_not_effectively_active(db_session: Ses
 
 def test_deleted_subscription_is_never_effectively_active_nor_recoverable(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session, pm_status="permanent_failed", deleted=datetime(2026, 5, 1, 15, 0, tzinfo=UTC))
-    world.failed_cuota(sub, "in_1", day(60), code="1019")
+    world.failed_installment(sub, "in_1", day(60), code="1019")
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.lifecycle_status == "deleted" and not s.is_effectively_active and not s.is_recoverable
@@ -79,7 +79,7 @@ def test_chargeable_but_deleted_is_not_active(db_session: Session) -> None:  # n
     assert s.is_chargeable and not s.is_effectively_active
 
 
-def test_payment_method_report_beats_the_estado_of_the_product_row(db_session: Session) -> None:  # noqa: F811
+def test_payment_method_report_beats_the_status_of_the_product_row(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session, pm_status="chargeable")
     pm = f"pm_{sub}"
     world.payment_method(pm, "permanent_failed")
@@ -100,82 +100,82 @@ def test_deleted_payment_method_row_counts_as_deleted(db_session: Session) -> No
 # ---- racha por cuotas -------------------------------------------------------------------------------------------
 
 
-def test_three_unpaid_cuotas_with_code_2070_is_a_streak_even_when_recent(db_session: Session) -> None:  # noqa: F811
+def test_three_unpaid_installments_with_code_2070_is_a_streak_even_when_recent(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(40), code="2070")
-    world.failed_cuota(sub, "in_2", day(10), code="2070")
-    world.failed_cuota(sub, "in_3", day(1), code="2070")  # un dia antes del corte: firme por el codigo
+    world.failed_installment(sub, "in_1", day(40), code="2070")
+    world.failed_installment(sub, "in_2", day(10), code="2070")
+    world.failed_installment(sub, "in_3", day(1), code="2070")  # un dia antes del corte: firme por el codigo
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.consecutive_failed_debts == 3 and s.recoverable_reason == "streak" and s.is_recoverable
     assert s.last_response_code == "2070"
 
 
-def test_cuotas_become_firm_after_seven_days_without_a_new_attempt(db_session: Session) -> None:  # noqa: F811
+def test_installments_become_firm_after_seven_days_without_a_new_attempt(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
     for i, d in enumerate((60, 40, 20)):
-        world.failed_cuota(sub, f"in_{i}", day(d), code="1001")  # ultimo intento hace 20, 40, 60 dias: en firme
+        world.failed_installment(sub, f"in_{i}", day(d), code="1001")  # ultimo intento hace 20, 40, 60 dias: en firme
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.consecutive_failed_debts == 3 and s.is_recoverable
 
 
-def test_recent_cuota_without_2070_is_not_firm_so_the_streak_is_two(db_session: Session) -> None:  # noqa: F811
+def test_recent_installment_without_2070_is_not_firm_so_the_streak_is_two(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(60), code="1001")
-    world.failed_cuota(sub, "in_2", day(40), code="1001")
-    world.failed_cuota(sub, "in_3", day(2), code="1001")  # todavia puede reintentarse: no cuenta
+    world.failed_installment(sub, "in_1", day(60), code="1001")
+    world.failed_installment(sub, "in_2", day(40), code="1001")
+    world.failed_installment(sub, "in_3", day(2), code="1001")  # todavia puede reintentarse: no cuenta
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.consecutive_failed_debts == 2 and not s.is_recoverable and s.recoverable_reason is None
 
 
-def test_three_attempts_in_one_cuota_is_not_a_streak_of_three(db_session: Session) -> None:  # noqa: F811
+def test_three_attempts_in_one_installment_is_not_a_streak_of_three(db_session: Session) -> None:  # noqa: F811
     """El contraste real (72 suscripciones por cuotas contra 138 por intentos): 3 intentos en UNA cuota no son racha."""
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(40), attempts=3, code="1001")
+    world.failed_installment(sub, "in_1", day(40), attempts=3, code="1001")
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.consecutive_failed_attempts == 3 and s.consecutive_failed_debts == 1
     assert not s.is_recoverable and s.recoverable_reason is None
 
 
-def test_many_attempts_over_two_cuotas_stays_below_the_threshold(db_session: Session) -> None:  # noqa: F811
+def test_many_attempts_over_two_installments_stays_below_the_threshold(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(60), attempts=3, code="1001")
-    world.failed_cuota(sub, "in_2", day(30), attempts=3, code="1001")
+    world.failed_installment(sub, "in_1", day(60), attempts=3, code="1001")
+    world.failed_installment(sub, "in_2", day(30), attempts=3, code="1001")
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.consecutive_failed_attempts == 6 and s.consecutive_failed_debts == 2 and not s.is_recoverable
 
 
-def test_a_paid_cuota_breaks_the_streak(db_session: Session) -> None:  # noqa: F811
+def test_a_paid_installment_breaks_the_streak(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
     for i, d in enumerate((120, 100, 80)):
-        world.failed_cuota(sub, f"in_{i}", day(d))
-    world.paid_cuota(sub, "in_paid", day(60))
-    world.failed_cuota(sub, "in_a", day(40))
-    world.failed_cuota(sub, "in_b", day(20))
+        world.failed_installment(sub, f"in_{i}", day(d))
+    world.paid_installment(sub, "in_paid", day(60))
+    world.failed_installment(sub, "in_a", day(40))
+    world.failed_installment(sub, "in_b", day(20))
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.consecutive_failed_debts == 2 and not s.is_recoverable
     assert s.consecutive_failed_attempts == 2
 
 
-def test_a_cuota_with_a_failure_and_then_a_payment_counts_as_paid(db_session: Session) -> None:  # noqa: F811
+def test_a_installment_with_a_failure_and_then_a_payment_counts_as_paid(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(60))
-    world.failed_cuota(sub, "in_2", day(40))
-    world.failed_cuota(sub, "in_3", day(20))
-    world.paid_cuota(sub, "in_3", day(19))  # la cuota 3 se pago en un reintento
+    world.failed_installment(sub, "in_1", day(60))
+    world.failed_installment(sub, "in_2", day(40))
+    world.failed_installment(sub, "in_3", day(20))
+    world.paid_installment(sub, "in_3", day(19))  # la cuota 3 se pago en un reintento
     _run(db_session)
     assert _signal(db_session, sub).consecutive_failed_debts == 0
 
 
-def test_in_process_cuota_is_ignored_and_does_not_break_the_streak(db_session: Session) -> None:  # noqa: F811
+def test_in_process_installment_is_ignored_and_does_not_break_the_streak(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
     for i, d in enumerate((60, 40, 20)):
-        world.failed_cuota(sub, f"in_{i}", day(d))
+        world.failed_installment(sub, f"in_{i}", day(d))
     world.attempt(sub, "in_now", datetime(2026, 10, 20, 9, 0, tzinfo=UTC), status="EN PROCESO", due=day(0))
     _run(db_session)
     assert _signal(db_session, sub).consecutive_failed_debts == 3
@@ -203,9 +203,9 @@ def test_unpaid_debts_without_attempts_count_after_seven_days_and_voided_ones_ar
 
 def test_paid_debt_in_the_debts_report_breaks_the_streak(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(60))
+    world.failed_installment(sub, "in_1", day(60))
     world.debt(sub, "in_2", day(40), paid=True)
-    world.failed_cuota(sub, "in_3", day(20))
+    world.failed_installment(sub, "in_3", day(20))
     _run(db_session)
     assert _signal(db_session, sub).consecutive_failed_debts == 1
 
@@ -216,7 +216,7 @@ def test_paid_debt_in_the_debts_report_breaks_the_streak(db_session: Session) ->
 @pytest.mark.parametrize("code", ["1019", "1051", "2043"])
 def test_blocked_card_codes(db_session: Session, code) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(3), code=code)
+    world.failed_installment(sub, "in_1", day(3), code=code)
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.recoverable_reason == "blocked_card" and s.is_recoverable and s.consecutive_failed_debts == 0
@@ -225,7 +225,7 @@ def test_blocked_card_codes(db_session: Session, code) -> None:  # noqa: F811
 @pytest.mark.parametrize("code", ["1010", "2044", "2063"])
 def test_expired_card_codes(db_session: Session, code) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(3), code=code)
+    world.failed_installment(sub, "in_1", day(3), code=code)
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.recoverable_reason == "expired_card" and s.is_recoverable
@@ -240,8 +240,8 @@ def test_permanent_failed_payment_method_is_a_blocked_card_without_any_attempt(d
 
 def test_a_later_authorized_attempt_clears_a_card_code(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session)
-    world.failed_cuota(sub, "in_1", day(10), code="1019")
-    world.paid_cuota(sub, "in_2", day(2))
+    world.failed_installment(sub, "in_1", day(10), code="1019")
+    world.paid_installment(sub, "in_2", day(2))
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.recoverable_reason is None and not s.is_recoverable and s.last_response_code == "1019"
@@ -249,8 +249,8 @@ def test_a_later_authorized_attempt_clears_a_card_code(db_session: Session) -> N
 
 def test_temporary_failure_without_a_streak_is_not_recoverable(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session, pm_status="temporary_failed")
-    world.failed_cuota(sub, "in_1", day(20), attempts=2, code="1001")
-    world.failed_cuota(sub, "in_2", day(5), code="1001")
+    world.failed_installment(sub, "in_1", day(20), attempts=2, code="1001")
+    world.failed_installment(sub, "in_2", day(5), code="1001")
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.payment_method_status == "temporary_failed" and not s.is_chargeable
@@ -260,7 +260,7 @@ def test_temporary_failure_without_a_streak_is_not_recoverable(db_session: Sessi
 def test_temporary_failure_with_a_streak_is_recoverable_by_streak(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session, pm_status="temporary_failed")
     for i, d in enumerate((60, 40, 20)):
-        world.failed_cuota(sub, f"in_{i}", day(d), code="1001")
+        world.failed_installment(sub, f"in_{i}", day(d), code="1001")
     _run(db_session)
     assert _signal(db_session, sub).recoverable_reason == "streak"
 
@@ -268,7 +268,7 @@ def test_temporary_failure_with_a_streak_is_recoverable_by_streak(db_session: Se
 def test_blocked_beats_expired_beats_streak_when_several_apply(db_session: Session) -> None:  # noqa: F811
     world, sub = _setup(db_session, pm_status="permanent_failed")
     for i, d in enumerate((60, 40, 20)):
-        world.failed_cuota(sub, f"in_{i}", day(d), code="1010")
+        world.failed_installment(sub, f"in_{i}", day(d), code="1010")
     _run(db_session)
     s = _signal(db_session, sub)
     assert s.recoverable_reason == "blocked_card" and s.consecutive_failed_debts == 3

@@ -179,14 +179,14 @@ def test_rejected_month_uses_chile_time_not_utc(monkeypatch) -> None:
 
 # -- TCH recaudo mensual -------------------------------------------------------
 
-def _ctrl(periodo, acc_n, acc_m):
+def _ctrl(period, acc_n, acc_m):
     return TchMonthlyCollection(
-        period=periodo, accepted_count=acc_n, accepted_amount=acc_m,
+        period=period, accepted_count=acc_n, accepted_amount=acc_m,
         rejected_count=0, rejected_amount="0", source_file="x.xlsx",
     )
 
 
-def test_tch_recaudo_adds_accepted_transactions_and_keeps_legacy_alias() -> None:
+def test_tch_collection_adds_accepted_transactions_and_keeps_legacy_alias() -> None:
     out = tch._monthly_collection_kpis([_ctrl("2026-09", 200, "1600000")])
     assert out["accepted_transactions"] == out["active_clients"] == 200
 
@@ -195,7 +195,7 @@ def test_tch_recaudo_adds_accepted_transactions_and_keeps_legacy_alias() -> None
     "raw,expected",
     [("$1.600.000", 1600000.0), ("1600000.50", 1600000.0), ("abc", 0.0), ("", 0.0)],
 )
-def test_tch_recaudo_amount_parsing_is_defensive(raw, expected) -> None:
+def test_tch_collection_amount_parsing_is_defensive(raw, expected) -> None:
     out = tch._monthly_collection_kpis([_ctrl("2026-09", 2, raw)])
     assert out["mrr"] == expected
 

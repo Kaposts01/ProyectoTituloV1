@@ -143,13 +143,13 @@ class World:
         self.db.flush()
         return row
 
-    def failed_cuota(self, sub: str, debt: str, day: date, *, attempts: int = 1, code: str = "1001") -> None:
+    def failed_installment(self, sub: str, debt: str, day: date, *, attempts: int = 1, code: str = "1001") -> None:
         """Una cuota con `attempts` intentos fallidos en dias consecutivos desde `day`."""
         for i in range(attempts):
             at = datetime(day.year, day.month, day.day, 12, 0, tzinfo=UTC) + timedelta(days=i)
             self.attempt(sub, debt, at, code=code, due=day)
 
-    def paid_cuota(self, sub: str, debt: str, day: date) -> None:
+    def paid_installment(self, sub: str, debt: str, day: date) -> None:
         self.attempt(sub, debt, datetime(day.year, day.month, day.day, 12, 0, tzinfo=UTC), status="AUTORIZADO", due=day)
 
 

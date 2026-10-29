@@ -55,9 +55,9 @@ def auth(monkeypatch, db_session):
     return make
 
 
-def sub(source, ext, status, alta, baja=None, amount="1000", client=None, social=None):
+def sub(source, ext, status, signup, cancellation=None, amount="1000", client=None, social=None):
     return Subscription(
-        source=source, external_id=ext, status=status, suscription_date=alta, canceled_at=baja,
+        source=source, external_id=ext, status=status, suscription_date=signup, canceled_at=cancellation,
         amount=amount, client_external_id=client, client_social_id=social, raw_payload={},
     )
 
@@ -66,9 +66,9 @@ def charge(source, ext, status, day, amount):
     return Charge(source=source, external_id=ext, status=status, charge_date=day, amount=amount, raw_payload={})
 
 
-def tch_sub(ficha, estado, act, elim=None, eq="1000", rut=None):
+def tch_sub(file_number, status, act, elim=None, eq="1000", rut=None):
     return TchSubscription(
-        file_number=ficha, status=estado, activation_date=act, deletion_date=elim,
+        file_number=file_number, status=status, activation_date=act, deletion_date=elim,
         peso_equivalent=eq, client_rut=rut,
     )
 
@@ -129,7 +129,7 @@ def get(client, **params):
     return r.json()
 
 
-def test_month_with_altas_bajas_all_channels(auth, data) -> None:
+def test_month_with_signups_cancellations_all_channels(auth, data) -> None:
     client, _ = auth()
     body = get(client, month="2026-10")
     k = body["kpis"]
@@ -240,9 +240,9 @@ def test_twelve_month_series(auth, data) -> None:
     assert socios["2026-01"] == 1               # v1
     assert socios["2026-08"] == 9 and socios["2026-09"] == 9 and socios["2026-10"] == 8
     acts = {p["month"]: p["valor"] for p in s["activaciones"]}
-    bajas = {p["month"]: p["valor"] for p in s["bajas"]}
+    cancellations = {p["month"]: p["valor"] for p in s["bajas"]}
     assert acts["2025-12"] is None and acts["2026-01"] == 1 and acts["2026-10"] == 3
-    assert bajas["2026-01"] == 0 and bajas["2026-09"] == 1 and bajas["2026-10"] == 4
+    assert cancellations["2026-01"] == 0 and cancellations["2026-09"] == 1 and cancellations["2026-10"] == 4
     ing = {p["month"]: p for p in s["ingreso_por_canal"]}
     assert ing["2026-10"]["total"] == 92000 and ing["2026-10"]["canales"]["tch"] == 50000
     assert ing["2026-01"]["total"] == 1000 and ing["2026-01"]["canales"] == {
@@ -250,7 +250,7 @@ def test_twelve_month_series(auth, data) -> None:
     assert ing["2026-02"]["total"] is None
 
 
-def test_calidad_datos_counts_undated_records(auth, data, db_session) -> None:
+def test_quality_data_counts_undated_records(auth, data, db_session) -> None:
     db_session.add_all([
         sub("toku", "t9", "ACTIVE", None),           # alta sin fecha
         sub("payku", "p9", "cancel", "2026-01-01"),  # baja sin fecha de baja

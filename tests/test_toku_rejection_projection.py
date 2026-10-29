@@ -46,7 +46,7 @@ def _fresh(db: Session, charge: CoreCharge) -> CoreCharge:
     return charge
 
 
-def test_failed_transaction_is_projected_with_normalized_glosa(db_session: Session) -> None:  # noqa: F811
+def test_failed_transaction_is_projected_with_normalized_reason_text(db_session: Session) -> None:  # noqa: F811
     inv = _uid()
     charge = _charge(db_session, inv)
     db_session.add(_tx(inv, message="[51] RECHAZADA- REINTENTAR EL 01-10-2025 A LAS 07:33"))
@@ -75,7 +75,7 @@ def test_latest_attempt_per_invoice_wins(db_session: Session) -> None:  # noqa: 
     assert charge.latest_rejection_at == datetime(2026, 10, 2, 10, 0, tzinfo=UTC)
 
 
-def test_missing_response_code_falls_back_to_iso_from_glosa(db_session: Session) -> None:  # noqa: F811
+def test_missing_response_code_falls_back_to_iso_from_reason_text(db_session: Session) -> None:  # noqa: F811
     inv = _uid()
     charge = _charge(db_session, inv)
     db_session.add(_tx(inv, code=None, message="[05] RECHAZADA- CONTACTE A SU EMISOR"))
@@ -86,7 +86,7 @@ def test_missing_response_code_falls_back_to_iso_from_glosa(db_session: Session)
     assert charge.latest_rejection_reason == "RECHAZADA- CONTACTE A SU EMISOR"
 
 
-def test_code_without_glosa_and_glosa_without_any_code(db_session: Session) -> None:  # noqa: F811
+def test_code_without_reason_text_and_reason_text_without_any_code(db_session: Session) -> None:  # noqa: F811
     inv1, inv2 = _uid(), _uid()
     c1, c2 = _charge(db_session, inv1), _charge(db_session, inv2)
     db_session.add_all([_tx(inv1, code="PEPSP1019", message=None), _tx(inv2, code=None, message="BRAND_CHARGE_LIMIT-EXCEEDED")])

@@ -657,7 +657,7 @@ def test_virtualpos_plan_detail_lists_subscriptions_by_plan_id(db_session) -> No
     assert response["subscriptions"][0]["external_id"] == "plan-subscription-1"
 
 
-def test_virtualpos_plan_list_counts_non_failed_active_and_cobrable_subscriptions(db_session) -> None:
+def test_virtualpos_plan_list_counts_non_failed_active_and_collectible_subscriptions(db_session) -> None:
     db_session.add_all(
         [
             Plan(source="virtualpos1", external_id="metrics-plan", raw_payload={"id": "metrics-plan"}),

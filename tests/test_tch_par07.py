@@ -28,23 +28,23 @@ def db_session():
         connection.close()
 
 
-def _tx(periodo: str, estado: str, n: int, base: int = 1) -> list[TchTransaction]:
+def _tx(period: str, status: str, n: int, base: int = 1) -> list[TchTransaction]:
     return [
-        TchTransaction(file_number=base + i, period=periodo, installment_number="1", status=estado, dedupe_key=f"{base + i}|{periodo}|1")
+        TchTransaction(file_number=base + i, period=period, installment_number="1", status=status, dedupe_key=f"{base + i}|{period}|1")
         for i in range(n)
     ]
 
 
-def _control(periodo: str, acep: int, rech: int) -> TchMonthlyCollection:
+def _control(period: str, acep: int, rech: int) -> TchMonthlyCollection:
     return TchMonthlyCollection(
-        period=periodo, accepted_count=acep, accepted_amount="0", rejected_count=rech, rejected_amount="0", source_file="x.xlsx"
+        period=period, accepted_count=acep, accepted_amount="0", rejected_count=rech, rejected_amount="0", source_file="x.xlsx"
     )
 
 
 def _reporte(tmp_path, control_acep: int, control_rech: int):
     return write_report(
         tmp_path / "20260131 TCH IG ENERO 2026.xlsx",
-        vigentes=[{"ficha": 930001, "historial": {(2026, 1): (1, "Pagada", 10000)}}],
+        active=[{"ficha": 930001, "historial": {(2026, 1): (1, "Pagada", 10000)}}],
         aceptados=[{"ficha": 930000 + i, "cuota": 1, "mes": "ENE 26", "fecha": date(2026, 1, 10)} for i in range(2, 5)],
         rechazados=[{"ficha": 930010, "cuota": 1, "mes": "ENE 26", "fecha": date(2026, 1, 11), "motivo": "Cuenta cerrada"}],
         control=[("ENERO 2026", control_acep, control_rech)],
@@ -120,20 +120,20 @@ def test_reload_that_reconciles_is_committed(db_session, tmp_path) -> None:
 
 def test_reload_that_does_not_reconcile_rolls_back_and_leaves_the_database_intact(db_session, tmp_path) -> None:
     _sembrar_base_previa(db_session)
-    antes = _totales(db_session)
+    before = _totales(db_session)
     outcome = etl_tch.reload_full(db_session, [_reporte(tmp_path, 99, 1)], apply=True)
     assert not outcome.committed and not outcome.reconciliation.ok
     assert outcome.reconciliation.failed_months == ["2026-01"]
-    assert _totales(db_session) == antes
+    assert _totales(db_session) == before
     assert db_session.scalar(select(TchTransaction.id).where(TchTransaction.file_number == 999001)) is not None
 
 
 def test_dry_run_reports_counts_and_always_rolls_back(db_session, tmp_path) -> None:
     _sembrar_base_previa(db_session)
-    antes = _totales(db_session)
+    before = _totales(db_session)
     outcome = etl_tch.reload_full(db_session, [_reporte(tmp_path, 4, 1)], apply=False)
     assert outcome.reconciliation.ok and not outcome.committed
-    assert _totales(db_session) == antes
+    assert _totales(db_session) == before
 
 
 # --- CLI ---
@@ -152,15 +152,15 @@ def test_apply_requires_the_exact_database_name(tmp_path) -> None:
 
 def test_full_reload_is_blocked_while_another_sync_runs(db_session, tmp_path, monkeypatch) -> None:
     _sembrar_base_previa(db_session)
-    antes = _totales(db_session)
+    before = _totales(db_session)
     _reporte(tmp_path, 4, 1)
     monkeypatch.setattr(etl_tch, "SessionLocal", lambda: db_session)
 
-    def activa(*_a, **_k):
+    def active(*_a, **_k):
         raise ActiveRunError(None)
 
-    monkeypatch.setattr(etl_tch, "start_exclusive_run", activa)
+    monkeypatch.setattr(etl_tch, "start_exclusive_run", active)
     with pytest.raises(SystemExit) as exc:
         etl_tch.main(["--mode", "full", "--folder", str(tmp_path)])
     assert exc.value.code == 2
-    assert _totales(db_session) == antes
+    assert _totales(db_session) == before

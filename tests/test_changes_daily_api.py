@@ -95,7 +95,7 @@ def _seed(db: Session) -> None:
     db.flush()
 
 
-def test_limites_del_dia_en_hora_de_chile() -> None:
+def test_limits_of_the_day_in_chile_time() -> None:
     from datetime import date
 
     start, end = chile_day_bounds(date(2026, 10, 28))
@@ -104,7 +104,7 @@ def test_limites_del_dia_en_hora_de_chile() -> None:
     assert (end - start).total_seconds() in (23 * 3600, 24 * 3600, 25 * 3600)
 
 
-def test_resumen_diario_completo(db_session: Session) -> None:
+def test_summary_daily_complete(db_session: Session) -> None:
     _seed(db_session)
     body = _client(db_session, {"dashboard.view"}).get(f"/api/v1/changes/daily?date={DAY}").json()
 
@@ -122,9 +122,9 @@ def test_resumen_diario_completo(db_session: Session) -> None:
     assert {(c["entity_type"], c["source"]): c["count"] for c in body["created"]} == {
         ("charge", "payku"): 1, ("subscription", "virtualpos1"): 2}
     assert body["subscriptions"]["altas"] == [{"entity_type": "subscription", "source": "virtualpos1", "count": 2}]
-    bajas = {b["source"]: b for b in body["subscriptions"]["bajas"]}
-    assert bajas["virtualpos1"]["count"] == 1 and bajas["virtualpos1"]["by_state"] == [{"state": "CANCELADA", "count": 1}]
-    assert bajas["payku"]["count"] == 1 and bajas["toku"]["by_state"] == [{"state": "removed", "count": 1}]
+    cancellations = {b["source"]: b for b in body["subscriptions"]["bajas"]}
+    assert cancellations["virtualpos1"]["count"] == 1 and cancellations["virtualpos1"]["by_state"] == [{"state": "CANCELADA", "count": 1}]
+    assert cancellations["payku"]["count"] == 1 and cancellations["toku"]["by_state"] == [{"state": "removed", "count": 1}]
 
     summary = {(a["entity_type"], a["source"]): a for a in body["amount_changes"]["summary"]}
     a = summary[("charge", "toku")]
@@ -136,7 +136,7 @@ def test_resumen_diario_completo(db_session: Session) -> None:
         ("tch", "Fondos insuficientes", "51", 4)]
 
 
-def test_excluye_baseline_y_otros_dias(db_session: Session) -> None:
+def test_excluye_baseline_and_other_days(db_session: Session) -> None:
     _seed(db_session)
     body = _client(db_session, {"dashboard.view"}).get(f"/api/v1/changes/daily?date={DAY}").json()
     ids = {"b1", "old", "late"}
@@ -166,7 +166,7 @@ def test_parametros_invalidos_422(db_session: Session, query: str) -> None:
     assert _client(db_session, {"dashboard.view"}).get(f"/api/v1/changes/daily?{query}").status_code == 422
 
 
-def test_sin_fecha_usa_ayer_y_dia_vacio(db_session: Session) -> None:
+def test_without_date_uses_yesterday_and_day_empty(db_session: Session) -> None:
     body = _client(db_session, {"dashboard.view"}).get("/api/v1/changes/daily").json()
     assert body["totals"] == {"events": 0, "by_kind": {}} and body["transitions"]["items"] == []
 
@@ -180,7 +180,7 @@ def test_rbac(db_session: Session) -> None:
     assert "dashboard.view" in PERMISSIONS
 
 
-def test_la_respuesta_no_trae_campos_personales(db_session: Session) -> None:
+def test_the_response_no_has_fields_personal(db_session: Session) -> None:
     _seed(db_session)
     text_body = _client(db_session, {"dashboard.view"}).get(f"/api/v1/changes/daily?date={DAY}").text.lower()
     for forbidden in ("rut", "email", "first_name", "social_id", "phone", "raw_payload"):

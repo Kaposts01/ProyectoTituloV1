@@ -124,7 +124,7 @@ def test_extra_columns_reported_by_name_only(tmp_path):
     assert SENTINEL_NAME not in repr((meta, records))
 
 
-def test_duplicate_medio_de_pago_is_read_by_position(tmp_path):
+def test_duplicate_payment_method_is_read_by_position(tmp_path):
     _, records, _ = _read(write_report(tmp_path / "a.xlsx", "inscripciones", n_rows=1))
     assert records[0].payment_method_external_id == "pm_T0001"
     assert SENTINEL_DUP_PM not in repr(records)
@@ -148,7 +148,7 @@ def test_iso_dates_and_real_excel_datetimes(tmp_path):
     assert att.attempted_at.isoformat().startswith("2026-03-04T12:30:00")
 
 
-def test_products_estado_is_payment_method_status(tmp_path):
+def test_products_status_is_payment_method_status(tmp_path):
     rows = [default_row("productos", 1, Estado="temporary_failed", **{"Fecha de Eliminación": "2026-05-01"})]
     _, (prod,), _ = _read(write_report(tmp_path / "a.xlsx", "productos", rows))
     assert prod.payment_method_status == "temporary_failed"

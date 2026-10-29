@@ -41,7 +41,7 @@ def test_active_subscription_gets_the_real_start_date_not_the_next_charge(db_ses
     assert result["started_at_set"] >= 1
 
 
-def test_deleted_subscription_missing_from_the_api_is_created_as_a_baja_record(db_session: Session) -> None:  # noqa: F811
+def test_deleted_subscription_missing_from_the_api_is_created_as_a_cancellation_record(db_session: Session) -> None:  # noqa: F811
     sub = uid("sub")
     world = World(db_session)
     world.product(
@@ -65,7 +65,7 @@ def test_deleted_subscription_missing_from_the_api_is_created_as_a_baja_record(d
     ) == 1
 
 
-def test_baja_record_links_the_client_when_the_identity_exists_and_stores_no_personal_data(db_session: Session) -> None:  # noqa: F811
+def test_cancellation_record_links_the_client_when_the_identity_exists_and_stores_no_personal_data(db_session: Session) -> None:  # noqa: F811
     from app.models.core import CoreClient, ExternalIdentity
 
     sub, customer = uid("sub"), uid("cus")
@@ -185,7 +185,7 @@ def test_chile_date_is_used_near_midnight(db_session: Session) -> None:  # noqa:
     assert _central(db_session, sub).suscription_date == "2024-08-13"
 
 
-def test_charges_of_a_baja_record_attach_to_it(db_session: Session) -> None:  # noqa: F811
+def test_charges_of_a_cancellation_record_attach_to_it(db_session: Session) -> None:  # noqa: F811
     sub, inv = uid("sub"), uid("in")
     World(db_session).product(sub, deleted=datetime(2025, 1, 15, 15, 0, tzinfo=UTC))
     db_session.add(TokuInvoice(external_id=inv, subscription_id=sub, status="PAID", amount="1000", due_date="2024-12-01"))

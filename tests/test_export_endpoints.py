@@ -100,7 +100,7 @@ def _seed_clients(sfx: str) -> None:
 ALL_VIEW = ["tch.clientes.view", "virtualpos.clients.view", "toku.customers.view", "payku.clients.view"]
 
 
-def test_clientes_without_pii_permission_has_no_personal_columns(monkeypatch) -> None:
+def test_clients_without_pii_permission_has_no_personal_columns(monkeypatch) -> None:
     sfx = _sfx()
     _seed_clients(sfx)
     client = _login(monkeypatch, sfx, ALL_VIEW)
@@ -113,7 +113,7 @@ def test_clientes_without_pii_permission_has_no_personal_columns(monkeypatch) ->
         assert leaked not in text
 
 
-def test_clientes_with_export_pii_includes_personal_columns(monkeypatch) -> None:
+def test_clients_with_export_pii_includes_personal_columns(monkeypatch) -> None:
     sfx = _sfx()
     _seed_clients(sfx)
     client = _login(monkeypatch, sfx, [*ALL_VIEW, "export.pii"])
@@ -145,7 +145,7 @@ def test_unknown_entity_and_bad_filters_are_rejected(monkeypatch) -> None:
     assert client.get("/api/v1/export/clientes", params={"date_from": "31-12-2020"}).status_code == 422
 
 
-def test_cobros_filters_pagination_all_formulas_and_headers(monkeypatch) -> None:
+def test_charges_filters_pagination_all_formulas_and_headers(monkeypatch) -> None:
     sfx = _sfx()
     db = SessionLocal()
     try:
@@ -185,7 +185,7 @@ def test_cobros_filters_pagination_all_formulas_and_headers(monkeypatch) -> None
     assert count["rows"] == 3 and count["include_pii"] is False
 
 
-def test_cobros_vp_pii_requires_permission_and_audit_has_no_content(monkeypatch) -> None:
+def test_charges_vp_pii_requires_permission_and_audit_has_no_content(monkeypatch) -> None:
     sfx = _sfx()
     db = SessionLocal()
     try:
@@ -235,9 +235,9 @@ def test_audit_does_not_store_personal_search_text(monkeypatch) -> None:
         db.close()
 
 
-def test_suscripciones_vp_and_tch_with_filters(monkeypatch) -> None:
+def test_subscriptions_vp_and_tch_with_filters(monkeypatch) -> None:
     sfx = _sfx()
-    ficha = random.randint(70_000_000, 79_999_999)
+    file_number = random.randint(70_000_000, 79_999_999)
     rut = f"66{random.randint(100000, 999999)}-6"
     db = SessionLocal()
     try:
@@ -251,7 +251,7 @@ def test_suscripciones_vp_and_tch_with_filters(monkeypatch) -> None:
             Charge(source="virtualpos1", external_id=f"ch-{sfx}", subscription_external_id=f"s1-{sfx}", status="pagado",
                    charge_date="2026-03-03"),
             TchClient(rut=rut, name=f"Fer{sfx}", last_name="Prueba"),
-            TchSubscription(file_number=ficha, client_rut=rut, status="VIGENTE", activation_date="2026-01-01", amount="5000",
+            TchSubscription(file_number=file_number, client_rut=rut, status="VIGENTE", activation_date="2026-01-01", amount="5000",
                            peso_equivalent="5000"),
         ])
         db.commit()
@@ -266,7 +266,7 @@ def test_suscripciones_vp_and_tch_with_filters(monkeypatch) -> None:
     assert s1["Último cobro"] == "2026-03-03" and s1["Estado"] == "activa" and s1["Monto"] == "3000"
     _, rows = _parse(client.get("/api/v1/export/suscripciones", params={**by_id, "status": "cancelada"}))
     assert [r["ID de suscripción"] for r in rows] == [f"s2-{sfx}"]
-    tch_params = {"canal": "tch", "query": str(ficha), "filter_field": "id", "all": "true"}
+    tch_params = {"canal": "tch", "query": str(file_number), "filter_field": "id", "all": "true"}
     header, rows = _parse(client.get("/api/v1/export/suscripciones", params=tch_params))
     assert len(rows) == 1 and rows[0]["Canal"] == "tch" and rows[0]["Estado"] == "VIGENTE" and rows[0]["Monto"] == "5000"
     assert not (set(header) & PII_HEADERS)
@@ -278,15 +278,15 @@ def test_suscripciones_vp_and_tch_with_filters(monkeypatch) -> None:
     assert [r["RUT del cliente"] for r in rows] == ["77777777-7"]
 
 
-def test_cobros_tch_and_pagos(monkeypatch) -> None:
+def test_charges_tch_and_payments(monkeypatch) -> None:
     sfx = _sfx()
-    ficha = random.randint(80_000_000, 89_999_999)
+    file_number = random.randint(80_000_000, 89_999_999)
     db = SessionLocal()
     try:
         db.add_all([
-            TchTransaction(file_number=ficha, period="2026-01", amount="5000", charge_date="2026-01-15", status="ACEPTADA",
+            TchTransaction(file_number=file_number, period="2026-01", amount="5000", charge_date="2026-01-15", status="ACEPTADA",
                            dedupe_key=f"{sfx}-1"),
-            TchTransaction(file_number=ficha, period="2026-02", amount="5000", charge_date="2026-02-15", status="RECHAZADA",
+            TchTransaction(file_number=file_number, period="2026-02", amount="5000", charge_date="2026-02-15", status="RECHAZADA",
                            rejection_reason="Sin fondos", dedupe_key=f"{sfx}-2"),
             Payment(source="toku", external_id=f"pay-{sfx}", charge_external_id=f"c-{sfx}", status="paid", payment_date="2026-01-20",
                     amount="900", currency="CLP"),
@@ -296,7 +296,7 @@ def test_cobros_tch_and_pagos(monkeypatch) -> None:
     finally:
         db.close()
     client = _login(monkeypatch, sfx, ["tch.transacciones.view", "toku.transactions.view"])
-    tch = {"query": str(ficha), "filter_field": "subscription_id", "all": "true"}
+    tch = {"query": str(file_number), "filter_field": "subscription_id", "all": "true"}
     _, rows = _parse(client.get("/api/v1/export/cobros", params=tch))
     assert {(r["Canal"], r["Estado"], r["Período"]) for r in rows} == {("tch", "ACEPTADA", "2026-01"), ("tch", "RECHAZADA", "2026-02")}
     assert next(r for r in rows if r["Estado"] == "RECHAZADA")["Motivo de rechazo"] == "Sin fondos"

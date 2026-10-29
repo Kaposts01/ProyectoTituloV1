@@ -33,12 +33,12 @@ def key_paths(obj: Any, prefix: str = "") -> set[str]:
 
 def assert_keys(name: str, payload: Any) -> None:
     path = GOLDEN_DIR / f"{name}.json"
-    actual = sorted(key_paths(payload))
+    current = sorted(key_paths(payload))
     if os.environ.get("UPDATE_CONTRACT_KEYS") == "1":
         GOLDEN_DIR.mkdir(exist_ok=True)
-        path.write_text(json.dumps(actual, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(current, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     expected = json.loads(path.read_text(encoding="utf-8"))
-    assert actual == expected, {
-        "faltan": sorted(set(expected) - set(actual)),
-        "sobran": sorted(set(actual) - set(expected)),
+    assert current == expected, {
+        "faltan": sorted(set(expected) - set(current)),
+        "sobran": sorted(set(current) - set(expected)),
     }

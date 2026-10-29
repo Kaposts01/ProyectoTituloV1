@@ -80,19 +80,19 @@ def test_query_uses_server_side_cursor_and_closes_session(monkeypatch) -> None:
 
 def test_volume_50k_rows_streams_in_chunks_within_time_and_memory() -> None:
     sfx = "vol" + uuid.uuid4().hex[:8]
-    ficha = random.randint(90_000_000, 99_999_999)
+    file_number = random.randint(90_000_000, 99_999_999)
     total = 50_000
     db = SessionLocal()
     try:
         for start in range(0, total, 10_000):
             db.execute(insert(TchTransaction), [
-                {"file_number": ficha, "period": "2026-01", "amount": "5000", "charge_date": "2026-01-15",
+                {"file_number": file_number, "period": "2026-01", "amount": "5000", "charge_date": "2026-01-15",
                  "status": "ACEPTADA" if i % 3 else "RECHAZADA", "dedupe_key": f"{sfx}-{i}", "source_file": sfx}
                 for i in range(start, start + 10_000)
             ])
         db.commit()
         items, _ = select_specs("cobros", "tch", {"tch.transacciones.view"})
-        filters = ExportFilters(query=str(ficha), filter_field="subscription_id")
+        filters = ExportFilters(query=str(file_number), filter_field="subscription_id")
         finished: list[tuple[int, bool]] = []
         tracemalloc.start()
         started = time.perf_counter()

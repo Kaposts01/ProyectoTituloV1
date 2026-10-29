@@ -46,14 +46,14 @@ def test_payku_mrr_matches_subscription_amount_in_normal_case() -> None:
     assert with_tx == legacy == 3500
 
 
-def _ctrl(periodo, acc_n, acc_m, rej_n, rej_m):
+def _ctrl(period, acc_n, acc_m, rej_n, rej_m):
     return TchMonthlyCollection(
-        period=periodo, accepted_count=acc_n, accepted_amount=acc_m,
+        period=period, accepted_count=acc_n, accepted_amount=acc_m,
         rejected_count=rej_n, rejected_amount=rej_m, source_file="x.xlsx",
     )
 
 
-def test_tch_recaudo_mensual_uses_last_period_with_accepted() -> None:
+def test_tch_collection_monthly_uses_last_period_with_accepted() -> None:
     controles = [
         _ctrl("2026-08", 100, "800000", 5, "40000"),
         _ctrl("2026-09", 200, "1600000", 10, "90000"),
@@ -71,6 +71,6 @@ def test_tch_recaudo_mensual_uses_last_period_with_accepted() -> None:
     }
 
 
-def test_tch_recaudo_mensual_none_without_accepted() -> None:
+def test_tch_collection_monthly_none_without_accepted() -> None:
     assert tch._monthly_collection_kpis([]) is None
     assert tch._monthly_collection_kpis([_ctrl("2026-10", 0, "0", 3, "30000")]) is None

@@ -42,7 +42,7 @@ def _detail(**overrides) -> PaymentRejectionDetail:
     return PaymentRejectionDetail(**values)
 
 
-def test_unico_head_y_revision_0043_encadenada_a_0042():
+def test_single_head_and_review_0043_chained_a_0042():
     cfg = Config()
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(cfg)
@@ -51,7 +51,7 @@ def test_unico_head_y_revision_0043_encadenada_a_0042():
     assert script.get_revision("20261029_0043").down_revision == "20261029_0042"
 
 
-def test_tabla_columnas_e_indices_existen():
+def test_table_columns_and_indexes_exist():
     insp = inspect(engine)
     assert "payment_rejection_details" in insp.get_table_names()
     cols = {c["name"] for c in insp.get_columns("payment_rejection_details")}
@@ -66,11 +66,11 @@ def test_tabla_columnas_e_indices_existen():
     } <= index_names
 
 
-def test_modelo_expone_las_cuatro_fuentes_de_captura():
+def test_model_exposes_the_four_sources_of_capture():
     assert set(CAPTURE_SOURCES) == {"api_charges", "api_payment", "report_pat", "toku_projection"}
 
 
-def test_inserta_y_recupera_con_valores_por_defecto(db_session: Session) -> None:
+def test_inserts_and_recovers_with_values_by_default(db_session: Session) -> None:
     row = _detail()
     db_session.add(row)
     db_session.flush()
@@ -79,7 +79,7 @@ def test_inserta_y_recupera_con_valores_por_defecto(db_session: Session) -> None
     assert row.id is not None
 
 
-def test_unicidad_por_fuente_cobro_pago_y_codigo(db_session: Session) -> None:
+def test_uniqueness_by_source_charge_payment_and_code(db_session: Session) -> None:
     first = _detail(code="-3")
     db_session.add(first)
     db_session.flush()
@@ -89,7 +89,7 @@ def test_unicidad_por_fuente_cobro_pago_y_codigo(db_session: Session) -> None:
         db_session.flush()
 
 
-def test_otro_codigo_o_fuente_para_el_mismo_cobro_es_distinto(db_session: Session) -> None:
+def test_other_code_or_source_for_the_same_charge_is_different(db_session: Session) -> None:
     first = _detail(code="-3")
     db_session.add(first)
     db_session.flush()
@@ -102,7 +102,7 @@ def test_otro_codigo_o_fuente_para_el_mismo_cobro_es_distinto(db_session: Sessio
     db_session.flush()
 
 
-def test_unicidad_tambien_cuando_el_pago_es_nulo(db_session: Session) -> None:
+def test_uniqueness_also_when_the_payment_is_null(db_session: Session) -> None:
     """Rechazo sin pago asociado: NULL no debe permitir duplicados (indice con coalesce)."""
     first = _detail(payment_external_id=None)
     db_session.add(first)
@@ -113,19 +113,19 @@ def test_unicidad_tambien_cuando_el_pago_es_nulo(db_session: Session) -> None:
         db_session.flush()
 
 
-def test_capture_source_invalido_se_rechaza(db_session: Session) -> None:
+def test_capture_source_invalid_rejects(db_session: Session) -> None:
     db_session.add(_detail(capture_source="inventado"))
     with pytest.raises(IntegrityError):
         db_session.flush()
 
 
-def test_cobro_o_pago_requeridos(db_session: Session) -> None:
+def test_charge_or_payment_required(db_session: Session) -> None:
     db_session.add(_detail(charge_external_id=None, payment_external_id=None))
     with pytest.raises(IntegrityError):
         db_session.flush()
 
 
-def test_sin_columnas_de_datos_personales():
+def test_without_columns_of_data_personal():
     cols = {c["name"] for c in inspect(engine).get_columns("payment_rejection_details")}
     forbidden = {"email", "rut", "social_id", "phone", "first_name", "last_name", "card_number", "raw_payload"}
     assert not (cols & forbidden)
