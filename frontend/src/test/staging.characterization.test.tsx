@@ -317,7 +317,7 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
     await waitFor(() => expect(app.exact("GET", "/api/v1/staging/records").length).toBeGreaterThan(0));
   });
 
-  it("«↻ Sincronizar» envía POST /staging/sync/{canal}, invalida la caché y vuelve a pedir el dashboard (RAREZA: queda «Cargando…»)", async () => {
+  it("«↻ Sincronizar» envía POST /staging/sync/{canal}, invalida la caché y vuelve a pedir el dashboard y lo muestra de nuevo (antes quedaba en «Cargando…»)", async () => {
     const app = mountApp("/virtualpos/resumen", [
       ["GET", "/api/v1/staging/dashboard/virtualpos", channelDashboard("virtualpos")],
       ["POST", "/api/v1/staging/sync/virtualpos", { status: "ok" }],
@@ -327,10 +327,10 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
     fireEvent.click(screen.getByRole("button", { name: "↻ Sincronizar" }));
     await waitFor(() => expect(app.exact("POST", "/api/v1/staging/sync/virtualpos")).toHaveLength(1));
     await waitFor(() => expect(app.exact("GET", "/api/v1/staging/dashboard/virtualpos")).toHaveLength(2));
-    // Rareza actual (sin corregir): tras sincronizar, `channelLoading` queda en true y la vista
-    // se queda en «Cargando mini dashboard...» hasta volver a navegar al canal.
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(screen.getByText("Cargando mini dashboard...")).toBeTruthy();
+    // Hallazgo 2 de UX-04 (corregido): antes `channelLoading` quedaba en true y la vista no volvía.
+    expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
+    expect(screen.queryByText("Cargando mini dashboard...")).toBeNull();
+    expect(screen.getByRole("button", { name: "↻ Sincronizar" })).toBeTruthy();
   });
 
   it("«Generar reporte» abre el diálogo del canal", async () => {

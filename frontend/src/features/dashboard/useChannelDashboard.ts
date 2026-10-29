@@ -55,7 +55,10 @@ export function useChannelDashboard(session: AuthSession | null | undefined, set
         setYear(defaultYear(data.years));
       })
       .catch((err: unknown) => setError(friendlyError(err, "Error al sincronizar el canal.")))
-      .finally(() => setSyncing(false));
+      .finally(() => {
+        setSyncing(false);
+        setChannelLoading(false);
+      });
   }
 
   return {
