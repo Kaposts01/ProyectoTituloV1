@@ -273,7 +273,8 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             consolidation_timings: list[dict] = []
             with metrics.timed("consolidate_total") as consolidate_info:
                 consolidated = consolidate_to_centralized(
-                    db, consolidate_sources, failures=consolidation_failures, timings=consolidation_timings
+                    db, consolidate_sources, failures=consolidation_failures, timings=consolidation_timings,
+                    run_id=db_run_id,
                 )
                 consolidate_info["records"] = consolidated
             for item in consolidation_timings:

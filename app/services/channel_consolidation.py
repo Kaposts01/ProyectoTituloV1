@@ -38,6 +38,13 @@ from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
 from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
 from app.services.core_tch_etl import _resolve_currency as _resolve_tch_currency
+from app.services.status_events import (
+    REASON_CODE_KEY,
+    REASON_TEXT_KEY,
+    emit_status_events,
+    event_context,
+    pop_reason_hints,
+)
 from app.services.vp_current_amount import load_monto_vigente
 
 logger = logging.getLogger(__name__)
@@ -160,6 +167,8 @@ def _upsert_centralized(
     processed = 0
     for i in range(0, len(rows), _CHUNK):
         chunk = rows[i : i + _CHUNK]
+        reason_hints = pop_reason_hints(chunk)
+        emit_status_events(db, model, chunk, reason_hints)  # SYNC-D-02: nunca lanza; antes del upsert
         _drop_conflicting_source_record_ids(db, model, chunk)
         stmt = insert(model).values(chunk)
         updatable = {
@@ -583,6 +592,8 @@ def _consolidate_tch_transactions(db: Session) -> int:
                 "status": t.estado,
                 "charge_date": t.fecha_cargo,
                 "raw_payload": t.raw_payload,
+                REASON_CODE_KEY: t.codigo_respuesta,  # glosa para el catalogo (SYNC-D-02); no es columna
+                REASON_TEXT_KEY: t.razon_rechazo,
             })
         total += _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "transaction"))
         offset += _CHUNK
@@ -636,6 +647,8 @@ def consolidate_to_centralized(
     raise_on_error: bool = False,
     failures: list[str] | None = None,
     timings: list[dict[str, Any]] | None = None,
+    run_id: uuid.UUID | None = None,
+    baseline: bool | None = None,
 ) -> int:
     """Lee de tablas canal y upserta en tablas centralizadas.
 
@@ -650,9 +663,24 @@ def consolidate_to_centralized(
         failures: lista opcional que se llena con los nombres fallidos, para
                  callers que mantienen el comportamiento no-raise.
         timings: lista opcional que se llena con ``{source, fn, seconds, records}`` por funcion (SYNC-O-01).
+        run_id: id de la corrida (``etl_runs.id``) que firma los eventos de cambio (SYNC-D-02); sin id se usa un
+                 token propio de esta llamada.
+        baseline: True marca los eventos de esta corrida como linea base (SYNC-D-03: no cuentan como novedad).
+                 None = ``settings.status_events_baseline``.
     Returns:
         Total de registros procesados.
     """
+    with event_context(run_id=run_id, baseline=baseline):
+        return _consolidate(db, sources, raise_on_error, failures, timings)
+
+
+def _consolidate(
+    db: Session,
+    sources: list[str] | None,
+    raise_on_error: bool,
+    failures: list[str] | None,
+    timings: list[dict[str, Any]] | None,
+) -> int:
     targets = sources or list(_SOURCE_FNS.keys())
     total = 0
     failed: list[str] = failures if failures is not None else []

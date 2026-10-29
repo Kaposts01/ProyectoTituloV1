@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     sync_tch_consolidate_only_after_load: bool = True
     # SYNC-O-16: el ETL Core de Toku/Payku/VirtualPOS corre dentro del sync, tras consolidar (False = solo manual).
     sync_core_etl_enabled: bool = False
+    # SYNC-D-02/03: historial de cambios de estado/monto en la consolidacion. `baseline` marca los eventos de la corrida
+    # como linea base (no cuentan como novedad); usar en la primera consolidacion de un canal vacio o de una carga historica.
+    status_events_enabled: bool = True
+    status_events_baseline: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""
