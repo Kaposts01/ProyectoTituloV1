@@ -443,11 +443,12 @@ describe("politica", () => {
     expect(await screen.findByText(/Política actualizada/)).toBeTruthy();
   });
 
-  it("no envia si no hay cambios", async () => {
+  it("no envia si no hay cambios: guardar queda deshabilitado", async () => {
     render(<PolicyPanel roles={roles} canListUsers />);
     await screen.findByLabelText(/Expiración de solicitudes/);
-    fireEvent.click(screen.getByRole("button", { name: "Guardar política" }));
-    expect(await screen.findByText(/No hay cambios para guardar/)).toBeTruthy();
+    const save = screen.getByRole("button", { name: "Guardar política" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
     expect(mocks.putJson).not.toHaveBeenCalled();
   });
 

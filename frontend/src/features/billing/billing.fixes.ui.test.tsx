@@ -230,7 +230,7 @@ describe("6. zona horaria y filtros de fecha", () => {
     // 2026-03-01T10:00Z -> 07:00 en Chile (verano, UTC-3)
     expect(screen.getAllByText("2026-03-01 07:00").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/hora de Chile/i).length).toBeGreaterThan(0);
-    expect(screen.getByText("Fechas en UTC")).toBeTruthy();
+    expect(screen.getByText("Filtros por fecha en UTC · resultados en hora de Chile")).toBeTruthy();
   });
 });
 

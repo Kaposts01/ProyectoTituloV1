@@ -111,16 +111,26 @@ export function PolicyPanel({ roles, canListUsers }: Props) {
   const orphanIds = draft.approverUserIds.filter((id) => !known.has(id));
   const err = (key: string) => fieldErrors[key];
   const noApprovers = draft.approverRoles.length === 0 && draft.approverUserIds.length === 0;
-  const numberField = (key: keyof PolicyDraft, label: string, hint?: string) => (
-    <label>{label}
-      <input
-        className="mono" inputMode="decimal" value={String(draft[key])} disabled={saving} aria-invalid={err(key) ? true : undefined}
-        aria-describedby={err(key) ? `bx-pol-${key}` : undefined} onChange={(e) => set(key, e.target.value as never)}
-      />
-      {hint ? <span className="bx-hint">{hint}</span> : null}
-      {err(key) ? <span id={`bx-pol-${key}`} className="bx-field-error" role="alert">{err(key)}</span> : null}
-    </label>
-  );
+  // Cambios reales respecto de la política cargada (listas sin importar el orden). El motivo no cuenta: solo acompaña a un cambio.
+  const norm = (d: PolicyDraft) => JSON.stringify({ ...d, reason: "", approverRoles: [...d.approverRoles].sort(), approverUserIds: [...d.approverUserIds].sort() });
+  const dirty = norm(draft) !== norm(policyToDraft(policy));
+  const canDiscard = dirty || draft.reason !== "" || Object.keys(fieldErrors).length > 0;
+  /** Los umbrales solo aplican con doble aprobación: se atenúan, pero conservan el valor y siguen en el borrador/parche. */
+  const DUAL_ONLY: Array<keyof PolicyDraft> = ["dualThresholdSubscriptions", "dualThresholdVariationPct"];
+  const numberField = (key: keyof PolicyDraft, label: string, hint: string) => {
+    const off = DUAL_ONLY.includes(key) && !draft.dualApproval;
+    const hintId = `bx-pol-hint-${key}`;
+    return (
+      <label className={off ? "is-off" : undefined}>{label}
+        <input
+          className="mono" inputMode="decimal" value={String(draft[key])} disabled={saving || off} aria-invalid={err(key) ? true : undefined}
+          aria-describedby={err(key) ? `${hintId} bx-pol-${key}` : hintId} onChange={(e) => set(key, e.target.value as never)}
+        />
+        <span id={hintId} className="bx-hint">{off ? "Solo aplica si se exige doble aprobación" : hint}</span>
+        {err(key) ? <span id={`bx-pol-${key}`} className="bx-field-error" role="alert">{err(key)}</span> : null}
+      </label>
+    );
+  };
 
   return (
     <div className="bx-form">
@@ -129,7 +139,7 @@ export function PolicyPanel({ roles, canListUsers }: Props) {
       </p>
       <form onSubmit={save} noValidate aria-label="Política de aprobaciones">
         <div className="bx-form-grid">
-          <fieldset className="bx-fieldset wide">
+          <fieldset className="bx-group wide">
             <legend>Roles aprobadores</legend>
             <div className="bx-checklist">
               {roles.map((r) => (
@@ -141,7 +151,8 @@ export function PolicyPanel({ roles, canListUsers }: Props) {
               {roles.length === 0 ? <span className="muted-copy">Sin roles disponibles.</span> : null}
             </div>
           </fieldset>
-          <fieldset className="bx-fieldset wide">
+          <hr className="bx-sep wide" />
+          <fieldset className="bx-group wide">
             <legend>Usuarios aprobadores</legend>
             <div className="bx-checklist">
               {users.map((u) => (
@@ -159,8 +170,10 @@ export function PolicyPanel({ roles, canListUsers }: Props) {
               {users.length === 0 && orphanIds.length === 0 ? <span className="muted-copy">{canListUsers ? "Sin usuarios activos." : "No tiene permiso para listar usuarios; solo puede editar los roles."}</span> : null}
             </div>
           </fieldset>
+          <p className="bx-hint wide">Aprueba quien tenga un rol marcado o esté marcado como usuario</p>
           {noApprovers ? <div className="wide"><Notice tone="warning">No hay ningún rol ni usuario aprobador seleccionado: la política no podrá guardarse (AP-23).</Notice></div> : null}
 
+          <hr className="bx-sep wide" />
           <label className="bx-check wide">
             <input type="checkbox" checked={draft.selfApproval} disabled={saving} onChange={(e) => set("selfApproval", e.target.checked)} />
             Permitir autoaprobación (un aprobador aprueba sus propias solicitudes; queda auditado)
@@ -172,9 +185,9 @@ export function PolicyPanel({ roles, canListUsers }: Props) {
           {numberField("dualThresholdSubscriptions", "Umbral de suscripciones", "Cantidad desde la cual se exige doble aprobación.")}
           {numberField("dualThresholdVariationPct", "Umbral de variación (%)", "Variación del monto desde la cual se exige doble aprobación.")}
           {numberField("renewalThresholdDays", "N de renovación (días)", "Días mínimos antes del fin del calendario para renovarlo.")}
-          {numberField("requestExpiryDays", "Expiración de solicitudes (días)")}
-          {numberField("horizonMonths", "Horizonte (meses)")}
-          {numberField("windowDays", "Ventana (días)")}
+          {numberField("requestExpiryDays", "Expiración de solicitudes (días)", "Días que una solicitud pendiente espera antes de expirar.")}
+          {numberField("horizonMonths", "Horizonte (meses)", "Meses hacia adelante que cubre un cambio de cobro")}
+          {numberField("windowDays", "Ventana (días)", "Días hacia atrás en los que un mes atrasado se reemplaza con fecha de mañana; más antiguo va a revisión manual")}
           <label className="wide">Motivo del cambio (opcional, queda en la auditoría)
             <textarea value={draft.reason} maxLength={1000} disabled={saving} onChange={(e) => set("reason", e.target.value)} />
             {err("reason") ? <span className="bx-field-error" role="alert">{err("reason")}</span> : null}
@@ -183,9 +196,12 @@ export function PolicyPanel({ roles, canListUsers }: Props) {
 
         {saveError ? <Notice tone="error">{saveError.message}</Notice> : null}
         <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
+        <div className="bx-actions-row">
         <div className="bx-actions">
-          <button type="submit" className="bx-btn bx-btn-primary" disabled={saving}>{saving ? "Guardando…" : "Guardar política"}</button>
-          <button type="button" className="bx-btn bx-btn-ghost" disabled={saving} onClick={() => { setDraft(policyToDraft(policy)); setFieldErrors({}); setSaveError(null); }}>Descartar cambios</button>
+          <button type="submit" className="bx-btn bx-btn-primary" disabled={saving || !dirty}>{saving ? "Guardando…" : "Guardar política"}</button>
+          <button type="button" className="bx-btn bx-btn-ghost" disabled={saving || !canDiscard} onClick={() => { setDraft(policyToDraft(policy)); setFieldErrors({}); setSaveError(null); }}>Descartar cambios</button>
+        </div>
+        {dirty ? <span className="bx-dirty" role="status">Cambios sin guardar</span> : null}
         </div>
       </form>
 
@@ -203,7 +219,7 @@ export function PolicyPanel({ roles, canListUsers }: Props) {
                 return (
                   <tr key={a.id}>
                     <td className="mono">{formatDateTime(a.changed_at)}</td>
-                    <td>{a.changed_by ?? "—"}</td>
+                    <td className="mono">{a.changed_by ?? "—"}</td>
                     <td>
                       {changes.length === 0 ? "—" : (
                         <ul style={{ margin: 0, paddingLeft: 16 }}>

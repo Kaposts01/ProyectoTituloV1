@@ -37,9 +37,11 @@ type Props = {
   isAdmin?: boolean;
   /** Se invoca tras cualquier cambio de estado para que la bandeja se refresque. */
   onChanged: () => void;
+  /** Cambia cada vez que el usuario elige una fila (también la ya abierta): lleva el detalle a la vista y el foco al título. */
+  focusToken?: number;
 };
 
-export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChanged }: Props) {
+export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChanged, focusToken = 0 }: Props) {
   const [detail, setDetail] = useState<BillingRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -53,6 +55,7 @@ export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChang
   const [notice, setNotice] = useState<{ tone: "ok" | "warning"; text: string } | null>(null);
   const inFlight = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,7 +71,12 @@ export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChang
 
   useEffect(() => { void load(); }, [load]);
   const detailId = detail?.id;
-  useEffect(() => { if (detailId) headingRef.current?.focus(); }, [detailId]);
+  useEffect(() => {
+    if (!detailId) return;
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    sectionRef.current?.scrollIntoView?.({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    headingRef.current?.focus({ preventScroll: true }); // el desplazamiento ya lo hizo scrollIntoView (suave)
+  }, [detailId, focusToken]);
 
   function openAction(kind: ActionKind) {
     setAction(kind);
@@ -163,7 +171,7 @@ export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChang
   const driftLines = drift ? describeDrift(drift.info.diff) : [];
 
   return (
-    <section className="bx-detail" aria-labelledby={`bx-detail-title-${detail.id}`}>
+    <section className="bx-detail" ref={sectionRef} aria-labelledby={`bx-detail-title-${detail.id}`}>
       <p className="eyebrow">DETALLE DE SOLICITUD</p>
       <h2 id={`bx-detail-title-${detail.id}`} ref={headingRef} tabIndex={-1}>
         {typeLabel(detail.request_type)} · <span className="mono">{detail.subscription_external_id}</span>
@@ -173,13 +181,13 @@ export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChang
 
       <dl className="bx-dl">
         <dt>Estado</dt><dd><StatusBadge status={detail.status} />{expiry ? <> <span className="mono">{expiry}</span></> : null}</dd>
-        <dt>Plataforma</dt><dd>{PLATFORM_LABELS[detail.platform] ?? detail.platform}</dd>
+        <dt>Plataforma</dt><dd className="mono">{PLATFORM_LABELS[detail.platform] ?? detail.platform}</dd>
         <dt>Cambio solicitado</dt><dd className="mono">{requestSummary(detail)}</dd>
         {detail.request_type === "renew_calendar" || detail.horizon_months ? <><dt>Horizonte</dt><dd className="mono">{detail.horizon_months ?? "—"} meses{detail.horizon_start_month ? ` desde ${detail.horizon_start_month}` : ""}</dd></> : null}
-        <dt>Solicitante</dt><dd>{detail.requested_by ?? "—"}</dd>
+        <dt>Solicitante</dt><dd className="mono">{detail.requested_by ?? "—"}</dd>
         <dt>Creada</dt><dd className="mono">{formatDateTime(detail.created_at)}</dd>
         <dt>Aprobaciones</dt><dd className="mono">{detail.approvals_count} de {detail.approvals_required}{detail.approvals_required > 1 ? " (doble aprobación)" : ""}{detail.self_approved ? " · autoaprobada" : ""}</dd>
-        {detail.approved_by ? <><dt>Aprobada por</dt><dd>{detail.approved_by}</dd></> : null}
+        {detail.approved_by ? <><dt>Aprobada por</dt><dd className="mono">{detail.approved_by}</dd></> : null}
         {detail.decided_at ? <><dt>Decisión</dt><dd className="mono">{formatDateTime(detail.decided_at)}</dd></> : null}
         {detail.executed_at ? <><dt>Ejecutada</dt><dd className="mono">{formatDateTime(detail.executed_at)}</dd></> : null}
         {detail.expires_at && detail.status === "pendiente" ? <><dt>Vence</dt><dd className="mono">{formatDateTime(detail.expires_at)}</dd></> : null}
@@ -212,8 +220,8 @@ export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChang
             const text = eventComment(e.detail);
             return (
               <li key={e.id}>
-                <span><strong>{eventLabel(e.event_type)}</strong> · {e.actor ?? "sistema"}</span>
-                <span className="mono">{formatDateTime(e.created_at)}</span>
+                <span><strong>{eventLabel(e.event_type)}</strong> · <span className="mono bx-ev-actor">{e.actor ?? "sistema"}</span></span>
+                <span className="mono bx-ev-time">{formatDateTime(e.created_at)}</span>
                 {eventNotes(e.event_type, e.detail).map((n, i) => <span key={i} className="bx-hint">{n}</span>)}
                 {eventTechnical(e.detail).map((t) => <span key={t.label} className="bx-hint">{t.label}: <span className="mono">{t.code}</span></span>)}
                 {text ? <p className="bx-comment">{text}</p> : null}

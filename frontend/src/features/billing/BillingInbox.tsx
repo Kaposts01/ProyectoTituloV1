@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError } from "./billingErrors";
 import {
-  ALL_STATUSES, CHILE_TZ_NOTE, expiryText, formatDateTime, PLATFORM_LABELS, REQUEST_TYPES, requestSummary, statusLabel, TYPE_LABELS,
+  ALL_STATUSES, expiryText, formatDateTime, PLATFORM_LABELS, REQUEST_TYPES, requestSummary, statusLabel, TYPE_LABELS,
   HISTORY_STATUSES, PENDING_STATUSES,
 } from "./billingLabels";
 import { EMPTY_FILTERS, lastPageOffset, validateFilters, type InboxFilters, type InboxTab } from "./billingQuery";
@@ -37,6 +37,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
   const [creating, setCreating] = useState(false);
   const [prefill, setPrefill] = useState<RenewalPrefill | undefined>(undefined);
   const [renewalKey, setRenewalKey] = useState(0);
@@ -155,6 +156,11 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
     tabRefs.current[next]?.focus();
   }
 
+  function selectRequest(id: string) {
+    setSelectedId(id);
+    setFocusToken((t) => t + 1);
+  }
+
   function requestRenewal(task: RenewalTask) {
     setNotice(null);
     setPrefill({ platform: task.platform, subscription: task.subscription_external_id, scheduledAmount: task.scheduled_amount });
@@ -195,7 +201,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
       <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
       <div role="tabpanel" id="bx-tabpanel" aria-labelledby={`bx-tab-${tab}`}>
       {tab === "renewals" ? (
-        <RenewalTasksView can={can} refreshKey={renewalKey} onViewRequest={setSelectedId} onRequestRenewal={requestRenewal} />
+        <RenewalTasksView can={can} refreshKey={renewalKey} onViewRequest={selectRequest} onRequestRenewal={requestRenewal} />
       ) : (
         <>
       <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de solicitudes">
@@ -236,7 +242,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
           <label>Hasta
             <input className="mono" type="date" value={draft.dateTo} aria-describedby="bx-date-hint" onChange={(e) => setField("dateTo", e.target.value)} />
           </label>
-          <span id="bx-date-hint" className="bx-hint">Fechas en UTC</span>
+          <span id="bx-date-hint" className="bx-hint bx-date-hint">Filtros por fecha en UTC · resultados en hora de Chile</span>
           <button type="submit" className="bx-btn bx-btn-primary" disabled={loading}>Buscar</button>
           <button type="button" className="bx-btn bx-btn-ghost" onClick={clearFilters} disabled={loading}>Limpiar</button>
         </FiltersPanel>
@@ -282,16 +288,17 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
                 return (
                   <tr role="row" key={r.id} data-selected={selectedId === r.id}>
                     <Cell label="Suscripción" className="bx-c-sub">
-                      <button className="bx-row-btn mono" aria-current={selectedId === r.id ? "true" : undefined} onClick={() => setSelectedId(r.id)}
+                      <button className="bx-row-btn mono" aria-current={selectedId === r.id ? "true" : undefined} onClick={() => selectRequest(r.id)}
                         aria-label={`Ver solicitud de la suscripción ${r.subscription_external_id}`}>
                         {r.subscription_external_id}
                       </button>
+                      {selectedId === r.id ? <span className="bx-selected-mark">Detalle abajo</span> : null}
                       <div className="mono bx-platform">{PLATFORM_LABELS[r.platform] ?? r.platform}</div>
                     </Cell>
                     <Cell label="Tipo" className="bx-c-type">{TYPE_LABELS[r.request_type] ?? r.request_type}</Cell>
                     <Cell label="Cambio" className="mono num bx-c-change">{requestSummary(r)}</Cell>
                     <Cell label="Estado" className="bx-c-status"><StatusBadge status={r.status} /></Cell>
-                    <Cell label="Solicitante" className="bx-c-who bx-lbl">{r.requested_by ?? "—"}</Cell>
+                    <Cell label="Solicitante" className="mono bx-c-who bx-lbl">{r.requested_by ?? "—"}</Cell>
                     <Cell label="Creada" className="mono bx-c-created bx-lbl">{formatDateTime(r.created_at)}</Cell>
                     <Cell label="Vencimiento" className="mono bx-c-due bx-lbl">{expiry ?? "—"}</Cell>
                   </tr>
@@ -308,13 +315,12 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
           <button className="bx-btn bx-btn-ghost" disabled={offset + PAGE_SIZE >= total || loading} onClick={() => setOffset(offset + PAGE_SIZE)}>Siguiente</button>
         </div>
       ) : null}
-      {items.length > 0 ? <p className="bx-hint">{CHILE_TZ_NOTE}</p> : null}
 
         </>
       )}
       </div>
 
-      {selectedId ? <RequestDetail key={selectedId} id={selectedId} can={can} currentUserId={currentUserId} isAdmin={isAdmin} onChanged={() => { void load(listTab, applied, offset); setRenewalKey((k) => k + 1); }} /> : null}
+      {selectedId ? <RequestDetail key={selectedId} id={selectedId} can={can} currentUserId={currentUserId} isAdmin={isAdmin} focusToken={focusToken} onChanged={() => { void load(listTab, applied, offset); setRenewalKey((k) => k + 1); }} /> : null}
       {creating ? <CreateRequestDialog prefill={prefill} onClose={closeDialog} onCreated={onCreated} /> : null}
     </main>
   );

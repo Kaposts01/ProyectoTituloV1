@@ -15,7 +15,7 @@ export const STATUS_META: Record<RequestStatus, { label: string; tone: Tone; gro
   rechazada: { label: "Rechazada", tone: "error", group: "history" },
   expirada: { label: "Expirada", tone: "neutral", group: "history" },
   retirada: { label: "Retirada", tone: "neutral", group: "history" },
-  no_ejecutable: { label: "No ejecutable", tone: "neutral", group: "history" },
+  no_ejecutable: { label: "No ejecutable", tone: "warning", group: "history" },
 };
 
 export const ALL_STATUSES = Object.keys(STATUS_META) as RequestStatus[];

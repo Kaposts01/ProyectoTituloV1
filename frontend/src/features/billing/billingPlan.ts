@@ -17,6 +17,10 @@ export type PlanRow = {
   date: string | null;
   amount: number | null;
   note: string;
+  /** Cantidad de cobros a cancelar del mes cuando el mes tiene aviso `multiple_pending` y más de un cancel; si no, null. */
+  sharedCancels: number | null;
+  /** Solo en la primera fila de un mes con aviso `multiple_pending`: ahí va la insignia «Más de un cobro pendiente». */
+  showMultiplePending: boolean;
 };
 
 const KIND_ORDER: Record<PlanRowKind, number> = { cancelar: 0, crear: 1, cubierto: 2, revision: 3, sin_cambio: 4 };
@@ -71,23 +75,120 @@ export function buildPlanRows(plan: PlanPreview | null | undefined): PlanRow[] {
   const rows: PlanRow[] = [];
   (plan.cancel ?? []).forEach((a, i) => rows.push({
     key: `c-${a.month}-${a.charge_id ?? i}`, month: a.month, kind: "cancelar", date: a.charge_date, amount: a.amount,
-    note: a.charge_id ? `Cobro ${a.charge_id}` : "",
+    note: a.charge_id ? `Cobro ${a.charge_id}` : "", sharedCancels: null, showMultiplePending: false,
   }));
   (plan.create ?? []).forEach((a, i) => rows.push({
     key: `n-${a.month}-${a.internal_code ?? i}`, month: a.month, kind: "crear", date: a.charge_date, amount: a.amount,
-    note: a.internal_code ?? "",
+    note: a.internal_code ?? "", sharedCancels: null, showMultiplePending: false,
   }));
   (plan.covered ?? []).forEach((c, i) => rows.push({
     key: `v-${c.month}-${i}`, month: c.month, kind: "cubierto", date: null, amount: null, note: COVERED_REASONS[c.reason] ?? COVERED_DEFAULT,
+    sharedCancels: null, showMultiplePending: false,
   }));
   (plan.manual_review ?? []).forEach((m, i) => rows.push({
     key: `r-${m.month}-${i}`, month: m.month, kind: "revision", date: m.target_date, amount: null,
-    note: `${m.days_overdue} días de atraso: ${manualReviewReason(m.reason)}`,
+    note: `${m.days_overdue} días de atraso: ${manualReviewReason(m.reason)}`, sharedCancels: null, showMultiplePending: false,
   }));
   (plan.unchanged ?? []).forEach((month, i) => rows.push({
     key: `u-${month}-${i}`, month, kind: "sin_cambio", date: null, amount: null, note: "",
+    sharedCancels: null, showMultiplePending: false,
   }));
-  return rows.sort((a, b) => a.month.localeCompare(b.month) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+  rows.sort((a, b) => a.month.localeCompare(b.month) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+  // Meses con aviso `multiple_pending` (código estable del servidor; nunca se interpreta el código técnico del cobro).
+  const multi = multiplePendingMonths(plan);
+  const cancelsByMonth = cancelCountByMonth(plan);
+  const badged = new Set<string>();
+  for (const r of rows) {
+    if (!multi.has(r.month)) continue;
+    if (!badged.has(r.month)) { r.showMultiplePending = true; badged.add(r.month); }
+    const n = cancelsByMonth.get(r.month) ?? 0;
+    if (r.kind === "cancelar" && n > 1) r.sharedCancels = n;
+  }
+  return rows;
+}
+
+const monthKey = (value: string | null | undefined): string | null => {
+  const m = typeof value === "string" ? /^(\d{4}-\d{2})/.exec(value) : null;
+  return m ? m[1] : null;
+};
+
+/** Meses con el aviso `multiple_pending` (más de un cobro pendiente en el mismo mes). */
+export function multiplePendingMonths(plan: PlanPreview | null | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const w of plan?.warnings ?? []) {
+    const m = w.code === "multiple_pending" ? monthKey(w.month) : null;
+    if (m) out.add(m);
+  }
+  return out;
+}
+
+function cancelCountByMonth(plan: PlanPreview | null | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const a of plan?.cancel ?? []) {
+    const m = monthKey(a.month);
+    if (m) out.set(m, (out.get(m) ?? 0) + 1);
+  }
+  return out;
+}
+
+export type PlanReconciliation = {
+  /** Meses del horizonte (de `summary.horizon_start`..`horizon_end`), o null si no se puede derivar. */
+  horizonMonths: number | null;
+  /** Cancelaciones de meses con `multiple_pending` por encima de la primera de cada mes. */
+  extraCancels: number;
+  /** Cancelaciones restantes (una por mes del calendario). */
+  calendarCancels: number;
+  text: string | null;
+};
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+function horizonCount(plan: PlanPreview): number | null {
+  const a = monthKey(plan.summary?.horizon_start);
+  const b = monthKey(plan.summary?.horizon_end);
+  if (!a || !b) return null;
+  const n = (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5)) - Number(a.slice(5)) + 1;
+  return n >= 1 && n <= 120 ? n : null;
+}
+
+/**
+ * Línea de conciliación del plan, calculada SOLO con los arreglos del `plan_preview`. Si el resumen contradice los arreglos
+ * (creates/cancels) se omite la frase de reemplazo: solo se muestra lo que es seguro.
+ */
+export function reconcilePlan(plan: PlanPreview | null | undefined): PlanReconciliation {
+  const empty: PlanReconciliation = { horizonMonths: null, extraCancels: 0, calendarCancels: 0, text: null };
+  if (!plan || plan.noop) return empty;
+  const creates = (plan.create ?? []).length;
+  const cancels = (plan.cancel ?? []).length;
+  const kept = (plan.kept_due_today ?? []).filter((m): m is string => typeof m === "string").length;
+  const covered = (plan.covered ?? []).length;
+  const manual = (plan.manual_review ?? []).length;
+  const horizon = horizonCount(plan);
+
+  const multi = multiplePendingMonths(plan);
+  let extra = 0;
+  for (const [month, n] of cancelCountByMonth(plan)) if (multi.has(month) && n > 1) extra += n - 1;
+  const calendar = cancels - extra;
+
+  const parts: string[] = [];
+  if (horizon !== null) parts.push(`${horizon} ${horizon === 1 ? "mes" : "meses"} en el horizonte`);
+  if (kept > 0) parts.push(kept === 1 ? "1 conservado (cobro de hoy)" : `${kept} conservados (cobros de hoy)`);
+  if (covered > 0) parts.push(plural(covered, "cubierto", "cubiertos"));
+  if (manual > 0) parts.push(`${manual} en revisión manual`);
+
+  const s = plan.summary;
+  const totalsAgree = !s || (s.creates === creates && s.cancels === cancels);
+  if (totalsAgree && (creates > 0 || cancels > 0)) {
+    if (creates > 0 && cancels > 0) {
+      const breakdown = extra > 0 && calendar > 0 ? ` (${calendar} del calendario + ${extra} con más de un pendiente en el mes)` : "";
+      parts.push(`${creates} ${creates === 1 ? "cobro nuevo reemplaza" : "cobros nuevos reemplazan"} a ${cancels} ${cancels === 1 ? "actual" : "actuales"}${breakdown}`);
+    } else if (creates > 0) {
+      parts.push(`${plural(creates, "cobro nuevo", "cobros nuevos")}, sin cancelar ninguno`);
+    } else {
+      parts.push(`${plural(cancels, "cobro se cancela", "cobros se cancelan")} sin reemplazo`);
+    }
+  }
+  return { horizonMonths: horizon, extraCancels: extra, calendarCancels: calendar, text: parts.length ? parts.join(" · ") : null };
 }
 
 export type KeptRow = { key: string; month: string; chargeId: string; date: string; amount: number };

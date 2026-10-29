@@ -1,4 +1,4 @@
-import { buildKeptRows, buildPlanRows, PLAN_KIND_LABEL, PLAN_KIND_TONE, planIssueText } from "./billingPlan";
+import { buildKeptRows, buildPlanRows, PLAN_KIND_LABEL, PLAN_KIND_TONE, planIssueText, reconcilePlan } from "./billingPlan";
 import { formatClp, formatPct, formatSignedClp } from "./billingLabels";
 import type { PlanPreview } from "./types";
 import { Badge, Cell, Notice } from "./ui";
@@ -10,6 +10,7 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
   const kept = buildKeptRows(plan);
   const dueToday = (plan.kept_due_today ?? []).filter((m): m is string => typeof m === "string");
   const s = plan.summary;
+  const recon = reconcilePlan(plan);
   return (
     <div>
       <h3>{title}</h3>
@@ -27,6 +28,7 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
           {s.horizon_start ? <div><dt>Horizonte</dt><dd className="mono">{s.horizon_start} a {s.horizon_end ?? "—"}</dd></div> : null}
         </dl>
       ) : null}
+      {recon.text ? <p className="bx-recon" data-testid="plan-reconciliation">{recon.text}</p> : null}
       {(plan.errors ?? []).length > 0 ? (
         <Notice tone="error">
           Errores del plan:
@@ -54,7 +56,10 @@ export function PlanPreviewView({ plan, title = "Vista previa del plan" }: { pla
                   <Cell label="Acción" className="bx-c-kind"><Badge tone={PLAN_KIND_TONE[r.kind]}>{PLAN_KIND_LABEL[r.kind]}</Badge></Cell>
                   <Cell label="Fecha de cobro" className="mono bx-c-date bx-lbl">{r.date ?? "—"}</Cell>
                   <Cell label="Monto" className="mono num bx-c-amount">{r.amount === null ? "—" : formatClp(r.amount)}</Cell>
-                  <Cell label="Detalle" className="bx-c-note" title={r.note ?? undefined}>{r.note ? <span className="mono">{r.note}</span> : null}</Cell>
+                  <Cell label="Detalle" className="bx-c-note" title={r.note ?? undefined}>{r.showMultiplePending ? <Badge tone="warning">Más de un cobro pendiente</Badge> : null}
+                    {r.sharedCancels ? <span className="bx-shared">Uno de {r.sharedCancels} cobros pendientes del mes</span> : null}
+                    {r.note ? <span className="mono">{r.note}</span> : null}
+                  </Cell>
                 </tr>
               ))}
             </tbody>
