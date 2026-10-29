@@ -29,7 +29,7 @@ from app.services.rbac import permission_codes
 router = APIRouter()
 
 Entity = Literal["clientes", "suscripciones", "cobros", "pagos"]
-Canal = Literal["virtualpos", "virtualpos1", "virtualpos2", "toku", "payku", "tch"]
+Channel = Literal["virtualpos", "virtualpos1", "virtualpos2", "toku", "payku", "tch"]
 PII_PERMISSION = "export.pii"
 
 
@@ -43,7 +43,7 @@ def _parse_date(value: str | None, name: str) -> date | None:
 
 
 def _resolve(
-    entity: str, canal: str | None, user: User, query: str | None, filter_field: str, status: str | None,
+    entity: str, channel: str | None, user: User, query: str | None, filter_field: str, status: str | None,
     date_from: str | None, date_to: str | None, amount_min: float | None, amount_max: float | None,
 ) -> tuple[list, ExportFilters, bool, list[str]]:
     if filter_field not in FILTER_FIELDS[entity]:
@@ -55,15 +55,15 @@ def _resolve(
         date_to=_parse_date(date_to, "date_to"), amount_min=amount_min, amount_max=amount_max,
     )
     codes = permission_codes(user)
-    items, denied = select_specs(entity, canal, codes)
+    items, denied = select_specs(entity, channel, codes)
     if denied or not items:
         raise HTTPException(status_code=403, detail="Permission denied")
     channels = [src for _spec, sources in items for src in sources]
     return items, filters, PII_PERMISSION in codes, channels
 
 
-def _filename(entity: str, canal: str | None) -> str:
-    return f"{entity}{'-' + canal if canal else ''}-{chile_today():%Y%m%d}.csv"
+def _filename(entity: str, channel: str | None) -> str:
+    return f"{entity}{'-' + channel if channel else ''}-{chile_today():%Y%m%d}.csv"
 
 
 @router.get("/{entity}/count", tags=["Export"])
@@ -71,7 +71,7 @@ def export_count(
     entity: Entity,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
-    canal: Canal | None = None,
+    channel: Annotated[Channel | None, Query(alias="canal")] = None,  # el parametro de URL sigue llamandose `canal`
     query: str | None = Query(None, max_length=200),
     filter_field: str = "all",
     status: str | None = Query(None, max_length=50),
@@ -81,7 +81,7 @@ def export_count(
     amount_max: float | None = Query(None, ge=0),
 ) -> dict[str, Any]:
     items, filters, include_pii, channels = _resolve(
-        entity, canal, user, query, filter_field, status, date_from, date_to, amount_min, amount_max)
+        entity, channel, user, query, filter_field, status, date_from, date_to, amount_min, amount_max)
     return {"entity": entity, "rows": total_rows(db, items, filters), "canales": channels, "include_pii": include_pii}
 
 
@@ -89,7 +89,7 @@ def export_count(
 def export_entity(
     entity: Entity,
     user: Annotated[User, Depends(get_current_user)],
-    canal: Canal | None = None,
+    channel: Annotated[Channel | None, Query(alias="canal")] = None,  # el parametro de URL sigue llamandose `canal`
     query: str | None = Query(None, max_length=200),
     filter_field: str = "all",
     status: str | None = Query(None, max_length=50),
@@ -102,7 +102,7 @@ def export_entity(
     limit: int = Query(50, ge=1, le=1000),
 ) -> StreamingResponse:
     items, filters, include_pii, channels = _resolve(
-        entity, canal, user, query, filter_field, status, date_from, date_to, amount_min, amount_max)
+        entity, channel, user, query, filter_field, status, date_from, date_to, amount_min, amount_max)
     # El usuario se captura ya: la respuesta se genera despues de cerrar la sesion de la peticion.
     actor = SimpleNamespace(id=user.id, username=user.username)
     endpoint = f"export/{entity}"
@@ -122,5 +122,5 @@ def export_entity(
 
     rows = iter_rows(db_session.SessionLocal, items, filters, include_pii, paged=None if export_all else (offset, limit))
     body = csv_stream(ENTITY_COLUMNS[entity], include_pii, rows, on_finish=audit)
-    headers = {"Content-Disposition": f'attachment; filename="{_filename(entity, canal)}"', "Cache-Control": "no-store"}
+    headers = {"Content-Disposition": f'attachment; filename="{_filename(entity, channel)}"', "Cache-Control": "no-store"}
     return StreamingResponse(body, media_type=CSV_MEDIA_TYPE, headers=headers)

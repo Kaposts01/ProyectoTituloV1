@@ -47,29 +47,32 @@ CHANNELS = ("virtualpos1", "virtualpos2", "toku", "payku", "tch")
 
 ENTITY_COLUMNS: dict[str, tuple[ExportColumn, ...]] = {
     "clientes": (
-        ExportColumn("canal", "canal"), ExportColumn("id_externo", "id_externo"), ExportColumn("estado", "estado"),
-        ExportColumn("fecha_alta", "fecha_alta"),
-        ExportColumn("rut", "rut", pii=True), ExportColumn("nombre", "nombre", pii=True), ExportColumn("email", "correo", pii=True),
-        ExportColumn("telefono", "telefono", pii=True), ExportColumn("direccion", "direccion", pii=True),
+        ExportColumn("channel", "Canal"), ExportColumn("external_id", "ID externo"), ExportColumn("status", "Estado"),
+        ExportColumn("signup_date", "Fecha de alta"),
+        ExportColumn("rut", "RUT", pii=True), ExportColumn("name", "Nombre", pii=True),
+        ExportColumn("email", "Correo", pii=True), ExportColumn("phone", "Teléfono", pii=True),
+        ExportColumn("address", "Dirección", pii=True),
     ),
     "suscripciones": (
-        ExportColumn("canal", "canal"), ExportColumn("id_suscripcion", "id_suscripcion"), ExportColumn("estado", "estado"),
-        ExportColumn("estado_secundario", "estado_secundario"), ExportColumn("fecha_inicio", "fecha_inicio"),
-        ExportColumn("fecha_termino", "fecha_termino"), ExportColumn("monto", "monto"), ExportColumn("moneda", "moneda"),
-        ExportColumn("ultimo_cobro", "ultimo_cobro"),
-        ExportColumn("rut", "rut_cliente", pii=True), ExportColumn("nombre", "nombre_cliente", pii=True),
+        ExportColumn("channel", "Canal"), ExportColumn("subscription_id", "ID de suscripción"),
+        ExportColumn("status", "Estado"), ExportColumn("secondary_status", "Estado secundario"),
+        ExportColumn("start_date", "Fecha de inicio"), ExportColumn("end_date", "Fecha de término"),
+        ExportColumn("amount", "Monto"), ExportColumn("currency", "Moneda"), ExportColumn("last_charge", "Último cobro"),
+        ExportColumn("rut", "RUT del cliente", pii=True), ExportColumn("name", "Nombre del cliente", pii=True),
     ),
     "cobros": (
-        ExportColumn("canal", "canal"), ExportColumn("id_cobro", "id_cobro"), ExportColumn("id_suscripcion", "id_suscripcion"),
-        ExportColumn("estado", "estado"), ExportColumn("fecha_cobro", "fecha_cobro"), ExportColumn("periodo", "periodo"),
-        ExportColumn("monto", "monto"), ExportColumn("moneda", "moneda"), ExportColumn("motivo_rechazo", "motivo_rechazo"),
-        ExportColumn("rut", "rut_cliente", pii=True), ExportColumn("nombre", "nombre_cliente", pii=True),
+        ExportColumn("channel", "Canal"), ExportColumn("charge_id", "ID de cobro"),
+        ExportColumn("subscription_id", "ID de suscripción"), ExportColumn("status", "Estado"),
+        ExportColumn("charge_date", "Fecha de cobro"), ExportColumn("period", "Período"),
+        ExportColumn("amount", "Monto"), ExportColumn("currency", "Moneda"),
+        ExportColumn("rejection_reason", "Motivo de rechazo"),
+        ExportColumn("rut", "RUT del cliente", pii=True), ExportColumn("name", "Nombre del cliente", pii=True),
     ),
     "pagos": (
-        ExportColumn("canal", "canal"), ExportColumn("id_pago", "id_pago"), ExportColumn("id_cobro", "id_cobro"),
-        ExportColumn("estado", "estado"), ExportColumn("fecha_pago", "fecha_pago"), ExportColumn("monto", "monto"),
-        ExportColumn("moneda", "moneda"),
-        ExportColumn("rut", "rut_cliente", pii=True), ExportColumn("nombre", "nombre_cliente", pii=True),
+        ExportColumn("channel", "Canal"), ExportColumn("payment_id", "ID de pago"), ExportColumn("charge_id", "ID de cobro"),
+        ExportColumn("status", "Estado"), ExportColumn("payment_date", "Fecha de pago"), ExportColumn("amount", "Monto"),
+        ExportColumn("currency", "Moneda"),
+        ExportColumn("rut", "RUT del cliente", pii=True), ExportColumn("name", "Nombre del cliente", pii=True),
     ),
 }
 
@@ -194,17 +197,17 @@ def _name(first: Any, last: Any) -> Any:
 # ----------------------------------------------------------------------------- clientes
 
 
-def _clientes_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, label: str) -> Any:
+def _clients_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, label: str) -> Any:
     name = _name(CClient.first_name, CClient.last_name)
     search = _search(f, {
         "rut": CClient.social_id, "name": name, "last_name": func.coalesce(CClient.last_name, ""), "platform": literal(label),
         "email": CClient.email, "phone": CClient.phone_number,
     }, "rut")
     stmt = select(
-        CClient.source.label("canal"), CClient.external_id.label("id_externo"), CClient.status.label("estado"),
-        CClient.provider_created_at.label("fecha_alta"), _pii(CClient.social_id, pii).label("rut"),
-        _pii(name, pii).label("nombre"), _pii(CClient.email, pii).label("email"),
-        _pii(CClient.phone_number, pii).label("telefono"), null().label("direccion"),
+        CClient.source.label("channel"), CClient.external_id.label("external_id"), CClient.status.label("status"),
+        CClient.provider_created_at.label("signup_date"), _pii(CClient.social_id, pii).label("rut"),
+        _pii(name, pii).label("name"), _pii(CClient.email, pii).label("email"),
+        _pii(CClient.phone_number, pii).label("phone"), null().label("address"),
     ).where(CClient.source.in_(sources), CClient.social_id.isnot(None))
     conds = _common_conditions(f, CClient.status, CClient.provider_created_at, None)
     if search is not None:
@@ -212,7 +215,7 @@ def _clientes_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, lab
     return stmt.where(*conds).order_by(CClient.source, CClient.external_id)
 
 
-def _clientes_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+def _clients_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     name = _name(TchCliente.nombre, TchCliente.apellido)
     search = _search(f, {
         "rut": TchCliente.rut, "name": name, "last_name": func.coalesce(TchCliente.apellido, ""), "platform": literal("TCH"),
@@ -220,10 +223,10 @@ def _clientes_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any
     }, "rut")
     address = func.concat_ws(", ", TchCliente.direccion, TchCliente.comuna, TchCliente.ciudad)
     stmt = select(
-        literal("tch").label("canal"), cast(TchCliente.id, String).label("id_externo"), null().label("estado"),
-        func.substr(cast(TchCliente.created_at, String), 1, 10).label("fecha_alta"), _pii(TchCliente.rut, pii).label("rut"),
-        _pii(name, pii).label("nombre"), _pii(TchCliente.email, pii).label("email"),
-        _pii(TchCliente.telefono, pii).label("telefono"), _pii(address, pii).label("direccion"),
+        literal("tch").label("channel"), cast(TchCliente.id, String).label("external_id"), null().label("status"),
+        func.substr(cast(TchCliente.created_at, String), 1, 10).label("signup_date"), _pii(TchCliente.rut, pii).label("rut"),
+        _pii(name, pii).label("name"), _pii(TchCliente.email, pii).label("email"),
+        _pii(TchCliente.telefono, pii).label("phone"), _pii(address, pii).label("address"),
     )
     conds = []
     if f.status and f.status.strip():
@@ -254,7 +257,7 @@ def _secondary_status(status: str, last_paid: str | None) -> str:
 
 
 def _subs_post(row: dict[str, Any]) -> dict[str, Any]:
-    row["estado_secundario"] = _secondary_status(row.get("estado") or "", row.get("ultimo_cobro"))
+    row["secondary_status"] = _secondary_status(row.get("status") or "", row.get("last_charge"))
     return row
 
 
@@ -277,10 +280,10 @@ def _subs_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, platfor
     )
     stmt = (
         select(
-            CSub.source.label("canal"), CSub.external_id.label("id_suscripcion"), CSub.status.label("estado"),
-            CSub.suscription_date.label("fecha_inicio"), CSub.canceled_at.label("fecha_termino"), CSub.amount.label("monto"),
-            CSub.currency.label("moneda"), last_paid.label("ultimo_cobro"),
-            _pii(rut_col, pii).label("rut"), _pii(client_name, pii).label("nombre"),
+            CSub.source.label("channel"), CSub.external_id.label("subscription_id"), CSub.status.label("status"),
+            CSub.suscription_date.label("start_date"), CSub.canceled_at.label("end_date"), CSub.amount.label("amount"),
+            CSub.currency.label("currency"), last_paid.label("last_charge"),
+            _pii(rut_col, pii).label("rut"), _pii(client_name, pii).label("name"),
         )
         .select_from(CSub)
         .outerjoin(client, and_(client.source == CSub.source, client.external_id == CSub.client_external_id))
@@ -304,10 +307,10 @@ def _subs_payku(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     )
     stmt = (
         select(
-            CSub.source.label("canal"), CSub.external_id.label("id_suscripcion"), CSub.status.label("estado"),
-            CSub.suscription_date.label("fecha_inicio"), CSub.canceled_at.label("fecha_termino"), CSub.amount.label("monto"),
-            CSub.currency.label("moneda"), last_paid.label("ultimo_cobro"),
-            _pii(rut_col, pii).label("rut"), _pii(client_name, pii).label("nombre"),
+            CSub.source.label("channel"), CSub.external_id.label("subscription_id"), CSub.status.label("status"),
+            CSub.suscription_date.label("start_date"), CSub.canceled_at.label("end_date"), CSub.amount.label("amount"),
+            CSub.currency.label("currency"), last_paid.label("last_charge"),
+            _pii(rut_col, pii).label("rut"), _pii(client_name, pii).label("name"),
         )
         .select_from(CSub)
         .outerjoin(client, and_(client.source == CSub.source, client.external_id == CSub.client_external_id))
@@ -331,10 +334,10 @@ def _subs_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     ended = func.coalesce(TchSuscripcion.fecha_eliminacion, TchSuscripcion.fecha_rechazo)
     stmt = (
         select(
-            literal("tch").label("canal"), cast(TchSuscripcion.numero_ficha, String).label("id_suscripcion"),
-            TchSuscripcion.estado.label("estado"), TchSuscripcion.fecha_activacion.label("fecha_inicio"),
-            ended.label("fecha_termino"), amount.label("monto"), literal("CLP").label("moneda"), last_paid.label("ultimo_cobro"),
-            _pii(TchSuscripcion.cliente_rut, pii).label("rut"), _pii(client_name, pii).label("nombre"),
+            literal("tch").label("channel"), cast(TchSuscripcion.numero_ficha, String).label("subscription_id"),
+            TchSuscripcion.estado.label("status"), TchSuscripcion.fecha_activacion.label("start_date"),
+            ended.label("end_date"), amount.label("amount"), literal("CLP").label("currency"), last_paid.label("last_charge"),
+            _pii(TchSuscripcion.cliente_rut, pii).label("rut"), _pii(client_name, pii).label("name"),
         )
         .select_from(TchSuscripcion)
         .outerjoin(TchCliente, _rut_key_sql(TchSuscripcion.cliente_rut) == _rut_key_sql(TchCliente.rut))
@@ -351,25 +354,25 @@ def _subs_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
 # ----------------------------------------------------------------------------- cobros
 
 
-def _cobros_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     cols = [
-        CCharge.source.label("canal"), CCharge.external_id.label("id_cobro"),
-        CCharge.subscription_external_id.label("id_suscripcion"), CCharge.status.label("estado"),
-        CCharge.charge_date.label("fecha_cobro"), null().label("periodo"), CCharge.amount.label("monto"),
-        CCharge.currency.label("moneda"), null().label("motivo_rechazo"),
+        CCharge.source.label("channel"), CCharge.external_id.label("charge_id"),
+        CCharge.subscription_external_id.label("subscription_id"), CCharge.status.label("status"),
+        CCharge.charge_date.label("charge_date"), null().label("period"), CCharge.amount.label("amount"),
+        CCharge.currency.label("currency"), null().label("rejection_reason"),
     ]
     if pii:
         sub, cli = aliased(CSub), aliased(CClient)
         stmt = (
             select(*cols, func.coalesce(cli.social_id, sub.client_social_id).label("rut"),
-                   _name(cli.first_name, cli.last_name).label("nombre"))
+                   _name(cli.first_name, cli.last_name).label("name"))
             .select_from(CCharge)
             .outerjoin(sub, and_(sub.source == CCharge.source, sub.external_id == CCharge.subscription_external_id))
             .outerjoin(cli, and_(cli.source == CCharge.source,
                                  cli.external_id == func.coalesce(CCharge.client_external_id, sub.client_external_id)))
         )
     else:
-        stmt = select(*cols, null().label("rut"), null().label("nombre"))
+        stmt = select(*cols, null().label("rut"), null().label("name"))
     search = _search(f, {"id": CCharge.external_id, "subscription_id": CCharge.subscription_external_id, "status": CCharge.status})
     conds = [CCharge.source.in_(sources), *_common_conditions(f, CCharge.status, CCharge.charge_date, CCharge.amount)]
     if search is not None:
@@ -377,22 +380,22 @@ def _cobros_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> An
     return stmt.where(*conds).order_by(CCharge.source, CCharge.external_id)
 
 
-def _cobros_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+def _charges_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     t = TchTransaccion
     cols = [
-        literal("tch").label("canal"), cast(t.id, String).label("id_cobro"), cast(t.numero_ficha, String).label("id_suscripcion"),
-        t.estado.label("estado"), t.fecha_cargo.label("fecha_cobro"), t.periodo.label("periodo"), t.monto.label("monto"),
-        literal("CLP").label("moneda"), t.razon_rechazo.label("motivo_rechazo"),
+        literal("tch").label("channel"), cast(t.id, String).label("charge_id"), cast(t.numero_ficha, String).label("subscription_id"),
+        t.estado.label("status"), t.fecha_cargo.label("charge_date"), t.periodo.label("period"), t.monto.label("amount"),
+        literal("CLP").label("currency"), t.razon_rechazo.label("rejection_reason"),
     ]
     if pii:
         stmt = (
-            select(*cols, TchSuscripcion.cliente_rut.label("rut"), _name(TchCliente.nombre, TchCliente.apellido).label("nombre"))
+            select(*cols, TchSuscripcion.cliente_rut.label("rut"), _name(TchCliente.nombre, TchCliente.apellido).label("name"))
             .select_from(t)
             .outerjoin(TchSuscripcion, TchSuscripcion.numero_ficha == t.numero_ficha)
             .outerjoin(TchCliente, TchCliente.rut == TchSuscripcion.cliente_rut)
         )
     else:
-        stmt = select(*cols, null().label("rut"), null().label("nombre"))
+        stmt = select(*cols, null().label("rut"), null().label("name"))
     search = _search(f, {"id": cast(t.id, String), "subscription_id": cast(t.numero_ficha, String), "status": t.estado})
     conds = _common_conditions(f, t.estado, t.fecha_cargo, t.monto)
     if search is not None:
@@ -403,22 +406,22 @@ def _cobros_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
 # ----------------------------------------------------------------------------- pagos
 
 
-def _pagos_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+def _payments_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     cols = [
-        CPayment.source.label("canal"), CPayment.external_id.label("id_pago"), CPayment.charge_external_id.label("id_cobro"),
-        CPayment.status.label("estado"), CPayment.payment_date.label("fecha_pago"), CPayment.amount.label("monto"),
-        CPayment.currency.label("moneda"),
+        CPayment.source.label("channel"), CPayment.external_id.label("payment_id"), CPayment.charge_external_id.label("charge_id"),
+        CPayment.status.label("status"), CPayment.payment_date.label("payment_date"), CPayment.amount.label("amount"),
+        CPayment.currency.label("currency"),
     ]
     if pii:
         cli = aliased(CClient)
         rut = func.coalesce(cli.social_id, CPayment.raw_payload["client"]["social_id"].astext)
         stmt = (
-            select(*cols, rut.label("rut"), _name(cli.first_name, cli.last_name).label("nombre"))
+            select(*cols, rut.label("rut"), _name(cli.first_name, cli.last_name).label("name"))
             .select_from(CPayment)
             .outerjoin(cli, and_(cli.source == CPayment.source, cli.external_id == CPayment.client_external_id))
         )
     else:
-        stmt = select(*cols, null().label("rut"), null().label("nombre"))
+        stmt = select(*cols, null().label("rut"), null().label("name"))
     search = _search(f, {"id": CPayment.external_id, "charge_id": CPayment.charge_external_id, "status": CPayment.status})
     conds = [CPayment.source.in_(sources), *_common_conditions(f, CPayment.status, CPayment.payment_date, CPayment.amount)]
     if search is not None:
@@ -435,10 +438,10 @@ def _vp(builder: Callable[..., Any], *extra: Any) -> Callable[[tuple[str, ...], 
 
 ENTITY_SPECS: dict[str, tuple[ChannelSpec, ...]] = {
     "clientes": (
-        ChannelSpec("virtualpos", "virtualpos.clients.view", ("virtualpos1", "virtualpos2"), _vp(_clientes_cclient, "VirtualPOS")),
-        ChannelSpec("toku", "toku.customers.view", ("toku",), _vp(_clientes_cclient, "Toku")),
-        ChannelSpec("payku", "payku.clients.view", ("payku",), _vp(_clientes_cclient, "Payku")),
-        ChannelSpec("tch", "tch.clientes.view", ("tch",), _clientes_tch),
+        ChannelSpec("virtualpos", "virtualpos.clients.view", ("virtualpos1", "virtualpos2"), _vp(_clients_cclient, "VirtualPOS")),
+        ChannelSpec("toku", "toku.customers.view", ("toku",), _vp(_clients_cclient, "Toku")),
+        ChannelSpec("payku", "payku.clients.view", ("payku",), _vp(_clients_cclient, "Payku")),
+        ChannelSpec("tch", "tch.clientes.view", ("tch",), _clients_tch),
     ),
     "suscripciones": (
         ChannelSpec("virtualpos", "virtualpos.subscriptions.view", ("virtualpos1", "virtualpos2"),
@@ -448,14 +451,14 @@ ENTITY_SPECS: dict[str, tuple[ChannelSpec, ...]] = {
         ChannelSpec("tch", "tch.suscripciones.view", ("tch",), _subs_tch, _subs_post),
     ),
     "cobros": (
-        ChannelSpec("virtualpos", "virtualpos.charges.view", ("virtualpos1", "virtualpos2"), _cobros_cclient),
-        ChannelSpec("toku", "toku.invoices.view", ("toku",), _cobros_cclient),
-        ChannelSpec("tch", "tch.transacciones.view", ("tch",), _cobros_tch),
+        ChannelSpec("virtualpos", "virtualpos.charges.view", ("virtualpos1", "virtualpos2"), _charges_cclient),
+        ChannelSpec("toku", "toku.invoices.view", ("toku",), _charges_cclient),
+        ChannelSpec("tch", "tch.transacciones.view", ("tch",), _charges_tch),
     ),
     "pagos": (
-        ChannelSpec("virtualpos", "virtualpos.payments.view", ("virtualpos1", "virtualpos2"), _pagos_cclient),
-        ChannelSpec("toku", "toku.transactions.view", ("toku",), _pagos_cclient),
-        ChannelSpec("payku", "payku.transactions.view", ("payku",), _pagos_cclient),
+        ChannelSpec("virtualpos", "virtualpos.payments.view", ("virtualpos1", "virtualpos2"), _payments_cclient),
+        ChannelSpec("toku", "toku.transactions.view", ("toku",), _payments_cclient),
+        ChannelSpec("payku", "payku.transactions.view", ("payku",), _payments_cclient),
     ),
 }
 
@@ -465,7 +468,7 @@ def entity_channels(entity: str) -> tuple[str, ...]:
     return tuple(src for spec in ENTITY_SPECS[entity] for src in spec.sources)
 
 
-def select_specs(entity: str, canal: str | None, permissions: set[str]) -> tuple[list[tuple[ChannelSpec, tuple[str, ...]]], bool]:
+def select_specs(entity: str, channel: str | None, permissions: set[str]) -> tuple[list[tuple[ChannelSpec, tuple[str, ...]]], bool]:
     """Resuelve (spec, fuentes) permitidas. Devuelve (lista, hubo_canal_denegado).
 
     `canal` puede ser un canal concreto (`virtualpos1`, `toku`...), `virtualpos` (ambas cuentas) o None (todos).
@@ -475,16 +478,16 @@ def select_specs(entity: str, canal: str | None, permissions: set[str]) -> tuple
     denied = False
     for spec in ENTITY_SPECS[entity]:
         sources = spec.sources
-        if canal is not None:
-            if canal == spec.provider:
+        if channel is not None:
+            if channel == spec.provider:
                 pass
-            elif canal in spec.sources:
-                sources = (canal,)
+            elif channel in spec.sources:
+                sources = (channel,)
             else:
                 continue
         if spec.permission in permissions:
             wanted.append((spec, sources))
-        elif canal is not None:
+        elif channel is not None:
             denied = True
     return wanted, denied
 
