@@ -14,7 +14,7 @@ from app.db.session import engine
 from app.main import app
 from app.models.crm import Charge, PaymentMethod, Subscription
 from app.models.payku_channel import PaykuTransaction
-from app.models.tch import TchRecaudacionMensual, TchSuscripcion
+from app.models.tch import TchMonthlyCollection, TchSubscription
 from app.services import rejected_month
 
 FAKE_NOW = datetime(2026, 10, 15, 12, 0, tzinfo=ZoneInfo("America/Santiago"))
@@ -67,9 +67,9 @@ def charge(source, ext, status, day, amount):
 
 
 def tch_sub(ficha, estado, act, elim=None, eq="1000", rut=None):
-    return TchSuscripcion(
-        numero_ficha=ficha, estado=estado, fecha_activacion=act, fecha_eliminacion=elim,
-        equivalente_pesos=eq, cliente_rut=rut,
+    return TchSubscription(
+        file_number=ficha, status=estado, activation_date=act, deletion_date=elim,
+        peso_equivalent=eq, client_rut=rut,
     )
 
 
@@ -115,10 +115,10 @@ def data(db_session):
         tch_sub(1, "VIGENTE", "2026-04-01", eq="30000", rut="T1"),
         tch_sub(2, "ELIMINADA", "2026-04-02", "2026-10-05"),
         tch_sub(3, "VIGENTE", "2026-10-10", eq="20000", rut="T2"),
-        TchRecaudacionMensual(periodo="2026-10", aceptadas_cantidad=10, aceptadas_monto="50000",
-                              rechazadas_cantidad=5, rechazadas_monto="25000", archivo_origen="x"),
-        TchRecaudacionMensual(periodo="2026-09", aceptadas_cantidad=8, aceptadas_monto="40000",
-                              rechazadas_cantidad=2, rechazadas_monto="10000", archivo_origen="x"),
+        TchMonthlyCollection(period="2026-10", accepted_count=10, accepted_amount="50000",
+                              rejected_count=5, rejected_amount="25000", source_file="x"),
+        TchMonthlyCollection(period="2026-09", accepted_count=8, accepted_amount="40000",
+                              rejected_count=2, rejected_amount="10000", source_file="x"),
     ])
     db_session.flush()
 

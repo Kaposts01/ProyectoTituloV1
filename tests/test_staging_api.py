@@ -11,10 +11,10 @@ from app.models.payku_channel import PaykuSubscription, PaykuTransaction
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.models.tch import (
-    TchCliente,
-    TchRecaudacionMensual,
-    TchSuscripcion,
-    TchTransaccion,
+    TchClient,
+    TchMonthlyCollection,
+    TchSubscription,
+    TchTransaction,
 )
 from app.services import rejected_month
 from app.services.channel_store import (
@@ -236,15 +236,15 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
                 source="payku", external_id="general-payku-rejected", status="rejected", amount="900",
                 payment_date="2099-04-02", raw_payload={},
             ),
-            TchCliente(rut="99.999.999-9"),
-            TchSuscripcion(
-                numero_ficha=999999, estado="VIGENTE", monto="2000", fecha_activacion="2099-04-03"
+            TchClient(rut="99.999.999-9"),
+            TchSubscription(
+                file_number=999999, status="VIGENTE", amount="2000", activation_date="2099-04-03"
             ),
-            TchTransaccion(numero_ficha=999999, periodo="2099-04", estado="ACEPTADA", monto="2000"),
+            TchTransaction(file_number=999999, period="2099-04", status="ACEPTADA", amount="2000"),
             # Tarjetas de rechazo = universo de CARGOS hasta hoy (no meses futuros): periodo pasado.
-            TchRecaudacionMensual(
-                periodo="2026-09", aceptadas_cantidad=1, aceptadas_monto="2000",
-                rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="control.xlsx",
+            TchMonthlyCollection(
+                period="2026-09", accepted_count=1, accepted_amount="2000",
+                rejected_count=0, rejected_amount="0", source_file="control.xlsx",
             ),
             Charge(source="payku", external_id="general-payku-charge-ok", status="pagado",
                    charge_date="2026-09-02", raw_payload={}),
@@ -1096,8 +1096,8 @@ def test_general_subscriptions_combine_channels_and_filter_fields(db_session) ->
         [
             Client(source="toku", external_id="general-sub-client", social_id="88.777.666-5", first_name="Pablo", last_name="Cliente", raw_payload={}),
             Subscription(source="toku", external_id="general-sub-toku", client_external_id="general-sub-client", status="active", amount="2500", currency="CLP", suscription_date="2099-05-01", raw_payload={}),
-            TchCliente(rut="77.666.555-4", nombre="Tania", apellido="TCH"),
-            TchSuscripcion(numero_ficha=987654, cliente_rut="77.666.555-4", estado="VIGENTE", equivalente_pesos="3500", fecha_activacion="2099-05-02"),
+            TchClient(rut="77.666.555-4", name="Tania", last_name="TCH"),
+            TchSubscription(file_number=987654, client_rut="77.666.555-4", status="VIGENTE", peso_equivalent="3500", activation_date="2099-05-02"),
         ]
     )
     db_session.flush()
@@ -1122,7 +1122,7 @@ def test_general_subscriptions_exclude_non_operational_statuses(db_session) -> N
             Subscription(source="virtualpos1", external_id="excluded-vp", status="SUSCRIPCION_FALLIDA", raw_payload={}),
             Subscription(source="payku", external_id="excluded-payku", status="register", raw_payload={}),
             Subscription(source="tch", external_id="excluded-tch-canonical", status="RECHAZADA", raw_payload={}),
-            TchSuscripcion(numero_ficha=765432, estado="RECHAZADA"),
+            TchSubscription(file_number=765432, status="RECHAZADA"),
             Subscription(source="virtualpos1", external_id="included-vp", status="ACTIVA", raw_payload={}),
         ]
     )

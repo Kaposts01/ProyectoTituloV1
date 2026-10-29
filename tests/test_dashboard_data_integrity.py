@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.routes import staging, tch
 from app.db.session import engine
 from app.models.crm import Charge, Subscription
-from app.models.tch import TchRecaudacionMensual, TchTransaccion
+from app.models.tch import TchMonthlyCollection, TchTransaction
 from app.services import charge_stats, rejected_month
 from app.services.charge_stats import (
     charge_rejection_stats,
@@ -146,8 +146,8 @@ def test_no_global_alert_without_evaluable_charges() -> None:
 
 def _clean(db_session):
     db_session.execute(delete(Charge).where(Charge.source.in_(("virtualpos1", "virtualpos2", "toku", "payku"))))
-    db_session.execute(delete(TchRecaudacionMensual))
-    db_session.execute(delete(TchTransaccion))
+    db_session.execute(delete(TchMonthlyCollection))
+    db_session.execute(delete(TchTransaction))
     db_session.flush()
 
 
@@ -254,7 +254,7 @@ def test_general_dashboard_churn_none_and_label(db_session, fixed_today) -> None
 
 def test_general_churn_is_none_when_no_active_subscriptions(db_session, fixed_today) -> None:
     db_session.execute(delete(Subscription).where(Subscription.source.in_(("virtualpos1", "virtualpos2", "toku", "payku"))))
-    db_session.execute(delete(TchRecaudacionMensual))
+    db_session.execute(delete(TchMonthlyCollection))
     db_session.flush()
     data = staging.general_dashboard(db=db_session)
     if data["subscriptions"]["active"] == 0:
@@ -262,12 +262,12 @@ def test_general_churn_is_none_when_no_active_subscriptions(db_session, fixed_to
 
 
 def test_tch_summary_nulls_and_label(db_session, monkeypatch) -> None:
-    from app.models.tch import TchSuscripcion
+    from app.models.tch import TchSubscription
 
     monkeypatch.setattr(tch, "_get_db", lambda: db_session)
-    db_session.execute(delete(TchRecaudacionMensual))
-    db_session.execute(delete(TchTransaccion))
-    db_session.execute(delete(TchSuscripcion))
+    db_session.execute(delete(TchMonthlyCollection))
+    db_session.execute(delete(TchTransaction))
+    db_session.execute(delete(TchSubscription))
     db_session.flush()
     out = tch.tch_summary()
     assert out["kpis"]["churn_rate"] is None and out["kpis"]["arpu"] is None and out["kpis"]["ltv"] is None

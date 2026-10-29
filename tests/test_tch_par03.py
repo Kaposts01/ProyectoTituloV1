@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
-from app.models.tch import TchTransaccion
+from app.models.tch import TchTransaction
 from scripts import etl_tch
 from tests.tch_synthetic import write_report
 
@@ -32,8 +32,8 @@ def db_session():
         connection.close()
 
 
-def _filas(db, ficha: int) -> list[TchTransaccion]:
-    return list(db.scalars(select(TchTransaccion).where(TchTransaccion.numero_ficha == ficha).order_by(TchTransaccion.periodo, TchTransaccion.numero_cuota)))
+def _filas(db, ficha: int) -> list[TchTransaction]:
+    return list(db.scalars(select(TchTransaction).where(TchTransaction.file_number == ficha).order_by(TchTransaction.period, TchTransaction.installment_number)))
 
 
 def _reporte_enero(tmp_path):
@@ -80,38 +80,38 @@ def test_same_cuota_rejected_then_accepted_is_one_row_with_the_previous_rejectio
     etl_tch._process_file(_reporte_enero(tmp_path), db_session)
     etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
 
-    enero = [r for r in _filas(db_session, F1) if r.periodo == "2026-01"]
+    enero = [r for r in _filas(db_session, F1) if r.period == "2026-01"]
     assert len(enero) == 1  # antes: una fila RECHAZADA y otra ACEPTADA
     fila = enero[0]
-    assert fila.numero_cuota == "3"
-    assert fila.estado == "ACEPTADA"  # el ultimo reporte gana
-    assert fila.rechazo_previo is True
-    assert fila.rechazo_previo_motivo == "Fondos insuficientes"
-    assert fila.rechazo_previo_en == "2026-01-15"
-    assert fila.razon_rechazo is None  # una cuota aceptada no conserva el motivo como rechazo vigente
-    assert fila.origen == "cargo"  # el detalle del cargo (fecha, entidad) no lo pisa el historial
+    assert fila.installment_number == "3"
+    assert fila.status == "ACEPTADA"  # el ultimo reporte gana
+    assert fila.previous_rejection is True
+    assert fila.previous_rejection_reason == "Fondos insuficientes"
+    assert fila.previous_rejection_at == "2026-01-15"
+    assert fila.rejection_reason is None  # una cuota aceptada no conserva el motivo como rechazo vigente
+    assert fila.origin == "cargo"  # el detalle del cargo (fecha, entidad) no lo pisa el historial
 
 
 def test_cuota_repeated_between_monthly_and_closing_report_is_one_row(db_session, tmp_path) -> None:
     etl_tch._process_file(_reporte_enero(tmp_path), db_session)
     etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
 
-    filas = [r for r in _filas(db_session, F2) if r.periodo == "2026-01"]
+    filas = [r for r in _filas(db_session, F2) if r.period == "2026-01"]
     assert len(filas) == 1
-    assert filas[0].estado == "ACEPTADA"
-    assert filas[0].rechazo_previo in (None, False)
+    assert filas[0].status == "ACEPTADA"
+    assert filas[0].previous_rejection in (None, False)
 
 
 def test_three_consecutive_reports_keep_a_single_row_per_cuota(db_session, tmp_path) -> None:
     for build in (_reporte_enero, _reporte_febrero, _reporte_marzo):
         etl_tch._process_file(build(tmp_path), db_session)
 
-    keys = list(db_session.scalars(select(TchTransaccion.dedupe_key).where(TchTransaccion.numero_ficha.in_((F1, F2)))))
+    keys = list(db_session.scalars(select(TchTransaction.dedupe_key).where(TchTransaction.file_number.in_((F1, F2)))))
     assert len(keys) == len(set(keys))
     por_cuota = db_session.execute(
-        select(TchTransaccion.numero_ficha, TchTransaccion.periodo, TchTransaccion.numero_cuota, func.count())
-        .where(TchTransaccion.numero_ficha.in_((F1, F2)))
-        .group_by(TchTransaccion.numero_ficha, TchTransaccion.periodo, TchTransaccion.numero_cuota)
+        select(TchTransaction.file_number, TchTransaction.period, TchTransaction.installment_number, func.count())
+        .where(TchTransaction.file_number.in_((F1, F2)))
+        .group_by(TchTransaction.file_number, TchTransaction.period, TchTransaction.installment_number)
     ).all()
     assert all(cantidad == 1 for *_, cantidad in por_cuota)
     assert len(por_cuota) == 5  # F1: ene/3, feb/4, mar/5; F2: ene/1, feb/2
@@ -121,32 +121,32 @@ def test_restatement_in_a_later_report_replaces_estado_and_monto(db_session, tmp
     for build in (_reporte_enero, _reporte_febrero, _reporte_marzo):
         etl_tch._process_file(build(tmp_path), db_session)
 
-    febrero = [r for r in _filas(db_session, F1) if r.periodo == "2026-02"]
+    febrero = [r for r in _filas(db_session, F1) if r.period == "2026-02"]
     assert len(febrero) == 1
-    assert febrero[0].estado == "RECHAZADA"  # marzo reexpreso febrero
-    assert febrero[0].monto == "12000"
-    assert febrero[0].origen == "cargo"  # conserva el detalle del cargo de febrero
+    assert febrero[0].status == "RECHAZADA"  # marzo reexpreso febrero
+    assert febrero[0].amount == "12000"
+    assert febrero[0].origin == "cargo"  # conserva el detalle del cargo de febrero
 
 
 def test_an_older_report_loaded_late_does_not_overwrite_a_newer_state(db_session, tmp_path) -> None:
     etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
     etl_tch._process_file(_reporte_enero(tmp_path), db_session)  # fuera de orden: enero llega despues
 
-    enero = [r for r in _filas(db_session, F1) if r.periodo == "2026-01"]
+    enero = [r for r in _filas(db_session, F1) if r.period == "2026-01"]
     assert len(enero) == 1
-    assert enero[0].estado == "ACEPTADA"  # febrero (mas nuevo) ya habia dicho PAGADA
-    assert enero[0].origen == "cargo"  # pero el detalle del cargo de enero si completa la fila
+    assert enero[0].status == "ACEPTADA"  # febrero (mas nuevo) ya habia dicho PAGADA
+    assert enero[0].origin == "cargo"  # pero el detalle del cargo de enero si completa la fila
 
 
 def test_reprocessing_the_same_report_is_idempotent(db_session, tmp_path) -> None:
     etl_tch._process_file(_reporte_enero(tmp_path), db_session)
     etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
-    antes = db_session.scalar(select(func.count()).select_from(TchTransaccion).where(TchTransaccion.numero_ficha.in_((F1, F2))))
+    antes = db_session.scalar(select(func.count()).select_from(TchTransaction).where(TchTransaction.file_number.in_((F1, F2))))
     etl_tch._process_file(_reporte_febrero(tmp_path), db_session)
-    despues = db_session.scalar(select(func.count()).select_from(TchTransaccion).where(TchTransaccion.numero_ficha.in_((F1, F2))))
+    despues = db_session.scalar(select(func.count()).select_from(TchTransaction).where(TchTransaction.file_number.in_((F1, F2))))
     assert antes == despues
-    fila = next(r for r in _filas(db_session, F1) if r.periodo == "2026-01")
-    assert fila.rechazo_previo is True and fila.rechazo_previo_motivo == "Fondos insuficientes"
+    fila = next(r for r in _filas(db_session, F1) if r.period == "2026-01")
+    assert fila.previous_rejection is True and fila.previous_rejection_reason == "Fondos insuficientes"
 
 
 def test_same_report_with_accepted_and_rejected_rows_for_one_cuota_keeps_the_accepted(db_session, tmp_path) -> None:
@@ -158,16 +158,16 @@ def test_same_report_with_accepted_and_rejected_rows_for_one_cuota_keeps_the_acc
     etl_tch._process_file(ruta, db_session)
     filas = _filas(db_session, F1)
     assert len(filas) == 1
-    assert filas[0].estado == "ACEPTADA"
-    assert filas[0].rechazo_previo_motivo == "Cuenta cerrada"
-    assert filas[0].rechazo_previo_en == "2026-01-05"
-    assert filas[0].fecha_cargo == "2026-01-12"
-    assert filas[0].tipo_transaccion == "Reintento"
+    assert filas[0].status == "ACEPTADA"
+    assert filas[0].previous_rejection_reason == "Cuenta cerrada"
+    assert filas[0].previous_rejection_at == "2026-01-05"
+    assert filas[0].charge_date == "2026-01-12"
+    assert filas[0].transaction_type == "Reintento"
 
 
 def test_legacy_keys_are_detected_before_an_incremental_load(db_session) -> None:
     assert etl_tch._has_legacy_dedupe_keys(db_session) is False
-    db_session.add(TchTransaccion(numero_ficha=1, estado="ACEPTADA", dedupe_key="1|2026-01|1|ACEPTADA|10000"))
+    db_session.add(TchTransaction(file_number=1, status="ACEPTADA", dedupe_key="1|2026-01|1|ACEPTADA|10000"))
     db_session.flush()
     assert etl_tch._has_legacy_dedupe_keys(db_session) is True
 
@@ -177,5 +177,5 @@ def test_moneda_column_wins_over_the_payload_when_resolving_currency() -> None:
 
     from app.services.core_tch_etl import _resolve_currency
 
-    assert _resolve_currency(SimpleNamespace(moneda="UF", raw_payload={"moneda_vigente": "CLP"})) == "UF"
-    assert _resolve_currency(SimpleNamespace(moneda=None, raw_payload={"moneda_vigente": "UF"})) == "UF"
+    assert _resolve_currency(SimpleNamespace(currency="UF", raw_payload={"moneda_vigente": "CLP"})) == "UF"
+    assert _resolve_currency(SimpleNamespace(currency=None, raw_payload={"moneda_vigente": "UF"})) == "UF"

@@ -9,7 +9,7 @@ from sqlalchemy import delete
 
 from app.api.v1.routes import recovery, reports, staging, tch
 from app.models.crm import Charge, Client, Subscription
-from app.models.tch import TchCliente, TchRecaudacionMensual, TchTransaccion
+from app.models.tch import TchClient, TchMonthlyCollection, TchTransaction
 from tests.test_dashboard_general import (  # noqa: F401  (fixtures)
     _now,
     auth,
@@ -32,17 +32,17 @@ def seeded(db_session, data, monkeypatch):  # noqa: F811
             return None
 
     monkeypatch.setattr(tch, "_get_db", lambda: _NoClose())
-    db_session.execute(delete(TchRecaudacionMensual).where(TchRecaudacionMensual.periodo.notin_(["2026-10", "2026-09"])))
+    db_session.execute(delete(TchMonthlyCollection).where(TchMonthlyCollection.period.notin_(["2026-10", "2026-09"])))
     db_session.add_all([
-        TchCliente(rut="T1", nombre="Ana", apellido="Prueba", email="a@example.org", telefono="1", comuna="X", ciudad="Y"),
-        TchCliente(rut="T2", nombre="Beto", apellido="Prueba"),
-        TchTransaccion(numero_ficha=1, estado="ACEPTADA", periodo="2026-10", monto="30000", fecha_cargo="2026-10-05",
-                       numero_cuota="1", total_cuotas="12", entidad_recaudadora="B", tipo_transaccion="cargo", origen="cargo",
+        TchClient(rut="T1", name="Ana", last_name="Prueba", email="a@example.org", phone="1", district="X", city="Y"),
+        TchClient(rut="T2", name="Beto", last_name="Prueba"),
+        TchTransaction(file_number=1, status="ACEPTADA", period="2026-10", amount="30000", charge_date="2026-10-05",
+                       installment_number="1", total_installments="12", collecting_entity="B", transaction_type="cargo", origin="cargo",
                        dedupe_key="k-1"),
-        TchTransaccion(numero_ficha=3, estado="RECHAZADA", periodo="2026-10", monto="20000", fecha_cargo="2026-10-06",
-                       razon_rechazo="Fondos insuficientes", codigo_respuesta="51", origen="cargo", dedupe_key="k-2"),
-        TchTransaccion(numero_ficha=3, estado="ACEPTADA", periodo="2026-09", monto="20000", fecha_cargo="2026-09-06",
-                       origen="cargo", dedupe_key="k-3"),
+        TchTransaction(file_number=3, status="RECHAZADA", period="2026-10", amount="20000", charge_date="2026-10-06",
+                       rejection_reason="Fondos insuficientes", response_code="51", origin="cargo", dedupe_key="k-2"),
+        TchTransaction(file_number=3, status="ACEPTADA", period="2026-09", amount="20000", charge_date="2026-09-06",
+                       origin="cargo", dedupe_key="k-3"),
         Client(source="virtualpos1", external_id="cl1", social_id="S1", first_name="Ana", last_name="Prueba",
                email="x@example.org", raw_payload={}),
         Subscription(source="virtualpos1", external_id="v10", status="CANCELADA", suscription_date="2026-01-01",
@@ -66,7 +66,7 @@ def test_tch_routes_keys(seeded) -> None:
     assert_keys("tch_suscripciones", tch.list_suscripciones(page=1, limit=50))
     assert_keys("tch_suscripcion_detalle", tch.get_suscripcion(1))
     assert_keys("tch_transacciones", tch.list_transacciones(page=1, limit=50))
-    first = seeded.query(TchTransaccion).filter(TchTransaccion.dedupe_key == "k-2").one()
+    first = seeded.query(TchTransaction).filter(TchTransaction.dedupe_key == "k-2").one()
     assert_keys("tch_transaccion_detalle", tch.get_transaccion(first.id))
 
 

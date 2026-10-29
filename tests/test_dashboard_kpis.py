@@ -17,7 +17,7 @@ from app.main import app
 from app.models.crm import PaymentMethod, Subscription
 from app.models.etl_run import EtlRun
 from app.models.payku_channel import PaykuTransaction as PkTx
-from app.models.tch import TchRecaudacionMensual
+from app.models.tch import TchMonthlyCollection
 from app.services import rejected_month
 
 
@@ -180,9 +180,9 @@ def test_rejected_month_uses_chile_time_not_utc(monkeypatch) -> None:
 # -- TCH recaudo mensual -------------------------------------------------------
 
 def _ctrl(periodo, acc_n, acc_m):
-    return TchRecaudacionMensual(
-        periodo=periodo, aceptadas_cantidad=acc_n, aceptadas_monto=acc_m,
-        rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="x.xlsx",
+    return TchMonthlyCollection(
+        period=periodo, accepted_count=acc_n, accepted_amount=acc_m,
+        rejected_count=0, rejected_amount="0", source_file="x.xlsx",
     )
 
 
@@ -204,13 +204,13 @@ def test_tch_summary_reports_monthly_series_source(db_session, monkeypatch) -> N
     from sqlalchemy import delete
 
     monkeypatch.setattr(tch, "_get_db", lambda: db_session)
-    db_session.execute(delete(TchRecaudacionMensual))
+    db_session.execute(delete(TchMonthlyCollection))
     db_session.flush()
     assert tch.tch_summary()["transacciones_fuente"] == "transacciones"
 
-    db_session.add(TchRecaudacionMensual(
-        periodo="2099-01", aceptadas_cantidad=1, aceptadas_monto="100",
-        rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="t.xlsx",
+    db_session.add(TchMonthlyCollection(
+        period="2099-01", accepted_count=1, accepted_amount="100",
+        rejected_count=0, rejected_amount="0", source_file="t.xlsx",
     ))
     db_session.flush()
     assert tch.tch_summary()["transacciones_fuente"] == "recaudacion_mensual"

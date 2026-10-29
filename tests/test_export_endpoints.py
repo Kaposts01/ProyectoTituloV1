@@ -15,7 +15,7 @@ from app.db.session import SessionLocal
 from app.main import app
 from app.models.auth import Permission, Role, User
 from app.models.crm import Charge, Client, Payment, Subscription
-from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
+from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.models.write_run import WriteRun
 from app.services.charge_stats import chile_today
 from app.services.rbac import seed_permissions
@@ -89,8 +89,8 @@ def _seed_clients(sfx: str) -> None:
                    phone_number="+56900000001", social_id="11111111-1", status="active"),
             Client(source="toku", external_id=f"c2-{sfx}", first_name=f"Beto{sfx}", last_name="Prueba", email=f"beto{sfx}@example.test",
                    social_id="22222222-2", status="active"),
-            TchCliente(rut=f"33{random.randint(100000, 999999)}-3", nombre=f"Cata{sfx}", apellido="Prueba", email=f"cata{sfx}@example.test",
-                       telefono="+56900000003", direccion="Calle Falsa 123", comuna="Comuna X", ciudad="Ciudad Y"),
+            TchClient(rut=f"33{random.randint(100000, 999999)}-3", name=f"Cata{sfx}", last_name="Prueba", email=f"cata{sfx}@example.test",
+                       phone="+56900000003", address="Calle Falsa 123", district="Comuna X", city="Ciudad Y"),
         ])
         db.commit()
     finally:
@@ -250,9 +250,9 @@ def test_suscripciones_vp_and_tch_with_filters(monkeypatch) -> None:
             Subscription(source="virtualpos1", external_id=f"s3-{sfx}", status="SUSCRIPCION_FALLIDA", suscription_date="2026-01-05"),
             Charge(source="virtualpos1", external_id=f"ch-{sfx}", subscription_external_id=f"s1-{sfx}", status="pagado",
                    charge_date="2026-03-03"),
-            TchCliente(rut=rut, nombre=f"Fer{sfx}", apellido="Prueba"),
-            TchSuscripcion(numero_ficha=ficha, cliente_rut=rut, estado="VIGENTE", fecha_activacion="2026-01-01", monto="5000",
-                           equivalente_pesos="5000"),
+            TchClient(rut=rut, name=f"Fer{sfx}", last_name="Prueba"),
+            TchSubscription(file_number=ficha, client_rut=rut, status="VIGENTE", activation_date="2026-01-01", amount="5000",
+                           peso_equivalent="5000"),
         ])
         db.commit()
     finally:
@@ -284,10 +284,10 @@ def test_cobros_tch_and_pagos(monkeypatch) -> None:
     db = SessionLocal()
     try:
         db.add_all([
-            TchTransaccion(numero_ficha=ficha, periodo="2026-01", monto="5000", fecha_cargo="2026-01-15", estado="ACEPTADA",
+            TchTransaction(file_number=ficha, period="2026-01", amount="5000", charge_date="2026-01-15", status="ACEPTADA",
                            dedupe_key=f"{sfx}-1"),
-            TchTransaccion(numero_ficha=ficha, periodo="2026-02", monto="5000", fecha_cargo="2026-02-15", estado="RECHAZADA",
-                           razon_rechazo="Sin fondos", dedupe_key=f"{sfx}-2"),
+            TchTransaction(file_number=ficha, period="2026-02", amount="5000", charge_date="2026-02-15", status="RECHAZADA",
+                           rejection_reason="Sin fondos", dedupe_key=f"{sfx}-2"),
             Payment(source="toku", external_id=f"pay-{sfx}", charge_external_id=f"c-{sfx}", status="paid", payment_date="2026-01-20",
                     amount="900", currency="CLP"),
             Payment(source="payku", external_id=f"pay2-{sfx}", status="success", payment_date="2026-01-21", amount="800"),

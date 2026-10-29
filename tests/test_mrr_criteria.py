@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from app.api.v1.routes import staging, tch
-from app.models.tch import TchRecaudacionMensual
+from app.models.tch import TchMonthlyCollection
 
 
 def _sub(sub_id, amount, status="active"):
@@ -47,9 +47,9 @@ def test_payku_mrr_matches_subscription_amount_in_normal_case() -> None:
 
 
 def _ctrl(periodo, acc_n, acc_m, rej_n, rej_m):
-    return TchRecaudacionMensual(
-        periodo=periodo, aceptadas_cantidad=acc_n, aceptadas_monto=acc_m,
-        rechazadas_cantidad=rej_n, rechazadas_monto=rej_m, archivo_origen="x.xlsx",
+    return TchMonthlyCollection(
+        period=periodo, accepted_count=acc_n, accepted_amount=acc_m,
+        rejected_count=rej_n, rejected_amount=rej_m, source_file="x.xlsx",
     )
 
 

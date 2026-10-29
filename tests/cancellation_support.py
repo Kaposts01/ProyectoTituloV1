@@ -12,7 +12,7 @@ from app.models.auth import User
 from app.models.cancellation import SubscriptionCancellationRequest
 from app.models.crm import Subscription
 from app.models.payku_channel import PaykuTransaction
-from app.models.tch import TchSuscripcion
+from app.models.tch import TchSubscription
 from app.models.toku_channel import TokuInvoice
 from app.models.vp import VpCharge
 from app.services import cancellation_requests as cr
@@ -93,7 +93,7 @@ def seed_payku(db: Session, sub: str = "sus_pk1", pending: int = 1, status: str 
 
 
 def seed_tch(db: Session, ficha: int = 910001, eliminated: bool = False) -> str:
-    db.add(TchSuscripcion(numero_ficha=ficha, estado="VIGENTE", fecha_eliminacion="2026-10-30" if eliminated else None))
+    db.add(TchSubscription(file_number=ficha, status="VIGENTE", deletion_date="2026-10-30" if eliminated else None))
     db.commit()
     return str(ficha)
 

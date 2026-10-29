@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
-from app.models.tch import TchRecaudacionMensual, TchSuscripcion, TchTransaccion
+from app.models.tch import TchMonthlyCollection, TchSubscription, TchTransaction
 from app.scheduler.run_lock import ActiveRunError
 from scripts import etl_tch
 from tests.tch_synthetic import write_report
@@ -28,16 +28,16 @@ def db_session():
         connection.close()
 
 
-def _tx(periodo: str, estado: str, n: int, base: int = 1) -> list[TchTransaccion]:
+def _tx(periodo: str, estado: str, n: int, base: int = 1) -> list[TchTransaction]:
     return [
-        TchTransaccion(numero_ficha=base + i, periodo=periodo, numero_cuota="1", estado=estado, dedupe_key=f"{base + i}|{periodo}|1")
+        TchTransaction(file_number=base + i, period=periodo, installment_number="1", status=estado, dedupe_key=f"{base + i}|{periodo}|1")
         for i in range(n)
     ]
 
 
-def _control(periodo: str, acep: int, rech: int) -> TchRecaudacionMensual:
-    return TchRecaudacionMensual(
-        periodo=periodo, aceptadas_cantidad=acep, aceptadas_monto="0", rechazadas_cantidad=rech, rechazadas_monto="0", archivo_origen="x.xlsx"
+def _control(periodo: str, acep: int, rech: int) -> TchMonthlyCollection:
+    return TchMonthlyCollection(
+        period=periodo, accepted_count=acep, accepted_amount="0", rejected_count=rech, rejected_amount="0", source_file="x.xlsx"
     )
 
 
@@ -52,15 +52,15 @@ def _reporte(tmp_path, control_acep: int, control_rech: int):
 
 
 def _sembrar_base_previa(db) -> None:
-    db.add(TchSuscripcion(numero_ficha=999001, estado="VIGENTE"))
-    db.add(TchTransaccion(numero_ficha=999001, periodo="2025-01", estado="ACEPTADA", dedupe_key="999001|2025-01|1|ACEPTADA|1"))
+    db.add(TchSubscription(file_number=999001, status="VIGENTE"))
+    db.add(TchTransaction(file_number=999001, period="2025-01", status="ACEPTADA", dedupe_key="999001|2025-01|1|ACEPTADA|1"))
     db.commit()
 
 
 def _totales(db) -> tuple[int, int]:
     return (
-        db.scalar(select(func.count()).select_from(TchTransaccion)) or 0,
-        db.scalar(select(func.count()).select_from(TchSuscripcion)) or 0,
+        db.scalar(select(func.count()).select_from(TchTransaction)) or 0,
+        db.scalar(select(func.count()).select_from(TchSubscription)) or 0,
     )
 
 
@@ -113,7 +113,7 @@ def test_reload_that_reconciles_is_committed(db_session, tmp_path) -> None:
     _sembrar_base_previa(db_session)
     outcome = etl_tch.reload_full(db_session, [_reporte(tmp_path, 4, 1)], apply=True)
     assert outcome.committed and outcome.reconciliation.ok
-    filas = list(db_session.scalars(select(TchTransaccion.numero_ficha)))
+    filas = list(db_session.scalars(select(TchTransaction.file_number)))
     assert 999001 not in filas  # la base previa se reconstruyo
     assert len(filas) == 5  # 3 cargos aceptados + 1 rechazado + 1 estado mensual (historial) de la ficha 930001
 
@@ -125,7 +125,7 @@ def test_reload_that_does_not_reconcile_rolls_back_and_leaves_the_database_intac
     assert not outcome.committed and not outcome.reconciliation.ok
     assert outcome.reconciliation.failed_months == ["2026-01"]
     assert _totales(db_session) == antes
-    assert db_session.scalar(select(TchTransaccion.id).where(TchTransaccion.numero_ficha == 999001)) is not None
+    assert db_session.scalar(select(TchTransaction.id).where(TchTransaction.file_number == 999001)) is not None
 
 
 def test_dry_run_reports_counts_and_always_rolls_back(db_session, tmp_path) -> None:

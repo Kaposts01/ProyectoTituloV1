@@ -8,7 +8,7 @@ import uuid
 from sqlalchemy import delete, insert
 
 from app.db.session import SessionLocal
-from app.models.tch import TchTransaccion
+from app.models.tch import TchTransaction
 from app.services.export_queries import (
     ENTITY_COLUMNS,
     ENTITY_SPECS,
@@ -65,15 +65,15 @@ def test_query_uses_server_side_cursor_and_closes_session(monkeypatch) -> None:
     sfx = "cur" + uuid.uuid4().hex[:8]
     seed = SessionLocal()
     try:
-        seed.execute(insert(TchTransaccion), [
-            {"numero_ficha": 1, "estado": "ACEPTADA", "dedupe_key": f"{sfx}-{i}", "archivo_origen": sfx} for i in range(3)])
+        seed.execute(insert(TchTransaction), [
+            {"file_number": 1, "status": "ACEPTADA", "dedupe_key": f"{sfx}-{i}", "source_file": sfx} for i in range(3)])
         seed.commit()
         gen2 = iter_rows(factory, items, ExportFilters(), False)
         next(gen2)
         gen2.close()  # el consumidor corta: la sesion y el cursor se liberan
         assert sessions[-1].in_transaction() is False
     finally:
-        seed.execute(delete(TchTransaccion).where(TchTransaccion.archivo_origen == sfx))
+        seed.execute(delete(TchTransaction).where(TchTransaction.source_file == sfx))
         seed.commit()
         seed.close()
 
@@ -85,9 +85,9 @@ def test_volume_50k_rows_streams_in_chunks_within_time_and_memory() -> None:
     db = SessionLocal()
     try:
         for start in range(0, total, 10_000):
-            db.execute(insert(TchTransaccion), [
-                {"numero_ficha": ficha, "periodo": "2026-01", "monto": "5000", "fecha_cargo": "2026-01-15",
-                 "estado": "ACEPTADA" if i % 3 else "RECHAZADA", "dedupe_key": f"{sfx}-{i}", "archivo_origen": sfx}
+            db.execute(insert(TchTransaction), [
+                {"file_number": ficha, "period": "2026-01", "amount": "5000", "charge_date": "2026-01-15",
+                 "status": "ACEPTADA" if i % 3 else "RECHAZADA", "dedupe_key": f"{sfx}-{i}", "source_file": sfx}
                 for i in range(start, start + 10_000)
             ])
         db.commit()
@@ -120,6 +120,6 @@ def test_volume_50k_rows_streams_in_chunks_within_time_and_memory() -> None:
         if tracemalloc.is_tracing():
             tracemalloc.stop()
         db.rollback()
-        db.execute(delete(TchTransaccion).where(TchTransaccion.archivo_origen == sfx))
+        db.execute(delete(TchTransaction).where(TchTransaction.source_file == sfx))
         db.commit()
         db.close()

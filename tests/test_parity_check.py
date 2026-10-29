@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import engine
 from app.models.crm import Charge, Payment
-from app.models.tch import TchRecaudacionMensual, TchTransaccion
+from app.models.tch import TchMonthlyCollection, TchTransaction
 from app.services import rejected_month
 from scripts.diagnostics import parity_check
 
@@ -98,10 +98,10 @@ def test_payku_and_toku_channels_are_separated(db_session) -> None:
 def test_tch_counts_transactions_by_period_and_the_monthly_control(db_session) -> None:
     before = _rows(db_session, "tch")
     db_session.add_all([
-        TchTransaccion(numero_ficha=9_990_001, periodo="2026-07", estado="ACEPTADA", monto="5000", dedupe_key=f"pc-{uuid.uuid4().hex}"),
-        TchTransaccion(numero_ficha=9_990_002, periodo="2026-07", estado="RECHAZADA", monto="$5.000", dedupe_key=f"pc-{uuid.uuid4().hex}"),
-        TchRecaudacionMensual(periodo="2099-01", aceptadas_cantidad=10, aceptadas_monto="50000", rechazadas_cantidad=2,
-                              rechazadas_monto="10000", archivo_origen="x.xlsx"),
+        TchTransaction(file_number=9_990_001, period="2026-07", status="ACEPTADA", amount="5000", dedupe_key=f"pc-{uuid.uuid4().hex}"),
+        TchTransaction(file_number=9_990_002, period="2026-07", status="RECHAZADA", amount="$5.000", dedupe_key=f"pc-{uuid.uuid4().hex}"),
+        TchMonthlyCollection(period="2099-01", accepted_count=10, accepted_amount="50000", rejected_count=2,
+                              rejected_amount="10000", source_file="x.xlsx"),
     ])
     db_session.flush()
     after = _rows(db_session, "tch", include_future=True)

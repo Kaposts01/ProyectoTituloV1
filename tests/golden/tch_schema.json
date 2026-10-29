@@ -1,0 +1,1133 @@
+{
+ "tch_bancos": {
+  "columns": {
+   "activo": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "BOOLEAN",
+    "unique": false
+   },
+   "codigo_grupo": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "codigo_interno": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "nombre": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(100)",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [],
+  "unique_constraints": [
+   [
+    "uq_tch_banco_nombre",
+    [
+     "nombre"
+    ]
+   ]
+  ]
+ },
+ "tch_centros_costo": {
+  "columns": {
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "estrategia": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "nombre": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [],
+  "unique_constraints": [
+   [
+    "uq_tch_centro_costo_nombre",
+    [
+     "nombre"
+    ]
+   ]
+  ]
+ },
+ "tch_clientes": {
+  "columns": {
+   "apellido": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "ciudad": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "comuna": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "direccion": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(500)",
+    "unique": false
+   },
+   "email": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(320)",
+    "unique": false
+   },
+   "fecha_nacimiento": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "nombre": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "profesion": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(100)",
+    "unique": false
+   },
+   "raw_payload": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "JSONB",
+    "unique": false
+   },
+   "region": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(100)",
+    "unique": false
+   },
+   "rut": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "telefono": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(100)",
+    "unique": false
+   },
+   "tipo_persona": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(30)",
+    "unique": false
+   },
+   "tipo_socio": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "updated_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [
+   [
+    "ix_tch_clientes_rut",
+    [
+     "rut"
+    ],
+    false
+   ]
+  ],
+  "unique_constraints": [
+   [
+    "uq_tch_cliente_rut",
+    [
+     "rut"
+    ]
+   ]
+  ]
+ },
+ "tch_origenes": {
+  "columns": {
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "nombre": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [],
+  "unique_constraints": [
+   [
+    "uq_tch_origen_nombre",
+    [
+     "nombre"
+    ]
+   ]
+  ]
+ },
+ "tch_recaudacion_mensual": {
+  "columns": {
+   "aceptadas_cantidad": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "aceptadas_monto": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "archivo_origen": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "periodo": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(7)",
+    "unique": false
+   },
+   "rechazadas_cantidad": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "rechazadas_monto": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "updated_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [
+   [
+    "ix_tch_recaudacion_mensual_periodo",
+    [
+     "periodo"
+    ],
+    false
+   ]
+  ],
+  "unique_constraints": [
+   [
+    "uq_tch_recaudacion_mensual_periodo",
+    [
+     "periodo"
+    ]
+   ]
+  ]
+ },
+ "tch_suscripciones": {
+  "columns": {
+   "aportes_cuotas": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "aportes_monto": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "banco_nombre": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(100)",
+    "unique": false
+   },
+   "captador": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "centro_costo": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "cliente_rut": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "cuotas_cobradas": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "eli_mes": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "BOOLEAN",
+    "unique": false
+   },
+   "equivalente_pesos": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "estado": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "estrategia": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "fecha_activacion": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "fecha_eliminacion": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "fecha_entrega_banco": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "fecha_ingreso": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "fecha_primer_cobro": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "fecha_rechazo": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "firma": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(10)",
+    "unique": false
+   },
+   "folio": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "ley": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "lugar_captacion": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "meses_sin_aporte": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "moneda": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(3)",
+    "unique": false
+   },
+   "monto": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "monto_cobrado": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "monto_primer_cobro": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "numero_cuenta": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "numero_ficha": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "numero_mandato": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "nvo_mes": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "BOOLEAN",
+    "unique": false
+   },
+   "origen": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "permanencia_anos": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "permanencia_meses": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "personalidad": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "promedio_donacion": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "raw_payload": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "JSONB",
+    "unique": false
+   },
+   "razon_baja": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(500)",
+    "unique": false
+   },
+   "reajuste": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(10)",
+    "unique": false
+   },
+   "rech_mes": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "BOOLEAN",
+    "unique": false
+   },
+   "referencia": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(30)",
+    "unique": false
+   },
+   "tipo_cuenta": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "tipo_mandato": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "titular_distinto": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "BOOLEAN",
+    "unique": false
+   },
+   "updated_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [
+   [
+    "ix_tch_suscripciones_banco_nombre",
+    [
+     "banco_nombre"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_centro_costo",
+    [
+     "centro_costo"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_cliente_rut",
+    [
+     "cliente_rut"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_estado",
+    [
+     "estado"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_fecha_activacion",
+    [
+     "fecha_activacion"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_numero_ficha",
+    [
+     "numero_ficha"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_numero_mandato",
+    [
+     "numero_mandato"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_origen",
+    [
+     "origen"
+    ],
+    false
+   ],
+   [
+    "ix_tch_suscripciones_tipo_mandato",
+    [
+     "tipo_mandato"
+    ],
+    false
+   ]
+  ],
+  "unique_constraints": [
+   [
+    "uq_tch_suscripcion_ficha",
+    [
+     "numero_ficha"
+    ]
+   ]
+  ]
+ },
+ "tch_tipos_mandato": {
+  "columns": {
+   "codigo": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "descripcion": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(500)",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "nombre": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(100)",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [],
+  "unique_constraints": [
+   [
+    "uq_tch_tipo_mandato_codigo",
+    [
+     "codigo"
+    ]
+   ]
+  ]
+ },
+ "tch_transacciones": {
+  "columns": {
+   "archivo_origen": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": false
+   },
+   "codigo_respuesta": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "dedupe_key": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": true
+   },
+   "entidad_recaudadora": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(100)",
+    "unique": false
+   },
+   "estado": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "fecha_cargo": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "monto": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "numero_cuota": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "numero_ficha": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "numero_mandato": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "origen": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(10)",
+    "unique": false
+   },
+   "periodo": {
+    "index": true,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(10)",
+    "unique": false
+   },
+   "raw_payload": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "JSONB",
+    "unique": false
+   },
+   "razon_rechazo": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(500)",
+    "unique": false
+   },
+   "rechazo_previo": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "BOOLEAN",
+    "unique": false
+   },
+   "rechazo_previo_en": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "rechazo_previo_motivo": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(500)",
+    "unique": false
+   },
+   "reporte_periodo": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(7)",
+    "unique": false
+   },
+   "tipo_transaccion": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(50)",
+    "unique": false
+   },
+   "total_cuotas": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [
+   [
+    "ix_tch_transacciones_archivo_origen",
+    [
+     "archivo_origen"
+    ],
+    false
+   ],
+   [
+    "ix_tch_transacciones_entidad_recaudadora",
+    [
+     "entidad_recaudadora"
+    ],
+    false
+   ],
+   [
+    "ix_tch_transacciones_estado",
+    [
+     "estado"
+    ],
+    false
+   ],
+   [
+    "ix_tch_transacciones_fecha_cargo",
+    [
+     "fecha_cargo"
+    ],
+    false
+   ],
+   [
+    "ix_tch_transacciones_numero_ficha",
+    [
+     "numero_ficha"
+    ],
+    false
+   ],
+   [
+    "ix_tch_transacciones_periodo",
+    [
+     "periodo"
+    ],
+    false
+   ]
+  ],
+  "unique_constraints": [
+   [
+    null,
+    [
+     "dedupe_key"
+    ]
+   ]
+  ]
+ }
+}

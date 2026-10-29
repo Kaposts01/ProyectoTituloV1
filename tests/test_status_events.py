@@ -12,7 +12,7 @@ from app.db.session import engine
 from app.models.crm import Charge, Subscription
 from app.models.payku_channel import PaykuTransaction
 from app.models.status_change import RejectionReasonCatalog, StatusChangeEvent
-from app.models.tch import TchTransaccion
+from app.models.tch import TchTransaction
 from app.models.toku_channel import TokuInvoice
 from app.models.vp import VpCharge, VpSubscription
 from app.services import channel_consolidation, status_events
@@ -78,11 +78,11 @@ def _payku_tx(db: Session, status: str = "pending", amount: str = "3000"):
 
 def _tch_tx(db: Session, status: str = "RECHAZADA", amount: str = "4000", code: str | None = None, reason: str | None = None,
             key: str = "tch-1-2026-09"):
-    row = db.scalars(select(TchTransaccion).where(TchTransaccion.dedupe_key == key)).first()
+    row = db.scalars(select(TchTransaction).where(TchTransaction.dedupe_key == key)).first()
     if row is None:
-        row = TchTransaccion(numero_ficha=900001, periodo="2026-09", dedupe_key=key, estado=status)
+        row = TchTransaction(file_number=900001, period="2026-09", dedupe_key=key, status=status)
         db.add(row)
-    row.estado, row.monto, row.codigo_respuesta, row.razon_rechazo = status, amount, code, reason
+    row.status, row.amount, row.response_code, row.rejection_reason = status, amount, code, reason
     db.flush()
 
 

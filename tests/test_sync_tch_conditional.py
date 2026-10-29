@@ -21,7 +21,7 @@ from app.db.session import engine
 from app.models.crm import Charge, Client, Subscription
 from app.models.etl_run import EtlRun
 from app.models.source_record import SourceRecord
-from app.models.tch import TchCliente, TchSuscripcion, TchTransaccion
+from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.scheduler.jobs import sync_all
 from app.services import tch_report_registry as registry
 from app.services.channel_consolidation import consolidate_to_centralized
@@ -121,11 +121,11 @@ def _load_report(db: Session, n: int, ficha_base: int) -> tuple[set[str], set[st
     fichas, keys = set(), set()
     for i in range(n):
         ficha = ficha_base + i
-        db.add(TchCliente(rut=f"EQ-{ficha}", nombre=f"Socio {ficha}"))
-        db.add(TchSuscripcion(numero_ficha=ficha, cliente_rut=f"EQ-{ficha}", estado="VIGENTE", monto="5000"))
+        db.add(TchClient(rut=f"EQ-{ficha}", name=f"Socio {ficha}"))
+        db.add(TchSubscription(file_number=ficha, client_rut=f"EQ-{ficha}", status="VIGENTE", amount="5000"))
         key = f"eq-{ficha}-2026-09"
-        db.add(TchTransaccion(numero_ficha=ficha, periodo="2026-09", estado="ACEPTADA", monto="5000",
-                              dedupe_key=key, archivo_origen=f"r{ficha_base}.xlsx"))
+        db.add(TchTransaction(file_number=ficha, period="2026-09", status="ACEPTADA", amount="5000",
+                              dedupe_key=key, source_file=f"r{ficha_base}.xlsx"))
         fichas.add(str(ficha))
         keys.add(key)
     registry.register(db, _sha(), f"r{ficha_base}.xlsx", 100)

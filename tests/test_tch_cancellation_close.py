@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.cancellation import SubscriptionCancellationRequest
-from app.models.tch import TchSuscripcion
+from app.models.tch import TchSubscription
 from scripts import etl_tch
 
 
@@ -46,8 +46,8 @@ def importer(db_session, monkeypatch, tmp_path):
     def run(ficha: int, eliminar: bool):
         def fake_process(path, db):
             if eliminar:
-                row = db.scalar(select(TchSuscripcion).where(TchSuscripcion.numero_ficha == ficha))
-                row.fecha_eliminacion = "2026-11-03"
+                row = db.scalar(select(TchSubscription).where(TchSubscription.file_number == ficha))
+                row.deletion_date = "2026-11-03"
                 db.flush()
             return {"sus_ins": 0, "sus_upd": 1, "trans": 0, "controles": 0, "fichas": set(), "err": 0}
 
@@ -82,8 +82,8 @@ def test_a_failure_while_closing_does_not_undo_the_import(db_session, importer, 
 
     monkeypatch.setattr(cancellation_apply, "close_tch_cancellations_from_report", boom)
     assert importer(910203, eliminar=True) == 1  # la importacion termina bien (total = 1 suscripcion actualizada)
-    row = db_session.scalar(select(TchSuscripcion).where(TchSuscripcion.numero_ficha == 910203))
-    assert row.fecha_eliminacion == "2026-11-03"
+    row = db_session.scalar(select(TchSubscription).where(TchSubscription.file_number == 910203))
+    assert row.deletion_date == "2026-11-03"
 
 
 def test_script_main_incremental_calls_the_closer(monkeypatch):

@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
-from app.models.tch import TchSuscripcion, TchTransaccion
+from app.models.tch import TchSubscription, TchTransaction
 from app.services import tch_report_registry as report_registry
 from scripts import etl_tch
 
@@ -84,8 +84,8 @@ def test_load_tch_rows_is_idempotent(db_session) -> None:
     etl_tch._load_transactions(db_session, transactions, "tch.xlsx")
     etl_tch._load_transactions(db_session, transactions, "tch.xlsx")
 
-    assert db_session.scalar(select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.numero_ficha == 987654)) == 1
-    assert db_session.scalar(select(func.count()).select_from(TchTransaccion).where(TchTransaccion.dedupe_key == transactions[0]["dedupe_key"])) == 1
+    assert db_session.scalar(select(func.count()).select_from(TchSubscription).where(TchSubscription.file_number == 987654)) == 1
+    assert db_session.scalar(select(func.count()).select_from(TchTransaction).where(TchTransaction.dedupe_key == transactions[0]["dedupe_key"])) == 1
 
 
 def test_safe_error_message_redacts_account_like_values() -> None:
@@ -235,7 +235,7 @@ def test_closing_file_named_after_next_month_does_not_shift_the_period(db_sessio
     assert [r["periodo"] for r in rows] == ["2025-12", "2025-12"]
 
     etl_tch._process_file(xlsx, db_session)
-    periods = set(db_session.scalars(select(TchTransaccion.periodo).where(TchTransaccion.archivo_origen == xlsx.name)))
+    periods = set(db_session.scalars(select(TchTransaction.period).where(TchTransaction.source_file == xlsx.name)))
     assert periods == {"2025-12"}
 
 
@@ -244,8 +244,8 @@ def test_monthly_file_without_date_in_name_still_gets_real_periods(db_session, t
     xlsx = tmp_path / "03 - TCH IG MARZO 2025.xlsx"
     _write_cargos_workbook(xlsx, etl_tch.SHEET_ACCEPTED_CHARGES, ["MAR 25"])
     etl_tch._process_file(xlsx, db_session)
-    rows = db_session.scalars(select(TchTransaccion).where(TchTransaccion.archivo_origen == xlsx.name)).all()
-    assert [r.periodo for r in rows] == ["2025-03"]
+    rows = db_session.scalars(select(TchTransaction).where(TchTransaction.source_file == xlsx.name)).all()
+    assert [r.period for r in rows] == ["2025-03"]
     assert rows[0].dedupe_key.startswith("910001|2025-03|")
 
 
@@ -393,9 +393,9 @@ def _cargar_fichas(db, estados: dict[int, str]) -> None:
 
 def _estado(db, ficha: int) -> tuple[str, str | None]:
     row = db.execute(
-        select(TchSuscripcion.estado, TchSuscripcion.razon_baja).where(TchSuscripcion.numero_ficha == ficha)
+        select(TchSubscription.status, TchSubscription.cancellation_reason).where(TchSubscription.file_number == ficha)
     ).one()
-    return row.estado, row.razon_baja
+    return row.status, row.cancellation_reason
 
 
 def test_implicit_baja_keeps_vigente_and_pendiente_and_closes_the_absent(db_session) -> None:
@@ -416,7 +416,7 @@ def test_implicit_baja_keeps_vigente_and_pendiente_and_closes_the_absent(db_sess
 def test_implicit_baja_keeps_an_existing_razon_baja(db_session) -> None:
     _cargar_fichas(db_session, {930010: "VIGENTE"})
     db_session.execute(
-        TchSuscripcion.__table__.update().where(TchSuscripcion.numero_ficha == 930010).values(razon_baja="motivo previo")
+        TchSubscription.__table__.update().where(TchSubscription.file_number == 930010).values({"razon_baja": "motivo previo"})
     )
     etl_tch._apply_implicit_cancellations(db_session, {1})
     assert _estado(db_session, 930010) == ("ELIMINADA", "motivo previo")
@@ -489,19 +489,19 @@ def test_recaudacion_cutoff_without_month_in_name_uses_last_month_with_charges(t
 
 
 def test_purge_future_recaudacion_removes_only_trailing_zero_months(db_session) -> None:
-    from app.models.tch import TchRecaudacionMensual
+    from app.models.tch import TchMonthlyCollection
 
-    def fila(periodo: str, cantidad: int) -> TchRecaudacionMensual:
-        return TchRecaudacionMensual(
-            periodo=periodo, aceptadas_cantidad=cantidad, aceptadas_monto="0",
-            rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="x.xlsx",
+    def fila(periodo: str, cantidad: int) -> TchMonthlyCollection:
+        return TchMonthlyCollection(
+            period=periodo, accepted_count=cantidad, accepted_amount="0",
+            rejected_count=0, rejected_amount="0", source_file="x.xlsx",
         )
 
     db_session.add_all([fila("2090-02", 0), fila("2090-06", 7), fila("2090-07", 0), fila("2091-01", 0)])
     db_session.flush()
 
     assert etl_tch._purge_future_collection(db_session) == 2
-    quedan = set(db_session.scalars(select(TchRecaudacionMensual.periodo).where(TchRecaudacionMensual.periodo >= "2090")))
+    quedan = set(db_session.scalars(select(TchMonthlyCollection.period).where(TchMonthlyCollection.period >= "2090")))
     assert quedan == {"2090-02", "2090-06"}
 
 

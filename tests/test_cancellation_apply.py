@@ -27,7 +27,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models.cancellation import SubscriptionCancellationRequest
 from app.models.crm import Subscription
-from app.models.tch import TchSuscripcion
+from app.models.tch import TchSubscription
 from app.models.write_run import WriteRun
 from app.services import billing_apply as ba
 from app.services import cancellation_apply as ca
@@ -498,8 +498,8 @@ def test_tch_apply_leaves_request_in_process_without_provider_and_closes_with_re
     assert ca.close_tch_cancellations_from_report(db_session) == []
     assert _reload(db_session, req).status == "pending_external"
     # el siguiente Excel trae fecha_eliminacion
-    ficha_row = db_session.scalar(select(TchSuscripcion).where(TchSuscripcion.numero_ficha == 910100))
-    ficha_row.fecha_eliminacion = "2026-11-03"
+    ficha_row = db_session.scalar(select(TchSubscription).where(TchSubscription.file_number == 910100))
+    ficha_row.deletion_date = "2026-11-03"
     db_session.commit()
     assert ca.close_tch_cancellations_from_report(db_session) == [req.id]
     assert ca.close_tch_cancellations_from_report(db_session) == []  # idempotente

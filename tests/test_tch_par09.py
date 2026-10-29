@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
-from app.models.tch import TchCliente, TchSuscripcion
+from app.models.tch import TchClient, TchSubscription
 from scripts import etl_tch
 from tests.tch_synthetic import write_report
 
@@ -121,8 +121,8 @@ def test_fields_reach_the_database_from_a_synthetic_report(db_session, tmp_path)
         extra_headers=headers,
     )
     etl_tch._process_file(xlsx, db_session)
-    sus = db_session.scalars(select(TchSuscripcion).where(TchSuscripcion.numero_ficha == 940001)).one()
-    assert (sus.estrategia, sus.personalidad, sus.titular_distinto, sus.aportes_cuotas, sus.nvo_mes) == ("Calle", "Juridica", True, 7, True)
-    cliente = db_session.scalars(select(TchCliente).where(TchCliente.rut == "12.345.678-9")).one()
-    assert (cliente.tipo_persona, cliente.region) == ("Juridica", "Valparaiso")
-    assert db_session.scalar(select(TchCliente.id).where(TchCliente.rut == "98.765.432-1")) is None
+    sus = db_session.scalars(select(TchSubscription).where(TchSubscription.file_number == 940001)).one()
+    assert (sus.strategy, sus.personality, sus.different_holder, sus.contribution_installments, sus.new_in_month) == ("Calle", "Juridica", True, 7, True)
+    cliente = db_session.scalars(select(TchClient).where(TchClient.rut == "12.345.678-9")).one()
+    assert (cliente.person_type, cliente.region) == ("Juridica", "Valparaiso")
+    assert db_session.scalar(select(TchClient.id).where(TchClient.rut == "98.765.432-1")) is None
