@@ -70,17 +70,17 @@ Se renderiza `<AppCore />` completo con `fetch` simulado por tabla de rutas (`fr
 
 | Archivo | Pruebas | Cubre |
 |---|---|---|
-| `tch.characterization.test.tsx` | 12 | resumen, listas, fichas de cliente y de cargo TCH, filtros, paginación, error |
+| `tch.characterization.test.tsx` | 14 | resumen, listas, fichas de cliente y de cargo TCH, filtros, paginación, error |
 | `general.characterization.test.tsx` | 18 | resumen general, clientes y suscripciones consolidados, Sync completo, persistencia al navegar |
 | `staging.characterization.test.tsx` | 24 | listas de VirtualPOS/Toku/Payku (parámetros, columnas, acciones, filtros, orden, cuenta, «Ver más», URL) y dashboard de canal |
 | `records.characterization.test.tsx` | 13 | fichas de cliente, plan, suscripción, cargo, transacción y registro Toku/Payku |
-| `writes.characterization.test.tsx` | 22 | diálogos y manejadores de escritura (cuerpo enviado, validaciones, actualización de filas y fichas, errores) |
+| `writes.characterization.test.tsx` | 23 | diálogos y manejadores de escritura (cuerpo enviado, validaciones, actualización de filas y fichas, errores) |
 | `navigation.characterization.test.tsx` | 14 | sesión, tema, redirecciones por permiso, ruta antigua de cambios de cobro, popstate, menú |
-| **Total** | **103** | 33 snapshots del marcado |
+| **Total** | **106** | 34 snapshots del marcado |
 
 Estabilidad: 20 corridas seguidas de `src/test` y 10 de la suite completa sin fallos (tras fijar `asyncUtilTimeout` y esperar el fin de carga de las listas antes de comparar snapshots).
 
-Vacíos conocidos: el JSX de la ficha de suscripción TCH no se puede caracterizar porque hoy lanza un error al abrirla (hallazgo 1); los paneles que ya eran componentes (admin, perfil, recuperador, cambios de cobro) solo se verifican a nivel de ruta.
+Vacíos conocidos: los paneles que ya eran componentes (admin, perfil, recuperador, cambios de cobro) solo se verifican a nivel de ruta.
 
 ## 4. Resultado
 
@@ -95,14 +95,14 @@ Vacíos conocidos: el JSX de la ficha de suscripción TCH no se puede caracteriz
 - `useVirtualPosWrites` (653 líneas) mantiene los ocho manejadores tal cual; partirlo por recurso (cliente, plan, suscripción, cargo) es posible pero no aporta a UX-05 a UX-11 y exigiría tocar la limpieza de avisos (hallazgo 3).
 - `ChannelDashboardView` se sigue montando en línea desde AppCore (ya era un componente).
 
-## 5. Hallazgos de comportamiento (conservados, sin corregir)
+## 5. Hallazgos de comportamiento
 
-Cada uno está fijado por una prueba de caracterización marcada como HALLAZGO o RAREZA; al corregirlo hay que actualizar esa prueba.
+Cada uno está fijado por una prueba de caracterización marcada como HALLAZGO o RAREZA. Estado al 2026-10-29: **corregidos 1, 2, 3 y 4** (pruebas actualizadas de forma deliberada); **pendientes 5, 6 y 7**, que se resolverán con las vistas unificadas (UX-05) y no se tocan antes.
 
-1. **La ficha de suscripción TCH no se puede abrir.** `showTchSuscripcion` pinta un detalle provisional `{ numero_ficha }` sin `transacciones` antes de que llegue la respuesta, y el JSX hace `transacciones.map(...)`: el render de AppCore lanza `TypeError`. (Las fichas de cliente y de cargo TCH sí funcionan porque su detalle provisional es tolerante.) Por eso `renderTchContent` se invoca como función y no como elemento: así el fallo sigue propagándose a AppCore igual que antes, en lugar de quedar atrapado por `ContentErrorBoundary`. Al corregir el bug, pasar a elemento.
-2. **Tras «↻ Sincronizar» en un dashboard de canal la vista queda en «Cargando mini dashboard...»**: `syncChannel` pone `channelLoading` en `true` y nunca lo devuelve a `false` (los datos sí llegan).
-3. **Los avisos «Cambios guardados correctamente.» y «Cliente creado correctamente.» nunca se ven**: el efecto que limpia los avisos del formulario de cliente depende de `[editingClient?.id, creatingClient]` y se dispara al cerrar el diálogo, justo después de fijar el aviso. (Los avisos de plan, suscripción y cargo sí se ven.)
-4. **El dashboard de canal no muestra el error de carga**: el mensaje queda en `error`, que esa vista no pinta, y la pantalla se queda en «Cargando mini dashboard...».
-5. **Un enlace profundo carga datos que no se muestran**: al abrir directamente `/central/clientes` (o cualquier ruta que no sea el resumen) la vista aún es «summary» durante el primer render, así que se piden `staging/summary` y `staging/dashboard/general` antes de aplicar la ruta.
-6. **Acciones con distinto reinicio de errores según dónde se disparen**: «Cancelar» una suscripción desde la ficha de cliente reinicia el error del diálogo, desde la lista o la ficha de suscripción no; «Eliminar» un registro reinicia el error desde la ficha pero no desde la lista. Se conservaron las diferencias con callbacks separados.
-7. **`loading` compartido**: el indicador «Cargando» de la lista de registros también lo apaga el efecto del resumen de staging (`setLoading(false)`), así que puede mostrar «N registros» antes de que termine la carga de la lista en curso.
+1. **[CORREGIDO, f6e4bb3] La ficha de suscripción TCH no se podía abrir.** `showTchSuscripcion` pinta un detalle provisional `{ numero_ficha }` sin `transacciones` antes de que llegue la respuesta, y el JSX hace `transacciones.map(...)`: el render de AppCore lanza `TypeError`. (Las fichas de cliente y de cargo TCH sí funcionan porque su detalle provisional es tolerante.) Por eso `renderTchContent` se invoca como función y no como elemento: así el fallo sigue propagándose a AppCore igual que antes, en lugar de quedar atrapado por `ContentErrorBoundary`. Corrección: el detalle provisional trae `transacciones: []`, el JSX tolera su ausencia y `TchContent` es ahora un componente (un fallo de render queda en `ContentErrorBoundary`). La prueba HALLAZGO se reemplazó por la caracterización de la ficha (mandato, cargos, snapshot, volver, respuesta sin cargos, error de carga).
+2. **[CORREGIDO, a6b6217] Tras «↻ Sincronizar» en un dashboard de canal la vista quedaba en «Cargando mini dashboard...»**: `syncChannel` ponía `channelLoading` en `true` y nunca lo devolvía a `false`. Ahora el `finally` lo apaga.
+3. **[CORREGIDO, f57b735] Los avisos «Cambios guardados correctamente.» y «Cliente creado correctamente.» nunca se veían**: el efecto de limpieza se disparaba al cerrar el diálogo, justo después de fijar el aviso. Ahora el aviso solo se limpia al abrir un diálogo de cliente (los de plan, suscripción y cargo no cambiaron).
+4. **[CORREGIDO, 43f4dd7] El dashboard de canal no mostraba el error de carga**: el mensaje quedaba en `error`, que esa vista no pinta. Ahora `useChannelDashboard` expone `channelError` y `reloadChannel`, y AppCore pinta un aviso `.error-message` (`role="alert"`) con «Reintentar».
+5. **[PENDIENTE, UX-05] Un enlace profundo carga datos que no se muestran**: al abrir directamente `/central/clientes` (o cualquier ruta que no sea el resumen) la vista aún es «summary» durante el primer render, así que se piden `staging/summary` y `staging/dashboard/general` antes de aplicar la ruta.
+6. **[PENDIENTE, UX-05] Acciones con distinto reinicio de errores según dónde se disparen**: «Cancelar» una suscripción desde la ficha de cliente reinicia el error del diálogo, desde la lista o la ficha de suscripción no; «Eliminar» un registro reinicia el error desde la ficha pero no desde la lista. Se conservaron las diferencias con callbacks separados.
+7. **[PENDIENTE, UX-05] `loading` compartido**: el indicador «Cargando» de la lista de registros también lo apaga el efecto del resumen de staging (`setLoading(false)`), así que puede mostrar «N registros» antes de que termine la carga de la lista en curso.
