@@ -25,6 +25,8 @@ from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.write_run import WriteRun
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
 from app.services.charge_stats import chile_today, counts_in_universe
+from app.services.exporter import audit_payload
+from app.services.exporter import csv_safe as _csv_safe
 from app.services.rbac import permission_codes
 from app.services.read_only_provider_sync import safe_error_message
 from app.services.rejection_format import format_rejection_reason
@@ -646,13 +648,6 @@ _CSV_ROW_KEYS = {
 }
 
 
-def _csv_safe(value: Any) -> Any:
-    """Neutralize CSV formula injection in text cells (leading = + - @, tab or CR)."""
-    if isinstance(value, str) and value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + value
-    return value
-
-
 def _csv_response(rows: list[dict], filename: str, include_pii: bool) -> Response:
     columns = [c for c in CSV_COLUMNS if include_pii or c not in PII_COLUMNS]
     output = io.StringIO(newline="")
@@ -668,7 +663,7 @@ def _audit_export(db: Session, user: User, endpoint: str, filters: dict, row_cou
     now = datetime.now().astimezone()
     db.add(WriteRun(
         source="virtualpos", resource_type="recovery_export", external_id=endpoint, operation="export_csv", status="completed",
-        request_payload={"user_id": str(user.id), "username": user.username, "endpoint": endpoint, "filters": filters, "rows": row_count, "pii_included": include_pii},
+        request_payload=audit_payload(user, endpoint, filters, row_count, include_pii),
         finished_at=now,
     ))
     db.commit()
