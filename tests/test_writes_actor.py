@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models.crm import Client, Subscription
 from app.models.write_run import WriteRun
-from app.services import write_payku, write_toku, write_virtualpos
+from app.services import subscription_refresh, write_payku, write_toku, write_virtualpos
 
 BASE = "/api/v1/writes"
 
@@ -42,6 +42,9 @@ class FakeVPActor(_CM):
 
     async def update_client(self, client_id, changes):
         return {"uuid": client_id, **changes}
+
+    async def list_charges(self, subscription_id, page=1, limit=100, status=None):
+        return {"charges": [], "pagination": {"pages": 1, "page": page}}
 
 
 class FakeTokuActor(_CM):
@@ -85,12 +88,15 @@ def _runs(db, operation):
 
 def test_virtualpos_cancel_subscription_records_actor(monkeypatch, db_session) -> None:
     monkeypatch.setattr(write_virtualpos, "VirtualPOSClient", FakeVPActor)
+    monkeypatch.setattr(subscription_refresh, "VirtualPOSClient", FakeVPActor)
     db_session.add(Subscription(source="virtualpos1", external_id="sub-actor-vp", status="ACTIVA"))
     db_session.commit()
     user, client, h = _actor(db_session, "virtualpos.subscriptions.cancel")
     r = client.delete(f"{BASE}/virtualpos/subscriptions/sub-actor-vp", headers=h)
     assert r.status_code == 200
-    assert r.json() == {"external_id": "sub-actor-vp", "status": "CANCELADA"}  # respuesta sin cambios
+    body = r.json()
+    assert (body["external_id"], body["status"]) == ("sub-actor-vp", "CANCELADA")  # campos previos intactos
+    assert body["requires_reconciliation"] is False  # campos nuevos de la verificacion (aditivos)
     runs = _runs(db_session, "cancel_subscription")
     assert len(runs) == 1 and runs[0].requested_by_user_id == user.id
 
@@ -144,6 +150,7 @@ def test_service_default_keeps_actor_null(monkeypatch, db_session) -> None:
     import asyncio
 
     monkeypatch.setattr(write_virtualpos, "VirtualPOSClient", FakeVPActor)
+    monkeypatch.setattr(subscription_refresh, "VirtualPOSClient", FakeVPActor)
     db_session.add(Subscription(source="virtualpos1", external_id="sub-actor-null", status="ACTIVA"))
     db_session.commit()
     asyncio.run(write_virtualpos.cancel_subscription(db_session, "sub-actor-null"))

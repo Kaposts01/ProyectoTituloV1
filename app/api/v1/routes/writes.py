@@ -86,7 +86,7 @@ from app.services.write_virtualpos import (
     cancel_charge,
     cancel_future_charges,
     cancel_payment,
-    cancel_subscription,
+    cancel_subscription_with_outcome,
     create_charge,
     create_client,
     create_plan,
@@ -303,19 +303,31 @@ async def cancel_virtualpos_subscription(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
-    """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id}."""
+    """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id}.
+
+    Toma el mismo lock que la Opción A, cierra sus solicitudes abiertas y verifica que no queden cobros pendientes
+    (campos `requires_reconciliation`/`reconciliation_reason`/`pending_charges`/`processing_charges` en la respuesta)."""
     try:
-        sub = await cancel_subscription(db, subscription_id, requested_by_user_id=current_user.id)
+        sub, outcome = await cancel_subscription_with_outcome(db, subscription_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except SubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción no encontrada") from None
+    except (BillingFlowConflictError, SubscriptionBusyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación") from None
     except ReconciliationRequiredError:
         raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
 
-    return {"external_id": sub.external_id, "status": sub.status}
+    return {
+        "external_id": sub.external_id,
+        "status": sub.status,
+        "requires_reconciliation": outcome.requires_reconciliation,
+        "reconciliation_reason": outcome.reason,
+        "pending_charges": outcome.pending_charges,
+        "processing_charges": outcome.processing_charges,
+    }
 
 
 class VirtualPOSChargeCreate(BaseModel):

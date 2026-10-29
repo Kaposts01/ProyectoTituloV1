@@ -4,16 +4,22 @@ import base64
 import logging
 import re
 import uuid
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
-from app.models.billing import BillingChangeRequest, VpCalendarMark, VpManagedCharge
+from app.models.billing import (
+    BillingChangeRequest,
+    BillingChangeRequestEvent,
+    VpCalendarMark,
+    VpManagedCharge,
+)
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
@@ -869,23 +875,27 @@ LIVE_MANAGED_STATUSES = ("creado", "requiere_conciliacion")
 OPEN_REQUEST_STATUSES = ("pendiente", "aprobada", "aplicando", "requiere_conciliacion")
 
 
-def has_live_managed_charges(db: Session, platform: str, subscription_id: str) -> bool:
+def has_live_managed_charges(
+    db: Session, platform: str, subscription_id: str, statuses: tuple[str, ...] = LIVE_MANAGED_STATUSES
+) -> bool:
     """Hay cobros del CRM vivos (`creado`/`requiere_conciliacion`) en la suscripción, aunque no exista marca."""
     return db.scalar(
         select(VpManagedCharge.id).where(
             VpManagedCharge.platform == platform,
             VpManagedCharge.subscription_external_id == subscription_id,
-            VpManagedCharge.status.in_(LIVE_MANAGED_STATUSES),
+            VpManagedCharge.status.in_(statuses),
         ).limit(1)
     ) is not None
 
 
-def has_open_change_request(db: Session, platform: str, subscription_id: str) -> bool:
+def has_open_change_request(
+    db: Session, platform: str, subscription_id: str, statuses: tuple[str, ...] = OPEN_REQUEST_STATUSES
+) -> bool:
     return db.scalar(
         select(BillingChangeRequest.id).where(
             BillingChangeRequest.platform == platform,
             BillingChangeRequest.subscription_external_id == subscription_id,
-            BillingChangeRequest.status.in_(OPEN_REQUEST_STATUSES),
+            BillingChangeRequest.status.in_(statuses),
         ).limit(1)
     ) is not None
 
@@ -900,7 +910,29 @@ BILLING_FLOW_CONFLICT_MESSAGE = (
 )
 
 
-def ensure_no_billing_flow_conflict(db: Session, platform: str, subscription_id: str) -> None:
+CLOSING_BLOCKING_REQUEST_STATUSES = ("aplicando", "requiere_conciliacion")
+CLOSING_BLOCKING_MANAGED_STATUSES = ("requiere_conciliacion",)
+CLOSING_CONFLICT_MESSAGE = (
+    "La suscripción tiene una solicitud de cambio de cobro aplicándose o pendiente de conciliación, o cobros del CRM "
+    "en conciliación: resuélvalo antes de darla de baja."
+)
+
+
+def ensure_no_billing_flow_conflict(
+    db: Session, platform: str, subscription_id: str, *, closing_subscription: bool = False
+) -> None:
+    """Lanza `BillingFlowConflictError` si la suscripcion esta gestionada por el flujo de solicitudes de cambio.
+
+    Con `closing_subscription=True` (baja, MGT-03) solo bloquea lo que la baja NO puede resolver sola: solicitudes
+    `aplicando`/`requiere_conciliacion` y cobros del CRM en `requiere_conciliacion`. Las solicitudes `pendiente`/
+    `aprobada`, la marca de calendario y los cobros `creado` los cierra la propia baja."""
+    if closing_subscription:
+        if (
+            has_open_change_request(db, platform, subscription_id, CLOSING_BLOCKING_REQUEST_STATUSES)
+            or has_live_managed_charges(db, platform, subscription_id, CLOSING_BLOCKING_MANAGED_STATUSES)
+        ):
+            raise BillingFlowConflictError(CLOSING_CONFLICT_MESSAGE)
+        return
     if (
         has_active_calendar_mark(db, platform, subscription_id)
         or has_live_managed_charges(db, platform, subscription_id)
@@ -1307,8 +1339,134 @@ def _is_base64(value: str) -> bool:
         return False
 
 
-async def cancel_subscription(db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
-    """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id}."""
+@dataclass
+class CancelOutcome:
+    """Resultado de la baja mas alla de la suscripcion: verificacion posterior (MGT-04).
+
+    `reason` (si `requires_reconciliation`): `pending_charges_remain` | `processing_charges` | `refresh_failed` |
+    `local_cleanup_failed`. Codigos fijos, sin texto del proveedor.
+    """
+
+    requires_reconciliation: bool = False
+    reason: str | None = None
+    pending_charges: int = 0
+    pending_charge_ids: list[str] = field(default_factory=list)
+    processing_charges: int = 0
+    processing_charge_ids: list[str] = field(default_factory=list)
+    closed_request_ids: list[str] = field(default_factory=list)
+
+    def flag(self, reason: str) -> None:
+        self.requires_reconciliation = True
+        if self.reason is None:
+            self.reason = reason
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _close_open_change_requests(
+    db: Session, platform: str, subscription_id: str, actor: uuid.UUID | None, write_run_id: uuid.UUID
+) -> list[str]:
+    """Solicitudes de la Opcion A aun no aplicadas (pendiente/aprobada) de la suscripcion dada de baja: pasan a
+    `no_ejecutable` con un motivo fijo y un evento inmutable. (`aplicando`/`requiere_conciliacion` no llegan aqui:
+    las bloquea `ensure_no_billing_flow_conflict`.)"""
+    ids = list(db.scalars(
+        update(BillingChangeRequest)
+        .where(
+            BillingChangeRequest.platform == platform,
+            BillingChangeRequest.subscription_external_id == subscription_id,
+            BillingChangeRequest.status.in_(("pendiente", "aprobada")),
+        )
+        .values(status="no_ejecutable", error_message="SUBSCRIPTION_CANCELLED", updated_at=func.now())
+        .returning(BillingChangeRequest.id)
+        .execution_options(synchronize_session=False)
+    ))
+    for request_id in ids:
+        db.add(BillingChangeRequestEvent(
+            request_id=request_id, event_type="no_ejecutable", actor_user_id=actor,
+            detail={"reason": "subscription_cancelled", "write_run_id": str(write_run_id)},
+            created_at=datetime.now(UTC),
+        ))
+    return [str(i) for i in ids]
+
+
+def _retire_calendar_mark(db: Session, platform: str, subscription_id: str) -> None:
+    db.execute(
+        update(VpCalendarMark)
+        .where(
+            VpCalendarMark.platform == platform,
+            VpCalendarMark.subscription_external_id == subscription_id,
+            VpCalendarMark.is_active.is_(True),
+        )
+        .values(is_active=False, updated_at=func.now())
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def _verify_no_pending_charges(
+    db: Session, platform: str, subscription_id: str, write_run_id: uuid.UUID,
+    actor: uuid.UUID | None, outcome: CancelOutcome,
+) -> bool:
+    """Tras la baja: relee la suscripcion y sus cobros (`refresh_subscription`) y exige que NO queden cobros
+    pendientes. Si quedan, reintenta su cancelacion INDIVIDUAL por `charge_id` (nunca el DELETE plural) y vuelve a
+    verificar. Un cobro `procesando` no se cancela: se registra para conciliacion. Devuelve True si la verificacion
+    pudo completarse (aunque quede algo por conciliar)."""
+    from app.services import (
+        subscription_refresh as refresh,  # import local: ese modulo importa este
+    )
+
+    try:
+        result = await refresh.refresh_subscription(db, platform, subscription_id, run_id=write_run_id)
+        if result.pending_charges:
+            try:
+                await cancel_future_charges(
+                    db, subscription_id, platform=platform, charge_ids=list(result.pending_charge_ids),
+                    requested_by_user_id=actor,
+                )
+            except Exception as exc:
+                log.warning("VP baja %s: reintento individual de cobros pendientes fallo (%s)", subscription_id, type(exc).__name__)
+            result = await refresh.refresh_subscription(db, platform, subscription_id, run_id=write_run_id)
+    except refresh.RefreshError as exc:
+        log.warning("VP baja %s: no se pudo verificar los cobros (%s)", subscription_id, exc.code)
+        outcome.flag("refresh_failed")
+        return False
+    outcome.pending_charges = result.pending_charges
+    outcome.pending_charge_ids = list(result.pending_charge_ids)
+    outcome.processing_charges = result.processing_charges
+    outcome.processing_charge_ids = list(result.processing_charge_ids)
+    if result.pending_charges:
+        outcome.flag("pending_charges_remain")
+    elif result.processing_charges:
+        outcome.flag("processing_charges")
+    return True
+
+
+async def cancel_subscription(
+    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None
+) -> Subscription:
+    """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id} (ver `cancel_subscription_with_outcome`)."""
+    sub, _ = await cancel_subscription_with_outcome(db, subscription_id, requested_by_user_id=requested_by_user_id)
+    return sub
+
+
+async def cancel_subscription_with_outcome(
+    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None
+) -> tuple[Subscription, CancelOutcome]:
+    """Baja de una suscripcion VirtualPOS con el mismo guard y lock que la Opcion A (MGT-03) y verificacion posterior
+    (MGT-04).
+
+    Orden: lock por suscripcion (el mismo de `billing_apply`; `SubscriptionBusyError` si esta tomado) -> guard
+    `ensure_no_billing_flow_conflict` (bloquea solicitudes `aplicando`/`requiere_conciliacion` y cobros del CRM en
+    conciliacion) -> DELETE de la suscripcion -> cierre de las solicitudes abiertas como `no_ejecutable` y retiro de
+    la marca de calendario -> `refresh_subscription` y verificacion de que NO queden cobros pendientes (si quedan,
+    cancelacion individual por `charge_id`; nunca el DELETE plural) -> `canceled_at`. Un cobro `procesando` no se
+    cancela. Si algo no verifica, la baja ya hecha NO se revierte: se devuelve `requires_reconciliation` con un
+    motivo fijo y el `write_run` queda `reconciliation_required`.
+    """
+    from app.services.billing_apply import (
+        subscription_lock,  # import local: billing_apply importa este modulo
+    )
+
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source.like("virtualpos%"))
     )
@@ -1318,13 +1476,23 @@ async def cancel_subscription(db: Session, subscription_id: str, *, requested_by
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
+    platform = sub.source
+    with subscription_lock(db, platform, subscription_id):
+        ensure_no_billing_flow_conflict(db, platform, subscription_id, closing_subscription=True)
+        return await _cancel_subscription_locked(db, sub, subscription_id, requested_by_user_id)
+
+
+async def _cancel_subscription_locked(
+    db: Session, sub: Subscription, subscription_id: str, requested_by_user_id: uuid.UUID | None
+) -> tuple[Subscription, CancelOutcome]:
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
     )
+    platform = sub.source
 
     write_run = WriteRun(
-        source=sub.source,
+        source=platform,
         resource_type="subscription",
         external_id=subscription_id,
         operation="cancel_subscription",
@@ -1336,7 +1504,7 @@ async def cancel_subscription(db: Session, subscription_id: str, *, requested_by
     db.commit()
 
     try:
-        async with VirtualPOSClient(platform=sub.source) as provider:
+        async with VirtualPOSClient(platform=platform) as provider:
             await provider.cancel_subscription(subscription_id)
             try:
                 refreshed_payload = _subscription_payload(await provider.get_subscription(subscription_id))
@@ -1366,21 +1534,75 @@ async def cancel_subscription(db: Session, subscription_id: str, *, requested_by
         # entidad centralizada; no hace falta resincronizar todo el canal.
         source_record = db.scalar(
             select(SourceRecord).where(
-                SourceRecord.source == sub.source,
+                SourceRecord.source == platform,
                 SourceRecord.resource_type == "subscription",
                 SourceRecord.external_id == subscription_id,
             )
         )
         if source_record is None:
             source_record = SourceRecord(
-                source=sub.source, resource_type="subscription", external_id=subscription_id, payload=sanitized_payload
+                source=platform, resource_type="subscription", external_id=subscription_id, payload=sanitized_payload
             )
             db.add(source_record)
         else:
             source_record.payload = sanitized_payload
         sub.status = _as_text(sanitized_payload.get("status")) or "CANCELADA"
         sub.raw_payload = sanitized_payload
-        write_run.status = "completed"
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    # MGT-03: la suscripcion ya no cobra; las solicitudes abiertas de la Opcion A pierden sentido.
+    outcome = CancelOutcome()
+    try:
+        outcome.closed_request_ids = _close_open_change_requests(
+            db, platform, subscription_id, requested_by_user_id, write_run.id
+        )
+        _retire_calendar_mark(db, platform, subscription_id)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        log.warning("VP baja %s: limpieza local fallo (%s)", subscription_id, type(exc).__name__)
+        outcome.flag("local_cleanup_failed")
+
+    # MGT-04: verificar que no queden cobros pendientes.
+    verified = await _verify_no_pending_charges(db, platform, subscription_id, write_run.id, requested_by_user_id, outcome)
+
+    sub = db.scalar(
+        select(Subscription)
+        .where(Subscription.external_id == subscription_id, Subscription.source == platform)
+        .execution_options(populate_existing=True)
+    ) or sub
+    write_run = db.get(WriteRun, write_run.id)
+    try:
+        if verified:  # los cobros del CRM que ya no estan pendientes ni procesando quedan cancelados
+            live = set(outcome.pending_charge_ids) | set(outcome.processing_charge_ids)
+            for managed in db.scalars(select(VpManagedCharge).where(
+                VpManagedCharge.platform == platform,
+                VpManagedCharge.subscription_external_id == subscription_id,
+                VpManagedCharge.status == "creado",
+            )):
+                if managed.charge_id not in live:
+                    managed.status = "cancelado"
+                    managed.cancelled_at = datetime.now(UTC)
+        if not sub.canceled_at:
+            sub.canceled_at = datetime.now(UTC).isoformat(timespec="seconds")
+            db.execute(
+                update(VpSubscription)
+                .where(VpSubscription.platform == platform, VpSubscription.external_id == subscription_id,
+                       VpSubscription.canceled_at.is_(None))
+                .values(canceled_at=sub.canceled_at)
+            )
+        write_run.response_payload = {**sanitized_payload, "outcome": outcome.to_dict()}
+        write_run.status = "reconciliation_required" if outcome.requires_reconciliation else "completed"
+        write_run.error_message = outcome.reason if outcome.requires_reconciliation else None
         write_run.finished_at = datetime.now(UTC)
         db.commit()
     except Exception as exc:
@@ -1393,7 +1615,7 @@ async def cancel_subscription(db: Session, subscription_id: str, *, requested_by
             db.commit()
         raise ReconciliationRequiredError from exc
 
-    return sub
+    return sub, outcome
 
 
 async def cancel_payment(db: Session, payment_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Payment:
