@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { friendlyError, getJson } from "./api";
 import { formatKpi } from "./components/formatKpi";
 
 type ChannelStats = {
@@ -63,10 +64,9 @@ function pct(n: number): string {
   return formatKpi(n, "percent");
 }
 
-async function fetchReport(): Promise<AutomaticReportData> {
-  const r = await fetch("/api/v1/reports/automatic", { credentials: "include" });
-  if (!r.ok) throw new Error(`Error ${r.status}: ${r.statusText}`);
-  return r.json() as Promise<AutomaticReportData>;
+function fetchReport(): Promise<AutomaticReportData> {
+  // Por api.ts: el error HTTP llega en español (nunca el statusText en inglés del servidor).
+  return getJson<AutomaticReportData>("/api/v1/reports/automatic");
 }
 
 function ChurnBadge({ rate }: { rate: number }) {
@@ -125,7 +125,7 @@ export function AutomaticReport() {
     setLoading(true);
     fetchReport()
       .then((d) => { if (mounted) { setData(d); setLoading(false); } })
-      .catch((err: unknown) => { if (mounted) { setError(String(err)); setLoading(false); } });
+      .catch((err: unknown) => { if (mounted) { setError(friendlyError(err, "Error desconocido.")); setLoading(false); } });
     return () => { mounted = false; };
   }, []);
 

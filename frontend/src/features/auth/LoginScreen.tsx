@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { setCsrfToken } from "../../api";
+import { translateApiDetail } from "../../i18n/apiErrors";
 import type { AuthSession } from "../shared/types";
 
 export function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
@@ -21,7 +22,7 @@ export function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => vo
       });
       const payload = (await response.json()) as AuthSession | { detail?: string };
       if (!response.ok || !("user" in payload))
-        throw new Error("detail" in payload ? payload.detail : "No se pudo iniciar sesión");
+        throw new Error(("detail" in payload && typeof payload.detail === "string" && (translateApiDetail(payload.detail) ?? payload.detail)) || "No se pudo iniciar sesión");
       setCsrfToken(payload.csrf_token);
       onLogin(payload);
     } catch (loginError) {

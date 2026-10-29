@@ -1,4 +1,5 @@
 /** HTTP utilities compartidas por todos los módulos del frontend. */
+import { translateApiDetail, validationMessage } from "./i18n/apiErrors";
 import { noteServerDate } from "./serverClock";
 
 export let csrfToken = "";
@@ -7,21 +8,18 @@ export function setCsrfToken(token: string): void {
   csrfToken = token;
 }
 
+/**
+ * Mensaje de un error de la API para el usuario. El `detail` en inglés que el backend ya conoce se traduce
+ * (i18n/apiErrors.ts); el que no está en el catálogo se muestra tal cual (casi siempre es español redactado por el
+ * backend). Un `detail` estructurado {code, message} no se muestra: se usa el texto genérico del estado HTTP.
+ */
 function extractErrorDetail(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const detail = (data as Record<string, unknown>).detail;
-  if (typeof detail === "string") return detail;
+  if (typeof detail === "string") return translateApiDetail(detail) ?? detail;
   if (Array.isArray(detail) && detail.length > 0) {
     return detail
-      .map((item) => {
-        if (typeof item !== "object" || item === null) return String(item);
-        const err = item as Record<string, unknown>;
-        const loc = Array.isArray(err.loc)
-          ? (err.loc as string[]).filter((l) => l !== "body").join(" → ")
-          : "";
-        const msg = typeof err.msg === "string" ? err.msg : "";
-        return loc ? `${loc}: ${msg}` : msg;
-      })
+      .map((item) => (typeof item === "object" && item !== null ? validationMessage(item as Record<string, unknown>) : String(item)))
       .filter(Boolean)
       .join("; ");
   }
@@ -34,8 +32,10 @@ function httpErrorMessage(status: number, detail: string | null): string {
   if (status === 401) return "Sesión expirada. Vuelve a iniciar sesión.";
   if (status === 403) return "No tienes permiso para realizar esta acción.";
   if (status === 404) return "El recurso solicitado no fue encontrado.";
+  if (status === 409) return "La operación entra en conflicto con el estado actual. Actualiza e inténtalo de nuevo.";
   if (status === 422) return "Los datos enviados no son válidos. Revisa los campos e inténtalo de nuevo.";
   if (status === 500) return "Error interno del servidor. Inténtalo de nuevo en unos momentos.";
+  if (status === 502) return "El servicio externo no respondió correctamente. Inténtalo más tarde.";
   if (status === 503) return "El servicio no está disponible temporalmente. Inténtalo más tarde.";
   return `Error inesperado del servidor (${status}).`;
 }
@@ -44,6 +44,7 @@ export function friendlyError(error: unknown, fallback = "Ocurrió un error ines
   if (error instanceof TypeError && error.message.toLowerCase().includes("fetch")) {
     return "No se pudo conectar con el servidor. Verifica tu conexión.";
   }
+  if (error instanceof SyntaxError) return "La respuesta del servidor no tiene el formato esperado.";
   if (error instanceof Error) return error.message || fallback;
   return fallback;
 }
@@ -52,12 +53,21 @@ export function friendlyError(error: unknown, fallback = "Ocurrió un error ines
 export class ApiError extends Error {
   status: number;
   detail: unknown;
+  /** `detail.code` cuando el backend envía un detalle estructurado {code, message}; si no, null. */
+  code: string | null;
   constructor(message: string, status: number, detail: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    const code = detail && typeof detail === "object" ? (detail as Record<string, unknown>).code : undefined;
+    this.code = typeof code === "string" ? code : null;
   }
+}
+
+/** ¿El error trae exactamente este `detail` crudo del backend? (el mensaje mostrado ya está traducido, no sirve para comparar). */
+export function apiDetailIs(error: unknown, detail: string): boolean {
+  return error instanceof ApiError && error.detail === detail;
 }
 
 async function checkResponse(response: Response): Promise<void> {
