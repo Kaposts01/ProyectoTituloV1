@@ -289,7 +289,7 @@ async def change_subscription_status(db: Session, subscription_id: str, status: 
 class DeleteAbortedError(Exception):
     """El borrado de la suscripcion se aborto ANTES de borrarla (fail-closed en todos los ambientes, MGT-05).
 
-    `code` es estable y fijo (`INVOICE_LIST_FAILED` | `INVOICE_VOID_FAILED`); nunca lleva texto libre del proveedor.
+    `code` es estable y fijo (`INVOICE_LIST_FAILED` | `INVOICE_VOID_FAILED` | `INVOICE_IN_PROGRESS`); nunca lleva texto libre del proveedor.
     `voided_invoice_ids` son las invoices ya anuladas (irreversible) antes del fallo.
     """
 
@@ -300,7 +300,11 @@ class DeleteAbortedError(Exception):
         self.failed_invoice_id = failed_invoice_id
 
 
-_ABORT_STEPS = {"INVOICE_LIST_FAILED": "list_invoices", "INVOICE_VOID_FAILED": "void_invoice"}
+_ABORT_STEPS = {
+    "INVOICE_LIST_FAILED": "list_invoices",
+    "INVOICE_VOID_FAILED": "void_invoice",
+    "INVOICE_IN_PROGRESS": "invoice_in_progress",
+}
 
 
 async def delete_subscription(
@@ -309,8 +313,9 @@ async def delete_subscription(
     """Delete a Toku subscription via DELETE /subscriptions/{id}.
 
     Fail-closed en TODOS los ambientes (MGT-05): si falla el listado de invoices impagas, o la anulacion de alguna
-    invoice impaga que no esta `in_progress`, NO se borra la suscripcion (el DELETE es irreversible) y se lanza
-    `DeleteAbortedError` con un codigo fijo. Las `in_progress` no se tocan.
+    invoice impaga, NO se borra la suscripcion (el DELETE es irreversible) y se lanza `DeleteAbortedError` con un
+    codigo fijo. D30: si alguna invoice esta `in_progress` la baja se NIEGA (`INVOICE_IN_PROGRESS`) ANTES de anular
+    nada: no se anula ninguna invoice ni se elimina la suscripcion.
     """
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "toku")
@@ -342,7 +347,7 @@ async def delete_subscription(
             provider.precheck_writes([delete_op])
 
             # Anular invoices impagas antes del DELETE para evitar cobros huérfanos (RISK-TK-01).
-            # Solo se anulan las que no están in_progress; las in_progress se omiten (quedan intactas).
+            # D30: una invoice in_progress niega la baja completa (no se anula nada).
             to_void: list[str] = []
             try:
                 invoices_resp = await provider.list_subscription_invoices(
@@ -365,6 +370,9 @@ async def delete_subscription(
                     subscription_id, type(exc_list).__name__,
                 )
                 raise DeleteAbortedError("INVOICE_LIST_FAILED") from exc_list
+
+            if skipped_in_progress:
+                raise DeleteAbortedError("INVOICE_IN_PROGRESS")
 
             # Los voids son IRREVERSIBLES: fuera de produccion se validan TODOS (voids + DELETE, incluido el
             # cupo restante) antes de anular ninguno; si algo no seria permitido se aborta sin tocar la red.

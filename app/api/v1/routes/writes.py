@@ -933,6 +933,15 @@ async def delete_toku_subscription(
     except TokuSubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
     except TokuDeleteAbortedError as exc:
+        if exc.code == "INVOICE_IN_PROGRESS":
+            # D30: factura en curso niega la baja; nada se anuló.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "INVOICE_IN_PROGRESS",
+                    "message": "La suscripción tiene una factura en proceso de cobro: la baja no se realizó.",
+                },
+            ) from None
         # Fail-closed (MGT-05): la suscripción NO se eliminó. Solo el código fijo, sin texto del proveedor.
         raise HTTPException(
             status_code=502, detail=f"Eliminación abortada: la suscripción no se eliminó ({exc.code})."

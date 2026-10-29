@@ -1,5 +1,6 @@
 """MGT-05: `delete_subscription` de Toku falla CERRADO tambien en produccion.
 
+Si alguna invoice esta `in_progress` (D30) la baja se NIEGA (409 `INVOICE_IN_PROGRESS`) sin anular nada.
 Si falla el listado de invoices impagas, o la anulacion de alguna invoice impaga que no esta `in_progress`, NO se
 borra la suscripcion (el DELETE es irreversible). El error expone un codigo fijo (sin texto libre del proveedor) y el
 `write_run` queda con el paso fallido; con anulaciones ya hechas (irreversibles) queda `reconciliation_required`.
@@ -130,16 +131,51 @@ def test_production_first_void_failure_is_plain_failed(db_session) -> None:
     assert not _deleted()
 
 
-def test_production_success_voids_then_deletes_and_leaves_in_progress_untouched(db_session) -> None:
-    FakeToku.invoices = [{"id": "in_1"}, {"id": "in_busy", "in_progress": True}, {"id": "in_2"}]
+def test_production_success_voids_all_unpaid_then_deletes(db_session) -> None:
+    FakeToku.invoices = [{"id": "in_1"}, {"id": "in_2"}]
     sub = asyncio.run(write_toku.delete_subscription(db_session, "sub_fc"))
     assert sub.status == "deleted"
     assert [c for c in FakeToku.calls if c[0] != "list"] == [("void", "in_1"), ("void", "in_2"), ("delete", "sub_fc")]
-    assert ("void", "in_busy") not in FakeToku.calls
     run = _run(db_session)
     assert run.status == "completed"
     assert run.response_payload["voided_invoice_ids"] == ["in_1", "in_2"]
+    assert run.response_payload["skipped_in_progress"] == []
+
+
+def test_in_progress_invoice_denies_delete_and_voids_nothing(db_session) -> None:
+    """D30: una factura in_progress impide la baja; no se anula NADA (ni las demas impagas)."""
+    FakeToku.invoices = [{"id": "in_1"}, {"id": "in_busy", "in_progress": True}, {"id": "in_2"}]
+    with pytest.raises(write_toku.DeleteAbortedError) as e:
+        asyncio.run(write_toku.delete_subscription(db_session, "sub_fc"))
+    assert e.value.code == "INVOICE_IN_PROGRESS"
+    assert SECRET_TEXT not in str(e.value)
+    assert [c for c in FakeToku.calls if c[0] != "list"] == []  # ni void ni delete
+    run = _run(db_session)
+    assert run.status == "failed"  # nada irreversible hecho
+    assert "INVOICE_IN_PROGRESS" in run.error_message
+    assert run.response_payload["step"] == "invoice_in_progress"
     assert run.response_payload["skipped_in_progress"] == ["in_busy"]
+    assert run.response_payload["voided_invoice_ids"] == []
+    assert run.response_payload["requires_reconciliation"] is False
+    sub = db_session.scalar(select(Subscription).where(Subscription.external_id == "sub_fc"))
+    assert sub.status == "ACTIVE"
+
+
+def test_route_in_progress_returns_409_fixed_code(monkeypatch, db_session) -> None:
+    from billing_requests_support import client_for, make_role, make_user
+
+    from app.core.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
+    FakeToku.invoices = [{"id": "in_busy", "in_progress": True}]
+    user = make_user(db_session, make_role(db_session, "tk-manage-ip", {"toku.subscriptions.manage"}))
+    client, h = client_for(db_session, user)
+    r = client.delete("/api/v1/writes/toku/subscriptions/sub_fc", headers=h)
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "INVOICE_IN_PROGRESS"
+    assert SECRET_TEXT not in r.text
+    assert not _deleted()
+    assert ("void", "in_busy") not in FakeToku.calls
 
 
 def test_delete_failure_after_voids_flags_reconciliation(db_session) -> None:
