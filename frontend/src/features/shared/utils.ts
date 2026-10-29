@@ -27,7 +27,7 @@ export function groupPermissions(all: Array<{ code: string; description: string 
 export function normalizeTchSummary(data: Partial<import("./types").TchSummary>): import("./types").TchSummary {
   return {
     suscripciones: data.suscripciones ?? { vigentes: 0, eliminadas: 0, total: 0, monto_vigentes: 0, monto_eliminadas: 0, monto_total: 0 },
-    transacciones: data.transacciones ?? { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: 0, monto: 0 },
+    transacciones: data.transacciones ?? { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: null, monto: 0 },
     kpis: data.kpis ?? { mrr: 0, arpu: 0, active_clients: 0, active_subscribers: 0, churn_rate: 0, ltv: 0 },
     years: data.years ?? [],
     transacciones_mensuales: data.transacciones_mensuales ?? [],

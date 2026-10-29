@@ -20,7 +20,7 @@ export const providerGroups: { name: string; sections: ProviderSection[] }[] = [
     sections: [
       { source: "toku", resource: "customer", label: "Clientes" },
       { source: "toku", resource: "subscription", label: "Subscripciones" },
-      { source: "toku", resource: "payment_method", label: "Metodos de pago" },
+      { source: "toku", resource: "payment_method", label: "Métodos de pago" },
       { source: "toku", resource: "invoice", label: "Deudas" },
       { source: "toku", resource: "transaction", label: "Transacciones" },
     ],

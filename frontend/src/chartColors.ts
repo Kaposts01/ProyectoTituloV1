@@ -1,48 +1,16 @@
+import { statusColor } from "./statusColors";
+
 export const CHART_PRIMARY = "#2563EB";
 
-const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "#16A34A",
-  ACTIVA: "#16A34A",
-  ACTIVO: "#16A34A",
-  CHARGEABLE: "#16A34A",
-  COBRADO: "#16A34A",
-  PAID: "#16A34A",
-  PAGADO: "#16A34A",
-  SUCCESS: "#16A34A",
-  PENDING: "#D97706",
-  PENDIENTE: "#D97706",
-  REGISTER: "#D97706",
-  INITIALIZED: "#D97706",
-  PROCESSING: "#0891B2",
-  PROCESANDO: "#0891B2",
-  SUSCRIBIENDO: "#2563EB",
-  PAUSED: "#64748B",
-  SUSPENDED: "#64748B",
-  ABORTED: "#DC2626",
-  CANCELADO: "#DC2626",
-  CANCELED: "#DC2626",
-  DELETE: "#DC2626",
-  FAILED: "#DC2626",
-  PERMANENT_FAILED: "#DC2626",
-  RECHAZADO: "#DC2626",
-  REJECTED: "#DC2626",
-  SUSCRIPCION_FALLIDA: "#DC2626",
-  VOID: "#DC2626",
-  ACEPTADA: "#16A34A",
-  ACEPTADAS: "#16A34A",
-  RECHAZADA: "#DC2626",
-  RECHAZADAS: "#DC2626",
-  PENDIENTES: "#D97706",
-  VIGENTE: "#16A34A",
-  ELIMINADA: "#DC2626",
-  "REINTENTO": "#D97706",
-  "CAMBIO DE TARJETA": "#7C3AED",
+/** Colores de CANAL (no de estado). Los estados salen de statusColors.ts. */
+const CHANNEL_COLORS: Record<string, string> = {
   VIRTUALPOS: "#2563EB",
   TOKU: "#7C3AED",
   PAYKU: "#CA8A04",
   TCH: "#0891B2",
 };
 
+/** Color de una serie cuyo nombre puede ser un canal o un estado: canal -> color de canal; si no, color de estado. */
 export function chartStatusColor(status: string | null | undefined): string {
-  return STATUS_COLORS[String(status ?? "").trim().toUpperCase()] ?? "#64748B";
+  return CHANNEL_COLORS[String(status ?? "").trim().toUpperCase()] ?? statusColor(status);
 }

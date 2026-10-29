@@ -8,6 +8,8 @@ export type ChannelChartSeries = { key: string; label: string; color: string };
 export type ChannelChartAnnotation = { from: { year: number; month: number }; to: { year: number; month: number }; label: string };
 
 const MONO = "'JetBrains Mono', 'Courier New', monospace";
+/** Ancho máximo de barra: con una sola categoría la barra no debe ocupar todo el gráfico. */
+const MAX_BAR_SIZE = 56;
 const tick = { fontFamily: MONO, fontSize: 11, fill: "var(--text-2)" };
 
 const fmt = (value: unknown, mode: "count" | "amount") => {
@@ -42,7 +44,7 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
     <>
       <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
       <XAxis dataKey="label" tickLine={false} axisLine={false} tick={tick} />
-      <YAxis tickLine={false} axisLine={false} width={56} tick={tick} tickFormatter={(v) => fmt(v, mode)} />
+      <YAxis tickLine={false} axisLine={false} width={56} tick={tick} tickFormatter={(v) => fmt(v, mode)} allowDecimals={mode !== "count"} />
       <Tooltip
         formatter={(value, name) => [fmt(value, mode), name]}
         contentStyle={{ fontFamily: MONO, fontSize: 12, background: "var(--bg-surface)", color: "var(--text-1)", border: "1px solid var(--border)" }}
@@ -58,12 +60,12 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
       {kind === "line" ? (
         <LineChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
           {axes}
-          {series.map((s) => <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} />)}
+          {series.map((s) => <Line key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} />)}
         </LineChart>
       ) : (
         <BarChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
           {axes}
-          {series.map((s) => <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} stackId={kind === "stacked" ? "a" : undefined} radius={kind === "bar" ? [4, 4, 0, 0] : undefined} />)}
+          {series.map((s) => <Bar key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={s.key} name={s.label} fill={s.color} stackId={kind === "stacked" ? "a" : undefined} radius={kind === "bar" ? [4, 4, 0, 0] : undefined} />)}
         </BarChart>
       )}
     </ResponsiveContainer>

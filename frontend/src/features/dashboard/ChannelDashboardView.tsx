@@ -1,4 +1,3 @@
-import { CHANNEL_UNAVAILABLE_TITLE } from "../shared/environment";
 import { useState, type ReactNode } from "react";
 import { getJson } from "../../api";
 import {
@@ -22,6 +21,9 @@ import {
   paymentMethodSnapshot, statusStackedChart, tokuCollectionsChart, type ChartProps,
 } from "./channelCharts";
 import { StatusBars } from "./StatusBars";
+import { statusBarResources } from "./statusBarRows";
+
+const CHANNEL_NAMES: Record<string, string> = { virtualpos: "VirtualPOS", toku: "Toku", payku: "Payku" };
 
 export function ChannelDashboardView({
   data,
@@ -91,6 +93,18 @@ export function ChannelDashboardView({
   const methodSnapshot = paymentMethodSnapshot(data.statuses);
   const metricSections = providerGroups.find((group) => group.sections[0].source === data.source)?.sections ?? [];
   const isVirtualPos = data.source === "virtualpos";
+  const channelName = CHANNEL_NAMES[data.source] ?? title(data.source);
+  const unavailableReason = `${channelName} no está habilitado en este ambiente`;
+  const reasonId = `sync-reason-${data.source}`;
+  const emptyAction = syncUnavailable ? (
+    <p className="empty-hint">{unavailableReason}</p>
+  ) : (
+    <div className="empty-action">
+      <p className="empty-hint">Sincroniza el canal para ver datos.</p>
+      <button className="sync-btn sync-btn-secondary" disabled={syncing} onClick={() => onSync(data.source)}>{syncing ? "Sincronizando…" : "Sincronizar ahora"}</button>
+    </div>
+  );
+  const statusEmpty = statusBarResources(data.source, data.statuses, data.resources).length === 0;
   const syncLabel = data.last_sync?.status === "completed" ? "Sincronización completada"
     : data.last_sync?.status === "running" ? "Sincronización en curso"
     : data.last_sync?.status === "failed" ? "Última sincronización con errores"
@@ -117,9 +131,10 @@ export function ChannelDashboardView({
           </div>
           <div className="channel-hero-bottom-row">
             <div className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}><span />{syncLabel}</div>
-            <button className={`sync-btn ${syncing ? "syncing" : ""}`} disabled={syncing || syncUnavailable} title={syncUnavailable ? CHANNEL_UNAVAILABLE_TITLE : undefined} onClick={() => onSync(data.source)}>{syncing ? "Sincronizando…" : "↻ Sincronizar"}</button>
+            <button className={`sync-btn ${syncing ? "syncing" : ""}`} disabled={syncing || syncUnavailable} title={syncUnavailable ? unavailableReason : undefined} aria-describedby={syncUnavailable ? reasonId : undefined} onClick={() => onSync(data.source)}>{syncing ? "Sincronizando…" : "↻ Sincronizar"}</button>
             <button className="sync-btn sync-btn-secondary" onClick={() => onReport(data.source)}>Generar reporte</button>
           </div>
+          {syncUnavailable ? <p id={reasonId} className="sync-reason muted-copy">{unavailableReason}</p> : null}
         </div>
       </header>
       <section className="channel-resources channel-resources-quick" aria-label="Explorar recursos">
@@ -133,7 +148,7 @@ export function ChannelDashboardView({
         </div>
       </section>
       <div className="dashboard-section-heading"><div><p className="eyebrow">OPERACIÓN DEL PERÍODO</p><h3>Indicadores clave</h3></div></div>
-      <section className={`metrics provider-metrics${data.source === "payku" ? " payku-metrics" : ""}${data.source.startsWith("virtualpos") ? " vp-metrics" : ""}`} aria-label={`Metricas ${title(data.source)}`}>
+      <section className={`metrics provider-metrics${data.source === "payku" ? " payku-metrics" : ""}${data.source.startsWith("virtualpos") ? " vp-metrics" : ""}`} aria-label={`Métricas ${title(data.source)}`}>
         {metrics.map((metric) => (
           <Metric
             key={metric.resource}
@@ -148,14 +163,14 @@ export function ChannelDashboardView({
       {data.kpis ? (
         <>
           <div className="dashboard-section-heading dashboard-section-heading-compact"><div><p className="eyebrow">CARTERA</p><h3>Salud de suscripciones</h3></div></div>
-          <ChannelKpiStrip kpis={normalizeKpis(data.source as Channel, data.kpis)} ariaLabel="KPIs de suscripciones" />
+          <ChannelKpiStrip kpis={normalizeKpis(data.source as Channel, data.kpis, data.churn_window_label)} ariaLabel="KPIs de suscripciones" />
         </>
       ) : null}
       <section className={`channel-workspace${isVirtualPos ? " channel-workspace-status" : ""}`}>
         {isToku ? (
-          <article className="panel chart-panel">
+          <article className={`panel chart-panel${data.activity.length ? "" : " panel-compact"}`}>
             <div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Cobros mensuales (transacciones)</h3></div></div>
-            {data.activity.length ? chart(tokuCollectionsChart(data.activity, mode), "bar", { ariaLabel: "Gráfico de cobros mensuales de Toku (transacciones)" }) : <p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>}
+            {data.activity.length ? chart(tokuCollectionsChart(data.activity, mode), "bar", { ariaLabel: "Gráfico de cobros mensuales de Toku (transacciones)" }) : <div className="empty-state"><p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>{emptyAction}</div>}
           </article>
         ) : null}
         {isPayku ? (() => {
@@ -165,18 +180,19 @@ export function ChannelDashboardView({
             ? chart(tx, "stacked", { legend: true, annotations: gaps, ariaLabel: "Gráfico de transacciones mensuales de Payku por estado" })
             : fallback.rows.length
               ? chart(fallback, "bar", { annotations: gaps, ariaLabel: "Gráfico de cobros mensuales de Payku" })
-              : <p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>;
+              : <div className="empty-state"><p className="empty-chart">Sin fechas y montos suficientes para construir una serie mensual.</p>{emptyAction}</div>;
+          const noData = !tx.rows.length && !fallback.rows.length;
           return (
-            <article className="panel chart-panel">
+            <article className={`panel chart-panel${noData ? " panel-compact" : ""}`}>
               <div className="panel-heading"><div><p className="eyebrow">{activityTitle.toUpperCase()}</p><h3>Transacciones mensuales</h3></div></div>
               {body}
               <p className="muted-copy">{PAYKU_COVERAGE_NOTE}.{gaps.length ? " Las bandas grises marcan meses sin cobros." : ""}</p>
             </article>
           );
         })() : null}
-        <article className="panel status-panel">
+        <article className={`panel status-panel${statusEmpty ? " panel-compact" : ""}`}>
           <p className="eyebrow">ESTADOS</p><h3>Estados de la operación</h3>
-          <StatusBars source={data.source} statuses={data.statuses} resources={data.resources} />
+          <StatusBars source={data.source} statuses={data.statuses} resources={data.resources} emptyAction={emptyAction} />
         </article>
       </section>
       <div className="dashboard-section-heading dashboard-section-heading-charts"><div><p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p><h3>Lectura mensual</h3></div></div>

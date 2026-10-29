@@ -63,6 +63,7 @@ export type ChannelDashboard = {
   years: number[];
   last_sync: SyncRun | null;
   kpis?: VpKpis;
+  churn_window_label?: string | null;
   charges_monthly?: MonthlyStatusEntry[];
   rejected_charges_monthly?: MonthlyStatusEntry[];
   payments_monthly?: MonthlyStatusEntry[];
@@ -131,8 +132,9 @@ export type AdminRole = { id: string; name: string; description: string | null; 
 export type PermGroup = { group: string; permissions: Array<{ code: string; description: string }> };
 export type TchSummary = {
   suscripciones: { vigentes: number; eliminadas: number; total: number; monto_vigentes: number; monto_eliminadas: number; monto_total: number };
-  transacciones: { total: number; aceptadas: number; rechazadas: number; tasa_rechazo_pct: number; monto: number };
-  kpis: { mrr: number; arpu: number; active_clients: number; active_subscribers: number; churn_rate: number; ltv: number };
+  transacciones: { total: number; aceptadas: number; rechazadas: number; tasa_rechazo_pct: number | null; monto: number };
+  kpis: { mrr: number; arpu: number | null; active_clients: number; active_subscribers: number; churn_rate: number | null; ltv: number | null; churn_window_label?: string | null };
+  churn_window_label?: string | null;
   years: number[];
   transacciones_mensuales: MonthlyStatusEntry[];
   transacciones_fuente?: "recaudacion_mensual" | "transacciones" | string;
@@ -143,7 +145,7 @@ export type TchSummary = {
   ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
   alerts?: DashboardAlert[];
 };
-export type DashboardAlert = { id?: string; sev: "alta" | "media" | "baja"; tipo: string; canal: string; detalle: string };
+export type DashboardAlert = { id?: string; sev: "alta" | "media" | "baja"; tipo: string; canal: string; detalle: string; periodo?: string };
 export type AlertDetailItem = {
   external_id: string | null;
   rut: string | null;
@@ -157,7 +159,7 @@ export type AlertDetailItem = {
 export type GeneralDashboard = {
   clients: number;
   subscriptions: { active: number; amount: number };
-  transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number };
+  transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number | null };
   channels: { source: string; clients: number; active_subscriptions: number; accepted: number; amount: number }[];
   years: number[];
   transactions_monthly: MonthlyStatusEntry[];

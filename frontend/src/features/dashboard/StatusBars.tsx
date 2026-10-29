@@ -1,27 +1,28 @@
-import { chartStatusColor } from "../../chartColors";
-import { statusResourceOrder, statusResourceLabels } from "../shared/constants";
+import type { ReactNode } from "react";
+import { normalizeStatus, statusKindColor } from "../../statusColors";
+import { statusResourceLabels } from "../shared/constants";
+import { groupStatuses, statusBarResources, type StatusRow } from "./statusBarRows";
 
 export function StatusBars({
   source,
   statuses,
   resources,
+  emptyAction,
 }: {
   source: string;
-  statuses: { resource: string; status: string; count: number }[];
+  statuses: StatusRow[];
   resources: Record<string, number>;
+  /** Acción o instrucción que se muestra bajo el mensaje cuando no hay estados. */
+  emptyAction?: ReactNode;
 }) {
-  const grouped = new Map<string, { status: string; count: number }[]>();
-  for (const entry of statuses) {
-    const list = grouped.get(entry.resource) ?? [];
-    list.push({ status: entry.status, count: entry.count });
-    grouped.set(entry.resource, list);
-  }
-  const preferred = statusResourceOrder[source] ?? [];
-  const rows = [
-    ...preferred,
-    ...[...grouped.keys()].filter((r) => !preferred.includes(r)),
-  ].filter((r, i, arr) => arr.indexOf(r) === i && (grouped.has(r) || (resources[r] ?? 0) > 0));
-  if (!rows.length) return <p className="empty-chart">Este canal no entrega estados normalizados.</p>;
+  const grouped = groupStatuses(statuses);
+  const rows = statusBarResources(source, statuses, resources);
+  if (!rows.length) return (
+    <div className="empty-state">
+      <p className="empty-chart">Este canal no entrega estados normalizados.</p>
+      {emptyAction}
+    </div>
+  );
   return (
     <div className="status-bars">
       {rows.map((resource) => {
@@ -31,26 +32,32 @@ export function StatusBars({
           <div key={resource} className="status-bar-row">
             <div className="status-bar-header">
               <span>{statusResourceLabels[resource] ?? resource}</span>
-              <b>{total}</b>
+              <b className="mono">{total}</b>
             </div>
             <div className="status-bar-track">
               {items.length ? (
-                items.map((item) => (
-                  <div key={item.status} className="status-bar-segment" style={{ width: `${(item.count / total) * 100}%`, background: chartStatusColor(item.status) }} title={`${item.status}: ${item.count}`} />
-                ))
+                items.map((item) => {
+                  const kind = normalizeStatus(item.status);
+                  return (
+                    <div key={item.status} data-status-kind={kind} className="status-bar-segment" style={{ width: `${(item.count / total) * 100}%`, background: statusKindColor(kind) }} title={`${item.status}: ${item.count}`} />
+                  );
+                })
               ) : (
                 <div className="status-bar-segment status-bar-empty" />
               )}
             </div>
             {items.length > 0 && (
               <div className="status-bar-legend">
-                {items.map((item) => (
-                  <span key={item.status} className="status-legend-item">
-                    <i style={{ background: chartStatusColor(item.status) }} />
-                    {item.status}
-                    <b>{item.count}</b>
-                  </span>
-                ))}
+                {items.map((item) => {
+                  const kind = normalizeStatus(item.status);
+                  return (
+                    <span key={item.status} className="status-legend-item">
+                      <i data-status-kind={kind} style={{ background: statusKindColor(kind) }} />
+                      {item.status}
+                      <b className="mono">{item.count}</b>
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>

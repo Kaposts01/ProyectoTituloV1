@@ -15,7 +15,9 @@ export type YearMonth = { year: number; month: number };
 export type StatusEntry = { year: number; month: number; status: string; count?: number; amount?: number };
 export type PivotSeries = { key: string; label: string; color: string };
 
-/** Paleta ordenada y estable; el color depende de la posición del estado en orden alfabético. */
+import { statusColor } from "../statusColors";
+
+/** Paleta genérica para series que NO son un estado (altas, tendencia). El color de un estado sale de statusColors.ts. */
 export const STATUS_PALETTE = ["#2a7a64", "#2563EB", "#D97706", "#7C3AED", "#DC2626", "#0891B2", "#DB2777", "#65A30D", "#94a3b8"];
 
 const ym = (y: number, m: number) => y * 12 + (m - 1);
@@ -35,7 +37,7 @@ export function pivotByStatus(entries: StatusEntry[]): { rows: ChannelChartRow[]
     row[e.status] += e.count ?? e.amount ?? 0;
   }
   const rows = [...byMonth.values()].sort((a, b) => a.year - b.year || a.month - b.month);
-  const series = statuses.map((s, i) => ({ key: s, label: s, color: STATUS_PALETTE[i % STATUS_PALETTE.length] }));
+  const series = statuses.map((s) => ({ key: s, label: s, color: statusColor(s) }));
   return { rows, series };
 }
 

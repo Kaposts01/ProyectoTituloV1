@@ -4,6 +4,9 @@ import { chartStatusColor } from './chartColors'
 export type MonthlyStatusEntry = { year: number; month: number; status?: string | null; count: number; amount: number }
 export type MonthlyEntry = { year: number; month: number; count: number; amount: number }
 
+// Una sola categoría no debe ocupar todo el ancho del gráfico.
+const MAX_BAR_SIZE = 56
+
 const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 
 function monthLabel(month: number, year: number): string {
@@ -44,14 +47,15 @@ export function MonthlyStatusChart({
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
-        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} />
+        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <Tooltip formatter={(v: unknown) => fmtVal(v, mode)} />
         <Legend wrapperStyle={{ fontSize: 10 }} />
         {statusSet.map((s, i) => (
           <Bar
             key={s}
+            maxBarSize={MAX_BAR_SIZE}
             dataKey={mode === 'count' ? s : `${s}_amount`}
             name={s}
             stackId="a"
@@ -82,11 +86,11 @@ export function MonthlySimpleChart({
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
-        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} />
+        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <Tooltip formatter={(v: unknown) => fmtVal(v, mode)} />
-        <Bar dataKey={mode} fill={color} radius={[4, 4, 0, 0]} />
+        <Bar maxBarSize={MAX_BAR_SIZE} dataKey={mode} fill={color} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -132,13 +136,13 @@ export function ActivacionCaidaChart({
   return (
     <ResponsiveContainer width="100%" height={240}>
       <ComposedChart data={rows} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
-        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} />
+        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <Tooltip formatter={(v: unknown) => fmtVal(v, mode)} />
         <Legend wrapperStyle={{ fontSize: 10 }} />
-        <Bar dataKey="activaciones" name="Activaciones" fill="#2563EB" radius={[4, 4, 0, 0]} barSize={20} />
-        <Line type="monotone" dataKey="caidas" name="Caídas" stroke="#DC2626" strokeWidth={2} dot={{ fill: '#DC2626', r: 3 }} />
+        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="activaciones" name="Activaciones" fill="#2563EB" radius={[4, 4, 0, 0]} barSize={20} />
+        <Line type="linear" dataKey="caidas" name="Caídas" stroke="#DC2626" strokeWidth={2} dot={{ fill: '#DC2626', r: 3 }} />
       </ComposedChart>
     </ResponsiveContainer>
   )
@@ -180,12 +184,12 @@ export function CrecimientoMensualChart({
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
-        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} />
+        <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <Tooltip formatter={(v: unknown) => fmtVal(v, mode)} />
         <ReferenceLine y={0} stroke="#94a3b8" />
-        <Bar dataKey="net" name="Crecimiento neto" radius={[4, 4, 0, 0]}>
+        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="net" name="Crecimiento neto" radius={[4, 4, 0, 0]}>
           {rows.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={entry.net >= 0 ? '#16A34A' : '#DC2626'} />
           ))}
@@ -273,12 +277,13 @@ export function TransaccionesSuscripcionesChart({
   return (
     <ResponsiveContainer width="100%" height={280}>
       <ComposedChart data={rows} margin={{ top: 16, right: 40, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
-        <YAxis yAxisId="tx" tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} />
+        <YAxis yAxisId="tx" tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <YAxis
           yAxisId="subs"
           orientation="right"
+          allowDecimals={false}
           domain={[0, subscriptionAxisMax]}
           tickLine={false}
           axisLine={false}
@@ -289,9 +294,9 @@ export function TransaccionesSuscripcionesChart({
           name === 'Transacciones pagadas' ? fmtVal(v, mode) : Number(v).toLocaleString('es-CL')
         } />
         <Legend wrapperStyle={{ fontSize: 10 }} />
-        <Bar yAxisId="tx" dataKey="transacciones" name="Transacciones pagadas" fill="#2563EB" radius={[4, 4, 0, 0]} barSize={20} />
-        <Line yAxisId="subs" type="monotone" dataKey="activas" name="Subs activas" stroke="#16A34A" strokeWidth={2} dot={{ fill: '#16A34A', r: 3 }} />
-        <Line yAxisId="subs" type="monotone" dataKey="cobrables" name="Subs cobrables" stroke="#D97706" strokeWidth={2} dot={{ fill: '#D97706', r: 3 }} strokeDasharray="5 5" />
+        <Bar maxBarSize={MAX_BAR_SIZE} yAxisId="tx" dataKey="transacciones" name="Transacciones pagadas" fill="#2563EB" radius={[4, 4, 0, 0]} barSize={20} />
+        <Line yAxisId="subs" type="linear" dataKey="activas" name="Subs activas" stroke="#16A34A" strokeWidth={2} dot={{ fill: '#16A34A', r: 3 }} />
+        <Line yAxisId="subs" type="linear" dataKey="cobrables" name="Subs cobrables" stroke="#D97706" strokeWidth={2} dot={{ fill: '#D97706', r: 3 }} strokeDasharray="5 5" />
       </ComposedChart>
     </ResponsiveContainer>
   )
@@ -311,12 +316,12 @@ export function ChannelKpiChart({ channels, mode }: { channels: ChannelRow[]; mo
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 24, left: 0, bottom: 4 }}>
-        <CartesianGrid stroke="#e1e7e5" horizontal={false} />
-        <XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 10 }}
+        <CartesianGrid stroke="var(--border-subtle)" horizontal={false} />
+        <XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'}
           tickFormatter={(v: number) => mode === 'amount' ? `$${(v / 1000).toFixed(0)}k` : v.toLocaleString('es-CL')} />
         <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} width={72} />
         <Tooltip formatter={(v: unknown) => mode === 'amount' ? `$${Number(v).toLocaleString('es-CL')}` : Number(v).toLocaleString('es-CL')} />
-        <Bar dataKey="aceptadas" name={mode === 'amount' ? 'Recaudación' : 'Transacciones aceptadas'} radius={[0, 4, 4, 0]}>
+        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="aceptadas" name={mode === 'amount' ? 'Recaudación' : 'Transacciones aceptadas'} radius={[0, 4, 4, 0]}>
           {rows.map((_, i) => <Cell key={i} fill={COLOR[i % COLOR.length]} />)}
         </Bar>
       </BarChart>
@@ -349,14 +354,14 @@ export function IngresosMensualesChart({ data, year }: { data: MonthlyStatusEntr
             </linearGradient>
           ))}
         </defs>
-        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
         <YAxis tickLine={false} axisLine={false} width={60} tick={{ fontSize: 10 }}
           tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
         <Tooltip formatter={(v: unknown) => `$${Number(v).toLocaleString('es-CL')}`} />
         <Legend wrapperStyle={{ fontSize: 10 }} />
         {channels.map(ch => (
-          <Area key={ch} type="monotone" dataKey={ch} name={ch}
+          <Area key={ch} type="linear" dataKey={ch} name={ch}
             stroke={COLORS[ch] ?? '#94a3b8'} fill={`url(#grad-${ch})`} strokeWidth={2} stackId="1" />
         ))}
       </AreaChart>

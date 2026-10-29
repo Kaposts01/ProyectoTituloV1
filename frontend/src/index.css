@@ -48,6 +48,15 @@
   --error-bg:        #fff6f1;
   --error-text:      #8b3030;
   --cancel-bg:       #8b3030;
+  /* estados de negocio (un solo color por estado en barras, gráficos y leyendas) */
+  --status-paid:       #196b40;
+  --status-rejected:   #8b3030;
+  --status-pending:    #b7791f;
+  --status-processing: #4f7f93;
+  --status-neutral:    #7b8c91;
+  --status-unknown:    #a9b7ba;
+  --warn-bg:         #fdf3dc;
+  --warn-text:       #7a5200;
   /* sync health dots (sit on the always-teal sidebar) */
   --health-ok:       #4ecf8a;
   --health-warn:     #f2c14e;
@@ -102,6 +111,14 @@ html[data-theme="dark"] {
   --error-bg:        #1a0d0d;
   --error-text:      #f08080;
   --cancel-bg:       #7a2020;
+  --status-paid:       #4ecf8a;
+  --status-rejected:   #f08080;
+  --status-pending:    #f2c14e;
+  --status-processing: #6fa3b8;
+  --status-neutral:    #8aa0a6;
+  --status-unknown:    #5d7d87;
+  --warn-bg:         #2b2208;
+  --warn-text:       #f2c14e;
   --health-ok:       #4ecf8a;
   --health-warn:     #f2c14e;
   --health-error:    #ff8a80;

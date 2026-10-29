@@ -11,7 +11,7 @@ export const virtualPosMetrics = [
 export const tokuMetrics = [
   { resource: "customer", label: "Clientes", tone: "blue" },
   { resource: "subscription", label: "Subscripciones activas", tone: "violet", amount: true },
-  { resource: "payment_method", label: "Metodos de pago cobrables", tone: "gold" },
+  { resource: "payment_method", label: "Métodos de pago cobrables", tone: "gold" },
   { resource: "invoice", label: "Deudas pagadas", tone: "orange", amount: true },
   { resource: "transaction", label: "Transacciones pagadas", tone: "green", amount: true },
 ];
@@ -34,7 +34,7 @@ export const statusResourceLabels: Record<string, string> = {
   payment: "Transacciones",
   transaction: "Transacciones",
   plan: "Planes",
-  payment_method: "Metodos de pago",
+  payment_method: "Métodos de pago",
   invoice: "Deudas",
 };
 export const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];

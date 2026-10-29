@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillMonths, pivotByStatus, STATUS_PALETTE } from "./chartRows";
+import { fillMonths, pivotByStatus } from "./chartRows";
 
 describe("pivotByStatus", () => {
   it("devuelve vacío sin datos", () => {
@@ -13,7 +13,7 @@ describe("pivotByStatus", () => {
       { year: 2025, month: 1, status: "paid", count: 5 },
     ]);
     expect(series.map((s) => s.key)).toEqual(["failed", "paid"]);
-    expect(series.map((s) => s.color)).toEqual([STATUS_PALETTE[0], STATUS_PALETTE[1]]);
+    expect(series.map((s) => s.color)).toEqual(["var(--status-rejected)", "var(--status-paid)"]);
     expect(rows).toEqual([
       { year: 2025, month: 1, failed: 1, paid: 5 },
       { year: 2025, month: 2, failed: 0, paid: 3 },
@@ -31,10 +31,16 @@ describe("pivotByStatus", () => {
     expect(cross.series.map((s) => s.key)).toEqual(["paid", "zzz_nuevo"]);
   });
 
-  it("reutiliza la paleta cuando hay más estados que colores", () => {
-    const entries = Array.from({ length: STATUS_PALETTE.length + 1 }, (_, i) => ({ year: 2025, month: 1, status: `s${String(i).padStart(2, "0")}`, count: 1 }));
-    const { series } = pivotByStatus(entries);
-    expect(series[STATUS_PALETTE.length].color).toBe(STATUS_PALETTE[0]);
+  it("el color depende del estado, no de su posición alfabética", () => {
+    const a = pivotByStatus([{ year: 2025, month: 1, status: "paid", count: 1 }]).series[0].color;
+    const b = pivotByStatus([
+      { year: 2025, month: 1, status: "aaa_otro", count: 1 },
+      { year: 2025, month: 1, status: "PAGADO", count: 1 },
+      { year: 2025, month: 1, status: "cancelled", count: 1 },
+    ]).series;
+    expect(b.find((s) => s.key === "PAGADO")?.color).toBe(a);
+    expect(b.find((s) => s.key === "cancelled")?.color).toBe("var(--status-neutral)");
+    expect(b.find((s) => s.key === "aaa_otro")?.color).toBe("var(--status-unknown)");
   });
 });
 

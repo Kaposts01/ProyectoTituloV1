@@ -430,6 +430,37 @@
   margin-bottom: 22px;
 }
 
+/* Tarjeta vacía: se encoge al contenido en vez de estirarse a la fila de la grilla. */
+.panel-compact,
+.chart-panel.panel-compact {
+  min-height: 0;
+  align-self: start;
+}
+
+.empty-state {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.empty-action {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.empty-hint {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.sync-reason {
+  margin: 0;
+  font-size: 12px;
+}
+
 /* ── Dashboard controls ──────────────────────────────────────────── */
 .dashboard-controls,
 .mode-switch {

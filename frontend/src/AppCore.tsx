@@ -11,6 +11,7 @@ import "./Staging.css";
 import { ActivacionCaidaChart, ChannelKpiChart, ChurnMensualChart, CrecimientoMensualChart, IngresosMensualesChart, MonthlyStatusChart } from "./MonthlyStatusChart";
 import type { ChannelRow, MonthlyEntry } from "./MonthlyStatusChart";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
+import { GeneralKpis } from "./features/dashboard/GeneralKpis";
 import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
@@ -2594,8 +2595,6 @@ function AppCore() {
   const activationsForYear = (generalData?.activations_monthly ?? [])
     .filter(e => selectedYear == null || e.year === selectedYear)
     .reduce((acc, e) => ({ count: acc.count + e.count, amount: acc.amount + e.amount }), { count: 0, amount: 0 });
-  const totalForYear = acceptedForYear.count + rejectedForYear.count;
-  const rejectionRateForYear = totalForYear > 0 ? Math.round(1000 * rejectedForYear.count / totalForYear) / 10 : 0;
   const cancellationsAsEntries: MonthlyEntry[] = (() => {
     const map = new Map<string, MonthlyEntry>();
     for (const e of (generalData?.cancellations_monthly ?? [])) {
@@ -2671,25 +2670,7 @@ function AppCore() {
             <Metric label="Activaciones" value={activationsForYear.count} tone="green" amount={activationsForYear.amount} mode={generalMode} />
             <Metric label="Transacciones pagadas" value={acceptedForYear.count} tone="violet" amount={acceptedForYear.amount} mode={generalMode} />
           </section>
-          <section className="metrics kpi-metrics" aria-label="KPIs generales">
-            <KpiCard label="Rechazadas" value={rejectedForYear.count} format="count" caption={`Transacciones rechazadas ${selectedYear ?? ""}`} />
-            <KpiCard label="Tasa de rechazo" value={rejectionRateForYear} format="percent" caption="Rechazadas / total del año" />
-            <KpiCard
-              label="Pagos pendientes"
-              value={generalData.pending_payments ?? 0} format="count"
-              caption="Cobros sin estado terminal"
-            />
-            <KpiCard
-              label="Tasa de sync"
-              value={generalData.sync_success_rate_pct ?? null} format="percent"
-              caption="Últimos 30 días"
-            />
-            <KpiCard
-              label="Churn este mes"
-              value={generalData.churn_rate_pct ?? 0} format="percent"
-              caption="Bajas / activos este mes"
-            />
-          </section>
+          <GeneralKpis data={generalData} rejectedCount={rejectedForYear.count} acceptedCount={acceptedForYear.count} selectedYear={selectedYear} />
           <section className="extended-charts">
             <article className="panel" style={{ gridColumn: "1 / -1" }}>
               <div className="panel-heading"><div><p className="eyebrow">INGRESOS</p><h3>Recaudación mensual por canal</h3></div></div>
@@ -2742,40 +2723,7 @@ function AppCore() {
               <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transFilter)} mode={generalMode} year={generalYear} />
             </article>
           </section>
-          {(generalData.alerts ?? []).length > 0 && (
-            <section className="panel dashboard-alerts-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">ALERTAS OPERATIVAS</p>
-                  <h3>
-                    {(generalData.alerts ?? []).filter(a => a.sev === "alta").length > 0 && (
-                      <span className="badge badge-orange" style={{ marginRight: "0.5rem" }}>
-                        {(generalData.alerts ?? []).filter(a => a.sev === "alta").length} alta{(generalData.alerts ?? []).filter(a => a.sev === "alta").length !== 1 ? "s" : ""}
-                      </span>
-                    )}
-                    {(generalData.alerts ?? []).filter(a => a.sev === "media").length > 0 && (
-                      <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
-                        {(generalData.alerts ?? []).filter(a => a.sev === "media").length} media{(generalData.alerts ?? []).filter(a => a.sev === "media").length !== 1 ? "s" : ""}
-                      </span>
-                    )}
-                    {(generalData.alerts ?? []).length} alerta{(generalData.alerts ?? []).length !== 1 ? "s" : ""} detectada{(generalData.alerts ?? []).length !== 1 ? "s" : ""}
-                  </h3>
-                </div>
-              </div>
-              <div className="dashboard-alerts-list">
-                {(generalData.alerts ?? []).map((alert, idx) => (
-                  <div key={idx} className={`dashboard-alert-row dashboard-alert-${alert.sev}`}>
-                    <span className={`badge ${alert.sev === "alta" ? "badge-orange" : alert.sev === "media" ? "badge-blue" : "badge-gray"}`}>
-                      {alert.sev}
-                    </span>
-                    <strong className="dashboard-alert-tipo">{alert.tipo}</strong>
-                    <span className="dashboard-alert-canal">{alert.canal}</span>
-                    <span className="dashboard-alert-detalle">{alert.detalle}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          {(generalData.alerts ?? []).length > 0 && <OperationalAlerts alerts={generalData.alerts ?? []} />}
           <section className="source-summary">
             {generalData.channels.map((channel) => {
               const staging = summary.sources.find((source) => source.source === channel.source.toLowerCase());
@@ -3112,11 +3060,11 @@ function AppCore() {
           <Metric label="Total suscripciones" value={tchSummary.suscripciones.total} tone="blue" amount={tchSummary.suscripciones.monto_total} mode={tchMode} />
           <Metric label="Total transacciones" value={tchSummary.transacciones.total} tone="violet" amount={tchSummary.transacciones.monto} mode={tchMode} />
         </section>
-        <ChannelKpiStrip kpis={normalizeKpis("tch", tchSummary.kpis)} ariaLabel="KPIs financieros TCH" />
+        <ChannelKpiStrip kpis={normalizeKpis("tch", tchSummary.kpis, tchSummary.churn_window_label)} ariaLabel="KPIs financieros TCH" />
         <section className="metrics kpi-metrics" aria-label="KPIs transacciones TCH">
           <KpiCard label="Aceptadas" value={tchSummary.transacciones.aceptadas} format="count" caption="Transacciones cobradas" />
           <KpiCard label="Rechazadas" value={tchSummary.transacciones.rechazadas} format="count" caption="Transacciones fallidas" />
-          <KpiCard label="Tasa de rechazo" value={tchSummary.transacciones.tasa_rechazo_pct} format="percent" caption="Rechazadas / total" />
+          <KpiCard label="Tasa de rechazo" value={tchSummary.transacciones.tasa_rechazo_pct} format="percent" caption="Rechazadas / total" emptyCaption="Sin base para calcular" />
         </section>
         <section className="extended-charts">
           {(() => {

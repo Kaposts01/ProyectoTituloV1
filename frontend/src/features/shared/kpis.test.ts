@@ -50,3 +50,18 @@ describe("normalizeKpis", () => {
     expect(normalizeKpis("tch", { recaudo_mensual: null }).recaudoMensual).toBeUndefined();
   });
 });
+
+describe("normalizeKpis churnWindowLabel", () => {
+  it("lee churn_window_label, cae al fallback y si no hay queda null", () => {
+    expect(normalizeKpis("toku", { churn_window_label: "promedio de 3 meses" }).churnWindowLabel).toBe("promedio de 3 meses");
+    expect(normalizeKpis("toku", {}, "acumulado histórico").churnWindowLabel).toBe("acumulado histórico");
+    expect(normalizeKpis("toku", { churn_window_label: "  " }).churnWindowLabel).toBeNull();
+    expect(normalizeKpis("toku", {}).churnWindowLabel).toBeNull();
+  });
+  it("preserva null y 0 en razones", () => {
+    const k = normalizeKpis("toku", { churn_rate: null, arpu: 0, ltv: null });
+    expect(k.churnRate).toBeNull();
+    expect(k.arpu).toBe(0);
+    expect(k.ltv).toBeNull();
+  });
+});

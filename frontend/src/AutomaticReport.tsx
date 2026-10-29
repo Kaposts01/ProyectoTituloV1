@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatKpi } from "./components/formatKpi";
 
 type ChannelStats = {
   new_subscriptions: number;
@@ -59,7 +60,7 @@ function clp(n: number): string {
 }
 
 function pct(n: number): string {
-  return n.toFixed(1) + "%";
+  return formatKpi(n, "percent");
 }
 
 async function fetchReport(): Promise<AutomaticReportData> {
@@ -105,7 +106,7 @@ function BarCell({ value, total }: { value: number; total: number }) {
   const pctValue = total > 0 ? (value / total) * 100 : 0;
   return (
     <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-      <span style={{ flex: "none", minWidth: "38px" }}>{pctValue.toFixed(1)}%</span>
+      <span style={{ flex: "none", minWidth: "38px" }}>{formatKpi(pctValue, "percent")}</span>
       <span style={{ flex: 1, background: "var(--border, #e2e8f0)", borderRadius: "4px", height: "6px", overflow: "hidden", minWidth: "60px" }}>
         <span style={{ display: "block", width: `${pctValue}%`, background: "var(--accent, #4a90c4)", height: "100%" }} />
       </span>
@@ -343,7 +344,7 @@ export function AutomaticReport() {
                       <td>{r.count.toLocaleString("es-CL")}</td>
                       <td>
                         <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span style={{ flex: "none", minWidth: "38px" }}>{(r.count / total * 100).toFixed(1)}%</span>
+                          <span style={{ flex: "none", minWidth: "38px" }}>{formatKpi(r.count / total * 100, "percent")}</span>
                           <span style={{ flex: 1, background: "var(--border, #e2e8f0)", borderRadius: "4px", height: "6px", overflow: "hidden", minWidth: "60px" }}>
                             <span style={{ display: "block", width: `${(r.count / total * 100)}%`, background: "var(--red, #e84040)", height: "100%" }} />
                           </span>
