@@ -127,9 +127,18 @@ def _store_records(
 
 
 async def sync_virtualpos(
-    db: Session, platform: str = "virtualpos1", progress_callback: ProgressCallback | None = None
+    db: Session,
+    platform: str = "virtualpos1",
+    progress_callback: ProgressCallback | None = None,
+    consolidate: bool = True,
 ) -> SyncRun:
-    """Synchronize read-only VirtualPOS resources into raw staging."""
+    """Synchronize read-only VirtualPOS resources into raw staging.
+
+    `consolidate=False` (SYNC-O-04) lo usa el orquestador `sync_all_channels`: no consolida ni reconcilia
+    recuperaciones aqui; lo hace UNA vez al final de la corrida (la consolidacion de `virtualpos` cubre ambas
+    cuentas, asi que consolidar tras cada cuenta repetia el trabajo). Por defecto conserva el comportamiento
+    anterior para los llamadores directos (scripts, /etl/full-sync).
+    """
     if platform not in _VP_PLATFORMS:
         raise ValueError(f"Plataforma VirtualPOS desconocida: {platform!r}")
     run = SyncRun(source=platform, status="running")
@@ -216,8 +225,9 @@ async def sync_virtualpos(
                 page += 1
 
             # crm_materialization (legacy) desactivado: se consolida desde las tablas canal.
-            consolidate_to_centralized(db, ["virtualpos"], raise_on_error=True)
-            reconcile_charge_recoveries(db, platform)
+            if consolidate:
+                consolidate_to_centralized(db, ["virtualpos"], raise_on_error=True)
+                reconcile_charge_recoveries(db, platform)
 
             run.status = "completed"
             if skipped_subscriptions:

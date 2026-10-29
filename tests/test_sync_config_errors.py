@@ -118,11 +118,12 @@ def _patch_sync_all(monkeypatch, store, *, vp2_error):
     monkeypatch.setattr(sync_all, "start_exclusive_run", fake_start)
     monkeypatch.setattr(sync_all, "skip_disabled_channel", lambda _c: False)
     monkeypatch.setattr(sync_all, "consolidate_to_centralized", lambda *_a, **_k: 0)
+    monkeypatch.setattr(sync_all, "reconcile_charge_recoveries", lambda *_a, **_k: None)
 
-    async def vp(_db, platform, _cb=None):
+    async def vp(_db, platform, _cb=None, **_k):
         if platform == "virtualpos2":
             raise vp2_error
-        return SimpleNamespace(records_processed=3)
+        return SimpleNamespace(id=uuid.uuid4(), records_processed=3)
 
     async def ok(_db, _cb=None):
         return SimpleNamespace(records_processed=2)

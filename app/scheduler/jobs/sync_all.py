@@ -10,9 +10,11 @@ from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
+from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services.channel_consolidation import consolidate_to_centralized
+from app.services.charge_recovery import reconcile_charge_recoveries
 from app.services.payku_sync import sync_payku
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
@@ -45,6 +47,20 @@ def _update_run(run_id: uuid.UUID, **kwargs) -> None:
         if run:
             for k, v in kwargs.items():
                 setattr(run, k, v)
+            db.commit()
+    finally:
+        db.close()
+
+
+def _mark_sync_run_failed(sync_run_id: uuid.UUID, message: str) -> None:
+    """Deja `failed` la fila de sync de un canal (p. ej. si su consolidacion final fallo) para que el reintento actue."""
+    db = SessionLocal()
+    try:
+        sync_run = db.get(SyncRun, sync_run_id)
+        if sync_run is not None:
+            sync_run.status = "failed"
+            sync_run.error_message = message
+            sync_run.finished_at = datetime.now(timezone.utc)
             db.commit()
     finally:
         db.close()
@@ -112,6 +128,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     channels_done: list[str] = []
     channels_failed: list[str] = []
     config_failed: list[str] = []
+    vp_synced: dict[str, uuid.UUID] = {}  # cuenta VP -> id de su SyncRun (para reconciliar tras la consolidacion final)
 
     try:
         # — VirtualPOS VP1 y VP2 —
@@ -124,10 +141,12 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             logger.info("Iniciando %s", phase)
             db = SessionLocal()
             try:
-                sync_run = await sync_virtualpos(db, platform, _make_progress_callback(run_id, phase))
+                # SYNC-O-04: no consolida aqui; la consolidacion de VP corre una sola vez, mas abajo.
+                sync_run = await sync_virtualpos(db, platform, _make_progress_callback(run_id, phase), consolidate=False)
                 n = sync_run.records_processed or 0
                 total_records += n
                 channels_done.append(platform)
+                vp_synced[platform] = sync_run.id
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
             except Exception as exc:
@@ -220,6 +239,26 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en consolidación"})
         finally:
             db.close()
+
+        # Cuentas VP: si su consolidacion fallo quedan `failed` (el reintento las toma, como antes, cuando la
+        # consolidacion iba dentro de su sync); si no, se reconcilian las recuperaciones sobre los cobros ya consolidados.
+        vp_consolidation_failed = consolidation_error or any(f.startswith("virtualpos.") for f in consolidation_failures)
+        for platform, sync_run_id in vp_synced.items():
+            if vp_consolidation_failed:
+                channels_done.remove(platform)
+                channels_failed.append(platform)
+                _mark_sync_run_failed(sync_run_id, "Consolidacion de VirtualPOS fallida.")
+                continue
+            db = SessionLocal()
+            try:
+                reconcile_charge_recoveries(db, platform)
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("Error reconciliando recuperaciones de %s", platform)
+                consolidation_failures.append(f"virtualpos.reconcile_{platform}")
+            finally:
+                db.close()
 
         duration_s = int((datetime.now(timezone.utc) - started).total_seconds())
         failed_parts = []
