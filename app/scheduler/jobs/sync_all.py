@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
+from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
@@ -105,6 +106,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     started = datetime.now(timezone.utc)
     channels_done: list[str] = []
     channels_failed: list[str] = []
+    config_failed: list[str] = []
 
     try:
         # — VirtualPOS VP1 y VP2 —
@@ -123,9 +125,11 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 channels_done.append(platform)
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Error en %s", phase)
                 channels_failed.append(platform)
+                if isinstance(exc, ChannelConfigError):
+                    config_failed.append(platform)
                 event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": f"Error en {phase}"})
             finally:
                 db.close()
@@ -144,9 +148,11 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 channels_done.append("toku")
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Error en %s", phase)
                 channels_failed.append("toku")
+                if isinstance(exc, ChannelConfigError):
+                    config_failed.append("toku")
                 event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en sync_toku"})
             finally:
                 db.close()
@@ -165,9 +171,11 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 channels_done.append("payku")
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Error en %s", phase)
                 channels_failed.append("payku")
+                if isinstance(exc, ChannelConfigError):
+                    config_failed.append("payku")
                 event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en sync_payku"})
             finally:
                 db.close()
@@ -192,6 +200,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         event_bus.emit(run_id, {"type": "phase_start", "phase": phase})
         logger.info("Consolidando canales: %s", consolidate_sources or "todos")
         consolidation_failures: list[str] = []
+        consolidation_error = False
         db = SessionLocal()
         try:
             consolidated = consolidate_to_centralized(db, consolidate_sources, failures=consolidation_failures)
@@ -202,6 +211,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             logger.info("Consolidación completada: %d registros", consolidated)
         except Exception:
             logger.exception("Error en consolidación")
+            consolidation_error = True
             event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en consolidación"})
         finally:
             db.close()
@@ -210,12 +220,25 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         failed_parts = []
         if channels_failed:
             failed_parts.append(f"Canales con error: {', '.join(channels_failed)}")
+        if config_failed:
+            failed_parts.append(
+                f"Error de configuracion (no se reintenta; revisar variables de entorno): {', '.join(config_failed)}"
+            )
         if consolidation_failures:
             failed_parts.append(f"Consolidacion con error: {', '.join(consolidation_failures)}")
+        if consolidation_error:
+            failed_parts.append("Consolidacion fallida")
         failed_msg = "; ".join(failed_parts) or None
+        # Nunca 'completed' si algo fallo: 'partial' si hubo exito en algun canal, 'failed' si ninguno.
+        if not (channels_failed or consolidation_failures or consolidation_error):
+            final_status = "completed"
+        elif channels_done:
+            final_status = "partial"
+        else:
+            final_status = "failed"
         _update_run(
             db_run_id,
-            status="completed",
+            status=final_status,
             phase=None,
             channels_processed=channels_done,
             channels_failed=channels_failed or None,
@@ -229,6 +252,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             "duration_s": duration_s,
             "channels_done": channels_done,
             "channels_failed": channels_failed,
+            "status": final_status,
         })
         logger.info("sync_all_channels completado: %d registros en %ds", total_records, duration_s)
 

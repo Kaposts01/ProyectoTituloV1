@@ -140,10 +140,26 @@ class Settings(BaseSettings):
                     raise ValueError(f"{field.upper()} apunta a sandbox pero APP_ENV es production")
             if not (self.virtualpos_base_url and self.virtualpos_api_key and self.virtualpos_secret_key):
                 raise ValueError("VIRTUALPOS_BASE_URL/API_KEY/SECRET_KEY son obligatorias en production")
+            self._apply_production_aliases()
             return self
         self._guard_sandbox()
         self._apply_sandbox()
         return self
+
+    def _apply_production_aliases(self) -> None:
+        """Alias de variables en produccion (como ya hace `_apply_sandbox`), sin pisar valores explicitos.
+
+        - Payku: la doc usa PAYKU_PUBLIC_TOKEN (Bearer) y PAYKU_PRIVATE_TOKEN (firma); el codigo lee
+          payku_api_key/payku_secret_key. Si estas quedan vacias se usan los tokens.
+        - VirtualPOS cuenta 2: si tiene credenciales pero no URL propia, usa la URL de la cuenta 1
+          (es el mismo servicio VirtualPOS de produccion).
+        """
+        if not self.payku_api_key.strip() and self.payku_public_token.strip():
+            self.payku_api_key = self.payku_public_token
+        if not self.payku_secret_key.strip() and self.payku_private_token.strip():
+            self.payku_secret_key = self.payku_private_token
+        if not self.virtualpos2_base_url.strip() and self.virtualpos2_api_key.strip() and self.virtualpos2_secret_key.strip():
+            self.virtualpos2_base_url = self.virtualpos_base_url
 
     def _guard_sandbox(self) -> None:
         env = self.env_mode

@@ -59,7 +59,10 @@ def test_no_runs_is_unknown(db_session) -> None:
     items = _by_channel(db_session)
     assert set(items) == {"virtualpos", "toku", "payku", "tch"}
     for item in items.values():
-        assert item == {"channel": item["channel"], "level": "unknown", "last_finished_at": None, "age_hours": None}
+        assert item == {
+            "channel": item["channel"], "level": "unknown", "last_finished_at": None, "age_hours": None,
+            "status": "unknown", "consecutive_failures": 0, "days_without_success": None,
+        }
 
 
 def test_failed_last_run_is_error(db_session) -> None:
@@ -141,7 +144,7 @@ def test_endpoint_does_not_leak_error_message_and_is_cached(db_session) -> None:
         first = client.get("/api/v1/sync-runs/health")
         assert first.status_code == 200
         assert "SECRET-DETAIL" not in first.text and "error_message" not in first.text
-        assert all(set(i) == {"channel", "level", "last_finished_at", "age_hours"} for i in first.json())
+        assert all(set(i) == {"channel", "level", "last_finished_at", "age_hours", "status", "consecutive_failures", "days_without_success"} for i in first.json())
         assert {i["channel"]: i["level"] for i in first.json()}["toku"] == "error"
 
         db_session.execute(delete(SyncRun))
@@ -151,3 +154,68 @@ def test_endpoint_does_not_leak_error_message_and_is_cached(db_session) -> None:
         assert {i["channel"]: i["level"] for i in client.get("/api/v1/sync-runs/health").json()}["toku"] == "unknown"
     finally:
         _cleanup()
+
+
+# --- channel_failing_days: estado degraded/failing (SYNC-D-09) ---------------------------------------
+
+
+def test_status_ok_when_recent_success(db_session) -> None:
+    _run(db_session, "toku", "completed", 2)
+    item = _by_channel(db_session)["toku"]
+    assert (item["status"], item["consecutive_failures"], item["days_without_success"]) == ("ok", 0, 0)
+
+
+def test_one_failure_after_recent_success_is_ok_status_but_level_error(db_session) -> None:
+    _run(db_session, "toku", "completed", 5)
+    _run(db_session, "toku", "failed", 1)
+    item = _by_channel(db_session)["toku"]
+    assert item["status"] == "ok"
+    assert item["consecutive_failures"] == 1
+    assert item["level"] == "error"
+
+
+def test_two_consecutive_failures_same_day_is_degraded_and_raises_level(db_session) -> None:
+    _run(db_session, "payku", "completed", 10)
+    _run(db_session, "payku", "failed", 3)
+    _run(db_session, "payku", "failed", 1)
+    item = _by_channel(db_session)["payku"]
+    assert item["status"] == "degraded"
+    assert item["consecutive_failures"] == 2
+    assert item["level"] == "error"
+
+
+def test_failures_and_more_than_a_day_without_success_is_failing(db_session) -> None:
+    _run(db_session, "virtualpos2", "completed", 80)
+    _run(db_session, "virtualpos2", "failed", 50)
+    _run(db_session, "virtualpos2", "failed", 26)
+    _run(db_session, "virtualpos1", "completed", 1)
+    item = _by_channel(db_session)["virtualpos"]
+    assert item["status"] == "failing"
+    assert item["consecutive_failures"] == 2
+    assert item["days_without_success"] == 3
+    assert item["level"] == "error"
+
+
+def test_day_without_success_without_failures_is_degraded(db_session) -> None:
+    _run(db_session, "toku", "completed", 30)
+    item = _by_channel(db_session)["toku"]
+    assert item["status"] == "degraded"
+    assert item["days_without_success"] == 1
+    assert item["level"] == "warn"
+
+
+def test_never_succeeded_with_failures_is_failing(db_session) -> None:
+    _run(db_session, "payku", "failed", 30)
+    _run(db_session, "payku", "failed", 6)
+    item = _by_channel(db_session)["payku"]
+    assert item["status"] == "failing"
+    assert item["days_without_success"] is None
+
+
+def test_partial_etl_run_counts_as_success_for_tch(db_session) -> None:
+    started = NOW - timedelta(hours=2)
+    db_session.add(EtlRun(status="partial", channels_processed=["tch"], started_at=started, finished_at=started))
+    db_session.flush()
+    item = _by_channel(db_session)["tch"]
+    assert item["status"] == "ok"
+    assert item["level"] == "ok"

@@ -5,6 +5,7 @@ from typing import Any, Self
 
 import httpx
 
+from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
 from app.integrations.virtualpos.auth import build_signature
 
@@ -106,7 +107,13 @@ class VirtualPOSClient:
             secret_key = settings.virtualpos_secret_key
 
         if not base_url or not api_key or not secret_key:  # sandbox/qa: canal sin variables propias = deshabilitado
-            raise RuntimeError(f"VirtualPOS {platform} is not configured")
+            prefix = "VIRTUALPOS2" if platform == "virtualpos2" else "VIRTUALPOS"
+            missing = tuple(
+                f"{prefix}_{name}"
+                for name, value in (("BASE_URL", base_url), ("API_KEY", api_key), ("SECRET_KEY", secret_key))
+                if not (value or "").strip()
+            )
+            raise ChannelConfigError(f"VirtualPOS {platform} is not configured", missing)
 
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),

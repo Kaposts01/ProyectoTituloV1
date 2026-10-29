@@ -103,7 +103,7 @@ def list_jobs(
         # Último EtlRun completado o fallido para este job
         last_run = db.scalar(
             select(EtlRun)
-            .where(EtlRun.status.in_(["completed", "failed"]))
+            .where(EtlRun.status.in_(["completed", "partial", "failed"]))
             .order_by(desc(EtlRun.started_at))
             .limit(1)
         )

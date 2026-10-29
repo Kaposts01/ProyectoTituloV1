@@ -4,6 +4,7 @@ from typing import Any, Self
 
 import httpx
 
+from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
 from app.integrations.payku.auth import build_sign
 
@@ -17,6 +18,13 @@ class PaykuClient:
         api_key = settings.payku_api_key.strip()
         if api_key.lower().startswith("bearer "):
             api_key = api_key[7:].strip()
+        if not api_key or not settings.payku_secret_key.strip():
+            missing = tuple(
+                name
+                for name, value in (("PAYKU_API_KEY", api_key), ("PAYKU_SECRET_KEY", settings.payku_secret_key.strip()))
+                if not value
+            )
+            raise ChannelConfigError("Payku sin credenciales", missing)
         self._client = httpx.AsyncClient(
             base_url=settings.payku_base_url.rstrip("/"),
             timeout=settings.payku_timeout_seconds,

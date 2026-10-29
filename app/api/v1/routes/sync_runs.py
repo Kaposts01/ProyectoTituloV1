@@ -81,34 +81,84 @@ def _classify(
     return "error", last_finished_at, age_hours
 
 
-def _source_health(db: Session, source: str, now: datetime) -> tuple[str, datetime | None, float | None]:
+# Estado de fallos sostenidos (channel_failing_days): se suma a `level` sin cambiar su contrato.
+_STATUS_SEVERITY = {"ok": 0, "unknown": 1, "degraded": 2, "failing": 3}
+_STATUS_MIN_LEVEL = {"degraded": "warn", "failing": "error"}
+_RECENT_RUNS = 30
+
+
+def _failure_status(
+    recent: list[tuple[str, datetime | None]], now: datetime
+) -> tuple[str, int, int | None]:
+    """(status, corridas fallidas seguidas, dias sin exito) a partir de las corridas recientes (nuevas primero).
+
+    degraded: >=2 corridas fallidas seguidas, o >=1 dia sin exito. failing: ambas a la vez.
+    Una corrida `partial` (solo EtlRun) cuenta como exito.
+    """
+    if not recent:
+        return "unknown", 0, None
+    consecutive = 0
+    for status, _ in recent:
+        if status != "failed":
+            break
+        consecutive += 1
+    last_success = next((fin for status, fin in recent if status in ("completed", "partial")), None)
+    days: int | None = None
+    if last_success is not None:
+        if last_success.tzinfo is None:
+            last_success = last_success.replace(tzinfo=timezone.utc)
+        days = max(0, int((now - last_success).total_seconds() // 86400))
+    long_without = days is None or days >= 1
+    if consecutive >= 2 and long_without:
+        status_name = "failing"
+    elif consecutive >= 2 or (days is not None and days >= 1):
+        status_name = "degraded"
+    else:
+        status_name = "ok"
+    return status_name, consecutive, days
+
+
+def _source_health(db: Session, source: str, now: datetime) -> dict[str, object]:
     if source == "tch":
         model, scope = EtlRun, EtlRun.channels_processed.any("tch")
     else:
         model, scope = SyncRun, SyncRun.source == source
-    last = db.execute(
+    rows = db.execute(
         select(model.status, model.finished_at, model.started_at)
         .where(scope, model.status != "running")
         .order_by(model.started_at.desc())
-        .limit(1)
-    ).first()
+        .limit(_RECENT_RUNS)
+    ).all()
+    last = rows[0] if rows else None
     hung = db.scalar(
         select(model.id).where(scope, model.status == "running", model.started_at < now - _ERROR_AFTER).limit(1)
     )
     finished = (last.finished_at or last.started_at) if last else None
-    return _classify(last.status if last else None, finished, hung is not None, now)
+    level, level_finished, age_hours = _classify(last.status if last else None, finished, hung is not None, now)
+    status, consecutive, days = _failure_status([(r.status, r.finished_at or r.started_at) for r in rows], now)
+    min_level = _STATUS_MIN_LEVEL.get(status)
+    if min_level and _SEVERITY[level] < _SEVERITY[min_level]:
+        level = min_level
+    return {
+        "level": level, "finished_at": level_finished, "age_hours": age_hours,
+        "status": status, "consecutive_failures": consecutive, "days_without_success": days,
+    }
 
 
 def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for channel, sources in _CHANNEL_SOURCES.items():
         parts = [_source_health(db, src, now) for src in (sources or (channel,))]
-        level, finished_at, age_hours = max(parts, key=lambda part: _SEVERITY[part[0]])
+        worst = max(parts, key=lambda p: (_SEVERITY[p["level"]], _STATUS_SEVERITY[p["status"]]))  # type: ignore[index]
+        finished_at = worst["finished_at"]
         result.append({
             "channel": channel,
-            "level": level,
-            "last_finished_at": finished_at.isoformat() if finished_at else None,
-            "age_hours": age_hours,
+            "level": worst["level"],
+            "last_finished_at": finished_at.isoformat() if finished_at else None,  # type: ignore[union-attr]
+            "age_hours": worst["age_hours"],
+            "status": worst["status"],
+            "consecutive_failures": worst["consecutive_failures"],
+            "days_without_success": worst["days_without_success"],
         })
     return result
 
