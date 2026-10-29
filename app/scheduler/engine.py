@@ -137,3 +137,18 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
         )
         logger.info("Job '%s' registrado (07,10,13,16,19,22 h; detras de TARGETED_RECONCILE_ENABLED).", JOB_TARGETED_RECONCILE)
+
+    # SYNC-D-08: alertas por correo (cada 15 min; :02/:17/:32/:47 para no chocar con los barridos de :05/:20/:35/:50).
+    # Detras de ALERTS_ENABLED (apagada por defecto): con la bandera apagada el job no hace nada.
+    from app.scheduler.jobs.alert_jobs import JOB_ALERTS, check_alerts
+
+    if not scheduler.get_job(JOB_ALERTS):
+        scheduler.add_job(
+            check_alerts,
+            trigger="cron",
+            minute="2,17,32,47",
+            id=JOB_ALERTS,
+            name="Alertas de sincronización por correo",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (cada 15 min; detras de ALERTS_ENABLED).", JOB_ALERTS)

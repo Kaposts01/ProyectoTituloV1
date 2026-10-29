@@ -20,6 +20,7 @@ from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.engine import JOB_SYNC_ALL, get_scheduler
+from app.scheduler.jobs.alert_jobs import JOB_ALERTS
 from app.scheduler.jobs.billing_jobs import (
     BILLING_JOB_IDS,
     JOB_BILLING_EXPIRE,
@@ -98,7 +99,7 @@ def list_jobs(
     sched = get_scheduler()
     result = []
     for job in sched.get_jobs():
-        if job.id in BILLING_JOB_IDS:
+        if job.id in BILLING_JOB_IDS or job.id == JOB_ALERTS:  # alertas: sin filas en sync_runs (last_run = null)
             result.append(_billing_job_json(db, job))
             continue
         # Último EtlRun completado o fallido para este job

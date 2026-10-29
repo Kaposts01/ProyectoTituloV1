@@ -92,6 +92,16 @@ class Settings(BaseSettings):
     targeted_reconcile_pause_seconds: float = 1.0
     targeted_reconcile_due_days: int = 5  # cobro programado en los ultimos N dias
     targeted_reconcile_rejection_days: int = 15  # rechazo reciente = cobro rechazado de los ultimos N dias
+    # SYNC-D-08: alertas de fallos de sincronizacion por correo (job cada 15 min). APAGADA por defecto. Todo se define SOLO
+    # por variable de entorno; `ALERT_EMAIL_TO` (lista separada por comas) es obligatorio: si falta, no se envia nada.
+    alerts_enabled: bool = False
+    alert_email_to: str = ""
+    alert_email_from: str = ""
+    alert_smtp_host: str = ""
+    alert_smtp_port: int = 587
+    alert_smtp_user: str = ""
+    alert_smtp_password: str = ""
+    alert_smtp_starttls: bool = True
     # RJ-15: materializa los intentos FAILED de Toku como core_payments (source_status='FAILED'). APAGADA por defecto.
     toku_materialize_failed_payments: bool = False
     # TK-20: senales de suscripcion desde los reportes (activa efectiva, racha por cuotas, tarjeta bloqueada/vencida)
