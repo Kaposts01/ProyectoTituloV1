@@ -1,17 +1,10 @@
-import { formatKpi, hasKpiValue, type KpiFormat } from "./formatKpi";
+import { formatKpi, goalStatus, hasKpiValue, type KpiChipStatus, type KpiFormat, type KpiGoal } from "./formatKpi";
+
+export type { KpiChipStatus, KpiGoal };
 
 export const KPI_EMPTY_CAPTION = "Sin base para calcular";
 
-/** Estado de una meta: «en meta», «lejos de meta» o «sin meta» (chip con dot + texto, nunca solo color). */
-export type KpiChipStatus = "met" | "off" | "none";
 const CHIP_TEXT: Record<KpiChipStatus, string> = { met: "en meta", off: "lejos de meta", none: "sin meta" };
-
-/**
- * Meta de la tarjeta. `target` ausente (null/undefined) = «sin meta».
- * `direction`: `atLeast` (por defecto; ingreso, altas: se llena una barra de progreso) o `atMost`
- * (tope: churn, rechazo; se cumple si value <= target y no lleva barra, solo el texto «Meta: ≤ X»).
- */
-export type KpiGoal = { target: number | null | undefined; direction?: "atLeast" | "atMost" };
 
 /**
  * Variación contra el período anterior. `value` = diferencia ya calculada (no porcentaje);
@@ -19,12 +12,6 @@ export type KpiGoal = { target: number | null | undefined; direction?: "atLeast"
  * `format` por defecto = el de la tarjeta; en porcentaje se expresa en «pts».
  */
 export type KpiDelta = { value: number | null | undefined; goodWhen?: "up" | "down"; format?: KpiFormat; label?: string };
-
-/** Estado de la meta para un valor; "none" sin meta o sin valor medible. */
-export function goalStatus(value: number | null | undefined, goal: KpiGoal | undefined): KpiChipStatus {
-  if (!goal || !hasKpiValue(goal.target) || !hasKpiValue(value)) return "none";
-  return (goal.direction === "atMost" ? value <= goal.target : value >= goal.target) ? "met" : "off";
-}
 
 function formatDelta(value: number, format: KpiFormat): string {
   const sign = value > 0 ? "+" : "";
