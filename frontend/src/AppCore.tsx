@@ -17,19 +17,15 @@ import type {
   ProviderRecordDetail, SortDirection, AuthSession, TchSuscripcionDetail,
 } from "./features/shared/types";
 import {
-  RECORDS_PAGE_SIZE, refreshCsrfToken, text, documentType, normalizeRut, fieldLabel, providerRecordHeading,
-  externalUrl, renewalText, cardTypeText, isActiveSubscription, isPendingCharge, isRejectedCharge, nested,
-  objectEntries, title, resourceTitle,
+  RECORDS_PAGE_SIZE, refreshCsrfToken, text, documentType, normalizeRut, isActiveSubscription,
+  isPendingCharge, isRejectedCharge, title, resourceTitle,
 } from "./features/shared/utils";
 import {
-  virtualPosClientFields, virtualPosClientFieldLabels, virtualPosDocumentTypes, recurringFieldLabels,
-  virtualPosPlanFields, virtualPosSubscriptionFields, virtualPosClientEditFields,
-  virtualPosPlanCreateFields, planDefaultValues, virtualPosSubscriptionCreateFields, subscriptionRequiredFields,
-  providerEditFields, deletableResources, deleteEndpoint, stagingFilters, filterFieldForColumn, virtualPosFieldForColumn,
+  virtualPosClientEditFields, virtualPosPlanCreateFields, planDefaultValues,
+  virtualPosSubscriptionCreateFields, subscriptionRequiredFields, providerEditFields, deleteEndpoint,
+  stagingFilters, filterFieldForColumn, virtualPosFieldForColumn,
 } from "./features/virtualpos/constants";
-import { virtualPosColumns, tokuColumns, tokuRelatedColumns, paykuColumns, virtualPosClientName, vpClientRecordName } from "./features/virtualpos/columns";
-import { VirtualPosDetailTable } from "./features/virtualpos/VirtualPosDetailTable";
-import { TokuPaymentMethodProfile } from "./features/toku/TokuPaymentMethodProfile";
+import { virtualPosColumns, tokuColumns, paykuColumns } from "./features/virtualpos/columns";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { RecoveryPanel } from "./features/recovery/RecoveryPanel";
@@ -42,6 +38,12 @@ import { useEtl } from "./features/dashboard/useEtl";
 import { useGeneralDashboard } from "./features/dashboard/useGeneralDashboard";
 import { GeneralDashboardView } from "./features/dashboard/GeneralDashboardView";
 import { useChannelDashboard } from "./features/dashboard/useChannelDashboard";
+import { ClientDetailView } from "./features/virtualpos/ClientDetailView";
+import { PlanDetailView } from "./features/virtualpos/PlanDetailView";
+import { SubscriptionDetailView } from "./features/virtualpos/SubscriptionDetailView";
+import { ChargeDetailView } from "./features/virtualpos/ChargeDetailView";
+import { PaymentDetailView } from "./features/virtualpos/PaymentDetailView";
+import { ProviderRecordDetailView } from "./features/provider/ProviderRecordDetailView";
 import { useTch } from "./features/tch/useTch";
 import { renderTchContent } from "./features/tch/TchContent";
 
@@ -1463,500 +1465,69 @@ function AppCore() {
     }
   }
   const clientDetailView = clientDetail ? (
-    <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => showResourceList("virtualpos", "client")}>
-        Volver a clientes VirtualPOS
-      </button>
-      <p className="eyebrow">VIRTUALPOS / CLIENTE</p>
-      <h2>
-        {text(clientDetail.client.payload.first_name, "")}{" "}
-        {text(clientDetail.client.payload.last_name, "")}
-      </h2>
-      <div className="client-detail-actions">
-        <button className="edit-button" onClick={() => setEditingClient(clientDetail.client)}>
-          Editar
-        </button>
-      </div>
-      <section className="panel">
-        <p className="eyebrow">FICHA DEL CLIENTE</p>
-        <dl className="field-list">
-          {virtualPosClientFields.map((field) => (
-            <div key={field}>
-              <dt>{virtualPosClientFieldLabels[field]}</dt>
-              <dd>
-                {field === "uuid"
-                  ? text(
-                      clientDetail.client.payload.uuid,
-                      clientDetail.client.external_id,
-                    )
-                  : field === "social_id_type"
-                    ? (virtualPosDocumentTypes[text(clientDetail.client.payload[field], "")] ?? text(clientDetail.client.payload[field]))
-                  : text(clientDetail.client.payload[field])}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-      <section className="panel client-subscriptions">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">SUBSCRIPCIONES VIRTUALPOS</p>
-            <h3>Relacionadas por RUT</h3>
-          </div>
-          <span>{clientDetail.subscription_total} total</span>
-        </div>
-        <VirtualPosDetailTable records={clientDetail.subscriptions} empty="Sin suscripciones asociadas por RUT." columns={[
-          { label: "ID Sub", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
-          { label: "Status", value: (record) => text(record.payload.status) },
-          { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
-          { label: "Último cobro", kind: "date", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "" },
-          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
-          { label: "F. Inicio", kind: "date", value: (record) => text(record.payload.suscription_date, "") },
-          { label: "Acción", filterable: false, value: () => "", render: (record) => isActiveSubscription(record) ? <button className="cancel-subscription-button" onClick={() => { setCancelSubscriptionError(null); setCancelingSubscription(record); }}>Cancelar</button> : null },
-        ]} />
-      </section>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">CARGOS</p>
-            <h3>Cobros generados por suscripción</h3>
-          </div>
-          <span>{clientDetail.charge_total} total{clientDetail.charge_total > 100 ? " · mostrando últimos 100" : ""}</span>
-        </div>
-        <VirtualPosDetailTable records={clientDetail.charges} empty="Sin cargos registrados para este cliente." columns={[
-          { label: "Fecha", kind: "date", value: (record) => text(record.payload.charge_date, "") },
-          { label: "ID Cargo", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosCharge(record)}>{text(record.payload.id, record.external_id)}</button> },
-          { label: "Plan", value: (record) => record.plan_name ?? "", render: (record) => record.subscription_id ? <button className="record-link" onClick={() => void openVirtualPosSubscription({ external_id: record.subscription_id! })}>{record.plan_name ?? "Sin plan"}</button> : "Sin plan" },
-          { label: "Estado", value: (record) => text(record.payload.status) },
-          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
-        ]} />
-      </section>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">TRANSACCIONES</p>
-            <h3>Pagos procesados</h3>
-          </div>
-          <span>{clientDetail.payment_total} total</span>
-        </div>
-        <VirtualPosDetailTable records={clientDetail.payments} empty="Sin transacciones procesadas para este cliente." columns={[
-          { label: "Fecha autorización", kind: "date", value: (record) => text(nested(record.payload, "order", "authorized_at"), "") },
-          { label: "ID Transacción", value: (record) => record.external_id, render: (record) => <button className="record-link" onClick={() => void openVirtualPosPayment(record)}>{record.external_id}</button> },
-          { label: "Estado", value: (record) => text(nested(record.payload, "order", "status")) },
-          { label: "Monto bruto", kind: "amount", value: (record) => text(nested(record.payload, "order", "amount"), "0") },
-          { label: "Abono neto", kind: "amount", value: (record) => { const order = record.payload.order as Record<string, unknown> | undefined; const deposit = Array.isArray(order?.deposits) ? order.deposits[0] as Record<string, unknown> : undefined; return text(deposit?.payout_amount, "0"); } },
-          { label: "Tipo", value: (record) => text(nested(record.payload, "order", "payment_type_code"), "") },
-        ]} />
-      </section>
-    </main>
+    <ClientDetailView
+      detail={clientDetail}
+      showResourceList={showResourceList}
+      openVirtualPosSubscription={openVirtualPosSubscription}
+      openVirtualPosCharge={openVirtualPosCharge}
+      openVirtualPosPayment={openVirtualPosPayment}
+      onEdit={setEditingClient}
+      onCancelSubscription={(record) => { setCancelSubscriptionError(null); setCancelingSubscription(record); }}
+    />
   ) : null;
   const planDetailView = planDetail ? (
-    <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => showResourceList("virtualpos", "plan")}>
-        Volver a planes VirtualPOS
-      </button>
-      <p className="eyebrow">VIRTUALPOS / PLAN</p>
-      <h2>{text(planDetail.plan.payload.name, planDetail.plan.external_id)}</h2>
-      <section className="panel">
-        <p className="eyebrow">FICHA DEL PLAN</p>
-        <dl className="field-list">
-          {virtualPosPlanFields.map((field) => (
-            <div key={field}>
-              <dt>{fieldLabel(field)}</dt>
-              <dd>
-                {field === "id"
-                  ? text(
-                      planDetail.plan.payload.id,
-                      planDetail.plan.external_id,
-                    )
-                  : (field === "return_url" || field === "suscription_url") && externalUrl(planDetail.plan.payload[field])
-                    ? <a className="record-link" href={externalUrl(planDetail.plan.payload[field]) ?? undefined} target="_blank" rel="noreferrer">Abrir enlace</a>
-                    : text(planDetail.plan.payload[field])}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-      <section className="panel client-subscriptions">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">SUBSCRIPCIONES VIRTUALPOS</p>
-            <h3>Asociadas al plan</h3>
-          </div>
-          <span>{planDetail.subscription_total} total</span>
-        </div>
-        <VirtualPosDetailTable records={planDetail.subscriptions} empty="Sin suscripciones asociadas al plan." columns={[
-          { label: "ID Sub", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
-          { label: "Nombre cliente", value: virtualPosClientName },
-          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
-          { label: "Status", value: (record) => text(record.payload.status) },
-        ]} />
-      </section>
-    </main>
+    <PlanDetailView
+      detail={planDetail}
+      showResourceList={showResourceList}
+      openVirtualPosSubscription={openVirtualPosSubscription}
+    />
   ) : null;
   const subscriptionDetailView = subscriptionDetail ? (
-    <main className="app-shell detail-page">
-      <button
-        className="back-button"
-        onClick={() => showResourceList("virtualpos", "subscription")}
-      >
-        Volver al listado VirtualPOS
-      </button>
-      <p className="eyebrow">VIRTUALPOS / SUBSCRIPCIÓN</p>
-      <h2>
-        {text(
-          subscriptionDetail.subscription.payload.plan_name,
-          subscriptionDetail.subscription.external_id,
-        )}
-      </h2>
-      {isActiveSubscription(subscriptionDetail.subscription) ? (
-        <div className="client-detail-actions">
-          <button
-            className="cancel-subscription-button"
-            onClick={() => setCancelingSubscription(subscriptionDetail.subscription)}
-          >
-            Cancelar Sub
-          </button>
-          <button
-            className="create-charge-button"
-            onClick={() => { setChargeFormError(null); setChargeFieldErrors({}); setCreatingCharge(subscriptionDetail.subscription); }}
-          >
-            + Nuevo cargo
-          </button>
-        </div>
-      ) : null}
-      {chargeSaveNotice ? <p className="save-notice">{chargeSaveNotice}</p> : null}
-      <section className="panel">
-        <p className="eyebrow">FICHA DE LA SUBSCRIPCIÓN</p>
-        <dl className="field-list">
-          {virtualPosSubscriptionFields.map((field) => (
-            <div key={field}>
-              <dt>{fieldLabel(field)}</dt>
-              <dd>
-                {field === "secondary_status"
-                  ? <span className={`badge badge-${subscriptionDetail.subscription.secondary_status === "cobrable" ? "green" : subscriptionDetail.subscription.secondary_status === "incobrable" ? "orange" : subscriptionDetail.subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{subscriptionDetail.subscription.secondary_status ?? "—"}</span>
-                  : field === "last_paid_date"
-                    ? (subscriptionDetail.subscription.last_paid_date ? String(subscriptionDetail.subscription.last_paid_date).slice(0, 10) : "—")
-                  : field === "id"
-                  ? text(
-                      subscriptionDetail.subscription.payload.id,
-                      subscriptionDetail.subscription.external_id,
-                    )
-                  : field === "plan_name" && subscriptionDetail.subscription.payload.plan_id
-                    ? <button className="record-link" onClick={() => void openVirtualPosPlan({ external_id: String(subscriptionDetail.subscription.payload.plan_id) })}>{text(subscriptionDetail.subscription.payload[field])}</button>
-                    : field === "renewal"
-                      ? renewalText(subscriptionDetail.subscription.payload[field])
-                      : text(subscriptionDetail.subscription.payload[field])}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-      <section className="panel client-subscriptions">
-        <p className="eyebrow">MÉTODO DE PAGO</p>
-        {objectEntries(subscriptionDetail.payment_method).length ? (
-          <dl className="field-list">
-            {objectEntries(subscriptionDetail.payment_method).filter(([field]) => !["bin", "last4carddigit", "last4"].includes(field.toLowerCase())).map(
-              ([field, value]) => (
-                <div key={field}>
-                  <dt>{fieldLabel(field)}</dt>
-                  <dd>{field === "card_type" ? cardTypeText(value) : text(value)}</dd>
-                </div>
-              ),
-            )}
-          </dl>
-        ) : (
-          <p>Sin método de pago disponible en staging.</p>
-        )}
-      </section>
-      <section className="panel client-subscriptions">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">CARGOS</p>
-            <h3>Asociados a la subscripción</h3>
-          </div>
-          <span>{subscriptionDetail.charge_total} total</span>
-        </div>
-        <VirtualPosDetailTable records={subscriptionDetail.charges} empty="Sin cargos asociados a la subscripción." columns={[
-          { label: "Fecha de cargo", kind: "date", value: (record) => text(record.payload.charge_date, "") },
-          { label: "ID Cargo", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosCharge(record)}>{text(record.payload.id, record.external_id)}</button> },
-          { label: "Estado", value: (record) => text(record.payload.status) },
-          { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
-          { label: "Acción", filterable: false, value: () => "", render: (record) => isPendingCharge(record) && can("virtualpos.charges.cancel") ? <button className="cancel-charge-button" onClick={() => { setCancelChargeError(null); setCancelingCharge(record); }}>Cancelar</button> : isRejectedCharge(record) && can("virtualpos.charges.retry") ? <button className="retry-charge-button" onClick={() => { setRetryChargeError(null); setRetryingCharge(record); }}>Reintentar</button> : null },
-        ]} />
-      </section>
-      <section className="panel client-subscriptions">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">TRANSACCIONES DEL CLIENTE</p>
-            <h3>Disponibles por RUT en la misma cuenta</h3>
-          </div>
-          <span>{subscriptionDetail.payment_total} total</span>
-        </div>
-        <p className="field-hint">VirtualPOS no entrega un identificador de subscripción en las transacciones, por lo que esta tabla no las asigna individualmente.</p>
-        <VirtualPosDetailTable records={subscriptionDetail.payments} empty="Sin transacciones disponibles para este cliente." columns={[
-          { label: "Fecha autorización", kind: "date", value: (record) => text(nested(record.payload, "order", "authorized_at"), "") },
-          { label: "ID Transacción", value: (record) => record.external_id, render: (record) => <button className="record-link" onClick={() => void openVirtualPosPayment(record)}>{record.external_id}</button> },
-          { label: "Estado", value: (record) => text(nested(record.payload, "order", "status")) },
-          { label: "Monto", kind: "amount", value: (record) => text(nested(record.payload, "order", "amount"), "0") },
-        ]} />
-      </section>
-    </main>
+    <SubscriptionDetailView
+      detail={subscriptionDetail}
+      showResourceList={showResourceList}
+      openVirtualPosPlan={openVirtualPosPlan}
+      openVirtualPosCharge={openVirtualPosCharge}
+      openVirtualPosPayment={openVirtualPosPayment}
+      onCancelSubscription={setCancelingSubscription}
+      onNewCharge={(record) => { setChargeFormError(null); setChargeFieldErrors({}); setCreatingCharge(record); }}
+      onCancelCharge={(record) => { setCancelChargeError(null); setCancelingCharge(record); }}
+      onRetryCharge={(record) => { setRetryChargeError(null); setRetryingCharge(record); }}
+      can={can}
+      chargeSaveNotice={chargeSaveNotice}
+    />
   ) : null;
   const chargeDetailView = chargeDetail ? (
-    <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => showResourceList("virtualpos", "charge")}>
-        Volver a cargos VirtualPOS
-      </button>
-      <p className="eyebrow">VIRTUALPOS / CARGO</p>
-      <h2>{text(chargeDetail.charge.payload.id, chargeDetail.charge.external_id)}</h2>
-      <div className="client-detail-actions">
-        {isPendingCharge(chargeDetail.charge) ? (
-          <button
-            className="cancel-charge-button"
-            onClick={() => { setCancelChargeError(null); setCancelingCharge(chargeDetail.charge); }}
-          >
-            Cancelar en VP
-          </button>
-        ) : null}
-        {isRejectedCharge(chargeDetail.charge) && can("virtualpos.charges.retry") ? (
-          <button
-            className="retry-charge-button"
-            onClick={() => { setRetryChargeError(null); setRetryingCharge(chargeDetail.charge); }}
-          >
-            Reintentar en VP
-          </button>
-        ) : null}
-      </div>
-      <section className="panel">
-        <p className="eyebrow">FICHA DEL CARGO</p>
-        <dl className="field-list">
-          {Object.entries(chargeDetail.charge.payload).map(([field, value]) => (
-            <div key={field}>
-              <dt>{fieldLabel(field)}</dt>
-              <dd>{text(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-      <section className="panel">
-        <p className="eyebrow">RELACIONES</p>
-        <dl className="field-list">
-          <div><dt>Cliente</dt><dd>{chargeDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(chargeDetail.client!)}>{vpClientRecordName(chargeDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
-          <div><dt>RUT cliente</dt><dd>{chargeDetail.client ? text(chargeDetail.client.payload.social_id) : "—"}</dd></div>
-          <div><dt>Subscripción</dt><dd>{chargeDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(chargeDetail.subscription!)}>{chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id}</button> : "Sin subscripción relacionada"}</dd></div>
-          <div><dt>Transacción</dt><dd>{chargeDetail.payment ? <button className="record-link" onClick={() => void openVirtualPosPayment(chargeDetail.payment!)}>{chargeDetail.payment.external_id}</button> : "Sin transacción relacionada"}</dd></div>
-        </dl>
-      </section>
-    </main>
+    <ChargeDetailView
+      detail={chargeDetail}
+      showResourceList={showResourceList}
+      openVirtualPosClient={openVirtualPosClient}
+      openVirtualPosSubscription={openVirtualPosSubscription}
+      openVirtualPosPayment={openVirtualPosPayment}
+      onCancelCharge={(record) => { setCancelChargeError(null); setCancelingCharge(record); }}
+      onRetryCharge={(record) => { setRetryChargeError(null); setRetryingCharge(record); }}
+      can={can}
+    />
   ) : null;
   const paymentDetailView = paymentDetail ? (
-    <main className="app-shell detail-page">
-      <button className="back-button" onClick={() => showResourceList("virtualpos", "payment")}>
-        Volver a transacciones VirtualPOS
-      </button>
-      <p className="eyebrow">VIRTUALPOS / TRANSACCIÓN</p>
-      <h2>{text(nested(paymentDetail.payment.payload, "order", "uuid"), paymentDetail.payment.external_id)}</h2>
-      <div className="client-detail-actions">
-        <button
-          className="delete-button"
-          onClick={() => setDeletingRecord({ record: paymentDetail.payment, source: "virtualpos", resourceType: "payment" })}
-        >
-          Eliminar
-        </button>
-      </div>
-      <section className="panel">
-        <p className="eyebrow">FICHA DE LA TRANSACCIÓN</p>
-        <dl className="field-list">
-          {Object.entries(paymentDetail.payment.payload).flatMap(([field, value]) => {
-            if ((field === "order" || field === "client") && objectEntries(value).length) {
-              return objectEntries(value).map(([nestedField, nestedValue]) => (
-                <div key={`${field}-${nestedField}`}>
-                  <dt>{fieldLabel(field)} {fieldLabel(nestedField)}</dt>
-                  <dd>{text(nestedValue)}</dd>
-                </div>
-              ));
-            }
-            return [
-              <div key={field}>
-                <dt>{fieldLabel(field)}</dt>
-                <dd>{text(value)}</dd>
-              </div>,
-            ];
-          })}
-        </dl>
-      </section>
-      <section className="panel">
-        <p className="eyebrow">RELACIONES</p>
-        <dl className="field-list">
-          <div><dt>Cliente</dt><dd>{paymentDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(paymentDetail.client!)}>{vpClientRecordName(paymentDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
-          <div><dt>RUT cliente</dt><dd>{paymentDetail.client ? text(paymentDetail.client.payload.social_id) : "—"}</dd></div>
-          <div><dt>Subscripción</dt><dd>{paymentDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(paymentDetail.subscription!)}>{paymentDetail.subscription.plan_name ?? paymentDetail.subscription.external_id}</button> : "Sin subscripción relacionada"}</dd></div>
-          <div><dt>Cargo</dt><dd>{paymentDetail.charge ? <button className="record-link" onClick={() => void openVirtualPosCharge(paymentDetail.charge!)}>{text(paymentDetail.charge.payload.id, paymentDetail.charge.external_id)}</button> : "Sin cargo relacionado"}</dd></div>
-        </dl>
-      </section>
-    </main>
+    <PaymentDetailView
+      detail={paymentDetail}
+      showResourceList={showResourceList}
+      openVirtualPosClient={openVirtualPosClient}
+      openVirtualPosSubscription={openVirtualPosSubscription}
+      openVirtualPosCharge={openVirtualPosCharge}
+      onDelete={(record) => setDeletingRecord({ record, source: "virtualpos", resourceType: "payment" })}
+    />
   ) : null;
   const providerRecordDetailView = providerRecordDetail ? (
-    <main className="app-shell detail-page">
-      <button
-        className="back-button"
-        onClick={() => showResourceList(providerRecordDetail.record.source as ProviderSource, providerRecordDetail.record.resource_type)}
-      >
-        Volver al listado {title(providerRecordDetail.record.source)}
-      </button>
-      <p className="eyebrow">
-        {title(providerRecordDetail.record.source).toUpperCase()} /{" "}
-        {resourceTitle(providerRecordDetail.record.resource_type).toUpperCase()}
-      </p>
-      <h2>{providerRecordHeading(providerRecordDetail.record)}</h2>
-      <div className="client-detail-actions">
-        {(providerEditFields[providerRecordDetail.record.source]?.[providerRecordDetail.record.resource_type] ?? []).length > 0 ? (
-          <button
-            className="edit-button"
-            onClick={() => { setProviderEditError(null); setEditingProviderRecord({
-              record: providerRecordDetail.record,
-              source: providerRecordDetail.record.source,
-              resourceType: providerRecordDetail.record.resource_type,
-            }); }}
-          >
-            Editar
-          </button>
-        ) : null}
-        {providerRecordDetail.record.source === "toku" && providerRecordDetail.record.resource_type === "subscription" ? (
-          <button
-            className="edit-button"
-            onClick={() => { setTokuSubStatusError(null); setManagingTokuSub(providerRecordDetail.record); }}
-          >
-            Gestionar estado
-          </button>
-        ) : null}
-        {(deletableResources[providerRecordDetail.record.source] ?? []).includes(providerRecordDetail.record.resource_type) ? (
-          <button
-            className="delete-button"
-            onClick={() => { setProviderDeleteError(null); setDeletingRecord({
-              record: providerRecordDetail.record,
-              source: providerRecordDetail.record.source,
-              resourceType: providerRecordDetail.record.resource_type,
-            }); }}
-          >
-            Eliminar
-          </button>
-        ) : null}
-      </div>
-      {providerRecordDetail.record.source === "toku" && providerRecordDetail.record.resource_type === "payment_method" ? (
-        <TokuPaymentMethodProfile payload={providerRecordDetail.record.payload} />
-      ) : (
-        <section className="panel">
-          <p className="eyebrow">FICHA COMPLETA</p>
-          <dl className="field-list">
-            {Object.entries(providerRecordDetail.record.payload).flatMap(
-              ([field, value]) => {
-                const entries = objectEntries(value);
-                if (entries.length) {
-                  return entries.map(([subField, subValue]) => (
-                    <div key={`${field}-${subField}`}>
-                      <dt>
-                        {field === "recurring"
-                          ? `Recurrencia ${recurringFieldLabels[subField] ?? fieldLabel(subField)}`
-                          : `${fieldLabel(field)} — ${fieldLabel(subField)}`}
-                      </dt>
-                      <dd>{text(subValue)}</dd>
-                    </div>
-                  ));
-                }
-                return [
-                  <div key={field}>
-                    <dt>{fieldLabel(field)}</dt>
-                    <dd>{text(value)}</dd>
-                  </div>,
-                ];
-              },
-            )}
-          </dl>
-        </section>
-      )}
-      {providerRecordDetail.related.map((group) => (
-        <section
-          className="panel client-subscriptions"
-          key={group.resource_type}
-        >
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">{group.label.toUpperCase()}</p>
-              <h3>Registros relacionados</h3>
-            </div>
-            <span>{group.items.length} total</span>
-          </div>
-          {group.items.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    {tokuRelatedColumns(group.resource_type).map((column) => (
-                      <th key={column.label}>{column.label}</th>
-                    ))}
-                    <th>Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.items.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <button
-                          className="record-link"
-                          onClick={() =>
-                            void openProviderRecord(
-                              item.source as ProviderSource,
-                              group.resource_type,
-                              item,
-                            )
-                          }
-                        >
-                          {text(item.payload.id, item.external_id)}
-                        </button>
-                      </td>
-                      {tokuRelatedColumns(group.resource_type).map((column) => (
-                        <td key={column.label}>{column.value(item)}</td>
-                      ))}
-                      <td className="action-cell">
-                        {item.source === "toku" && group.resource_type === "subscription" ? (
-                          <button
-                            className="edit-button"
-                            onClick={() => { setTokuSubStatusError(null); setManagingTokuSub(item); }}
-                          >
-                            Gestionar estado
-                          </button>
-                        ) : null}
-                        {(providerEditFields[item.source]?.[group.resource_type] ?? []).length > 0 && !(item.source === "toku" && group.resource_type === "subscription") ? (
-                          <button
-                            className="edit-button"
-                            onClick={() => { setProviderEditError(null); setEditingProviderRecord({ record: item, source: item.source, resourceType: group.resource_type }); }}
-                          >
-                            Editar
-                          </button>
-                        ) : null}
-                        {(deletableResources[item.source] ?? []).includes(group.resource_type) && !(item.source === "toku" && group.resource_type === "subscription") ? (
-                          <button
-                            className="delete-button"
-                            onClick={() => { setProviderDeleteError(null); setDeletingRecord({ record: item, source: item.source, resourceType: group.resource_type }); }}
-                          >
-                            Eliminar
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p>Sin registros relacionados.</p>
-          )}
-        </section>
-      ))}
-    </main>
+    <ProviderRecordDetailView
+      detail={providerRecordDetail}
+      showResourceList={showResourceList}
+      openProviderRecord={openProviderRecord}
+      onEditRecord={(record, source, resourceType) => { setProviderEditError(null); setEditingProviderRecord({ record, source, resourceType }); }}
+      onManageTokuSubscription={(record) => { setTokuSubStatusError(null); setManagingTokuSub(record); }}
+      onDeleteRecord={(record, source, resourceType) => { setProviderDeleteError(null); setDeletingRecord({ record, source, resourceType }); }}
+    />
   ) : null;
   const filterOptions = activeSection
     ? (stagingFilters[activeSection.source]?.[activeSection.resource] ?? [])
