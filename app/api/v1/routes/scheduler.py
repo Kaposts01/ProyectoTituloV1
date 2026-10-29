@@ -30,6 +30,7 @@ from app.scheduler.jobs.billing_jobs import (
     billing_sweep_applying,
 )
 from app.scheduler.jobs.sync_all import channel_is_enabled, sync_all_channels
+from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 
 _VALID_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
 
@@ -167,16 +168,6 @@ async def trigger_job(
         if not body.channels:
             raise HTTPException(status_code=422, detail="La lista de canales no puede estar vacía.")
 
-    # Bloquear si hay una sync activa
-    active = db.scalar(
-        select(EtlRun).where(EtlRun.status == "running").limit(1)
-    )
-    if active:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ya hay una sincronización activa (run_id={active.id}). Espera a que termine.",
-        )
-
     requested = list(dict.fromkeys(body.channels)) if body.channels is not None else None
     skipped: list[str] = []
     channels_to_run = requested
@@ -191,11 +182,18 @@ async def trigger_job(
     else:
         skipped = [c for c in _VALID_CHANNELS if not channel_is_enabled(c)]
 
-    run_id = str(uuid.uuid4())
-    if job_id == JOB_SYNC_ALL:
-        background_tasks.add_task(sync_all_channels, run_id, channels_to_run)
-    else:
+    if job_id != JOB_SYNC_ALL:
         raise HTTPException(status_code=400, detail="Job no soporta ejecución manual.")
+    # SYNC-O-11: la fila `running` se reserva AQUI, de forma atomica (lock de PostgreSQL), antes de lanzar la tarea;
+    # `sync_all_channels` la adopta por su run_id. Dos clics o dos workers: solo uno recibe 202.
+    try:
+        reserved = start_exclusive_run(db, phase="starting")
+    except ActiveRunError as busy:
+        raise HTTPException(
+            status_code=409, detail=f"Ya hay una sincronización activa (run_id={busy.run_id}). Espera a que termine."
+        ) from busy
+    run_id = str(reserved.id)
+    background_tasks.add_task(sync_all_channels, run_id, channels_to_run)
 
     return {"run_id": run_id, "status": "accepted", "skipped_channels": sorted(skipped)}
 

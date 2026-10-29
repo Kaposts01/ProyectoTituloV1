@@ -13,6 +13,11 @@ from app.core.security import require_csrf, require_permissions
 from app.db.session import SessionLocal
 from app.models.core import ClientMatchCandidate
 from app.models.etl_run import EtlRun
+from app.scheduler.run_lock import (
+    ActiveRunError,
+    start_exclusive_run,
+    start_exclusive_runs,
+)
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.client_match_detector import detect_matches
 from app.services.core_payku_etl import run_payku_core_etl
@@ -54,6 +59,10 @@ def _update_run(run_id: uuid.UUID, **kwargs) -> None:
             db.commit()
     finally:
         db.close()
+
+
+def _active_run_conflict(busy: ActiveRunError) -> HTTPException:
+    return HTTPException(status_code=409, detail=str(busy))
 
 
 def _serialize_run(run: EtlRun) -> dict:
@@ -178,11 +187,10 @@ def trigger_full_sync(body: FullSyncRequest, background_tasks: BackgroundTasks) 
         )
     db = _get_db()
     try:
-        run = EtlRun(status="running", records_upserted=0, phase=f"sync_{providers[0]}")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
+        run = start_exclusive_run(db, phase=f"sync_{providers[0]}")
         run_id = run.id
+    except ActiveRunError as busy:
+        raise _active_run_conflict(busy) from busy
     finally:
         db.close()
 
@@ -233,35 +241,6 @@ def _run_core_etl_background(run_id: uuid.UUID, provider: str) -> None:
 
 
 @router.post(
-    "/core/{provider}",
-    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
-    tags=["ETL Core"],
-)
-def trigger_core_etl(provider: str, background_tasks: BackgroundTasks) -> dict:
-    """Materializa tablas de proveedor (tch/toku/payku/virtualpos) → entidades Core (Layer 3).
-
-    Idempotente: seguro re-ejecutar. Retorna inmediatamente; la ejecución ocurre en background.
-    """
-    if provider not in _CORE_ETL_FN:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Proveedor desconocido: '{provider}'. Opciones: {sorted(_CORE_ETL_FN)}",
-        )
-    db = _get_db()
-    try:
-        run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-        run_id = run.id
-    finally:
-        db.close()
-
-    background_tasks.add_task(_run_core_etl_background, run_id, provider)
-    return {"run_id": str(run_id), "status": "running", "provider": provider}
-
-
-@router.post(
     "/core/all",
     dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
     tags=["ETL Core"],
@@ -271,18 +250,16 @@ def trigger_core_etl_all(background_tasks: BackgroundTasks) -> dict:
 
     Orden: tch → toku → payku → virtualpos. Idempotente.
     """
-    run_ids = []
-    for provider in _CORE_ETL_FN:
-        db = _get_db()
-        try:
-            run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
-            db.add(run)
-            db.commit()
-            db.refresh(run)
-            run_ids.append(str(run.id))
-        finally:
-            db.close()
-        background_tasks.add_task(_run_core_etl_background, uuid.UUID(run_ids[-1]), provider)
+    db = _get_db()
+    try:  # las cuatro filas se reservan juntas, bajo el mismo lock
+        runs = start_exclusive_runs(db, [{"phase": f"core_{provider}"} for provider in _CORE_ETL_FN])
+        run_ids = [str(run.id) for run in runs]
+    except ActiveRunError as busy:
+        raise _active_run_conflict(busy) from busy
+    finally:
+        db.close()
+    for run_id, provider in zip(run_ids, _CORE_ETL_FN, strict=True):
+        background_tasks.add_task(_run_core_etl_background, uuid.UUID(run_id), provider)
 
     return {"run_ids": run_ids, "status": "running", "providers": list(_CORE_ETL_FN)}
 
@@ -304,6 +281,34 @@ def trigger_detect_matches() -> dict:
     finally:
         db.close()
     return {"status": "ok", "counts": counts}
+
+
+@router.post(
+    "/core/{provider}",
+    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
+    tags=["ETL Core"],
+)
+def trigger_core_etl(provider: str, background_tasks: BackgroundTasks) -> dict:
+    """Materializa tablas de proveedor (tch/toku/payku/virtualpos) → entidades Core (Layer 3).
+
+    Idempotente: seguro re-ejecutar. Retorna inmediatamente; la ejecución ocurre en background.
+    """
+    if provider not in _CORE_ETL_FN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Proveedor desconocido: '{provider}'. Opciones: {sorted(_CORE_ETL_FN)}",
+        )
+    db = _get_db()
+    try:
+        run = start_exclusive_run(db, phase=f"core_{provider}")
+        run_id = run.id
+    except ActiveRunError as busy:
+        raise _active_run_conflict(busy) from busy
+    finally:
+        db.close()
+
+    background_tasks.add_task(_run_core_etl_background, run_id, provider)
+    return {"run_id": str(run_id), "status": "running", "provider": provider}
 
 
 @router.get(

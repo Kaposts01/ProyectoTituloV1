@@ -225,6 +225,14 @@ def test_scheduler_trigger_disabled_channels(monkeypatch) -> None:
     assert res.json()["skipped_channels"] == ["payku"]
     assert ran == [["virtualpos1"]]
 
+    from sqlalchemy import delete
+
+    from app.models.etl_run import EtlRun
+
+    with SessionLocal() as cleanup:  # la reserva atomica deja una fila `running` (el fake no la cierra)
+        cleanup.execute(delete(EtlRun))
+        cleanup.commit()
+
 
 NEW_BILLING_PERMISSIONS = {
     "virtualpos.billing_changes.request",

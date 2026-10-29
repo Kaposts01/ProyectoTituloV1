@@ -12,6 +12,7 @@ from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.auth import Role, User
+from app.scheduler.run_lock import ActiveRunError
 from app.services.rbac import seed_permissions
 
 
@@ -70,6 +71,7 @@ def _xlsx_payload() -> bytes:
 def test_tch_report_import_accepts_xlsx_for_admin(monkeypatch) -> None:
     client, csrf_token = _admin_client(monkeypatch)
     monkeypatch.setattr(tch, "_get_db", lambda: _ImportDb())
+    monkeypatch.setattr(tch, "start_exclusive_run", lambda _db, **_f: type("Run", (), {"id": uuid.uuid4()})())
     captured: list[Path] = []
 
     def fake_import(_run_id: str, report_path: str) -> None:
@@ -106,8 +108,12 @@ def test_tch_report_import_rejects_an_invalid_xlsx(monkeypatch) -> None:
 
 def test_tch_report_import_rejects_when_another_run_is_active(monkeypatch) -> None:
     client, csrf_token = _admin_client(monkeypatch)
-    active_run = type("ActiveRun", (), {"id": uuid.uuid4()})()
-    monkeypatch.setattr(tch, "_get_db", lambda: _ImportDb(active_run))
+    monkeypatch.setattr(tch, "_get_db", lambda: _ImportDb())
+
+    def busy(_db, **_fields):  # el lock real se prueba en test_sync_lock.py
+        raise ActiveRunError(uuid.uuid4())
+
+    monkeypatch.setattr(tch, "start_exclusive_run", busy)
 
     response = client.post(
         "/api/v1/tch/import-report",
@@ -152,7 +158,7 @@ class _DuplicateReportDb(_ImportDb):
 
     def scalar(self, _statement):
         self.calls += 1
-        return None if self.calls == 1 else uuid.uuid4()
+        return uuid.uuid4()  # el reporte ya esta registrado
 
 
 def test_tch_report_import_rejects_a_report_already_loaded_by_sha256(monkeypatch) -> None:

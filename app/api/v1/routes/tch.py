@@ -29,6 +29,7 @@ from app.models.tch import (
     TchSuscripcion,
     TchTransaccion,
 )
+from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import tch_report_registry
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
 
@@ -651,12 +652,6 @@ async def import_report(
 
     db = _get_db()
     try:
-        active = db.scalar(select(EtlRun).where(EtlRun.status == "running").limit(1))
-        if active:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ya hay una sincronización activa (run_id={active.id}). Espera a que termine.",
-            )
         try:
             _validate_xlsx_archive(Path(temporary_path))
         except ValueError as exc:
@@ -666,10 +661,10 @@ async def import_report(
                 status_code=409,
                 detail="Este reporte ya fue cargado (mismo contenido que un archivo anterior).",
             )
-        run = EtlRun(status="running", channels_processed=["tch"], records_upserted=0, phase="tch_import")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
+        try:  # SYNC-O-11: reserva atomica; con otra sync/ETL activa responde 409
+            run = start_exclusive_run(db, channels_processed=["tch"], phase="tch_import")
+        except ActiveRunError as busy:
+            raise HTTPException(status_code=409, detail=str(busy)) from busy
     except Exception:
         Path(temporary_path).unlink(missing_ok=True)
         raise

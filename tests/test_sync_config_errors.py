@@ -1,6 +1,7 @@
 """SYNC-D-09 / VP-PAR-01 / PK-PAR-01: errores de configuracion, estado del run y reintentos."""
 
 import asyncio
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -108,6 +109,13 @@ def _patch_sync_all(monkeypatch, store, *, vp2_error):
     from app.scheduler.jobs import sync_all
 
     monkeypatch.setattr(sync_all, "SessionLocal", _fake_db_factory(store))
+
+    def fake_start(_db, **fields):  # el lock real se prueba en test_sync_lock.py
+        store["run"] = EtlRun(**{"status": "running", **fields})
+        store["run"].id = fields.get("id") or uuid.uuid4()
+        return store["run"]
+
+    monkeypatch.setattr(sync_all, "start_exclusive_run", fake_start)
     monkeypatch.setattr(sync_all, "skip_disabled_channel", lambda _c: False)
     monkeypatch.setattr(sync_all, "consolidate_to_centralized", lambda *_a, **_k: 0)
 
@@ -175,9 +183,10 @@ def _retry_db(last: EtlRun, latest_errors: list[tuple[str, str]]):
     return Db()
 
 
-def test_retry_skips_config_failed_channels() -> None:
+def test_retry_skips_config_failed_channels(monkeypatch) -> None:
     from app.scheduler.jobs import retry_failed
 
+    monkeypatch.setattr(retry_failed, "find_active_run", lambda db: db.scalar())
     last = EtlRun(status="partial")
     last.channels_failed = ["virtualpos2", "toku"]
     db = _retry_db(last, [("virtualpos2", f"{CONFIG_ERROR_PREFIX}: VIRTUALPOS2_BASE_URL"), ("toku", "ReadTimeout")])
@@ -187,9 +196,10 @@ def test_retry_skips_config_failed_channels() -> None:
     m.assert_called_once_with(channels=["toku"])
 
 
-def test_retry_does_nothing_if_only_config_failures() -> None:
+def test_retry_does_nothing_if_only_config_failures(monkeypatch) -> None:
     from app.scheduler.jobs import retry_failed
 
+    monkeypatch.setattr(retry_failed, "find_active_run", lambda db: db.scalar())
     last = EtlRun(status="partial")
     last.channels_failed = ["payku"]
     db = _retry_db(last, [("payku", f"{CONFIG_ERROR_PREFIX}: PAYKU_API_KEY")])

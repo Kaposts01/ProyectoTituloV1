@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     sandbox_app_url: str = ""
     production_app_url: str = ""
     sandbox_scheduler_enabled: bool = False
+    # SYNC-O-11: un etl_run `running` mas viejo que esto se considera abandonado (proceso caido) y deja de bloquear.
+    sync_run_stale_hours: float = 6
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""

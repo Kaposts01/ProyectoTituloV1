@@ -6,13 +6,12 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
-
 from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.scheduler import event_bus
+from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.payku_sync import sync_payku
 from app.services.toku_sync import sync_toku
@@ -77,30 +76,36 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     """
     requested = frozenset(channels) if channels else _ALL_CHANNELS
 
-    db = SessionLocal()
-    try:
-        active = db.scalar(select(EtlRun).where(EtlRun.status == "running").limit(1))
-        if active:
+    # SYNC-O-11: arranque atomico. Si el endpoint ya reservo la fila `running` con este run_id, se adopta; si no,
+    # se crea bajo el lock. Con otra corrida activa (otro worker, ETL core, importacion TCH) no se ejecuta nada.
+    adopt = None
+    if run_id is not None:
+        db = SessionLocal()
+        try:
+            existing = db.get(EtlRun, uuid.UUID(run_id))
+            if existing is not None and existing.status == "running":
+                adopt = existing.id
+        finally:
+            db.close()
+    if adopt is None:
+        db = SessionLocal()
+        try:
+            started_run = start_exclusive_run(
+                db, **({"id": uuid.UUID(run_id)} if run_id else {}), phase="starting"
+            )
+            adopt = started_run.id
+        except ActiveRunError as busy:
             logger.warning(
-                "sync_all_channels: run activo (run_id=%s), abortando para evitar ejecución concurrente.", active.id
+                "sync_all_channels: run activo (run_id=%s), abortando para evitar ejecución concurrente.", busy.run_id
             )
             return
-    finally:
-        db.close()
-
-    if run_id is None:
-        run_id = str(uuid.uuid4())
+        finally:
+            db.close()
+    run_id = str(adopt)
 
     event_bus.create_bus(run_id)
 
     db_run_id = uuid.UUID(run_id)
-    db = SessionLocal()
-    try:
-        run = EtlRun(id=db_run_id, status="running", phase="starting")
-        db.add(run)
-        db.commit()
-    finally:
-        db.close()
 
     total_records = 0
     started = datetime.now(timezone.utc)

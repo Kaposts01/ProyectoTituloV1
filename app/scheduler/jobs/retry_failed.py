@@ -10,6 +10,7 @@ from app.core.channel_errors import CONFIG_ERROR_PREFIX
 from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
+from app.scheduler.run_lock import find_active_run
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ async def retry_failed_channels() -> None:
     """
     db = SessionLocal()
     try:
-        active = db.scalar(select(EtlRun).where(EtlRun.status == "running").limit(1))
+        active = find_active_run(db)  # expira los `running` abandonados (SYNC-O-11)
         if active:
             logger.info("retry_failed_channels: sync activa (run_id=%s), omitiendo reintento.", active.id)
             return

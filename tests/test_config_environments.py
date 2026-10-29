@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 import pytest
 from pydantic import ValidationError
@@ -187,6 +188,9 @@ def test_sync_all_skips_disabled_channel(monkeypatch: pytest.MonkeyPatch) -> Non
             return None
 
     monkeypatch.setattr(sync_all, "SessionLocal", FakeDb)
+    monkeypatch.setattr(
+        sync_all, "start_exclusive_run", lambda _db, **_f: type("Run", (), {"id": uuid.uuid4()})()
+    )  # el lock real se prueba en test_sync_lock.py
     monkeypatch.setattr(sync_all, "sync_toku", boom)
     monkeypatch.setattr(sync_all, "sync_payku", boom)
     monkeypatch.setattr(sync_all, "consolidate_to_centralized", lambda *_a, **_k: 0)
