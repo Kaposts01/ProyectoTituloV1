@@ -1,0 +1,88 @@
+# Exportación de datos a CSV (EXP-01 a EXP-05)
+
+Contrato de la exportación desde cada vista (Clientes, Suscripciones, Cobros, Pagos). Decisiones del usuario: D22 (solo `admin` y `jefatura` exportan con datos personales), D23 (CSV que abre en Excel, respeta filtros y búsqueda, más la opción «exportar todo»).
+
+## Resumen técnico
+
+- Servicio común: `app/services/exporter.py` (CSV en streaming, UTF-8 con BOM, anti-inyección de fórmulas, auditoría).
+- Consultas: `app/services/export_queries.py` (SQL con cursor del lado del servidor: `stream_results` + `yield_per=2000`; nunca se arma el archivo en memoria. Los cobros de TCH son 1,47 M de filas).
+- Rutas: `app/api/v1/routes/export.py`, montadas en `/api/v1/export`.
+- El recuperador (`/api/v1/recovery/*/export`) sigue con su propio contrato y permiso (`virtualpos.recovery.export`); solo comparte `csv_safe` y el cuerpo de auditoría.
+
+## Endpoints (contrato para el frontend, EXP-04)
+
+Todos son `GET`, requieren sesión (cookie) y no necesitan CSRF. La descarga se hace navegando o con `fetch` + `blob`.
+
+| Endpoint | Descripción |
+|---|---|
+| `GET /api/v1/export/{entity}` | Descarga el CSV. `entity` ∈ `clientes`, `suscripciones`, `cobros`, `pagos`. |
+| `GET /api/v1/export/{entity}/count` | Devuelve `{"entity", "rows", "canales", "include_pii"}` con los mismos parámetros (salvo `all`, `offset`, `limit`). Sirve para mostrar «N filas» en el botón antes de descargar. |
+
+Parámetros (query string, todos opcionales):
+
+| Parámetro | Valores | Notas |
+|---|---|---|
+| `canal` | `virtualpos`, `virtualpos1`, `virtualpos2`, `toku`, `payku`, `tch` | Sin `canal`: todos los canales a los que el usuario tiene permiso de vista. Un `canal` sin permiso responde 403. |
+| `query` | texto (máx. 200) | Búsqueda del listado. |
+| `filter_field` | `all` (por defecto) y por entidad: clientes `rut`, `name`, `last_name`, `platform`, `email`, `phone`; suscripciones `id`, `rut`, `client`, `platform`, `status`; cobros `id`, `subscription_id`, `status`; pagos `id`, `charge_id`, `status` | Otro valor responde 422. |
+| `status` | texto | Estado exacto (sin distinguir mayúsculas). |
+| `date_from`, `date_to` | `YYYY-MM-DD` | Sobre `fecha_alta` (clientes), `fecha_inicio` (suscripciones), `fecha_cobro` (cobros) o `fecha_pago` (pagos). Inclusivos. |
+| `amount_min`, `amount_max` | número ≥ 0 | No aplica a clientes (422). |
+| `all` | `true`/`false` (por defecto `false`) | `true` ignora la paginación (no los filtros). |
+| `offset`, `limit` | enteros (`limit` 1 a 1000, por defecto 50) | Solo sin `all`: exporta esa «página» de la misma consulta. |
+
+Respuesta de la descarga:
+
+- `Content-Type: text/csv; charset=utf-8`.
+- Header de descarga: `Content-Disposition: attachment; filename="<entidad>[-<canal>]-AAAAMMDD.csv"` (fecha de Chile). Ejemplo: `cobros-tch-20261029.csv`.
+- `Cache-Control: no-store`. El cuerpo empieza con el BOM UTF-8.
+- Errores: 401 sin sesión, 403 sin permiso de vista del canal (o sin ningún canal permitido), 422 parámetros inválidos. Se validan antes de empezar el stream, así que un error nunca llega como CSV truncado.
+- Si la conexión se corta a mitad del stream, el archivo queda incompleto y la auditoría registra `status = aborted`.
+
+Para saber si el CSV llevará columnas personales, el frontend puede leer `include_pii` de `/count` o la lista de permisos del usuario (`export.pii`). No existe parámetro para pedir PII: lo decide el permiso.
+
+## Permisos
+
+- Exportar sin datos personales: el permiso de VISTA del recurso, por canal (el mismo del listado). Se filtra en el servidor; no existe forma de exportar un canal sin su permiso.
+
+  | Entidad | VirtualPOS | Toku | Payku | TCH |
+  |---|---|---|---|---|
+  | clientes | `virtualpos.clients.view` | `toku.customers.view` | `payku.clients.view` | `tch.clientes.view` |
+  | suscripciones | `virtualpos.subscriptions.view` | `toku.subscriptions.view` | `payku.subscriptions.view` | `tch.suscripciones.view` |
+  | cobros | `virtualpos.charges.view` | `toku.invoices.view` | no aplica | `tch.transacciones.view` |
+  | pagos | `virtualpos.payments.view` | `toku.transactions.view` | `payku.transactions.view` | no aplica (en TCH cada transacción es un cobro) |
+
+- Incluir columnas con datos personales: además `export.pii`. La migración `20261029_0044` lo asigna solo a `admin` y `jefatura`. `soporte`, `ejecutivo` y `coordinador` exportan sin esas columnas. **La migración la aplica el usuario** (ningún agente corre Alembic); hasta entonces nadie, salvo quien reciba el permiso a mano, exporta con datos personales (`seed_permissions` ya se lo da a `admin` al sembrar).
+
+## Columnas por entidad
+
+Las columnas marcadas «PII» solo aparecen con `export.pii`; sin él ni siquiera se seleccionan de la base (viajan como NULL y se omiten del encabezado).
+
+- **clientes**: `canal`, `id_externo`, `estado`, `fecha_alta`, PII: `rut`, `nombre`, `correo`, `telefono`, `direccion` (TCH: dirección, comuna y ciudad juntas). `id_externo` en TCH es el identificador interno, nunca el RUT.
+- **suscripciones**: `canal`, `id_suscripcion`, `estado`, `estado_secundario` (misma regla de la vista: inactiva, Nunca Cobrado, incobrable, cobrable), `fecha_inicio`, `fecha_termino`, `monto`, `moneda`, `ultimo_cobro`, PII: `rut_cliente`, `nombre_cliente`.
+- **cobros**: `canal`, `id_cobro`, `id_suscripcion`, `estado`, `fecha_cobro`, `periodo` (solo TCH), `monto`, `moneda`, `motivo_rechazo` (solo TCH), PII: `rut_cliente`, `nombre_cliente`.
+- **pagos**: `canal`, `id_pago`, `id_cobro`, `estado`, `fecha_pago`, `monto`, `moneda`, PII: `rut_cliente`, `nombre_cliente`.
+
+`canal` toma los valores `virtualpos1`, `virtualpos2`, `toku`, `payku`, `tch`. Fechas y montos se exportan tal como están guardados (texto ISO y monto sin formato), para que Excel no los reinterprete.
+
+## Diferencias deliberadas con los listados (supuestos)
+
+- **Clientes** se exporta una fila por registro de cliente por canal, no agrupado por RUT como la vista general (agrupar entre canales no se puede hacer con cursor sin cargar todo). Solo entran clientes con RUT, igual que la vista. La búsqueda se evalúa por registro.
+- **Cobros y pagos** buscan por id, id de suscripción/cobro y estado (los campos que ofrecen los listados por canal); no buscan por RUT.
+- El orden de las filas es estable (canal y luego identificador), no el orden de pantalla.
+- La sección «cobros» de TCH exporta las transacciones del Excel (todas, aceptadas y rechazadas).
+- El cruce con el cliente (columnas PII de cobros y pagos) se hace por la suscripción o por el id de cliente del registro; si el canal no trae esa relación, las columnas quedan vacías.
+
+## Seguridad
+
+- Anti-inyección de fórmulas: toda celda de texto que empiece por `=`, `+`, `-`, `@`, tabulación o retorno de carro lleva un apóstrofo delante (`csv_safe`).
+- Sin datos personales por defecto; los permisos por canal se aplican en el servidor.
+- Los mensajes de error y la auditoría no incluyen contenido.
+
+## Auditoría
+
+Cada descarga escribe una fila en `write_runs` al terminar (o cortarse) el stream: `source = "export"`, `resource_type = <entidad>`, `external_id = "export/<entidad>"`, `operation = "export_csv"`, `status = completed | aborted`, `requested_by_user_id`, `started_at`/`finished_at` y `request_payload` con `user_id`, `username`, `endpoint`, `rows` (filas realmente entregadas), `pii_included` y `filters` (`canales`, `all`, `offset`/`limit`, estado, fechas, montos y búsqueda). **Nunca el contenido.** El texto de búsqueda solo se guarda cuando el campo no puede ser un dato personal (`id`, `status`, `platform`, `subscription_id`, `charge_id`); en los demás se guarda solo su largo (`query_len`), porque podría ser un RUT, un nombre o un correo.
+
+## Pruebas
+
+`tests/test_exporter.py` (servicio), `tests/test_export_endpoints.py` (endpoints, PII, permisos por canal, filtros, paginación, auditoría), `tests/test_export_streaming.py` (cursor del lado del servidor, reparto de paginación, 50.000 filas sintéticas con tope de tiempo y memoria) y `tests/test_export_permissions.py` (permiso `export.pii`, migración 0044 y permisos fantasma).
