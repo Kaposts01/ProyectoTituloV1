@@ -1,14 +1,14 @@
 import { useId, useMemo, useState } from "react";
 import { buildChartRows, buildCumulativeRows, pctOfTarget, type ChannelChartRow, type CumulativeRow } from "./chartRows";
 import type { ReactElement } from "react";
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export type { ChannelChartRow };
 export type ChannelChartSeries = { key: string; label: string; color: string };
 export type ChannelChartAnnotation = { from: { year: number; month: number }; to: { year: number; month: number }; label: string };
 /** Línea de referencia punteada (meta). `value` está en las mismas unidades que las series (meta del mes). */
 export type ChannelChartReference = { value: number; label: string };
-export type ChannelChartKind = "bar" | "stacked" | "line" | "grouped" | "cumulative";
+export type ChannelChartKind = "bar" | "stacked" | "line" | "grouped" | "cumulative" | "area";
 
 const MONO = "'JetBrains Mono', 'Courier New', monospace";
 /** Ancho máximo de barra: con una sola categoría la barra no debe ocupar todo el gráfico. */
@@ -91,9 +91,12 @@ type TableModel = { head: string[]; rows: Array<{ id: string; label: string; cel
  * - `reference`: meta del mes como línea punteada (--chart-ref) y, en apilado, «% de la meta» en el tooltip.
  * - `percentAxis`: eje Y en % de la meta (`reference.value`, o `cumulative.annualTarget`); se ignora sin meta.
  * - `showDataToggle`: botón «Ver datos» que muestra una tabla accesible equivalente al gráfico.
+ * - `kind="area"`: una o varias series como área (p. ej. socios totales). Una clave ausente en una fila es «sin dato»
+ *   (hueco en la línea, «—» en la tabla); nunca se dibuja como 0.
+ * - `overlayLine`: línea encima de las barras (p. ej. crecimiento neto sobre activaciones y bajas); admite negativos.
  * El selector de rango es un componente aparte (`ChartRangeSelector` + `filterByRange`).
  */
-export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Gráfico de evolución mensual del canal", legend = false, annotations = [], reference, percentAxis = false, cumulative, showDataToggle = false }: {
+export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Gráfico de evolución mensual del canal", legend = false, annotations = [], reference, percentAxis = false, cumulative, showDataToggle = false, overlayLine }: {
   series: ChannelChartSeries[];
   data: ChannelChartRow[];
   kind: ChannelChartKind;
@@ -107,6 +110,8 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
   /** Solo con kind="cumulative": meta anual (null/ausente = sin serie de ritmo). Las `series` indican qué claves se suman. */
   cumulative?: { annualTarget?: number | null };
   showDataToggle?: boolean;
+  /** Línea superpuesta a las barras (solo con kind bar/grouped/stacked). Su clave va en las filas como las demás series. */
+  overlayLine?: ChannelChartSeries;
 }) {
   const isCum = kind === "cumulative";
   const annualTarget = cumulative?.annualTarget ?? null;
@@ -180,12 +185,27 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
         <Line type="linear" dataKey="projection" name="Proyección" stroke="var(--series-6)" strokeWidth={2} strokeDasharray="2 4" dot={false} connectNulls={false} />
       </LineChart>
     );
+  } else if (kind === "area") {
+    chart = (
+      <AreaChart data={rows} margin={margin} accessibilityLayer>
+        {axes}
+        {series.map((s) => <Area key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} fill="var(--series-muted)" fillOpacity={0.9} dot={{ r: 3 }} connectNulls={false} />)}
+      </AreaChart>
+    );
   } else if (kind === "line") {
     chart = (
       <LineChart data={rows} margin={margin} accessibilityLayer>
         {axes}
         {series.map((s) => <Line key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} />)}
       </LineChart>
+    );
+  } else if (overlayLine) {
+    chart = (
+      <ComposedChart data={rows} margin={margin} accessibilityLayer>
+        {axes}
+        {series.map((s) => <Bar key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={s.key} name={s.label} fill={s.color} stackId={kind === "stacked" ? "a" : undefined} />)}
+        <Line type="linear" dataKey={overlayLine.key} name={overlayLine.label} stroke={overlayLine.color} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
+      </ComposedChart>
     );
   } else {
     chart = (
@@ -217,14 +237,21 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
       const withTotal = kind === "stacked";
       const withPct = withTotal && reference !== undefined;
       table = {
-        head: ["Período", ...series.map((s) => s.label), ...(withTotal ? ["Total"] : []), ...(withPct ? ["% de la meta"] : [])],
+        head: ["Período", ...series.map((s) => s.label), ...(withTotal ? ["Total"] : []), ...(withPct ? ["% de la meta"] : []), ...(overlayLine ? [overlayLine.label] : [])],
         rows: rows.map((r) => {
-          const total = series.reduce((a, s) => a + (Number(r[s.key]) || 0), 0);
-          const pct = withPct ? pctOfTarget(total, reference?.value) : null;
+          // Total sin ningún dato en el mes: «—», no 0.
+          const hasAny = series.some((s) => r[s.key] !== undefined && r[s.key] !== null);
+          const total = hasAny ? series.reduce((a, s) => a + (Number(r[s.key]) || 0), 0) : null;
+          const pct = withPct && total !== null ? pctOfTarget(total, reference?.value) : null;
           return {
             id: `${r.year}-${r.month}`,
             label: r.label,
-            cells: [...series.map((s) => fmt(r[s.key], mode)), ...(withTotal ? [fmt(total, mode)] : []), ...(withPct ? [pct === null ? "—" : `${pct} %`] : [])],
+            cells: [
+              ...series.map((s) => fmt(r[s.key], mode)),
+              ...(withTotal ? [fmt(total, mode)] : []),
+              ...(withPct ? [pct === null ? "—" : `${pct} %`] : []),
+              ...(overlayLine ? [fmt(r[overlayLine.key], mode)] : []),
+            ],
           };
         }),
       };

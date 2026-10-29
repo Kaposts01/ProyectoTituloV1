@@ -1,26 +1,9 @@
 import { useId, useState } from "react";
-import type { ChannelHealthMap, HealthChannel, HealthLevel } from "../hooks/useChannelHealth";
+import type { ChannelHealthMap, HealthLevel } from "../hooks/useChannelHealth";
+import { CHANNEL_NAME, CHANNEL_ORDER, GLOBAL_LABEL, channelText } from "./healthLabels";
 
-const LEVEL_LABEL: Record<HealthLevel, string> = {
-  ok: "Sincronizado",
-  warn: "Sincronización atrasada",
-  error: "Error de sincronización",
-  unknown: "Sin datos de sincronización",
-};
-const GLOBAL_LABEL: Record<HealthLevel, string> = {
-  ok: "Todo sincronizado",
-  warn: "Sincronización atrasada",
-  error: "Error de sincronización",
-  unknown: "Sin datos de sincronización",
-};
-const CHANNEL_NAME: Record<HealthChannel, string> = { virtualpos: "VirtualPOS", toku: "Toku", payku: "Payku", tch: "TCH" };
-const CHANNEL_ORDER: HealthChannel[] = ["virtualpos", "toku", "payku", "tch"];
 /** Peor nivel gana: error > atrasado > sin datos > ok. */
 const SEVERITY: Record<HealthLevel, number> = { ok: 0, unknown: 1, warn: 2, error: 3 };
-
-function channelText(level: HealthLevel, age: number | null | undefined): string {
-  return age === null || age === undefined ? LEVEL_LABEL[level] : `${LEVEL_LABEL[level]}: hace ${Math.round(age)} h`;
-}
 
 /**
  * Indicador GLOBAL y compacto de salud de sincronización (encabezado del menú). El nivel es el peor de los
