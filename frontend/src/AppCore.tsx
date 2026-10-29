@@ -10,11 +10,7 @@ import "./Staging.css";
 import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
-import type {
-  StagingRecord, ChannelDashboard, VirtualPosClientDetail, VirtualPosPlanDetail,
-  VirtualPosSubscriptionDetail, VirtualPosChargeDetail, VirtualPosPaymentDetail, ProviderRecordDetail,
-  AuthSession, TchSuscripcionDetail,
-} from "./features/shared/types";
+import type { StagingRecord, ChannelDashboard, AuthSession, TchSuscripcionDetail } from "./features/shared/types";
 import { refreshCsrfToken, text, documentType, normalizeRut, title, resourceTitle } from "./features/shared/utils";
 import {
   virtualPosClientEditFields, virtualPosPlanCreateFields, planDefaultValues,
@@ -41,6 +37,7 @@ import { PaymentDetailView } from "./features/virtualpos/PaymentDetailView";
 import { ProviderRecordDetailView } from "./features/provider/ProviderRecordDetailView";
 import { useStagingRecords } from "./features/provider/useStagingRecords";
 import { StagingRecordsList } from "./features/provider/StagingRecordsList";
+import { useRecordDetails } from "./features/shared/useRecordDetails";
 import { useTch } from "./features/tch/useTch";
 import { renderTchContent } from "./features/tch/TchContent";
 
@@ -76,18 +73,6 @@ function AppCore() {
   );
   const [openProvider, setOpenProvider] = useState<string | null>("VirtualPOS");
   const [loading, setLoading] = useState(true);
-  const [clientDetail, setClientDetail] =
-    useState<VirtualPosClientDetail | null>(null);
-  const [planDetail, setPlanDetail] = useState<VirtualPosPlanDetail | null>(
-    null,
-  );
-  const [subscriptionDetail, setSubscriptionDetail] =
-    useState<VirtualPosSubscriptionDetail | null>(null);
-  const [chargeDetail, setChargeDetail] = useState<VirtualPosChargeDetail | null>(null);
-  const [paymentDetail, setPaymentDetail] = useState<VirtualPosPaymentDetail | null>(null);
-  const [providerRecordDetail, setProviderRecordDetail] =
-    useState<ProviderRecordDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [editingClient, setEditingClient] = useState<StagingRecord | null>(null);
   const [creatingClient, setCreatingClient] = useState(false);
   const [clientVpPlatform, setClientVpPlatform] = useState<"virtualpos1" | "virtualpos2">("virtualpos1");
@@ -146,6 +131,9 @@ function AppCore() {
   const {
     records, setRecords, recordsOffset, setRecordsOffset, filterField, setFilterField, filterQuery, setFilterQuery, setVpColumnFilters, sortColumn, setSortColumn, sortDirection, setSortDirection, vpPlatform, setVpPlatform,
   } = stagingList;
+  const {
+    clientDetail, setClientDetail, planDetail, subscriptionDetail, setSubscriptionDetail, chargeDetail, setChargeDetail, paymentDetail, providerRecordDetail, detailLoading, clearDetails, openVirtualPosClient, openVirtualPosPlan, openVirtualPosSubscription, openVirtualPosCharge, openVirtualPosPayment, openProviderRecord, openRecord,
+  } = useRecordDetails({ navigate, setError });
   const [reportScope, setReportScope] = useState<string | null>(null);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
@@ -204,15 +192,6 @@ function AppCore() {
     setClientFieldErrors({});
     setClientSaveNotice(null);
   }, [editingClient?.id, creatingClient]);
-
-  function clearDetails() {
-    setClientDetail(null);
-    setPlanDetail(null);
-    setSubscriptionDetail(null);
-    setChargeDetail(null);
-    setPaymentDetail(null);
-    setProviderRecordDetail(null);
-  }
 
   async function saveVirtualPOSClient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1082,160 +1061,6 @@ function AppCore() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-
-  async function openVirtualPosClient(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
-    if (updateUrl) {
-      navigate({ kind: "record", source: "virtualpos", resource: "client", externalId: record.external_id });
-      return;
-    }
-    setPlanDetail(null);
-    setSubscriptionDetail(null);
-    setChargeDetail(null);
-    setPaymentDetail(null);
-    setDetailLoading(true);
-    setError(null);
-    try {
-      setClientDetail(
-        await getJson<VirtualPosClientDetail>(
-          `/api/v1/staging/virtualpos/clients/${encodeURIComponent(record.external_id)}`,
-        ),
-      );
-    } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha del cliente."));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-  async function openVirtualPosPlan(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
-    if (updateUrl) {
-      navigate({ kind: "record", source: "virtualpos", resource: "plan", externalId: record.external_id });
-      return;
-    }
-    setClientDetail(null);
-    setSubscriptionDetail(null);
-    setChargeDetail(null);
-    setPaymentDetail(null);
-    setDetailLoading(true);
-    setError(null);
-    try {
-      setPlanDetail(
-        await getJson<VirtualPosPlanDetail>(
-          `/api/v1/staging/virtualpos/plans/${encodeURIComponent(record.external_id)}`,
-        ),
-      );
-    } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha del plan."));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-  async function openVirtualPosSubscription(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
-    if (updateUrl) {
-      navigate({ kind: "record", source: "virtualpos", resource: "subscription", externalId: record.external_id });
-      return;
-    }
-    setClientDetail(null);
-    setPlanDetail(null);
-    setChargeDetail(null);
-    setPaymentDetail(null);
-    setDetailLoading(true);
-    setError(null);
-    try {
-      setSubscriptionDetail(
-        await getJson<VirtualPosSubscriptionDetail>(
-          `/api/v1/staging/virtualpos/subscriptions/${encodeURIComponent(record.external_id)}`,
-        ),
-      );
-    } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha de la subscripción."));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-  async function openVirtualPosCharge(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
-    if (updateUrl) {
-      navigate({ kind: "record", source: "virtualpos", resource: "charge", externalId: record.external_id });
-      return;
-    }
-    setClientDetail(null);
-    setPlanDetail(null);
-    setSubscriptionDetail(null);
-    setPaymentDetail(null);
-    setDetailLoading(true);
-    setError(null);
-    try {
-      setChargeDetail(
-        await getJson<VirtualPosChargeDetail>(
-          `/api/v1/staging/virtualpos/charges/${encodeURIComponent(record.external_id)}`,
-        ),
-      );
-    } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha del cargo."));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-  async function openVirtualPosPayment(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
-    if (updateUrl) {
-      navigate({ kind: "record", source: "virtualpos", resource: "payment", externalId: record.external_id });
-      return;
-    }
-    setClientDetail(null);
-    setPlanDetail(null);
-    setSubscriptionDetail(null);
-    setChargeDetail(null);
-    setDetailLoading(true);
-    setError(null);
-    try {
-      setPaymentDetail(
-        await getJson<VirtualPosPaymentDetail>(
-          `/api/v1/staging/virtualpos/payments/${encodeURIComponent(record.external_id)}`,
-        ),
-      );
-    } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha del pago."));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-  async function openProviderRecord(
-    source: ProviderSource,
-    resource: string,
-    record: Pick<StagingRecord, "external_id">,
-    updateUrl = true,
-  ) {
-    if (updateUrl) {
-      navigate({ kind: "record", source, resource, externalId: record.external_id });
-      return;
-    }
-    clearDetails();
-    setDetailLoading(true);
-    setError(null);
-    try {
-      setProviderRecordDetail(
-        await getJson<ProviderRecordDetail>(
-          `/api/v1/staging/${source}/${resource}/${encodeURIComponent(record.external_id)}`,
-        ),
-      );
-    } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha del registro."));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-
-  function openRecord(source: ProviderSource, resource: string, externalId: string, updateUrl = true) {
-    const record = { external_id: externalId };
-    if (source === "virtualpos") {
-      if (resource === "client") return openVirtualPosClient(record, updateUrl);
-      if (resource === "plan") return openVirtualPosPlan(record, updateUrl);
-      if (resource === "subscription") return openVirtualPosSubscription(record, updateUrl);
-      if (resource === "charge") return openVirtualPosCharge(record, updateUrl);
-      if (resource === "payment") return openVirtualPosPayment(record, updateUrl);
-      return;
-    }
-    return openProviderRecord(source, resource, record, updateUrl);
-  }
 
   const applyRoute = useEffectEvent(() => {
     if (!session) return;
