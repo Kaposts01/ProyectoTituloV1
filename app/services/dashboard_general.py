@@ -88,7 +88,7 @@ def _amount_col(column: Any) -> Any:
 
 
 def _parse_tch_amount(value: object) -> float:
-    """Monto TCH (texto): '$', '.', ',' tolerados; basura -> 0 (misma regla que `tch._parse_monto`)."""
+    """Monto TCH (texto): '$', '.', ',' tolerados; basura -> 0 (misma regla que `tch._parse_tch_amount`)."""
     text = str(value or "").strip().replace("$", "").replace(" ", "")
     if not text:
         return 0.0

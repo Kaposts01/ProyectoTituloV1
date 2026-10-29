@@ -176,15 +176,15 @@ def _rejection_alerts(rows: list[dict[str, Any]], today: date) -> list[dict[str,
     by_month = rejection_stats_by(
         rows, today, lambda r: (r["channel"], str(r["date"])[:7])
     )
-    for (channel, periodo), s in sorted(by_month.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+    for (channel, period), s in sorted(by_month.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         if s["rate"] is not None and s["rate"] > 30:
             alerts.append({
                 "sev": "alta" if s["rate"] > 50 else "media",
                 "tipo": "Alta tasa de rechazo",
                 "canal": channel,
-                "periodo": periodo,
+                "periodo": period,
                 "detalle": (
-                    f"{periodo} · {channel}: {fmt_pct(s['rate'])} de cargos rechazados "
+                    f"{period} · {channel}: {fmt_pct(s['rate'])} de cargos rechazados "
                     f"({s['rejected']} de {s['evaluable']} cargos pagados o rechazados)"
                 ),
             })
@@ -258,7 +258,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
             select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")
         ) or 0,
     }
-    tch_equivalente_vigente = case(
+    tch_current_peso_equivalent = case(
         (TchSubscription.peso_equivalent.op("~")(r"^\d+(\.\d+)?$"), cast(TchSubscription.peso_equivalent, Numeric)),
         else_=0,
     )
@@ -280,7 +280,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
             .where(CSub.source == "payku", func.lower(CSub.status) == "active")
         ) or 0),
         "tch": float(db.scalar(
-            select(func.coalesce(func.sum(tch_equivalente_vigente), 0))
+            select(func.coalesce(func.sum(tch_current_peso_equivalent), 0))
             .select_from(TchSubscription)
             .where(TchSubscription.status == "VIGENTE")
         ) or 0),
@@ -400,7 +400,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         .group_by(CSub.source, cancellation_period_col)
     ).all()
     tch_cancellations = db.execute(
-        select(tch_cancellation_period_col, func.count(), func.coalesce(func.sum(tch_equivalente_vigente), 0))
+        select(tch_cancellation_period_col, func.count(), func.coalesce(func.sum(tch_current_peso_equivalent), 0))
         .where(TchSubscription.deletion_date.op("~")(r"^\d{4}-\d{2}"))
         .group_by(tch_cancellation_period_col)
     ).all()
@@ -536,14 +536,14 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         if date(y, m, 1) >= cutoff_3m:
             recent_can[ch] += int(v["count"])
     for ch in sorted(set(recent_act) | set(recent_can)):
-        altas = recent_act[ch]
-        bajas = recent_can[ch]
-        if bajas > altas and bajas > 0:
+        signups = recent_act[ch]
+        cancellations = recent_can[ch]
+        if cancellations > signups and cancellations > 0:
             dashboard_alerts.append({
                 "sev": "media",
                 "tipo": "Canal en declive",
                 "canal": ch,
-                "detalle": f"{ch}: {bajas} bajas vs {altas} altas en los últimos 3 meses",
+                "detalle": f"{ch}: {cancellations} bajas vs {signups} altas en los últimos 3 meses",
             })
 
     # ── Nuevos KPIs (EPIC-B) ─────────────────────────────────────────────────
@@ -858,8 +858,8 @@ def _general_client_detail(db: Session, rut: str) -> dict[str, Any]:
     payment_filters = [and_(CPayment.source == source, CPayment.client_external_id == external_id) for source, external_id in client_ids]
     charges = db.scalars(select(CCharge).where(or_(*charge_filters))).all() if charge_filters else []
     payments = db.scalars(select(CPayment).where(or_(*payment_filters))).all() if payment_filters else []
-    fichas = [item.file_number for item in tch_subscriptions]
-    tch_transactions = db.scalars(select(TchTransaction).where(TchTransaction.file_number.in_(fichas))).all() if fichas else []
+    file_numbers = [item.file_number for item in tch_subscriptions]
+    tch_transactions = db.scalars(select(TchTransaction).where(TchTransaction.file_number.in_(file_numbers))).all() if file_numbers else []
     return {"rut": rut, "clients": [{"portal": _portal(item.source), "id_cliente": str(item.id), "external_id": item.external_id} for item in clients] + [{"portal": "TCH", "id_cliente": str(item.id), "external_id": item.rut} for item in tch_clients], "subscriptions": [{"portal": _portal(item.source), "id_subscription": str(item.id), "external_id": item.external_id, "status": item.status} for item in subscriptions] + [{"portal": "TCH", "id_subscription": str(item.id), "external_id": str(item.file_number), "status": item.status} for item in tch_subscriptions], "charges": [{"portal": _portal(item.source), "id_cargo": str(item.id), "external_id": item.external_id, "status": item.status, "amount": item.amount} for item in charges], "transactions": [{"portal": _portal(item.source), "id_transaccion": str(item.id), "external_id": item.external_id, "status": item.status, "amount": item.amount} for item in payments] + [{"portal": "TCH", "id_transaccion": str(item.id), "external_id": str(item.file_number), "status": item.status, "amount": item.amount} for item in tch_transactions]}
 
 
@@ -1016,14 +1016,14 @@ def _channel_alerts(
     for entry in churn:
         churn_map[(int(entry["year"]), int(entry["month"]))] += int(entry.get("count", 0))
     for ym in sorted(set(act_map) | set(churn_map)):
-        altas, bajas = act_map[ym], churn_map[ym]
-        if bajas > altas and bajas > 0:
+        signups, cancellations = act_map[ym], churn_map[ym]
+        if cancellations > signups and cancellations > 0:
             y, m = ym
             alerts.append({
                 "sev": "media",
                 "tipo": "Saldo negativo de suscripciones",
                 "canal": channel,
-                "detalle": f"{y}-{m:02d}: {bajas} bajas vs {altas} altas",
+                "detalle": f"{y}-{m:02d}: {cancellations} bajas vs {signups} altas",
             })
 
     # 2. Churn rate elevado (el texto dice QUE mide cada canal: ver `churn_window_label`)
@@ -1082,8 +1082,8 @@ def _vp_centralized_alerts(
     today = rejected_month.now_chile().date()  # hora Chile; cobros futuros fuera (VP-PAR-10)
 
     # 1. Suscripciones activas sin cobro exitoso en los últimos 6 meses (sin queries extra)
-    cobrable_active = recently_paid_ids & active_sub_ids
-    no_recent_count = len(active_sub_ids) - len(cobrable_active)
+    collectible_active = recently_paid_ids & active_sub_ids
+    no_recent_count = len(active_sub_ids) - len(collectible_active)
     if no_recent_count > 0 and active_sub_ids:
         pct = round(100 * no_recent_count / len(active_sub_ids), 1)
         alerts.append({
@@ -1144,8 +1144,8 @@ def _vp_centralized_alerts(
         )
     ).scalars().all()
     unique_failed_ruts = {r for r in failed_ruts_rows if r}
-    sin_rut_failed = sum(1 for r in failed_ruts_rows if not r)
-    failed_count = len(unique_failed_ruts) + sin_rut_failed
+    without_rut_failed = sum(1 for r in failed_ruts_rows if not r)
+    failed_count = len(unique_failed_ruts) + without_rut_failed
     if failed_count > 0:
         alerts.append({
             "id": "suscripciones-fallidas",
@@ -1234,8 +1234,8 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         elif rtype == "subscription":
             status = str(payload.get("status", "")).upper()
             # Monto vigente (ultimo cobro) cuando el llamador lo inyecta; si no, el monto de la suscripcion.
-            vigente = payload.get("monto_vigente")
-            amount = _amount(vigente if vigente is not None else payload.get("amount"))
+            current_amount = payload.get("monto_vigente")
+            amount = _amount(current_amount if current_amount is not None else payload.get("amount"))
 
             if status != "SUSCRIPCION_FALLIDA":
                 start = payload.get("suscription_date") or payload.get("created")
@@ -2546,7 +2546,7 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
     # Cobrable subscriptions: active + paid within the last 6 months
     # Query 1: last paid charge per sub (all paid charges, no active filter needed)
     six_months_ago_str = str(datetime.now(tz=timezone.utc).date() - timedelta(days=182))
-    cobrable_last_paid = db.execute(
+    collectible_last_paid = db.execute(
         select(CCharge.subscription_external_id, func.max(CCharge.charge_date).label("last_date"))
         .where(
             CCharge.source.in_(sources),
@@ -2555,16 +2555,16 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
         )
         .group_by(CCharge.subscription_external_id)
     ).all()
-    recently_paid_ids = {sub_id for sub_id, last_date in cobrable_last_paid if last_date and last_date >= six_months_ago_str}
+    recently_paid_ids = {sub_id for sub_id, last_date in collectible_last_paid if last_date and last_date >= six_months_ago_str}
     # Query 2: active sub IDs + amounts (reused by alerts, no extra query there)
-    active_sub_rows_for_cobrable = db.execute(
+    active_sub_rows_for_collectible = db.execute(
         select(CSub.external_id, CSub.amount)
         .where(CSub.source.in_(sources), func.lower(CSub.status).in_(tuple(_ACTIVE_STATUSES)))
     ).all()
-    active_sub_ids_for_alerts = {sub_id for sub_id, _ in active_sub_rows_for_cobrable}
-    cobrable_list = [(sub_id, amt) for sub_id, amt in active_sub_rows_for_cobrable if sub_id in recently_paid_ids]
-    resource_counts["subscription_cobrable"] = len(cobrable_list)
-    resource_amounts["subscription_cobrable"] = round(sum(_amount(amt) for _, amt in cobrable_list), 2)
+    active_sub_ids_for_alerts = {sub_id for sub_id, _ in active_sub_rows_for_collectible}
+    collectible_list = [(sub_id, amt) for sub_id, amt in active_sub_rows_for_collectible if sub_id in recently_paid_ids]
+    resource_counts["subscription_cobrable"] = len(collectible_list)
+    resource_amounts["subscription_cobrable"] = round(sum(_amount(amt) for _, amt in collectible_list), 2)
 
     # Activity: charges grouped by month using centralized charge_date
     activity_by_month: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
@@ -2616,12 +2616,12 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
             self.payload = p
 
     vp_records: list[Any] = []
-    vigentes = load_current_amount(db, family="crm", sources=sources)
+    current_amounts = load_current_amount(db, family="crm", sources=sources)
     for s in subs:
         raw = dict(s.raw_payload or {})
-        vigente = vigentes.get((s.source, s.external_id))
-        if vigente is not None:
-            raw["monto_vigente"] = float(vigente)
+        current_amount = current_amounts.get((s.source, s.external_id))
+        if current_amount is not None:
+            raw["monto_vigente"] = float(current_amount)
         vp_records.append(_Rec("subscription", raw))
     for cd, amt, st in charges_rows:
         vp_records.append(_Rec("charge", {"charge_date": cd, "amount": amt, "status": st}))

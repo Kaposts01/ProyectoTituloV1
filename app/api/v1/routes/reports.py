@@ -200,8 +200,8 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
     today_chile = chile_today()
     active_count_by_month = []
     churn = []
-    altas, bajas = [], []
-    deu_pag, deu_nop, int_ok, int_fail, cg_can, cg_pro, rec_mes, pagos_mes = [], [], [], [], [], [], [], []
+    signups, cancellations = [], []
+    debts_paid, debts_unpaid, attempts_ok, attempts_failed, charges_cancelled, charges_processing, monthly_revenue, monthly_payments = [], [], [], [], [], [], [], []
     for month in months:
         month_end = date.fromisoformat(f"{month}-28")
         while month_end.month == int(month[5:]):
@@ -221,18 +221,18 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
         past = [charge for charge in statuses if not is_future_charge(charge.charge_date, today_chile)]
         cancelled = [charge for charge in past if str(charge.status or "").lower() == "cancelado"]
         processing = [charge for charge in past if str(charge.status or "").lower() in {"pendiente", "procesando"}]
-        altas.append(len(month_subs))
-        bajas.append(len(month_cancellations))
+        signups.append(len(month_subs))
+        cancellations.append(len(month_cancellations))
         active_count_by_month.append(active_end)
         churn.append(round(100 * len(month_cancellations) / active_start, 2) if active_start else 0)
-        deu_pag.append(len(paid))
-        deu_nop.append(len(rejected))
-        int_ok.append(len(paid))
-        int_fail.append(len(rejected))
-        cg_can.append(len(cancelled))
-        cg_pro.append(len(processing))
-        rec_mes.append(round(sum(_amount(charge.amount) for charge in paid), 2))
-        pagos_mes.append(len(paid))
+        debts_paid.append(len(paid))
+        debts_unpaid.append(len(rejected))
+        attempts_ok.append(len(paid))
+        attempts_failed.append(len(rejected))
+        charges_cancelled.append(len(cancelled))
+        charges_processing.append(len(processing))
+        monthly_revenue.append(round(sum(_amount(charge.amount) for charge in paid), 2))
+        monthly_payments.append(len(paid))
     account_labels = {"virtualpos1": "Cuenta 1", "virtualpos2": "Cuenta 2"}
     account_revenue = {label: 0.0 for label in account_labels.values()}
     account_subscriptions = {label: 0 for label in account_labels.values()}
@@ -248,8 +248,8 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
         e = _as_date(sub.canceled_at) or end
         return max(0.0, (e - s).days / 30.44)
 
-    vida_prom_val = round(sum(_lifetime_months(s) for s in historical_subscriptions) / len(historical_subscriptions), 1) if historical_subscriptions else 0
-    vida_prom_activas_val = round(sum(_lifetime_months(s) for s in active_at_end) / len(active_at_end), 1) if active_at_end else 0
+    avg_lifetime = round(sum(_lifetime_months(s) for s in historical_subscriptions) / len(historical_subscriptions), 1) if historical_subscriptions else 0
+    avg_lifetime_active = round(sum(_lifetime_months(s) for s in active_at_end) / len(active_at_end), 1) if active_at_end else 0
 
     # ── tabla activas ─────────────────────────────────────────────────────────
     active_table = []
@@ -284,7 +284,7 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
     sub_charges_map: dict[tuple[str, str], list[Charge]] = defaultdict(list)
     for charge in sorted(charges, key=lambda c: (c.charge_date or "")):
         sub_charges_map[(charge.source, charge.subscription_external_id or "")].append(charge)
-    racha_list: list[dict[str, Any]] = []
+    streak_list: list[dict[str, Any]] = []
     for (src, sid), clist in sub_charges_map.items():
         streak = 0
         for charge in clist:
@@ -294,51 +294,51 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
                 streak = 0
             if streak >= 3:
                 sub = subscription_by_id.get((src, sid))
-                racha_list.append({"sev": "alta", "tipo": "Racha de rechazos", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": _amount(charge.amount), "detalle": f"{streak} rechazos consecutivos — riesgo de caída"})
+                streak_list.append({"sev": "alta", "tipo": "Racha de rechazos", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": _amount(charge.amount), "detalle": f"{streak} rechazos consecutivos — riesgo de caída"})
                 break
-    alert_counts["Racha de rechazos"] = len(racha_list)
-    alerts.extend(racha_list[:100])
+    alert_counts["Racha de rechazos"] = len(streak_list)
+    alerts.extend(streak_list[:100])
 
     # 3. Suscripción fallida — nunca cobró (media)
     paid_sub_keys = {(c.source, c.subscription_external_id) for c in paid_charges}
-    fallidas: list[dict[str, Any]] = []
+    failed_subscriptions: list[dict[str, Any]] = []
     for sub in historical_subscriptions:
         if (sub.source, sub.external_id) not in paid_sub_keys:
-            fallidas.append({"sev": "media", "tipo": "Suscripción fallida", "cliente": _cname(sub.source, sub.client_external_id, sub), "cuenta": account_labels[sub.source], "producto": _text(sub.external_id), "monto": _amount(sub.amount), "detalle": "Nunca registró un cobro aceptado"})
-    alert_counts["Suscripción fallida"] = len(fallidas)
-    alerts.extend(fallidas[:100])
+            failed_subscriptions.append({"sev": "media", "tipo": "Suscripción fallida", "cliente": _cname(sub.source, sub.client_external_id, sub), "cuenta": account_labels[sub.source], "producto": _text(sub.external_id), "monto": _amount(sub.amount), "detalle": "Nunca registró un cobro aceptado"})
+    alert_counts["Suscripción fallida"] = len(failed_subscriptions)
+    alerts.extend(failed_subscriptions[:100])
 
     # 4. Cobro múltiple en el mes (media)
     paid_per_sub_month: dict[tuple[str, str, str], int] = defaultdict(int)
     for charge in paid_charges:
         if charge.charge_date:
             paid_per_sub_month[(charge.source, charge.subscription_external_id or "", charge.charge_date[:7])] += 1
-    multiples: list[dict[str, Any]] = []
-    seen_mult: set[tuple[str, str]] = set()
+    multiple_charges: list[dict[str, Any]] = []
+    seen_multiple: set[tuple[str, str]] = set()
     for (src, sid, month), count in sorted(paid_per_sub_month.items()):
-        if count >= 2 and (src, sid) not in seen_mult:
-            seen_mult.add((src, sid))
+        if count >= 2 and (src, sid) not in seen_multiple:
+            seen_multiple.add((src, sid))
             sub = subscription_by_id.get((src, sid))
-            multiples.append({"sev": "media", "tipo": "Cobro múltiple en el mes", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": 0.0, "detalle": f"{count} cobros aceptados en {month}"})
-    alert_counts["Cobro múltiple en el mes"] = len(multiples)
-    alerts.extend(multiples[:80])
+            multiple_charges.append({"sev": "media", "tipo": "Cobro múltiple en el mes", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": 0.0, "detalle": f"{count} cobros aceptados en {month}"})
+    alert_counts["Cobro múltiple en el mes"] = len(multiple_charges)
+    alerts.extend(multiple_charges[:80])
 
     # 5. Cliente con múltiples activas (baja)
     client_active_map: dict[tuple[str, str], list[Subscription]] = defaultdict(list)
     for sub in active_at_end:
         client_active_map[(sub.source, sub.client_external_id or "")].append(sub)
-    multi_activas: list[dict[str, Any]] = []
+    multiple_active: list[dict[str, Any]] = []
     for (src, cid), subs in client_active_map.items():
         if len(subs) >= 2:
-            multi_activas.append({"sev": "baja", "tipo": "Cliente con múltiples activas", "cliente": _cname(src, cid), "cuenta": account_labels.get(src, src), "producto": _text(", ".join(s.external_id or "" for s in subs[:3])), "monto": 0.0, "detalle": f"{len(subs)} suscripciones activas simultáneas"})
-    alert_counts["Cliente con múltiples activas"] = len(multi_activas)
-    alerts.extend(multi_activas[:50])
+            multiple_active.append({"sev": "baja", "tipo": "Cliente con múltiples activas", "cliente": _cname(src, cid), "cuenta": account_labels.get(src, src), "producto": _text(", ".join(s.external_id or "" for s in subs[:3])), "monto": 0.0, "detalle": f"{len(subs)} suscripciones activas simultáneas"})
+    alert_counts["Cliente con múltiples activas"] = len(multiple_active)
+    alerts.extend(multiple_active[:50])
 
     total_revenue = round(sum(_amount(charge.amount) for charge in paid_charges), 2)
     total_attempts = len(paid_charges) + len(rejected_charges)
     return {
-        "kpis": {"total_subs": len(historical_subscriptions), "n_activas": len(active_at_end), "total_clientes": len(clients_at_end), "total_recaudado": total_revenue, "total_comision": 0, "total_abono": total_revenue, "cobrabilidad": round(100 * len(paid_charges) / total_attempts, 1) if total_attempts else 0, "vida_prom": vida_prom_val, "vida_prom_activas": vida_prom_activas_val, "recaud_prom_sub": round(total_revenue / len(historical_subscriptions), 0) if historical_subscriptions else 0, "recaud_prom_activa": round(total_revenue / len(active_at_end), 0) if active_at_end else 0, "churn_prom": round(sum(churn) / len(churn), 2) if churn else 0, "total_cargos": len(charges), "cargos_pag": len(paid_charges), "cargos_rec": len(rejected_charges), "ticket_prom": round(total_revenue / len(paid_charges), 0) if paid_charges else 0, "pct_comision": 0},
-        "meses": months, "altas": altas, "bajas": bajas, "activas_acum": active_count_by_month, "churn": churn, "deu_pag": deu_pag, "deu_nop": deu_nop, "int_ok": int_ok, "int_fail": int_fail, "cg_can": cg_can, "cg_pro": cg_pro, "rec_mes": rec_mes, "com_mes": [0] * len(months), "pagos_mes": pagos_mes,
+        "kpis": {"total_subs": len(historical_subscriptions), "n_activas": len(active_at_end), "total_clientes": len(clients_at_end), "total_recaudado": total_revenue, "total_comision": 0, "total_abono": total_revenue, "cobrabilidad": round(100 * len(paid_charges) / total_attempts, 1) if total_attempts else 0, "vida_prom": avg_lifetime, "vida_prom_activas": avg_lifetime_active, "recaud_prom_sub": round(total_revenue / len(historical_subscriptions), 0) if historical_subscriptions else 0, "recaud_prom_activa": round(total_revenue / len(active_at_end), 0) if active_at_end else 0, "churn_prom": round(sum(churn) / len(churn), 2) if churn else 0, "total_cargos": len(charges), "cargos_pag": len(paid_charges), "cargos_rec": len(rejected_charges), "ticket_prom": round(total_revenue / len(paid_charges), 0) if paid_charges else 0, "pct_comision": 0},
+        "meses": months, "altas": signups, "bajas": cancellations, "activas_acum": active_count_by_month, "churn": churn, "deu_pag": debts_paid, "deu_nop": debts_unpaid, "int_ok": attempts_ok, "int_fail": attempts_failed, "cg_can": charges_cancelled, "cg_pro": charges_processing, "rec_mes": monthly_revenue, "com_mes": [0] * len(months), "pagos_mes": monthly_payments,
         "estado_dist": {"ACTIVA": len(active_at_end), "CANCELADA": len(historical_subscriptions) - len(active_at_end)}, "rec_cuenta": account_revenue, "subs_cuenta": account_subscriptions, "alertas_resumen": alert_counts, "n_alertas": sum(alert_counts.values()), "alertas": alerts, "tabla_activas": active_table[:200],
     }
 
@@ -418,10 +418,10 @@ def _generic_alerts(scope: str, snapshot: dict[str, Any], series: dict[str, list
         can_by_month[f"{entry['year']}-{int(entry['month']):02d}"] += int(entry.get("count", 0))
     all_months = sorted(set(act_by_month) | set(can_by_month))
     for month in all_months:
-        altas = act_by_month[month]
-        bajas = can_by_month[month]
-        if bajas > altas and bajas > 0:
-            alerts.append({"sev": "media", "tipo": "Saldo negativo de suscripciones", "detalle": f"{month}: {bajas} bajas vs {altas} altas"})
+        signups = act_by_month[month]
+        cancellations = can_by_month[month]
+        if cancellations > signups and cancellations > 0:
+            alerts.append({"sev": "media", "tipo": "Saldo negativo de suscripciones", "detalle": f"{month}: {cancellations} bajas vs {signups} altas"})
 
     # 3. Tasa de rechazo global del período
     total_ok = sum(v["ok"] for v in charge_by_month.values())
@@ -433,9 +433,9 @@ def _generic_alerts(scope: str, snapshot: dict[str, Any], series: dict[str, list
             alerts.insert(0, {"sev": "alta" if global_rate > 50 else "media", "tipo": "Tasa de rechazo global elevada", "detalle": f"Período completo: {global_rate:.1f}% de rechazos ({total_fail} de {total_all} cargos)"})
 
     if scope == "tch":
-        tasa = snapshot.get("tasa_rechazo", 0)
-        if isinstance(tasa, (int, float)) and tasa > 15:
-            alerts.insert(0, {"sev": "alta" if tasa > 30 else "media", "tipo": "Tasa de rechazo operacional", "detalle": f"Tasa histórica global: {tasa}% — supera umbral de alerta"})
+        rate = snapshot.get("tasa_rechazo", 0)
+        if isinstance(rate, (int, float)) and rate > 15:
+            alerts.insert(0, {"sev": "alta" if rate > 30 else "media", "tipo": "Tasa de rechazo operacional", "detalle": f"Tasa histórica global: {rate}% — supera umbral de alerta"})
     return alerts
 
 
