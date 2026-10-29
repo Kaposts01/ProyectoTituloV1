@@ -148,16 +148,16 @@ async def trigger_job(
     """Ejecuta un job inmediatamente y retorna el run_id para seguir el progreso."""
     sched = get_scheduler()
     if not sched.get_job(job_id):
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' no encontrado.")
+        raise HTTPException(status_code=404, detail={"code": "job_not_found", "message": f"Job '{job_id}' no encontrado."})
 
     if job_id in BILLING_JOB_IDS or job_id in CANCELLATION_JOB_IDS:  # solo lectura hacia el proveedor: no depende de canales ni de la sync activa
         if body.channels is not None:
-            raise HTTPException(status_code=422, detail="Este job no admite selección de canales.")
+            raise HTTPException(status_code=422, detail={"code": "job_channel_selection_unsupported", "message": "Este job no admite selección de canales."})
         running = db.scalar(select(SyncRun).where(
             SyncRun.source == job_id, SyncRun.status == "running",
             SyncRun.started_at > datetime.now(UTC) - _BILLING_RUN_STALE_AFTER).limit(1))
         if running:
-            raise HTTPException(status_code=409, detail=f"El job ya está en ejecución (run_id={running.id}).")
+            raise HTTPException(status_code=409, detail={"code": "job_already_running", "message": f"El job ya está en ejecución (run_id={running.id})."})
         billing_run_id = uuid.uuid4()
         # La fila `running` se crea AQUI, antes de lanzar la tarea: asi un segundo clic ve la fila y recibe 409. El job
         # la adopta por su run_id (si la tarea aun no arranco, no hay hueco entre el chequeo y la fila).
@@ -174,9 +174,9 @@ async def trigger_job(
     if body.channels is not None:
         invalid = set(body.channels) - _VALID_CHANNELS
         if invalid:
-            raise HTTPException(status_code=422, detail=f"Canales inválidos: {sorted(invalid)}")
+            raise HTTPException(status_code=422, detail={"code": "invalid_channels", "message": f"Canales inválidos: {sorted(invalid)}"})
         if not body.channels:
-            raise HTTPException(status_code=422, detail="La lista de canales no puede estar vacía.")
+            raise HTTPException(status_code=422, detail={"code": "empty_channel_list", "message": "La lista de canales no puede estar vacía."})
 
     requested = list(dict.fromkeys(body.channels)) if body.channels is not None else None
     skipped: list[str] = []
@@ -187,20 +187,20 @@ async def trigger_job(
         if not channels_to_run:
             raise HTTPException(
                 status_code=409,
-                detail=f"Canal(es) deshabilitado(s) en {settings.env_mode}: {', '.join(skipped)}.",
+                detail={"code": "channels_disabled", "message": f"Canal(es) deshabilitado(s) en {settings.env_mode}: {', '.join(skipped)}."},
             )
     else:
         skipped = [c for c in _VALID_CHANNELS if not channel_is_enabled(c)]
 
     if job_id != JOB_SYNC_ALL:
-        raise HTTPException(status_code=400, detail="Job no soporta ejecución manual.")
+        raise HTTPException(status_code=400, detail={"code": "job_manual_run_unsupported", "message": "Job no soporta ejecución manual."})
     # SYNC-O-11: la fila `running` se reserva AQUI, de forma atomica (lock de PostgreSQL), antes de lanzar la tarea;
     # `sync_all_channels` la adopta por su run_id. Dos clics o dos workers: solo uno recibe 202.
     try:
         reserved = start_exclusive_run(db, phase="starting")
     except ActiveRunError as busy:
         raise HTTPException(
-            status_code=409, detail=f"Ya hay una sincronización activa (run_id={busy.run_id}). Espera a que termine."
+            status_code=409, detail={"code": "sync_already_active", "message": f"Ya hay una sincronización activa (run_id={busy.run_id}). Espera a que termine."}
         ) from busy
     run_id = str(reserved.id)
     background_tasks.add_task(sync_all_channels, run_id, channels_to_run)
@@ -242,7 +242,7 @@ async def stream_run(
     try:
         uuid.UUID(run_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="run_id inválido.") from None
+        raise HTTPException(status_code=400, detail={"code": "invalid_run_id", "message": "run_id inválido."}) from None
 
     # Padding de 4 KB para forzar flush del buffer de Cloudflare/proxies
     _PAD = ": " + ("p" * 4096) + "\n"

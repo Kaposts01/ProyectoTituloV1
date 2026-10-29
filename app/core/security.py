@@ -57,13 +57,13 @@ def create_access_token(user: User) -> tuple[str, str]:
 
 def _decode_token(token: str) -> dict:
     if len(settings.auth_jwt_secret) < 32:
-        raise HTTPException(status_code=503, detail="Authentication is not configured")
+        raise HTTPException(status_code=503, detail={"code": "authentication_not_configured", "message": "La autenticación no está configurada en este servidor."})
     try:
         return jwt.decode(token, settings.auth_jwt_secret, algorithms=["HS256"])
     except InvalidTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired session",
+            detail={"code": "invalid_or_expired_session", "message": "Sesión inválida o expirada. Vuelve a iniciar sesión."},
         ) from exc
 
 
@@ -72,33 +72,33 @@ def get_current_user(
     db: Session = Depends(get_db),  # noqa: B008
 ) -> User:
     if not access_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"code": "authentication_required", "message": "Debes iniciar sesión para continuar."})
     payload = _decode_token(access_token)
     user_id = payload.get("sub")
     user = get_user(db, user_id) if isinstance(user_id, str) else None
     if user is None or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"code": "authentication_required", "message": "Debes iniciar sesión para continuar."})
     return user
 
 
 def get_csrf_token(access_token: Annotated[str | None, Cookie(alias=ACCESS_COOKIE)] = None) -> str:
     if not access_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"code": "authentication_required", "message": "Debes iniciar sesión para continuar."})
     csrf_token = _decode_token(access_token).get("csrf")
     if not isinstance(csrf_token, str):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"code": "invalid_session", "message": "Sesión inválida. Vuelve a iniciar sesión."})
     return csrf_token
 
 
 def require_csrf(request: Request, csrf_token: Annotated[str, Depends(get_csrf_token)]) -> None:
     if request.headers.get(CSRF_HEADER) != csrf_token:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"code": "invalid_csrf_token", "message": "Sesión desactualizada. Recarga la página e inténtalo de nuevo."})
 
 
 def require_permissions(*required: str):
     def dependency(current_user: Annotated[User, Depends(get_current_user)]) -> User:
         if not set(required).issubset(permission_codes(current_user)):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"code": "permission_denied", "message": "No tienes permiso para realizar esta acción."})
         return current_user
 
     return dependency
@@ -107,7 +107,7 @@ def require_permissions(*required: str):
 def require_role(role_name: str):
     def dependency(current_user: Annotated[User, Depends(get_current_user)]) -> User:
         if not any(role.name == role_name for role in current_user.roles):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"code": "permission_denied", "message": "No tienes permiso para realizar esta acción."})
         return current_user
 
     return dependency
@@ -116,7 +116,7 @@ def require_role(role_name: str):
 def require_any_permission(*required: str):
     def dependency(current_user: Annotated[User, Depends(get_current_user)]) -> User:
         if not set(required).intersection(permission_codes(current_user)):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"code": "permission_denied", "message": "No tienes permiso para realizar esta acción."})
         return current_user
 
     return dependency

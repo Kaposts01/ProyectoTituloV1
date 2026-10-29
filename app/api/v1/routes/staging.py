@@ -976,7 +976,7 @@ def _staging_filter(source: str, resource_type: str, filter_field: str, query: s
     }
     field = fields.get(source, {}).get(resource_type, {}).get(filter_field)
     if field is None:
-        raise HTTPException(status_code=422, detail="Invalid staging filter field")
+        raise HTTPException(status_code=422, detail={"code": "invalid_filter_field", "message": "Campo de filtro no válido."})
     normalized_query = query.strip().lower()
     if filter_field in {"automatic_renewal", "is_active", "show_in_terminal", "is_paid"}:
         if normalized_query in {"activo", "activa", "true", "t", "1", "si", "sí"}:
@@ -1639,9 +1639,9 @@ def _require_source_access(user: User, source: str, resource_type: str | None = 
     try:
         required = source_permission(source, resource_type)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Provider resource not found") from exc
+        raise HTTPException(status_code=404, detail={"code": "provider_resource_not_found", "message": "Recurso del proveedor no encontrado."}) from exc
     if required not in permission_codes(user):
-        raise HTTPException(status_code=403, detail="Permission denied")
+        raise HTTPException(status_code=403, detail={"code": "permission_denied", "message": "No tienes permiso para realizar esta acción."})
 
 
 def _permitted_related(user: User, source: str, related: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2005,7 +2005,7 @@ def _vp_filter(model: Any, rtype: str, ff: str, q: str):
     """Build a JSONB search expression on raw_payload for centralized VirtualPOS records."""
     field = _vp_fields(model, rtype).get(ff)
     if field is None:
-        raise HTTPException(status_code=422, detail="Invalid filter field")
+        raise HTTPException(status_code=422, detail={"code": "invalid_filter_field", "message": "Campo de filtro no válido."})
     lo = q.strip().lower()
     if ff == "status":
         return func.lower(cast(field, String)) == lo
@@ -2014,7 +2014,7 @@ def _vp_filter(model: Any, rtype: str, ff: str, q: str):
             return cast(field, String).ilike("%true%") | cast(field, String).ilike("%t%")
         if lo in {"inactivo", "inactiva", "false", "f", "0", "no"}:
             return cast(field, String).ilike("%false%") | cast(field, String).ilike("%f%")
-        raise HTTPException(status_code=422, detail=f"Expected boolean-like value for field '{ff}'")
+        raise HTTPException(status_code=422, detail={"code": "expected_boolean_value", "message": f"El campo {ff} debe ser verdadero o falso."})
     # Escape SQL wildcards so user text is always a literal partial match.
     needle = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return cast(field, String).ilike(f"%{needle}%", escape="\\")
@@ -2046,7 +2046,7 @@ def _list_vp(
     for item in filters or []:
         field_name, separator, value = item.partition(":")
         if not separator or not field_name or not value.strip():
-            raise HTTPException(status_code=422, detail="Filters must use field:value format")
+            raise HTTPException(status_code=422, detail={"code": "invalid_filter_format", "message": "Los filtros deben tener el formato campo:valor."})
         requested_filters.append((field_name, value))
     secondary_status_filters = [
         value for field_name, value in requested_filters
@@ -2059,7 +2059,7 @@ def _list_vp(
     for field_name, value in requested_filters:
         if field_name == "secondary_status":
             if resource_type != "subscription":
-                raise HTTPException(status_code=422, detail="secondary_status filter is only valid for subscription")
+                raise HTTPException(status_code=422, detail={"code": "secondary_status_filter_invalid", "message": "El filtro de estado secundario solo vale para suscripciones."})
             continue
         expr = _vp_filter(model, resource_type, field_name, value)
         stmt = stmt.where(expr)
@@ -2068,12 +2068,12 @@ def _list_vp(
     if amount_min is not None or amount_max is not None:
         amount = fields.get("amount")
         if amount is None:
-            raise HTTPException(status_code=422, detail="Amount range is unsupported for this resource")
+            raise HTTPException(status_code=422, detail={"code": "amount_range_unsupported", "message": "Este recurso no admite filtrar por rango de monto."})
         if amount_min is not None:
             try:
                 minimum = float(amount_min)
             except ValueError as exc:
-                raise HTTPException(status_code=422, detail="amount_min must be numeric") from exc
+                raise HTTPException(status_code=422, detail={"code": "amount_min_not_numeric", "message": "El monto mínimo debe ser numérico."}) from exc
             expr = _vp_numeric(amount) >= minimum
             stmt = stmt.where(expr)
             cnt = cnt.where(expr)
@@ -2081,7 +2081,7 @@ def _list_vp(
             try:
                 maximum = float(amount_max)
             except ValueError as exc:
-                raise HTTPException(status_code=422, detail="amount_max must be numeric") from exc
+                raise HTTPException(status_code=422, detail={"code": "amount_max_not_numeric", "message": "El monto máximo debe ser numérico."}) from exc
             expr = _vp_numeric(amount) <= maximum
             stmt = stmt.where(expr)
             cnt = cnt.where(expr)
@@ -2092,7 +2092,7 @@ def _list_vp(
     }.get(resource_type)
     if date_from is not None or date_to is not None:
         if date_field is None:
-            raise HTTPException(status_code=422, detail="Date range is unsupported for this resource")
+            raise HTTPException(status_code=422, detail={"code": "date_range_unsupported", "message": "Este recurso no admite filtrar por rango de fechas."})
         date_expression = _vp_date(fields[date_field])
         for value, operator, parameter_name in (
             (date_from, ">=", "date_from"),
@@ -2103,7 +2103,7 @@ def _list_vp(
             try:
                 parsed = date.fromisoformat(value)
             except ValueError as exc:
-                raise HTTPException(status_code=422, detail=f"{parameter_name} must use YYYY-MM-DD") from exc
+                raise HTTPException(status_code=422, detail={"code": "invalid_date_format", "message": f"El parámetro {parameter_name} debe tener el formato AAAA-MM-DD."}) from exc
             expr = date_expression >= parsed if operator == ">=" else date_expression <= parsed
             stmt = stmt.where(expr)
             cnt = cnt.where(expr)
@@ -2251,7 +2251,7 @@ def _toku_filter(model: Any, rtype: str, ff: str, q: str):
     }
     field = fields.get(rtype, {}).get(ff)
     if field is None:
-        raise HTTPException(status_code=422, detail="Invalid staging filter field")
+        raise HTTPException(status_code=422, detail={"code": "invalid_filter_field", "message": "Campo de filtro no válido."})
     return cast(field, String).ilike(f"%{q.strip()}%")
 
 
@@ -2266,14 +2266,14 @@ def _toku_sort_field(model: Any, rtype: str, field_name: str):
     }
     field = fields.get(rtype, {}).get(field_name)
     if field is None:
-        raise HTTPException(status_code=422, detail="Invalid sort field")
+        raise HTTPException(status_code=422, detail={"code": "invalid_sort_field", "message": "Campo de orden no válido."})
     return field
 
 
 def _vp_sort_field(model: Any, rtype: str, field_name: str):
     field = _vp_fields(model, rtype).get(field_name)
     if field is None:
-        raise HTTPException(status_code=422, detail="Invalid sort field")
+        raise HTTPException(status_code=422, detail={"code": "invalid_sort_field", "message": "Campo de orden no válido."})
     if field_name == "amount":
         return _vp_numeric(field)
     if field_name in {"suscription_date", "canceled_at", "charge_date", "authorized_at"}:
@@ -2400,7 +2400,7 @@ def _payku_filter(model: Any, rtype: str, ff: str, q: str):
     }
     field = fields.get(rtype, {}).get(ff)
     if field is None:
-        raise HTTPException(status_code=422, detail="Invalid staging filter field")
+        raise HTTPException(status_code=422, detail={"code": "invalid_filter_field", "message": "Campo de filtro no válido."})
     return cast(field, String).ilike(f"%{q.strip()}%")
 
 
@@ -2414,7 +2414,7 @@ def _payku_sort_field(model: Any, rtype: str, field_name: str):
     }
     field = fields.get(rtype, {}).get(field_name)
     if field is None:
-        raise HTTPException(status_code=422, detail="Invalid sort field")
+        raise HTTPException(status_code=422, detail={"code": "invalid_sort_field", "message": "Campo de orden no válido."})
     return field
 
 
@@ -3064,7 +3064,7 @@ def list_record_filter_values(
             if extra.get("secondary_status")
         }, key=str.lower)}
     if filter_field != "status":
-        raise HTTPException(status_code=422, detail="Unsupported filter value field")
+        raise HTTPException(status_code=422, detail={"code": "unsupported_filter_value_field", "message": "Ese campo no admite valores de filtro."})
 
     if source.startswith("virtualpos"):
         model = _VP_MODEL.get(resource_type)
@@ -3077,10 +3077,10 @@ def list_record_filter_values(
         model = _PAYKU_MODEL.get(resource_type)
         statement = select(model.status).where(model.source == source) if model else None
     else:
-        raise HTTPException(status_code=404, detail="Unknown staging source")
+        raise HTTPException(status_code=404, detail={"code": "unknown_staging_source", "message": "Origen de registros desconocido."})
 
     if statement is None:
-        raise HTTPException(status_code=422, detail="Invalid staging resource")
+        raise HTTPException(status_code=422, detail={"code": "invalid_staging_resource", "message": "Tipo de registro no válido."})
     values = db.scalars(statement.where(model.status.isnot(None)).distinct()).all()
     return {"values": sorted({str(value) for value in values if str(value).strip()}, key=str.lower)}
 
@@ -3098,7 +3098,7 @@ def virtualpos_client_detail(
         select(CClient).where(CClient.source.in_(_VP_SRCS), CClient.external_id == external_id)
     )
     if client is None:
-        raise HTTPException(status_code=404, detail="VirtualPOS client not found")
+        raise HTTPException(status_code=404, detail={"code": "virtualpos_client_not_found", "message": "No se encontró el cliente en VirtualPOS."})
 
     # Suscripciones relacionadas por RUT — busca en ambas cuentas VP1/VP2
     social_id = client.social_id
@@ -3157,7 +3157,7 @@ def virtualpos_plan_detail(
         select(CPlan).where(CPlan.source.in_(_VP_SRCS), CPlan.external_id == external_id)
     )
     if plan is None:
-        raise HTTPException(status_code=404, detail="VirtualPOS plan not found")
+        raise HTTPException(status_code=404, detail={"code": "virtualpos_plan_not_found", "message": "No se encontró el plan en VirtualPOS."})
     filters = (
         CSub.source == plan.source,
         func.coalesce(CSub.plan_external_id, CSub.raw_payload["plan_id"].astext) == plan.external_id,
@@ -3187,7 +3187,7 @@ def virtualpos_subscription_detail(
         select(CSub).where(CSub.source.in_(_VP_SRCS), CSub.external_id == external_id)
     )
     if subscription is None:
-        raise HTTPException(status_code=404, detail="VirtualPOS subscription not found")
+        raise HTTPException(status_code=404, detail={"code": "virtualpos_subscription_not_found", "message": "No se encontró la suscripción en VirtualPOS."})
     filters = (CCharge.source == subscription.source, CCharge.subscription_external_id == subscription.external_id)
     charges = db.scalars(
         select(CCharge)
@@ -3222,7 +3222,7 @@ def virtualpos_charge_detail(
         select(CCharge).where(CCharge.source.in_(_VP_SRCS), CCharge.external_id == external_id)
     )
     if charge is None:
-        raise HTTPException(status_code=404, detail="VirtualPOS charge not found")
+        raise HTTPException(status_code=404, detail={"code": "virtualpos_charge_not_found", "message": "No se encontró el cargo en VirtualPOS."})
     subscription_id = charge.subscription_external_id or (charge.raw_payload or {}).get("suscription_id")
     subscription = db.scalar(
         select(CSub).where(CSub.source == charge.source, CSub.external_id == subscription_id)
@@ -3253,7 +3253,7 @@ def virtualpos_payment_detail(
         select(CPayment).where(CPayment.source.in_(_VP_SRCS), CPayment.external_id == external_id)
     )
     if payment is None:
-        raise HTTPException(status_code=404, detail="VirtualPOS payment not found")
+        raise HTTPException(status_code=404, detail={"code": "virtualpos_payment_not_found", "message": "No se encontró el pago en VirtualPOS."})
     charges = db.scalars(
         select(CCharge).where(
             CCharge.source == payment.source,
@@ -3546,7 +3546,7 @@ _CHANNEL_LABEL: dict[str, str] = {
 def centralized_channel_dashboard(source: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     """Aggregate centralized operational metrics filtered to a single channel."""
     if source not in _CHANNEL_LABEL:
-        raise HTTPException(status_code=404, detail=f"Unknown channel: {source}. Valid: {', '.join(_CHANNEL_LABEL)}")
+        raise HTTPException(status_code=404, detail={"code": "unknown_channel", "message": f"Canal desconocido: {source}. Válidos: {', '.join(_CHANNEL_LABEL)}"})
     label = _CHANNEL_LABEL[source]
     data = _general_dashboard(db)
     channel_row = next((c for c in data["channels"] if c["source"] == label), None)
@@ -3600,7 +3600,7 @@ def general_subscriptions(
 @router.get("/dashboard/general/clients/{rut}", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
 def general_client_detail(rut: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
     if not _general_clients(db, rut):
-        raise HTTPException(status_code=404, detail="Client not found")
+        raise HTTPException(status_code=404, detail={"code": "client_not_found", "message": "Cliente no encontrado."})
     return _general_client_detail(db, rut)
 
 
@@ -3617,13 +3617,13 @@ def provider_record_detail(
         "payku": {"client", "plan", "subscription", "transaction"},
     }
     if resource_type not in allowed_resources.get(source, set()):
-        raise HTTPException(status_code=404, detail="Unknown staging resource")
+        raise HTTPException(status_code=404, detail={"code": "unknown_staging_resource", "message": "Tipo de registro desconocido."})
     _require_source_access(current_user, source, resource_type)
     if source == "toku":
         model = _TOKU_MODEL[resource_type]
         record = db.scalar(select(model).where(model.source == "toku", model.external_id == external_id))
         if record is None:
-            raise HTTPException(status_code=404, detail="Staging record not found")
+            raise HTTPException(status_code=404, detail={"code": "staging_record_not_found", "message": "Registro no encontrado."})
         related = _toku_centralized_related(record, resource_type, db)
         extra = _sub_enrichment(db, [record]).get((record.source, record.external_id)) if resource_type == "subscription" else None
         return {"record": _cstg(record, resource_type, extra), "related": _permitted_related(current_user, source, related)}
@@ -3631,14 +3631,14 @@ def provider_record_detail(
         model = _PAYKU_MODEL[resource_type]
         record = db.scalar(select(model).where(model.source == "payku", model.external_id == external_id))
         if record is None:
-            raise HTTPException(status_code=404, detail="Staging record not found")
+            raise HTTPException(status_code=404, detail={"code": "staging_record_not_found", "message": "Registro no encontrado."})
         related = _payku_centralized_related(record, resource_type, db)
         extra = _sub_enrichment(db, [record], "payku").get((record.source, record.external_id)) if resource_type == "subscription" else None
         return {"record": _cstg(record, resource_type, extra), "related": _permitted_related(current_user, source, related)}
     records = db.scalars(select(SourceRecord).where(SourceRecord.source == source)).all()
     record = next((item for item in records if item.resource_type == resource_type and item.external_id == external_id), None)
     if record is None:
-        raise HTTPException(status_code=404, detail="Staging record not found")
+        raise HTTPException(status_code=404, detail={"code": "staging_record_not_found", "message": "Registro no encontrado."})
     related = _toku_related(record, records) if source == "toku" else _payku_related(record, records)
     return {"record": _serialize(record), "related": _permitted_related(current_user, source, related)}
 
@@ -3699,7 +3699,7 @@ def channel_alert_detail(
     """Devuelve el listado de suscripciones que componen una alerta operativa de VirtualPOS."""
     _require_source_access(current_user, source)
     if not source.startswith("virtualpos"):
-        raise HTTPException(status_code=404, detail="Detalle de alertas solo disponible para VirtualPOS")
+        raise HTTPException(status_code=404, detail={"code": "alert_detail_virtualpos_only", "message": "Detalle de alertas solo disponible para VirtualPOS"})
 
     sources = _vp_src(source)
     today = datetime.now(tz=timezone.utc).date()
@@ -3829,7 +3829,7 @@ def channel_alert_detail(
         items = [{**v, "intentos": attempts[k]} for k, v in seen.items()]
         return {"items": items, "total": len(items)}
 
-    raise HTTPException(status_code=404, detail=f"Tipo de alerta '{alert_id}' no reconocido")
+    raise HTTPException(status_code=404, detail={"code": "unknown_alert_type", "message": f"Tipo de alerta '{alert_id}' no reconocido"})
 
 
 @router.get("/dashboard/{source}", tags=["Staging"])
@@ -3846,7 +3846,7 @@ def channel_dashboard(
     if source == "payku":
         return _payku_centralized_dashboard(db)
     if source not in SOURCES:
-        raise HTTPException(status_code=404, detail="Unknown staging source")
+        raise HTTPException(status_code=404, detail={"code": "unknown_staging_source", "message": "Origen de registros desconocido."})
 
     records = db.scalars(select(SourceRecord).where(SourceRecord.source == source)).all()
     resource_counts = Counter(record.resource_type for record in records)
@@ -3927,10 +3927,10 @@ async def trigger_channel_sync(
 ) -> dict[str, Any]:
     _require_source_access(current_user, source)
     if source not in SOURCES:
-        raise HTTPException(status_code=404, detail="Unknown staging source")
+        raise HTTPException(status_code=404, detail={"code": "unknown_staging_source", "message": "Origen de registros desconocido."})
 
     if source in ("virtualpos", "toku", "payku") and not settings.channel_enabled(source):
-        raise HTTPException(status_code=409, detail=f"El canal {source} está deshabilitado en {settings.env_mode}.")
+        raise HTTPException(status_code=409, detail={"code": "channel_disabled", "message": f"El canal {source} está deshabilitado en {settings.env_mode}."})
     _sync_fn = {"virtualpos": sync_virtualpos, "toku": sync_toku, "payku": sync_payku}
     run = await _sync_fn[source](db)
     consolidate_to_centralized(db, [source])

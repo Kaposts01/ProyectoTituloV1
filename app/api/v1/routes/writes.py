@@ -172,19 +172,19 @@ async def update_virtualpos_client(
     """Update an approved VirtualPOS client field set through the internal API."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
-        raise HTTPException(status_code=422, detail="At least one field is required")
+        raise HTTPException(status_code=422, detail={"code": "at_least_one_field_required", "message": "Se requiere al menos un campo."})
     try:
         client = await update_client(db, client_id, changes, requested_by_user_id=current_user.id)
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except ClientNotFoundError:
-        raise HTTPException(status_code=404, detail="VirtualPOS client not found") from None
+        raise HTTPException(status_code=404, detail={"code": "virtualpos_client_not_found", "message": "No se encontró el cliente en VirtualPOS."}) from None
     except InvalidClientDataError:
-        raise HTTPException(status_code=422, detail="Invalid RUT") from None
+        raise HTTPException(status_code=422, detail={"code": "invalid_rut", "message": "El RUT no es válido."}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the update") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_update", "message": "VirtualPOS rechazó la actualización."}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="VirtualPOS update requires local reconciliation") from None
+        raise HTTPException(status_code=503, detail={"code": "virtualpos_update_requires_reconciliation", "message": "La actualización requiere conciliación local."}) from None
 
     payload = dict(client.raw_payload or {})
     if client.private_note:
@@ -213,15 +213,15 @@ async def create_virtualpos_client(
             db, body.model_dump(exclude_none=True, mode="json"), requested_by_user_id=current_user.id
         )
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except DuplicateClientError:
-        raise HTTPException(status_code=409, detail="Ya existe un cliente con ese documento de identidad en VirtualPOS") from None
+        raise HTTPException(status_code=409, detail={"code": "virtualpos_client_duplicate_document", "message": "Ya existe un cliente con ese documento de identidad en VirtualPOS"}) from None
     except InvalidClientDataError:
-        raise HTTPException(status_code=422, detail="Invalid RUT") from None
+        raise HTTPException(status_code=422, detail={"code": "invalid_rut", "message": "El RUT no es válido."}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the client") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_client", "message": "VirtualPOS rechazó el cliente."}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="VirtualPOS client requires local reconciliation") from None
+        raise HTTPException(status_code=503, detail={"code": "virtualpos_client_requires_reconciliation", "message": "La operación sobre el cliente requiere conciliación local."}) from None
 
     payload = dict(client.raw_payload or {})
     if client.private_note:
@@ -245,11 +245,11 @@ async def create_virtualpos_plan(
             db, body.model_dump(exclude_none=True, mode="json"), requested_by_user_id=current_user.id
         )
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the plan") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_plan", "message": "VirtualPOS rechazó el plan."}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="VirtualPOS plan requires local reconciliation") from None
+        raise HTTPException(status_code=503, detail={"code": "virtualpos_plan_requires_reconciliation", "message": "La operación sobre el plan requiere conciliación local."}) from None
 
     return {"id": str(plan.id), "external_id": plan.external_id, "source": plan.source, "payload": plan.raw_payload or {}}
 
@@ -287,13 +287,13 @@ async def create_virtualpos_subscription(
             db, body.model_dump(exclude_none=True, mode="json"), requested_by_user_id=current_user.id
         )
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except DuplicateSubscriptionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise HTTPException(status_code=409, detail={"code": "operation_conflict", "message": str(exc)}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la suscripción") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_subscription", "message": "VirtualPOS rechazó la suscripción"}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La suscripción requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "subscription_requires_reconciliation", "message": "La suscripción requiere reconciliación local"}) from None
 
     return {"id": str(sub.id), "external_id": sub.external_id, "source": sub.source, "payload": sub.raw_payload or {}}
 
@@ -315,15 +315,15 @@ async def cancel_virtualpos_subscription(
     try:
         sub, outcome = await cancel_subscription_with_outcome(db, subscription_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except SubscriptionNotFoundError:
-        raise HTTPException(status_code=404, detail="Suscripción no encontrada") from None
+        raise HTTPException(status_code=404, detail={"code": "subscription_not_found", "message": "Suscripción no encontrada"}) from None
     except (BillingFlowConflictError, SubscriptionBusyError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise HTTPException(status_code=409, detail={"code": "operation_conflict", "message": str(exc)}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_cancellation", "message": "VirtualPOS rechazó la cancelación"}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "cancellation_requires_reconciliation", "message": "La cancelación requiere reconciliación local"}) from None
 
     return {
         "external_id": sub.external_id,
@@ -370,15 +370,15 @@ async def create_virtualpos_charge(
             requested_by_user_id=current_user.id,
         )
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except FixedPlanChargeBlockedError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
+        raise HTTPException(status_code=422, detail={"code": "invalid_operation", "message": str(exc)}) from None
     except ProviderListingError:
-        raise HTTPException(status_code=502, detail="Listado de cobros de VirtualPOS incompleto o inesperado") from None
+        raise HTTPException(status_code=502, detail={"code": "virtualpos_charge_listing_incomplete", "message": "Listado de cobros de VirtualPOS incompleto o inesperado"}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rejected the charge") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_charge", "message": "VirtualPOS rechazó el cargo."}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="VirtualPOS charge requires local reconciliation") from None
+        raise HTTPException(status_code=503, detail={"code": "virtualpos_charge_requires_reconciliation", "message": "La operación sobre el cargo requiere conciliación local."}) from None
 
     return {"id": str(charge.id), "external_id": charge.external_id, "source": charge.source, "payload": charge.raw_payload or {}}
 
@@ -403,15 +403,15 @@ async def cancel_virtualpos_future_charges(
             db, subscription_id, dry_run=dry_run, requested_by_user_id=current_user.id
         )
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except PluralCancelForbiddenError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise HTTPException(status_code=409, detail={"code": "operation_conflict", "message": str(exc)}) from None
     except ProviderListingError:
-        raise HTTPException(status_code=502, detail="Listado de cobros de VirtualPOS incompleto o inesperado") from None
+        raise HTTPException(status_code=502, detail={"code": "virtualpos_charge_listing_incomplete", "message": "Listado de cobros de VirtualPOS incompleto o inesperado"}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación de cargos") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_charges_cancellation", "message": "VirtualPOS rechazó la cancelación de cargos"}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "cancellation_requires_reconciliation", "message": "La cancelación requiere reconciliación local"}) from None
 
 
 class VirtualPOSAmountReassign(BaseModel):
@@ -449,17 +449,17 @@ async def reassign_virtualpos_subscription_amount(
             requested_by_user_id=current_user.id,
         )
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except FixedPlanChargeBlockedError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
+        raise HTTPException(status_code=422, detail={"code": "invalid_operation", "message": str(exc)}) from None
     except (BillingFlowConflictError, SubscriptionBusyError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise HTTPException(status_code=409, detail={"code": "operation_conflict", "message": str(exc)}) from None
     except ProviderListingError:
-        raise HTTPException(status_code=502, detail="Listado de cobros de VirtualPOS incompleto o inesperado") from None
+        raise HTTPException(status_code=502, detail={"code": "virtualpos_charge_listing_incomplete", "message": "Listado de cobros de VirtualPOS incompleto o inesperado"}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la reasignación de monto") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_amount_reassignment", "message": "VirtualPOS rechazó la reasignación de monto"}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La reasignación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "reassignment_requires_reconciliation", "message": "La reasignación requiere reconciliación local"}) from None
 
 
 @router.delete(
@@ -476,13 +476,13 @@ async def cancel_virtualpos_charge(
     try:
         charge = await cancel_charge(db, charge_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except ChargeNotFoundError:
-        raise HTTPException(status_code=404, detail="Cargo no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "charge_not_found", "message": "Cargo no encontrado"}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación del cargo") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_charge_cancellation", "message": "VirtualPOS rechazó la cancelación del cargo"}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "cancellation_requires_reconciliation", "message": "La cancelación requiere reconciliación local"}) from None
 
     return {"external_id": charge.external_id, "status": charge.status}
 
@@ -501,15 +501,15 @@ async def retry_virtualpos_charge(
     try:
         charge = await retry_charge(db, charge_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except RetryBlockedError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise HTTPException(status_code=409, detail={"code": "operation_conflict", "message": str(exc)}) from None
     except ChargeNotFoundError:
-        raise HTTPException(status_code=404, detail="Cargo no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "charge_not_found", "message": "Cargo no encontrado"}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó el reintento del cargo") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_charge_retry", "message": "VirtualPOS rechazó el reintento del cargo"}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="El reintento requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "retry_requires_reconciliation", "message": "El reintento requiere reconciliación local"}) from None
 
     return {"external_id": charge.external_id, "status": charge.status, "payload": charge.raw_payload or {}}
 
@@ -715,19 +715,19 @@ async def update_toku_customer(
     """Update a Toku customer via PUT /customers/{id}."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
-        raise HTTPException(status_code=422, detail="Al menos un campo es requerido")
+        raise HTTPException(status_code=422, detail={"code": "at_least_one_field_required", "message": "Al menos un campo es requerido"})
     try:
         client = await update_customer(db, customer_id, changes, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "toku_writes_disabled", "message": "Las escrituras a Toku están deshabilitadas en este ambiente."}) from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
+        raise HTTPException(status_code=403, detail={"code": "toku_write_blocked", "message": _toku_blocked_detail(exc)}) from None
     except TokuCustomerNotFoundError:
-        raise HTTPException(status_code=404, detail="Cliente Toku no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "toku_client_not_found", "message": "Cliente Toku no encontrado"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la actualización") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "toku_rejected_update", "message": "Toku rechazó la actualización"}) from None
     except TokuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La actualización requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "update_requires_reconciliation", "message": "La actualización requiere reconciliación local"}) from None
 
     return {"external_id": client.external_id, "source": client.source, "payload": client.raw_payload or {}}
 
@@ -746,15 +746,15 @@ async def delete_toku_customer(
     try:
         client = await delete_customer(db, customer_id, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "toku_writes_disabled", "message": "Las escrituras a Toku están deshabilitadas en este ambiente."}) from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
+        raise HTTPException(status_code=403, detail={"code": "toku_write_blocked", "message": _toku_blocked_detail(exc)}) from None
     except TokuCustomerNotFoundError:
-        raise HTTPException(status_code=404, detail="Cliente Toku no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "toku_client_not_found", "message": "Cliente Toku no encontrado"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la eliminación") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "toku_rejected_deletion", "message": "Toku rechazó la eliminación"}) from None
     except TokuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La eliminación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "deletion_requires_reconciliation", "message": "La eliminación requiere reconciliación local"}) from None
 
     return {"external_id": client.external_id, "status": client.status}
 
@@ -780,21 +780,21 @@ async def change_toku_subscription_status(
 
     `CANCELLED` es una baja: solo `admin` por esta via directa (las demás bajas pasan por /api/v1/cancellations)."""
     if body.status == "CANCELLED" and not any(role.name == "admin" for role in current_user.roles):
-        raise HTTPException(status_code=403, detail="Permission denied")
+        raise HTTPException(status_code=403, detail={"code": "permission_denied", "message": "No tienes permiso para realizar esta acción."})
     try:
         sub = await change_subscription_status(
             db, subscription_id, body.status, requested_by_user_id=current_user.id
         )
     except TokuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "toku_writes_disabled", "message": "Las escrituras a Toku están deshabilitadas en este ambiente."}) from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
+        raise HTTPException(status_code=403, detail={"code": "toku_write_blocked", "message": _toku_blocked_detail(exc)}) from None
     except TokuSubscriptionNotFoundError:
-        raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
+        raise HTTPException(status_code=404, detail={"code": "toku_subscription_not_found", "message": "Suscripción Toku no encontrada"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó el cambio de estado") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "toku_rejected_status_change", "message": "Toku rechazó el cambio de estado"}) from None
     except TokuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="El cambio de estado requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "status_change_requires_reconciliation", "message": "El cambio de estado requiere reconciliación local"}) from None
 
     return {"external_id": sub.external_id, "status": sub.status, "payload": sub.raw_payload or {}}
 
@@ -828,17 +828,17 @@ async def update_payku_client(
     """Update a Payku subscription client via PUT /api/suclient/{id}."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
-        raise HTTPException(status_code=422, detail="Al menos un campo es requerido")
+        raise HTTPException(status_code=422, detail={"code": "at_least_one_field_required", "message": "Al menos un campo es requerido"})
     try:
         client = await payku_update_client(db, client_id, changes, requested_by_user_id=current_user.id)
     except PaykuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Payku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "payku_writes_disabled", "message": "Las escrituras a Payku están deshabilitadas en este ambiente."}) from None
     except PaykuClientNotFoundError:
-        raise HTTPException(status_code=404, detail="Cliente Payku no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "payku_client_not_found", "message": "Cliente Payku no encontrado"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Payku rechazó la actualización") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "payku_rejected_update", "message": "Payku rechazó la actualización"}) from None
     except PaykuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La actualización requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "update_requires_reconciliation", "message": "La actualización requiere reconciliación local"}) from None
 
     return {"external_id": client.external_id, "source": client.source, "payload": client.raw_payload or {}}
 
@@ -857,13 +857,13 @@ async def delete_payku_client(
     try:
         client = await payku_delete_client(db, client_id, requested_by_user_id=current_user.id)
     except PaykuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Payku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "payku_writes_disabled", "message": "Las escrituras a Payku están deshabilitadas en este ambiente."}) from None
     except PaykuClientNotFoundError:
-        raise HTTPException(status_code=404, detail="Cliente Payku no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "payku_client_not_found", "message": "Cliente Payku no encontrado"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Payku rechazó la eliminación") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "payku_rejected_deletion", "message": "Payku rechazó la eliminación"}) from None
     except PaykuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La eliminación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "deletion_requires_reconciliation", "message": "La eliminación requiere reconciliación local"}) from None
 
     return {"external_id": client.external_id, "status": client.status}
 
@@ -882,13 +882,13 @@ async def delete_payku_subscription(
     try:
         sub = await payku_delete_subscription(db, subscription_id, requested_by_user_id=current_user.id)
     except PaykuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Payku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "payku_writes_disabled", "message": "Las escrituras a Payku están deshabilitadas en este ambiente."}) from None
     except PaykuSubscriptionNotFoundError:
-        raise HTTPException(status_code=404, detail="Suscripción Payku no encontrada") from None
+        raise HTTPException(status_code=404, detail={"code": "payku_subscription_not_found", "message": "Suscripción Payku no encontrada"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Payku rechazó la cancelación") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "payku_rejected_cancellation", "message": "Payku rechazó la cancelación"}) from None
     except PaykuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "cancellation_requires_reconciliation", "message": "La cancelación requiere reconciliación local"}) from None
 
     return {"external_id": sub.external_id, "status": sub.status}
 
@@ -909,13 +909,13 @@ async def cancel_virtualpos_payment(
     try:
         payment = await cancel_payment(db, payment_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
-        raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except PaymentNotFoundError:
-        raise HTTPException(status_code=404, detail="Pago no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "payment_not_found", "message": "Pago no encontrado"}) from None
     except _VP_ERRORS as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="VirtualPOS rechazó la cancelación del pago") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_payment_cancellation", "message": "VirtualPOS rechazó la cancelación del pago"}) from None
     except ReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La cancelación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "cancellation_requires_reconciliation", "message": "La cancelación requiere reconciliación local"}) from None
 
     return {"external_id": payment.external_id, "status": payment.status}
 
@@ -936,11 +936,11 @@ async def delete_toku_subscription(
     try:
         sub = await toku_delete_subscription(db, subscription_id, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "toku_writes_disabled", "message": "Las escrituras a Toku están deshabilitadas en este ambiente."}) from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
+        raise HTTPException(status_code=403, detail={"code": "toku_write_blocked", "message": _toku_blocked_detail(exc)}) from None
     except TokuSubscriptionNotFoundError:
-        raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
+        raise HTTPException(status_code=404, detail={"code": "toku_subscription_not_found", "message": "Suscripción Toku no encontrada"}) from None
     except TokuDeleteAbortedError as exc:
         if exc.code == "INVOICE_IN_PROGRESS":
             # D30: factura en curso niega la baja; nada se anuló.
@@ -953,12 +953,12 @@ async def delete_toku_subscription(
             ) from None
         # Fail-closed (MGT-05): la suscripción NO se eliminó. Solo el código fijo, sin texto del proveedor.
         raise HTTPException(
-            status_code=502, detail=f"Eliminación abortada: la suscripción no se eliminó ({exc.code})."
+            status_code=502, detail={"code": "toku_deletion_aborted", "message": f"Eliminación abortada: la suscripción no se eliminó ({exc.code})."}
         ) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la eliminación") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "toku_rejected_deletion", "message": "Toku rechazó la eliminación"}) from None
     except TokuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La eliminación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "deletion_requires_reconciliation", "message": "La eliminación requiere reconciliación local"}) from None
 
     return {"external_id": sub.external_id, "status": sub.status}
 
@@ -984,19 +984,19 @@ async def update_toku_invoice(
     """Update a Toku invoice amount or due date via PUT /invoices/{id}."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
-        raise HTTPException(status_code=422, detail="Al menos un campo es requerido")
+        raise HTTPException(status_code=422, detail={"code": "at_least_one_field_required", "message": "Al menos un campo es requerido"})
     try:
         record = await toku_update_invoice(db, invoice_id, changes, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "toku_writes_disabled", "message": "Las escrituras a Toku están deshabilitadas en este ambiente."}) from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
+        raise HTTPException(status_code=403, detail={"code": "toku_write_blocked", "message": _toku_blocked_detail(exc)}) from None
     except TokuInvoiceNotFoundError:
-        raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "toku_invoice_not_found", "message": "Invoice Toku no encontrado"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la actualización del invoice") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "toku_rejected_invoice_update", "message": "Toku rechazó la actualización del invoice"}) from None
     except TokuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La actualización requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "update_requires_reconciliation", "message": "La actualización requiere reconciliación local"}) from None
 
     return {"external_id": record.external_id, "source": record.source, "payload": record.payload or {}}
 
@@ -1015,14 +1015,14 @@ async def delete_toku_invoice(
     try:
         record = await toku_delete_invoice(db, invoice_id, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
-        raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
+        raise HTTPException(status_code=403, detail={"code": "toku_writes_disabled", "message": "Las escrituras a Toku están deshabilitadas en este ambiente."}) from None
     except TokuWriteBlockedError as exc:
-        raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
+        raise HTTPException(status_code=403, detail={"code": "toku_write_blocked", "message": _toku_blocked_detail(exc)}) from None
     except TokuInvoiceNotFoundError:
-        raise HTTPException(status_code=404, detail="Invoice Toku no encontrado") from None
+        raise HTTPException(status_code=404, detail={"code": "toku_invoice_not_found", "message": "Invoice Toku no encontrado"}) from None
     except HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la eliminación del invoice") from None
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "toku_rejected_invoice_deletion", "message": "Toku rechazó la eliminación del invoice"}) from None
     except TokuReconciliationRequiredError:
-        raise HTTPException(status_code=503, detail="La eliminación requiere reconciliación local") from None
+        raise HTTPException(status_code=503, detail={"code": "deletion_requires_reconciliation", "message": "La eliminación requiere reconciliación local"}) from None
 
     return {"external_id": record.external_id, "status": (record.payload or {}).get("status", "deleted")}
