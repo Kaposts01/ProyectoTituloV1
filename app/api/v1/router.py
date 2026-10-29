@@ -7,6 +7,7 @@ from app.api.v1.routes import (
     changes,
     crm,
     etl,
+    export,
     identity,
     recovery,
     reports,
@@ -25,6 +26,7 @@ api_router.include_router(staging.router, prefix="/staging")
 api_router.include_router(etl.router, prefix="/etl")
 api_router.include_router(writes.router, prefix="/writes")
 api_router.include_router(recovery.router, prefix="/recovery")
+api_router.include_router(export.router, prefix="/export")
 api_router.include_router(admin.router, prefix="/admin")
 api_router.include_router(catalog.router, prefix="/catalog")
 api_router.include_router(tch.router, prefix="/tch")
