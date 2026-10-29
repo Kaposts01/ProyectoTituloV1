@@ -39,7 +39,7 @@ def _status(db, req_id):
 def importer(db_session, monkeypatch, tmp_path):
     """Importa un reporte sintetico: `_process_file` es falso y, si `eliminar`, marca la ficha como eliminada."""
     monkeypatch.setattr(etl_tch, "SessionLocal", _factory(db_session))
-    monkeypatch.setattr(etl_tch, "_apply_implicit_bajas", lambda db, fichas: 0)
+    monkeypatch.setattr(etl_tch, "_apply_implicit_cancellations", lambda db, fichas: 0)
     monkeypatch.setattr(etl_tch, "_has_legacy_dedupe_keys", lambda db: False)
     counter = {"n": 0}
 

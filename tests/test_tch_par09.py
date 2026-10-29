@@ -50,7 +50,7 @@ def _frame(**values) -> pd.DataFrame:
 
 
 def _row(**values) -> dict:
-    return etl_tch._transform_suscripciones(_frame(**values), "VIGENTE")[0]
+    return etl_tch._transform_subscriptions(_frame(**values), "VIGENTE")[0]
 
 
 def test_captation_and_identification_fields_are_loaded() -> None:
