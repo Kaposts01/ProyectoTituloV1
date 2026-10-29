@@ -26,21 +26,21 @@ export function EnvironmentSection({ permissions }: { permissions: string[] }) {
 
   return (
     <section className="panel environment-section" aria-labelledby="environment-title">
-      <h2 id="environment-title">Ambiente</h2>
+      <h2 id="environment-title" className="section-title">Ambiente</h2>
       <p>Ambiente actual: <strong>{current.label}</strong></p>
       {target.url ? (
-        <button type="button" onClick={() => setConfirming(true)}>{action}</button>
+        <button type="button" className="secondary-button" onClick={() => setConfirming(true)}>{action}</button>
       ) : (
         <>
-          <button type="button" disabled>{action}</button>
+          <button type="button" className="secondary-button" disabled>{action}</button>
           <p className="muted-copy">No configurado (falta SANDBOX_APP_URL / PRODUCTION_APP_URL en el servidor)</p>
         </>
       )}
       {confirming && (
         <div role="alertdialog" aria-label="Confirmar cambio de ambiente" className="environment-confirm">
           <p>Vas a abrir el ambiente {target.target_label} en otra pestaña. Es otra base de datos y otra sesión: tendrás que iniciar sesión allí.</p>
-          <button type="button" onClick={open}>Abrir {target.target_label}</button>
-          <button type="button" onClick={() => setConfirming(false)}>Cancelar</button>
+          <button type="button" className="primary-button" onClick={open}>Abrir {target.target_label}</button>
+          <button type="button" className="secondary-button" onClick={() => setConfirming(false)}>Cancelar</button>
         </div>
       )}
     </section>

@@ -59,4 +59,22 @@ describe("EnvironmentSection", () => {
     render(<EnvironmentSection permissions={PERM} />);
     expect(await screen.findByRole("button", { name: "Volver a Producción" })).toBeEnabled();
   });
+
+  it("usa la escala del sistema: h2 de seccion, boton secundario y separacion", async () => {
+    mockApi({ target_env: "production", target_label: "Producción", url: "https://prod.example/" });
+    const { container } = render(<EnvironmentSection permissions={PERM} />);
+    const btn = await screen.findByRole("button", { name: "Volver a Producción" });
+    expect(btn).toHaveClass("secondary-button");
+    const heading = screen.getByRole("heading", { name: "Ambiente", level: 2 });
+    expect(heading).toHaveClass("section-title");
+    expect(container.querySelector("section")).toHaveClass("environment-section");
+  });
+
+  it("los botones del dialogo de confirmacion usan los componentes del sistema", async () => {
+    mockApi({ target_env: "sandbox", target_label: "Sandbox", url: "https://sb.example/" });
+    render(<EnvironmentSection permissions={PERM} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cambiar a Sandbox" }));
+    expect(screen.getByRole("button", { name: "Abrir Sandbox" })).toHaveClass("primary-button");
+    expect(screen.getByRole("button", { name: "Cancelar" })).toHaveClass("secondary-button");
+  });
 });

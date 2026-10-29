@@ -12,13 +12,17 @@ html.has-env-banner body { padding-top: var(--env-banner-h); }
 html.has-env-banner .sidebar { top: var(--env-banner-h); height: calc(100vh - var(--env-banner-h)); }
 html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: calc(100vh - var(--env-banner-h)); }
 @media (max-width: 640px) { .env-banner-detail { display: none; } }
+.environment-section { margin-top: 24px; }
+.section-title { max-width: none; margin: 0 0 12px; font-family: var(--font-display); font-size: 17px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
+.environment-section p { margin: 0 0 12px; }
 .environment-confirm { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .environment-confirm p { flex-basis: 100%; margin: 0; }
 
 /* ── Sidebar ─────────────────────────────────────────────────────── */
 .sidebar {
   position: sticky; top: 0; align-self: flex-start;
-  width: 230px; height: 100vh; box-sizing: border-box;
+  width: var(--sidebar-w); min-width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
+  height: 100vh; box-sizing: border-box;
   padding: 24px 14px;
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
@@ -95,7 +99,7 @@ html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: 
 
 /* ── Shell ───────────────────────────────────────────────────────── */
 .app-shell {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   box-sizing: border-box;
   max-width: none;
@@ -125,11 +129,12 @@ html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: 
 }
 
 /* ── Typography ──────────────────────────────────────────────────── */
-.eyebrow { margin: 0 0 5px; color: var(--text-3); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+.eyebrow { margin: 0 0 5px; color: var(--text-3); font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
 h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: 0; font-size: 20px; letter-spacing: -.04em; }
-h2 { margin: 0; max-width: 620px; font-family: Georgia, serif; font-size: clamp(34px, 5vw, 62px); line-height: .98; letter-spacing: -.06em; }
-h3 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
+/* Escala DESIGN.md: display 22px/700, h3 17px/600 (tokens en index.css) */
+h1 { margin-bottom: 0; font-size: var(--fs-display); font-weight: 700; line-height: 1.2; letter-spacing: -.01em; }
+h2 { margin: 0; max-width: 620px; font-size: var(--fs-display); font-weight: 700; line-height: 1.2; letter-spacing: -.01em; }
+h3 { margin: 0; font-size: var(--fs-h3); font-weight: 600; letter-spacing: -.01em; }
 
 /* ── Sync state ──────────────────────────────────────────────────── */
 .sync-state {
@@ -261,7 +266,7 @@ td:first-child { font-weight: 700; }
 
   /* ── Sidebar drawer ──────────────────────────────────────────────── */
   .sidebar {
-    position: fixed; top: 0; left: 0; height: 100vh; width: 260px;
+    position: fixed; top: 0; left: 0; height: 100vh; width: 260px; min-width: 0;
     z-index: 200; overflow-y: auto;
     transform: translateX(-100%); transition: transform 0.25s ease;
   }
@@ -269,6 +274,7 @@ td:first-child { font-weight: 700; }
   @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
   html.has-env-banner .burger-btn { top: calc(var(--env-banner-h) + 14px); }
   .sidebar-close { display: flex; }
+  .sidebar-expand { width: 44px; height: 44px; }
 
   /* ── Content padding for fixed burger ───────────────────────────── */
   /* .channel-dashboard-page (Staging.css) fijaba padding-top: 46px y dejaba el titulo bajo la hamburguesa. */
@@ -371,7 +377,7 @@ td:first-child { font-weight: 700; }
   cursor: pointer;
   white-space: nowrap;
 }
-.alert-ver-mas:hover { background: var(--surface-hover, #f1f5f3); }
+.alert-ver-mas:hover { background: var(--bg-hover); }
 
 /* Panel expandido de detalle de alerta */
 .alert-detail-panel {
@@ -409,7 +415,7 @@ td:first-child { font-weight: 700; }
   vertical-align: middle;
 }
 .alert-detail-table tbody tr:last-child td { border-bottom: none; }
-.alert-detail-table tbody tr:hover { background: var(--surface-hover, #f1f5f3); }
+.alert-detail-table tbody tr:hover { background: var(--bg-hover); }
 .alert-detail-id { font-family: monospace; font-size: 0.78rem; color: var(--text-muted); }
 .alert-detail-count { margin-top: 0.6rem; font-size: 0.8rem; color: var(--text-muted); text-align: right; }
 @media (max-width: 768px) {
@@ -457,10 +463,14 @@ td:first-child { font-weight: 700; }
 .channel-selector-wrap { display: flex; align-items: center; gap: 0.7rem; margin: 0.9rem 0 0.25rem; flex-wrap: wrap; }
 .channel-selector-label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .channel-selector { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.channel-btn { padding: 0.3rem 0.8rem; font-size: 0.8rem; font-weight: 500; border: 1px solid var(--border); border-radius: 20px; background: transparent; color: var(--text-muted); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; white-space: nowrap; }
-.channel-btn:hover:not(:disabled) { background: var(--surface-hover, #f1f5f9); color: var(--text-1); border-color: var(--color-primary, #2563EB); }
-.channel-btn.active { background: var(--color-primary, #2563EB); color: #fff; border-color: var(--color-primary, #2563EB); }
-.channel-btn:disabled { opacity: 0.45; cursor: default; }
+.channel-btn { padding: 0.3rem 0.8rem; font-size: 0.8rem; font-weight: 600; border: 1px solid var(--border); border-radius: 20px; background: transparent; color: var(--text-muted); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; white-space: nowrap; }
+.channel-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); border-color: var(--color-primary); }
+.channel-btn.active { background: var(--pill-active-bg); color: var(--pill-active-text); border-color: var(--pill-active-bg); font-weight: 700; }
+.channel-btn.active:hover:not(:disabled) { background: var(--pill-active-bg); color: var(--pill-active-text); border-color: var(--pill-active-bg); }
+.channel-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+/* Canal no habilitado en este ambiente: ademas de atenuado, borde punteado y tachado (estado no solo por color) */
+.channel-btn.unavailable:disabled { border-style: dashed; text-decoration: line-through; opacity: 0.75; }
+.channel-unavailable-note { margin: 0.35rem 0 0; font-size: 0.8rem; color: var(--text-2); }
 
 /* ── Job card (responsive, replaces table for jobs) ── */
 .scheduler-job-card {
@@ -490,7 +500,7 @@ td:first-child { font-weight: 700; }
 .scheduler-jobs-table th { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
 .scheduler-jobs-table td { padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border-subtle, var(--border)); vertical-align: middle; }
 .scheduler-jobs-table tbody tr:last-child td { border-bottom: none; }
-.scheduler-jobs-table tbody tr:hover { background: var(--surface-hover, #f8fafc); }
+.scheduler-jobs-table tbody tr:hover { background: var(--bg-hover); }
 .scheduler-section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 2rem 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
 .scheduler-section-header .scheduler-section-title { margin: 0; border-bottom: none; padding-bottom: 0; }
 .scheduler-total-count { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
@@ -508,7 +518,7 @@ td:first-child { font-weight: 700; }
 .runs-active-bar-fill { height: 100%; background: #2563EB; border-radius: 3px; transition: width 0.4s ease; }
 .runs-load-more { display: flex; justify-content: center; padding: 1rem 0 0.25rem; }
 .runs-load-more-btn { padding: 0.5rem 1.5rem; font-size: 0.875rem; border: 1px solid var(--border); border-radius: 7px; background: var(--surface, #f8fafc); color: var(--text-1); cursor: pointer; }
-.runs-load-more-btn:hover:not(:disabled) { background: var(--surface-hover, #f1f5f9); }
+.runs-load-more-btn:hover:not(:disabled) { background: var(--bg-hover); }
 .runs-load-more-btn:disabled { opacity: 0.55; cursor: default; }
 
 /* ── SSE panel ── */
@@ -571,7 +581,6 @@ td:first-child { font-weight: 700; }
 
 /* ── Sidebar on brand teal — always dark bg, always light text ─────── */
 .sidebar {
-  width: 220px;
   background: var(--bg-sidebar);
   border-right: none;
 }
@@ -597,19 +606,23 @@ td:first-child { font-weight: 700; }
 }
 .channel-dashboard {
   flex: 1; padding: 6px 10px; border: 0; border-radius: 8px;
-  color: rgba(255, 255, 255, 0.50);
+  color: var(--sidebar-label);
   background: transparent; cursor: pointer; font: inherit;
-  font-size: 9.5px; font-weight: 800; letter-spacing: 0.12em;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.12em;
   text-transform: uppercase; text-align: left;
 }
-.channel-dashboard:hover { color: rgba(255, 255, 255, 0.88); background: rgba(255, 255, 255, 0.08); }
-.channel-dashboard.active { color: rgba(255, 255, 255, 0.92); }
+.channel-dashboard:hover { color: var(--sidebar-label-active); background: rgba(255, 255, 255, 0.08); }
+.channel-dashboard.active { color: var(--sidebar-label-active); text-decoration: underline; text-underline-offset: 4px; }
 .sidebar-expand {
-  padding: 3px 7px; border: 0; border-radius: 6px;
-  color: rgba(255, 255, 255, 0.40); background: transparent; cursor: pointer;
-  font: inherit; font-size: 14px; font-weight: 800; line-height: 1;
+  position: relative; display: grid; place-items: center; flex: none;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+  color: var(--sidebar-label); background: transparent; cursor: pointer;
+  font: inherit; font-size: 16px; font-weight: 800; line-height: 1;
 }
-.sidebar-expand:hover { color: rgba(255, 255, 255, 0.80); background: rgba(255, 255, 255, 0.08); }
+.sidebar-expand > span { display: block; line-height: 1; }
+/* area clicable ampliada sin cambiar el tamaño visual */
+.sidebar-expand::after { content: ""; position: absolute; inset: -8px; }
+.sidebar-expand:hover { color: var(--sidebar-label-active); background: rgba(255, 255, 255, 0.08); }
 
 /* ── Sync health dots ───────────────────────────────────────────────── */
 .health-dot {

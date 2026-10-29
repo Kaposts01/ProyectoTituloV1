@@ -7,6 +7,9 @@
   --font-display:    'Cabinet Grotesk', 'Barlow', ui-sans-serif, system-ui, sans-serif;
   --font-body:       'General Sans', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono:       'JetBrains Mono', 'Courier New', monospace;
+  /* escala de encabezados (DESIGN.md) */
+  --fs-display:      22px;
+  --fs-h3:           17px;
 
   /* backgrounds */
   --bg-base:         #f2f5f4;
@@ -21,6 +24,14 @@
   --bg-input:        #ffffff;
   --bg-filter:       #edf4f1;
   --bg-accent-panel: #1a3d47;
+  /* ancho unico del menu lateral (DESIGN.md: 220 px) */
+  --sidebar-w:       220px;
+  /* etiquetas de grupo del menu sobre --bg-sidebar (AA >= 4.5:1) */
+  --sidebar-label:        #a9c7c2;
+  --sidebar-label-active: #ffffff;
+  /* pestaña/pildora activa (texto sobre fondo, AA >= 4.5:1) */
+  --pill-active-bg:   #1a3d47;
+  --pill-active-text: #ffffff;
 
   /* borders */
   --border:          #c9d5d2;
@@ -90,8 +101,12 @@ html[data-theme="dark"] {
   --bg-input:        #0d1e23;
   --bg-filter:       #162830;
   --bg-accent-panel: #162830;
+  --sidebar-label:        #8fb0b8;
+  --sidebar-label-active: #ffffff;
+  --pill-active-bg:   #226655;
+  --pill-active-text: #ffffff;
 
-  --border:          #243d47;
+  --border:         #243d47;
   --border-light:    #1e3440;
   --border-subtle:   #1a2f37;
 

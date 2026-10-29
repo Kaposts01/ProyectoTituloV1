@@ -86,4 +86,35 @@ describe("SchedulerPanel: estados y jobs de facturacion", () => {
     expect(screen.getByText("Cada 15 min (minutos 5, 20, 35 y 50)")).toBeTruthy();
     expect(screen.getByText("Diario a las 03:00 (Santiago)")).toBeTruthy();
   });
+  it("sandbox: explica con texto visible por que Payku esta atenuado", async () => {
+    mockEnv(SANDBOX);
+    render(<SchedulerPanel canSync canViewRuns canImportTch />);
+    expect(await screen.findByText("Payku no está habilitado en este ambiente.")).toBeInTheDocument();
+  });
+  it("produccion: no hay aviso de canales no habilitados", async () => {
+    mockEnv(PROD);
+    render(<SchedulerPanel canSync canViewRuns canImportTch />);
+    await screen.findByRole("button", { name: "Payku" });
+    expect(screen.queryByText(/no está habilitado|no están habilitados/)).toBeNull();
+  });
+  it("estados vacios dicen que pasa y que hacer", async () => {
+    mockEnv(PROD);
+    render(<SchedulerPanel canSync canViewRuns canImportTch />);
+    expect(await screen.findByText(/No hay jobs programados\. Puede que el scheduler esté apagado en este ambiente/)).toBeInTheDocument();
+    expect(screen.getByText(/Aún no hay ejecuciones\. Ejecute una sincronización manual/)).toBeInTheDocument();
+  });
+  it("sin permiso de sync, el vacio de ejecuciones no manda a sincronizar", async () => {
+    mockEnv(PROD);
+    render(<SchedulerPanel canSync={false} canViewRuns canImportTch={false} />);
+    expect(await screen.findByText("Aún no hay ejecuciones registradas.")).toBeInTheDocument();
+  });
+  it("si falla la carga de jobs lo dice y permite reintentar", async () => {
+    mocked.mockImplementation(async (path: string) => {
+      if (path.endsWith("/environment")) return { app_env: "x", label: "x", is_production: true, enabled_channels: PROD };
+      throw new Error("boom");
+    });
+    render(<SchedulerPanel canSync canViewRuns canImportTch />);
+    expect(await screen.findByText(/No se pudieron cargar los jobs/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
 });

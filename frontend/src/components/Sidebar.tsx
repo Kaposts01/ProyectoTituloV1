@@ -145,7 +145,7 @@ export function Sidebar({
                 aria-expanded={openProvider === group.name}
                 onClick={() => onToggle(group.name)}
               >
-                {openProvider === group.name ? "-" : "+"}
+                <span aria-hidden="true">{openProvider === group.name ? "−" : "+"}</span>
               </button>
             </div>
             {openProvider === group.name
@@ -192,7 +192,7 @@ export function Sidebar({
                 aria-expanded={openProvider === "TCH"}
                 onClick={() => onToggle("TCH")}
               >
-                {openProvider === "TCH" ? "-" : "+"}
+                <span aria-hidden="true">{openProvider === "TCH" ? "−" : "+"}</span>
               </button>
             </div>
             {openProvider === "TCH" ? (
@@ -219,7 +219,7 @@ export function Sidebar({
                 aria-expanded={openProvider === "Administración"}
                 onClick={() => onToggle("Administración")}
               >
-                {openProvider === "Administración" ? "-" : "+"}
+                <span aria-hidden="true">{openProvider === "Administración" ? "−" : "+"}</span>
               </button>
             </div>
             {openProvider === "Administración" ? (

@@ -76,6 +76,15 @@ describe("Sidebar", () => {
     setup({ health: {} });
     expect(document.querySelector(".health-dot")).toBeNull();
   });
+  it("botones de despliegue: aria-expanded, glifo + / − decorativo y nombre accesible", () => {
+    setup({ openProvider: "TCH" });
+    const tch = screen.getByRole("button", { name: "Expandir TCH" });
+    expect(tch).toHaveAttribute("aria-expanded", "true");
+    expect(tch.querySelector("span[aria-hidden='true']")?.textContent).toBe("−");
+    const admin = screen.getByRole("button", { name: "Expandir Administración" });
+    expect(admin).toHaveAttribute("aria-expanded", "false");
+    expect(admin.querySelector("span[aria-hidden='true']")?.textContent).toBe("+");
+  });
   it("Esc cierra el drawer abierto", () => {
     const props = setup({ open: true });
     fireEvent.keyDown(document, { key: "Escape" });

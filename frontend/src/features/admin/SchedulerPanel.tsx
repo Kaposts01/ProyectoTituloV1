@@ -97,6 +97,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
   const [vpSubKey, setVpSubKey] = useState<VpSubKey>("both");
   const [polledPhase, setPolledPhase] = useState<string | null>(null);
   const [triggeredChannels, setTriggeredChannels] = useState<string[] | null | undefined>(undefined);
+  const [jobsError, setJobsError] = useState(false);
 
   const activeRunIdRef = useRef<string | null>(null);
   const reportInputRef = useRef<HTMLInputElement>(null);
@@ -106,12 +107,13 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     if (!canViewRuns) return;
     getJson<SchedulerJob[]>("/api/v1/scheduler/jobs").then((data) => {
       setJobs(data);
+      setJobsError(false);
       const running = data.find((j) => j.active_run_id);
       if (running?.active_run_id && !activeRunIdRef.current) {
         setActiveRunId(running.active_run_id);
         setTriggeredChannels(undefined);
       }
-    }).catch(() => {});
+    }).catch(() => { setJobsError(true); });
     getJson<{ total: number; items: EtlRun[] }>(`/api/v1/scheduler/runs?limit=${_RUNS_PAGE}&offset=0`)
       .then((data) => { setRuns(data); setRunsOffset(0); })
       .catch(() => {});
@@ -279,6 +281,12 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     if (key === "virtualpos") return enabled.includes("virtualpos1") || enabled.includes("virtualpos2");
     return enabled.includes(key);
   };
+  const unavailableLabels = CHANNEL_OPTS
+    .filter((opt) => opt.key !== "all" && (opt.key !== "tch" || canImportTch) && !channelAvailable(opt.key))
+    .map((opt) => opt.label);
+  const unavailableNote = unavailableLabels.length === 0 ? null
+    : unavailableLabels.length === 1 ? `${unavailableLabels[0]} no está habilitado en este ambiente.`
+    : `${unavailableLabels.slice(0, -1).join(", ")} y ${unavailableLabels[unavailableLabels.length - 1]} no están habilitados en este ambiente.`;
   const vpOptions = vpSubOptions(enabled);
   const effectiveVpSubKey = vpOptions.some((o) => o.key === vpSubKey) ? vpSubKey : vpOptions[0]?.key;
   useEffect(() => {
@@ -296,7 +304,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
           <span className="channel-selector-label">Canal:</span>
           <div className="channel-selector">
             {CHANNEL_OPTS.filter((opt) => opt.key !== "tch" || canImportTch).map((opt) => (
-              <button key={opt.key} className={`channel-btn${selectedChannelKey === opt.key ? " active" : ""}`} disabled={isRunning || triggering || !channelAvailable(opt.key)} title={channelAvailable(opt.key) ? undefined : CHANNEL_UNAVAILABLE_TITLE} onClick={() => setSelectedChannelKey(opt.key)}>{opt.label}</button>
+              <button key={opt.key} className={`channel-btn${selectedChannelKey === opt.key ? " active" : ""}${channelAvailable(opt.key) ? "" : " unavailable"}`} disabled={isRunning || triggering || !channelAvailable(opt.key)} title={channelAvailable(opt.key) ? undefined : CHANNEL_UNAVAILABLE_TITLE} onClick={() => setSelectedChannelKey(opt.key)}>{opt.label}</button>
             ))}
           </div>
           {selectedChannelKey === "virtualpos" && (
@@ -306,12 +314,17 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
               ))}
             </div>
           )}
+          {unavailableNote ? <p className="channel-unavailable-note">{unavailableNote}</p> : null}
         </div>
       ) : null}
       <h3 className="scheduler-section-title">Jobs programados</h3>
       {triggerError ? <p className="scheduler-error">{triggerError}</p> : null}
-      {jobs.length === 0 ? (
-        <p className="muted-copy">Sin jobs registrados.</p>
+      {jobs.length === 0 && jobsError ? (
+        <p className="muted-copy">No se pudieron cargar los jobs. <button className="text-button" onClick={refreshData}>Reintentar</button></p>
+      ) : jobs.length === 0 ? (
+        <p className="muted-copy">
+          No hay jobs programados. Puede que el scheduler esté apagado en este ambiente: revise su configuración{canSync ? " o use el selector de Canal para sincronizar manualmente" : ""}.
+        </p>
       ) : jobs.map((job) => (
         <div key={job.id} className="scheduler-job-card">
           <div className="sjc-top">
@@ -400,7 +413,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
           <thead><tr><th>Inicio</th><th className="hide-mobile">Fin</th><th>Duración</th><th>Estado</th><th>Tipo</th><th>Registros</th><th></th></tr></thead>
           <tbody>
             {runs.items.length === 0 ? (
-              <tr><td colSpan={7} className="muted-copy" style={{ textAlign: "center", padding: "1rem" }}>Sin ejecuciones registradas.</td></tr>
+              <tr><td colSpan={7} className="muted-copy" style={{ textAlign: "center", padding: "1rem" }}>{canSync ? "Aún no hay ejecuciones. Ejecute una sincronización manual desde un job programado." : "Aún no hay ejecuciones registradas."}</td></tr>
             ) : runs.items.map((run) => {
               const isThisRunActive = run.status === "running" && activeRunId === run.id;
               return (

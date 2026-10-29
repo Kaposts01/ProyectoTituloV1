@@ -275,39 +275,30 @@
   padding: 0 6px;
 }
 
-.channel-dashboard,
-.sidebar-expand {
+/* Colores del menu: tokens --sidebar-label* (index.css). El boton .sidebar-expand vive en App.css. */
+.channel-dashboard {
+  flex: 1;
+  padding: 6px 4px;
   border: 0;
   background: transparent;
-  color: var(--text-4);
+  color: var(--sidebar-label);
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .12em;
   text-align: left;
   text-transform: uppercase;
 }
 
-.channel-dashboard {
-  flex: 1;
-  padding: 6px 4px;
-}
-
 .channel-dashboard:hover,
 .channel-dashboard.active {
-  color: var(--text-1);
+  color: var(--sidebar-label-active);
 }
 
-.sidebar-expand {
-  display: grid;
-  place-items: center;
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  color: var(--text-3);
-  background: var(--bg-expand);
-  font-size: 14px;
-  letter-spacing: 0;
+.channel-dashboard.active {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 /* ── Channel dashboard page ──────────────────────────────────────── */
@@ -326,7 +317,6 @@
 
 .channel-hero h2 {
   margin-bottom: 14px;
-  font-size: clamp(34px, 3.5vw, 52px);
 }
 
 .channel-hero p {
@@ -971,7 +961,7 @@
 }
 
 .vp-account-btn:hover {
-  background: var(--surface-hover);
+  background: var(--bg-hover);
 }
 
 .vp-account-btn.active {
