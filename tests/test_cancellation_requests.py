@@ -231,8 +231,8 @@ def test_expired_request_cannot_be_approved_and_sweeper_expires(db_session) -> N
         cr.approve(db_session, first.id, jefa, now=NOW)
     assert cr.get_request(db_session, first.id).status == "expired"
     expire_in_past(db_session, second)
-    assert cr.expire_pending_requests(db_session, NOW) == [second.id]
-    assert cr.expire_pending_requests(db_session, NOW) == []  # idempotente
+    assert cr.expire_pending_cancellation_requests(db_session, NOW) == [second.id]
+    assert cr.expire_pending_cancellation_requests(db_session, NOW) == []  # idempotente
     assert _events(db_session, second)[-1] == "expired"
     last = cr.get_events(db_session, second.id)[-1]
     assert last.actor_user_id is None  # actor sistema

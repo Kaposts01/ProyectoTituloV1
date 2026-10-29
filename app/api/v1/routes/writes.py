@@ -7,7 +7,12 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
-from app.core.security import get_current_user, require_csrf, require_permissions
+from app.core.security import (
+    get_current_user,
+    require_csrf,
+    require_permissions,
+    require_role,
+)
 from app.integrations.toku.write_guard import TokuWriteBlockedError
 from app.integrations.virtualpos.client import VirtualPOSAPIError
 from app.models.auth import User
@@ -295,7 +300,7 @@ async def create_virtualpos_subscription(
 
 @router.delete(
     "/virtualpos/subscriptions/{subscription_id}",
-    dependencies=[Depends(require_permissions("virtualpos.subscriptions.cancel")), Depends(require_csrf)],
+    dependencies=[Depends(require_permissions("virtualpos.subscriptions.cancel")), Depends(require_role("admin")), Depends(require_csrf)],
     tags=["Writes - VirtualPOS"],
 )
 async def cancel_virtualpos_subscription(
@@ -771,7 +776,11 @@ async def change_toku_subscription_status(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
-    """Change Toku subscription status via POST /subscriptions/{id}/status."""
+    """Change Toku subscription status via POST /subscriptions/{id}/status.
+
+    `CANCELLED` es una baja: solo `admin` por esta via directa (las demás bajas pasan por /api/v1/cancellations)."""
+    if body.status == "CANCELLED" and not any(role.name == "admin" for role in current_user.roles):
+        raise HTTPException(status_code=403, detail="Permission denied")
     try:
         sub = await change_subscription_status(
             db, subscription_id, body.status, requested_by_user_id=current_user.id
@@ -861,7 +870,7 @@ async def delete_payku_client(
 
 @router.delete(
     "/payku/subscriptions/{subscription_id}",
-    dependencies=[Depends(require_permissions("payku.subscriptions.cancel")), Depends(require_csrf)],
+    dependencies=[Depends(require_permissions("payku.subscriptions.cancel")), Depends(require_role("admin")), Depends(require_csrf)],
     tags=["Writes - Payku"],
 )
 async def delete_payku_subscription(
@@ -915,7 +924,7 @@ async def cancel_virtualpos_payment(
 
 @router.delete(
     "/toku/subscriptions/{subscription_id}",
-    dependencies=[Depends(require_permissions("toku.subscriptions.manage")), Depends(require_csrf)],
+    dependencies=[Depends(require_permissions("toku.subscriptions.manage")), Depends(require_role("admin")), Depends(require_csrf)],
     tags=["Writes - Toku"],
 )
 async def delete_toku_subscription(

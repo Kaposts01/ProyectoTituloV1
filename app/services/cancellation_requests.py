@@ -604,7 +604,7 @@ def reopen(db: Session, request_id: uuid.UUID, actor: User, comment: str | None,
     return req
 
 
-def expire_pending_requests(db: Session, now: datetime | None = None) -> list[uuid.UUID]:
+def expire_pending_cancellation_requests(db: Session, now: datetime | None = None) -> list[uuid.UUID]:
     """Pasa a `expired` las `pending` con `expires_at <= now` (limite INCLUSIVO). Idempotente; evento con actor NULL."""
     when = _utc(now)
     rows = db.execute(

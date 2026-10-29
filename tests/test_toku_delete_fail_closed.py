@@ -168,7 +168,7 @@ def test_route_in_progress_returns_409_fixed_code(monkeypatch, db_session) -> No
 
     monkeypatch.setattr(app_settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
     FakeToku.invoices = [{"id": "in_busy", "in_progress": True}]
-    user = make_user(db_session, make_role(db_session, "tk-manage-ip", {"toku.subscriptions.manage"}))
+    user = make_user(db_session, make_role(db_session, "tk-manage-ip", {"toku.subscriptions.manage"}), make_role(db_session, "admin", {"toku.subscriptions.manage"}))
     client, h = client_for(db_session, user)
     r = client.delete("/api/v1/writes/toku/subscriptions/sub_fc", headers=h)
     assert r.status_code == 409
@@ -195,7 +195,7 @@ def test_route_maps_abort_to_fixed_code_without_provider_text(monkeypatch, db_se
 
     monkeypatch.setattr(app_settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
     FakeToku.list_error = True
-    user = make_user(db_session, make_role(db_session, "tk-manage-t", {"toku.subscriptions.manage"}))
+    user = make_user(db_session, make_role(db_session, "tk-manage-t", {"toku.subscriptions.manage"}), make_role(db_session, "admin", {"toku.subscriptions.manage"}))
     client, h = client_for(db_session, user)
     r = client.delete("/api/v1/writes/toku/subscriptions/sub_fc", headers=h)
     assert r.status_code == 502

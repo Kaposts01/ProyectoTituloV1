@@ -43,7 +43,7 @@ def test_support_permissions_exact_and_no_dangerous() -> None:
     codes = support_permission_codes()
     assert codes == EXPECTED_SUPPORT
     for forbidden in ("export", "create", "cancel", "update", "delete", "manage", "merge", "run"):
-        assert not any(f".{forbidden}" in c for c in codes), forbidden
+        assert not any(forbidden in c.split(".") for c in codes), forbidden  # por segmento: ".cancellation.view" no es ".cancel"
     assert "virtualpos.recovery.export" not in codes
 
 
@@ -262,7 +262,7 @@ def test_executive_permissions_view_only_and_no_dangerous() -> None:
     codes = executive_permission_codes()
     assert codes and all(c.endswith(".view") for c in codes)
     for forbidden in ("export", "create", "cancel", "update", "delete", "manage", "merge", "run", "retry", "switch"):
-        assert not any(f".{forbidden}" in c for c in codes), forbidden
+        assert not any(forbidden in c.split(".") for c in codes), forbidden  # por segmento: ".cancellation.view" no es ".cancel"
     assert not codes & BILLING_WRITE_PERMISSIONS
     assert "virtualpos.recovery.export" not in codes
     assert "virtualpos.billing_changes.view" in codes

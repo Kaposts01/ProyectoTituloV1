@@ -75,9 +75,12 @@ class FakePaykuActor(_CM):
         return {"id": client_id, "name": "Despues"}
 
 
-def _actor(db, *codes):
-    role = make_role(db, "actor-writes-t", set(codes))
-    user = make_user(db, role)
+def _actor(db, *codes, admin=False):
+    """`admin=True` agrega el rol `admin`: los botones directos de BAJA de /writes/* quedaron restringidos a admin."""
+    roles = [make_role(db, "actor-writes-t", set(codes))]
+    if admin:
+        roles.append(make_role(db, "admin", set(codes)))
+    user = make_user(db, *roles)
     client, headers = client_for(db, user)
     return user, client, headers
 
@@ -91,7 +94,7 @@ def test_virtualpos_cancel_subscription_records_actor(monkeypatch, db_session) -
     monkeypatch.setattr(subscription_refresh, "VirtualPOSClient", FakeVPActor)
     db_session.add(Subscription(source="virtualpos1", external_id="sub-actor-vp", status="ACTIVA"))
     db_session.commit()
-    user, client, h = _actor(db_session, "virtualpos.subscriptions.cancel")
+    user, client, h = _actor(db_session, "virtualpos.subscriptions.cancel", admin=True)
     r = client.delete(f"{BASE}/virtualpos/subscriptions/sub-actor-vp", headers=h)
     assert r.status_code == 200
     body = r.json()
@@ -120,7 +123,7 @@ def test_toku_delete_subscription_and_status_record_actor(monkeypatch, db_sessio
         Subscription(source="toku", external_id="sub-actor-tk-2", raw_payload={}),
     ])
     db_session.commit()
-    user, client, h = _actor(db_session, "toku.subscriptions.manage")
+    user, client, h = _actor(db_session, "toku.subscriptions.manage", admin=True)
     assert client.delete(f"{BASE}/toku/subscriptions/sub-actor-tk-1", headers=h).status_code == 200
     r = client.post(f"{BASE}/toku/subscriptions/sub-actor-tk-2/status", json={"status": "PAUSED"}, headers=h)
     assert r.status_code == 200
@@ -137,7 +140,7 @@ def test_payku_delete_subscription_and_update_client_record_actor(monkeypatch, d
         Client(source="payku", external_id="cli-actor-pk", first_name="Antes"),
     ])
     db_session.commit()
-    user, client, h = _actor(db_session, "payku.subscriptions.cancel", "payku.clients.update")
+    user, client, h = _actor(db_session, "payku.subscriptions.cancel", "payku.clients.update", admin=True)
     assert client.delete(f"{BASE}/payku/subscriptions/sub-actor-pk", headers=h).status_code == 200
     assert client.put(f"{BASE}/payku/clients/cli-actor-pk", json={"name": "Despues"}, headers=h).status_code == 200
     for op in ("delete_subscription", "update_client"):
