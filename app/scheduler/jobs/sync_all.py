@@ -13,6 +13,7 @@ from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
+from app.services import tch_report_registry as tch_registry
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_recovery import reconcile_charge_recoveries
 from app.services.payku_sync import sync_payku
@@ -205,9 +206,10 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 db.close()
 
         # — Consolidación centralizada —
-        consolidate_sources: list[str] | None = None
-        if channels is not None:
-            consolidate_sources = []
+        consolidate_sources: list[str] = []
+        if channels is None:
+            consolidate_sources = ["virtualpos", "toku", "payku", "tch"]
+        else:
             if "virtualpos1" in requested or "virtualpos2" in requested:
                 consolidate_sources.append("virtualpos")
             if "toku" in requested:
@@ -217,18 +219,49 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             if "tch" in requested:
                 consolidate_sources.append("tch")
             if not consolidate_sources:
-                consolidate_sources = None
+                consolidate_sources = ["virtualpos", "toku", "payku", "tch"]
+
+        # SYNC-O-03: la importacion TCH escribe solo en tch_*; las tablas centralizadas las alimenta esta
+        # consolidacion. La corrida nocturna (channels=None) la omite si no hubo reporte nuevo desde la ultima
+        # consolidacion TCH exitosa; un pedido explicito de "tch" siempre consolida. Ante duda (error al leer el
+        # registro) se consolida.
+        tch_snapshot: dict | None = None
+        tch_skipped = False
+        if "tch" in consolidate_sources:
+            db = SessionLocal()
+            try:
+                tch_snapshot = tch_registry.consolidation_snapshot(db)
+                if (
+                    channels is None
+                    and settings.sync_tch_consolidate_only_after_load
+                    and not tch_registry.needs_consolidation(db, tch_snapshot)
+                ):
+                    consolidate_sources.remove("tch")
+                    tch_skipped = True
+            except Exception:
+                logger.exception("No se pudo leer el registro de reportes TCH; se consolida TCH por seguridad.")
+                tch_snapshot = None
+            finally:
+                db.close()
+        if tch_skipped:
+            logger.info("Consolidación TCH omitida: sin reporte Excel nuevo desde la última consolidación exitosa.")
+            event_bus.emit(run_id, {"type": "phase_skipped", "phase": "consolidating_tch", "reason": "sin_carga_nueva"})
 
         phase = "consolidating"
         _update_run(db_run_id, phase=phase)
         event_bus.emit(run_id, {"type": "phase_start", "phase": phase})
-        logger.info("Consolidando canales: %s", consolidate_sources or "todos")
+        logger.info("Consolidando canales: %s", consolidate_sources)
         consolidation_failures: list[str] = []
         consolidation_error = False
         db = SessionLocal()
         try:
             consolidated = consolidate_to_centralized(db, consolidate_sources, failures=consolidation_failures)
             total_records += consolidated
+            if "tch" in consolidate_sources and tch_snapshot is not None and not any(
+                f.startswith("tch.") for f in consolidation_failures
+            ):
+                tch_registry.mark_consolidated(db, tch_snapshot)  # solo si TCH consolido sin fallos
+                db.commit()
             if "tch" in requested:
                 channels_done.append("tch")
             event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": consolidated})

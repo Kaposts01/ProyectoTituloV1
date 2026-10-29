@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     sandbox_scheduler_enabled: bool = False
     # SYNC-O-11: un etl_run `running` mas viejo que esto se considera abandonado (proceso caido) y deja de bloquear.
     sync_run_stale_hours: float = 6
+    # SYNC-O-03: la corrida nocturna consolida TCH solo si llego un reporte Excel nuevo (False = siempre, como antes).
+    sync_tch_consolidate_only_after_load: bool = True
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""
