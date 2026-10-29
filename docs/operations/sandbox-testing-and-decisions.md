@@ -207,8 +207,8 @@ El orquestador entrega un resumen corto, en este orden:
 
 ## 9. Ciclo ejecutado
 
-Plantilla vacía. El orquestador anota aquí cada ciclo al terminarlo. Los resúmenes al usuario siempre incluyen alternativas y recomendación (sección 6). Sin PII ni llaves.
+El orquestador anota aquí cada ciclo al terminarlo. Los resúmenes al usuario siempre incluyen alternativas y recomendación (sección 6). Sin PII ni llaves.
 
 | Fecha | Versión o commit | Qué se probó | Resultado (OK / DRIFT / FALLO / BLOQUEADO) | Decisiones (DEC-xx o automáticas) | Quedó vivo en sandbox |
 |---|---|---|---|---|---|
-| | | | | | |
+| 2026-10-29 | `bc82a80` a `3916021` (rama `sprint-4/recuperador-vp`) | Captura visual del sandbox con Playwright, solo lectura: 18 pantallas × 2 tamaños × 2 temas (72 entradas) sobre datos sintéticos `DEMO-` sembrados con `scripts/sandbox/seed_billing_demo.py`; antes y después de cuatro tandas de arreglos de interfaz. | OK: cero errores de consola o red en las 72 entradas; unos 45 hallazgos de tres revisores, arreglados en las tandas A, B, C1 y C2 (UI-22 a UI-26) y 14 pendientes (UI-28 a UI-41). Incidente menor: la guarda de solo lectura del script bloqueaba el POST de login (corregido en `0b121f5`). Sin escrituras a proveedores. | DEC-28 (`crm_sandbox` migrada a 0041 con seed de roles por el orquestador); DEC-41 abierta (escala de títulos) | Datos `DEMO-` en las tablas de billing de `crm_sandbox` (solo se limpian con `TRUNCATE`, UI-40); backend sandbox en 8001 sin recarga automática (reiniciarlo invalida la sesión de Playwright) |
