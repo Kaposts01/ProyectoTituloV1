@@ -271,6 +271,173 @@
 .chart-order-rejected { order: 6; }
 .chart-order-comparison { order: 7; }
 
+/* ── Dashboard resumen · estilo TECHO Chile ─────────────────────── */
+.dashboard-shell {
+  --techo-blue: #009fe3;
+  --techo-blue-soft: #e8f6ff;
+  --techo-yellow: #ffc83d;
+  --techo-ink: #0f3f62;
+}
+
+.dashboard-shell .topbar {
+  margin-bottom: 26px;
+  padding: 16px 18px;
+  border: 1px solid #d7ebf8;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 63, 98, 0.08);
+}
+
+.dashboard-shell .brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--techo-yellow);
+  color: var(--techo-ink);
+}
+
+.dashboard-shell .sync-state {
+  border-color: #cce6f6;
+  background: #f7fcff;
+  color: var(--techo-ink);
+}
+
+.dashboard-shell .sync-state span {
+  background: var(--techo-blue);
+}
+
+.dashboard-shell .hero-panel {
+  margin-bottom: 22px;
+  padding: 22px 24px;
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(130deg, #009fe3 0%, #12b1ea 62%, #37c1f0 100%);
+  color: #ffffff;
+}
+
+.dashboard-shell .hero-panel .eyebrow,
+.dashboard-shell .hero-panel .sync-copy,
+.dashboard-shell .hero-panel h2 {
+  color: #ffffff;
+}
+
+.dashboard-shell .hero-panel .eyebrow {
+  opacity: 0.9;
+}
+
+.dashboard-shell .hero-panel h2 {
+  max-width: 720px;
+  font-size: clamp(30px, 4.4vw, 52px);
+}
+
+.dashboard-shell .dashboard-controls .sync-btn-secondary {
+  border-color: transparent;
+  background: var(--techo-yellow);
+  color: #1d2c3a;
+  opacity: 1;
+  font-weight: 800;
+}
+
+.dashboard-shell .dashboard-controls .sync-btn-secondary:hover:not(:disabled) {
+  background: #ffbf21;
+}
+
+.dashboard-shell .refreshing-badge {
+  margin-left: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.dashboard-shell .metrics {
+  margin-top: 16px;
+  margin-bottom: 24px;
+}
+
+.dashboard-shell .metric-card,
+.dashboard-shell .kpi-card {
+  border: 1px solid #d5ebf8;
+  border-left: 5px solid var(--techo-blue);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 5px 14px rgba(15, 63, 98, 0.06);
+}
+
+.dashboard-shell .metric-card::after {
+  background: radial-gradient(circle, #84d7f8 0%, transparent 72%);
+  opacity: 0.16;
+}
+
+.dashboard-shell .metric-card p,
+.dashboard-shell .metric-label {
+  color: #4a6a7f;
+}
+
+.dashboard-shell .metric-card strong,
+.dashboard-shell .metric-value,
+.dashboard-shell .kpi-value {
+  color: #0d3f62;
+}
+
+.dashboard-shell .extended-charts {
+  gap: 16px;
+}
+
+.dashboard-shell .extended-charts .panel,
+.dashboard-shell .source-summary .panel,
+.dashboard-shell .dashboard-alerts-panel {
+  border: 1px solid #d6ebf9;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 63, 98, 0.05);
+}
+
+.dashboard-shell .panel-heading > span,
+.dashboard-shell .dashboard-alert-canal,
+.dashboard-shell .dashboard-alert-detalle,
+.dashboard-shell .resource-copy,
+.dashboard-shell .muted-copy {
+  color: #587085;
+}
+
+.dashboard-shell .eyebrow {
+  color: #4b6980;
+}
+
+.dashboard-shell .mode-switch button,
+.dashboard-shell .dashboard-controls select {
+  border: 1px solid #c5e1f3;
+  border-radius: 999px;
+  background: #f6fbff;
+  color: #1e4e73;
+}
+
+.dashboard-shell .mode-switch button.active {
+  border-color: var(--techo-blue);
+  background: var(--techo-blue);
+  color: #ffffff;
+}
+
+.dashboard-shell .mode-switch button:hover:not(.active),
+.dashboard-shell .dashboard-controls select:hover {
+  background: var(--techo-blue-soft);
+}
+
+@media (max-width: 800px) {
+  .dashboard-shell .topbar {
+    padding: 14px 14px;
+    margin-bottom: 18px;
+  }
+
+  .dashboard-shell .hero-panel {
+    padding: 18px 16px;
+  }
+
+  .dashboard-shell .hero-panel h2 {
+    font-size: clamp(25px, 8.8vw, 34px);
+  }
+}
+
 /* ── Channel nav ─────────────────────────────────────────────────── */
 .channel-heading {
   display: flex;

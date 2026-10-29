@@ -27,6 +27,7 @@ from app.models.tch import (
     TchTransaccion,
 )
 from app.services.channel_consolidation import consolidate_to_centralized
+from app.services.dashboard_performance import monthly_performance
 from app.services.payku_sync import sync_payku
 from app.services.rbac import permission_codes, source_permission
 from app.services.toku_sync import sync_toku
@@ -535,6 +536,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         "debts_monthly": debts_monthly,
         "transactions_effective_monthly": transactions_effective_monthly,
         "alerts": dashboard_alerts,
+        "performance": monthly_performance(db),
         "pending_payments": pending_payments,
         "sync_success_rate_pct": sync_success_rate_pct,
         "churn_rate_pct": churn_rate_pct,

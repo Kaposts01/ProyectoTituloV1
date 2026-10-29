@@ -10,6 +10,8 @@ import "./Staging.css";
 import { ActivacionCaidaChart, ChannelKpiChart, ChurnMensualChart, CrecimientoMensualChart, IngresosMensualesChart, MonthlySimpleChart, MonthlyStatusChart, TransaccionesSuscripcionesChart } from "./MonthlyStatusChart";
 import type { ChannelRow, MonthlyEntry, MonthlyStatusEntry } from "./MonthlyStatusChart";
 import { CHART_PRIMARY, chartStatusColor } from "./chartColors";
+import { GeneralPerformance } from "./features/dashboard/GeneralPerformance";
+import type { PerformanceSnapshot } from "./features/dashboard/performanceModel";
 import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
 import { parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
 import { AutomaticReport } from "./AutomaticReport";
@@ -157,7 +159,7 @@ type EtlRun = {
   error_message: string | null;
 };
 type SchedulerJob = { id: string; name: string; cron: string; next_run: string | null; last_run: EtlRun | null; status: string; active_run_id?: string | null };
-type SseEvent = { type: string; phase?: string; pct?: number | null; resource?: string; records?: number; msg?: string; total_records?: number; duration_s?: number };
+type SseEvent = { type: string; terminal?: boolean; phase?: string; pct?: number | null; resource?: string; records?: number; msg?: string; total_records?: number; duration_s?: number };
 type ClientEditField = { name: string; label: string; type?: string; options?: { value: string; label: string }[] };
 type AuthUser = { id: string; username: string; is_active: boolean; roles: { id: string; name: string }[]; permissions: string[]; created_at?: string | null };
 type AuthSession = { user: AuthUser; csrf_token: string };
@@ -235,6 +237,7 @@ function aggregateChurn(churn: (MonthlyEntry | MonthlyStatusEntry)[]): MonthlyEn
 }
 
 type GeneralDashboard = {
+  performance?: PerformanceSnapshot;
   clients: number;
   subscriptions: { active: number; amount: number };
   transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number };
@@ -1850,7 +1853,7 @@ function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boole
             setPolledPhase(run.phase ?? run.status);
             if (run.status !== "running") {
               if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-              if (run.status === "completed") invalidateCache();
+              invalidateCache();
               setTimeout(refreshData, 800);
             }
           })
@@ -1878,9 +1881,9 @@ function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boole
         startPolling();
         return;
       }
-      if (ev.type === "completed" || ev.type === "error") {
+      if (ev.type === "completed" || (ev.type === "error" && ev.terminal !== false)) {
         es.close();
-        if (ev.type === "completed") invalidateCache();
+        invalidateCache();
         setTimeout(refreshData, 800);
       }
     };
@@ -1987,6 +1990,7 @@ function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boole
   }, [sseEvents, activePhases]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isCompleted = sseEvents.some((e) => e.type === "completed");
+  const failedEv = sseEvents.find((e) => e.type === "error" && e.terminal !== false);
   const completedEv = sseEvents.find((e) => e.type === "completed");
 
   function fmtDate(iso: string | null | undefined): string {
@@ -2116,6 +2120,8 @@ function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boole
               <h3 className="sse-title">
                 {isCompleted
                   ? `✓ Completado — ${(completedEv?.total_records ?? 0).toLocaleString()} registros en ${Math.floor((completedEv?.duration_s ?? 0) / 60)}m ${(completedEv?.duration_s ?? 0) % 60}s`
+                  : failedEv || polledPhase === "failed"
+                    ? "Sincronización finalizada con errores"
                   : sseEvents.length === 0
                     ? "Conectando al stream…"
                     : `Sincronizando… ${globalPct !== null ? `${globalPct}%` : ""}`}
@@ -5590,7 +5596,7 @@ function App() {
   })();
 
   const globalDashboard = (
-    <main className="app-shell">
+    <main className={generalView === "summary" ? "app-shell dashboard-shell" : "app-shell"}>
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">Sx</span>
@@ -5608,24 +5614,13 @@ function App() {
         <div>
           <p className="eyebrow">RESUMEN OPERATIVO</p>
           <h2>
-            Operación consolidada,
-            <br />
-            desde todos los canales.
+            Dashboard general.
             {(generalRefreshing || summaryRefreshing) && <span className="refreshing-badge">⟳ Actualizando</span>}
           </h2>
         </div>
         {generalData ? (
           <>
           <div className="dashboard-controls">
-            <div className="mode-switch">
-              <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
-              <button className={generalMode === "amount" ? "active" : ""} onClick={() => setGeneralMode("amount")}>Monto</button>
-            </div>
-            {generalData.years.length ? (
-              <select aria-label="Año dashboard general" value={generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]} onChange={(event) => setGeneralYear(Number(event.target.value))}>
-                {generalData.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-              </select>
-            ) : null}
             <button className="sync-btn sync-btn-secondary" onClick={() => setReportScope("general")}>Generar reporte</button>
           </div>
           </>
@@ -5648,6 +5643,19 @@ function App() {
         </section>
       ) : generalData ? (
         <>
+          {generalData.performance && <GeneralPerformance data={generalData.performance} />}
+          <details className="panel performance-legacy" open={!generalData.performance}><summary>Resumen operativo y gráficos por canal</summary>
+          <div className="dashboard-controls">
+            <div className="mode-switch">
+              <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
+              <button className={generalMode === "amount" ? "active" : ""} onClick={() => setGeneralMode("amount")}>Monto</button>
+            </div>
+            {generalData.years.length ? (
+              <select aria-label="Año del resumen operativo" value={generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]} onChange={(event) => setGeneralYear(Number(event.target.value))}>
+                {generalData.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+              </select>
+            ) : null}
+          </div>
           <section className="metrics provider-metrics" aria-label="Métricas generales">
             <Metric label="Clientes" value={generalData.clients} tone="blue" />
             <Metric label="Activaciones" value={activationsForYear.count} tone="green" amount={activationsForYear.amount} mode={generalMode} />
@@ -5761,6 +5769,7 @@ function App() {
               </div>
             </section>
           )}
+          </details>
           <section className="source-summary">
             {generalData.channels.map((channel) => {
               const staging = summary.sources.find((source) => source.source === channel.source.toLowerCase());

@@ -8,6 +8,18 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 
 ## Completado
 
+- DASH-02 (2026-10-20): dashboard general incorpora KPI mensuales y graficos de ingresos por canal, acumulado/meta/proyeccion, base y movimientos; meta de analisis opcional sin persistencia, tablas accesibles y cobertura explicita. Evita doble conteo TCH y datos futuros/monedas no verificadas. 304 pruebas Python, 4 TypeScript, Ruff y build pasan; revisado en navegador y conciliado control TCH. Advertencias previas conservadas. [Evidencia](../quality/dashboard-kpis-2026-10-20.md).
+
+- DATA-01 (2026-10-20): atributos Core compartidos se conservan por cliente y fuente; migracion 0032 aplicada a crm local con respaldo. VirtualPOS no elige primer cliente ante RUT compartido y prioriza ID externo explicito. 296 pruebas pasan, Ruff y Alembic check pasan. No hay backfill ni reasignacion de asociaciones existentes. Ver [informe](../quality/data-integrity-2026-10-20.md).
+
+- REL-01 (2026-10-20, cambios locales): reparados imports de scripts Toku/VirtualPOS y despacho de rutas Core all/detect-matches. Scheduler y full-sync ya no registran completed cuando falla un canal o la consolidacion; preservan conteos y canales exitosos. SSE diferencia errores intermedios de terminales y la UI espera el resultado final. 283 pruebas pasan en base aislada, Ruff y build frontend pasan. Persisten limites de Toku, identidad, concurrencia entre procesos y avisos frontend; no se certifican proveedores reales ni prueba visual.
+
+- Skills Codex por stack creadas y evaluadas 2026-10-20: nueve paquetes de repositorio en `.agents/skills/`, con instrucciones, metadatos UI y referencias. Cubren backend/API, PostgreSQL/ORM, React/TypeScript, dashboards, ETL, integraciones HTTPX, scheduler/SSE, calidad y entorno/CI. Pasan 37 pruebas estructurales; 27 revisiones offline cumplen los criterios cualitativos y 12 selecciones basadas solo en metadatos coinciden con el alcance esperado. Las nueve aparecen en el catalogo activo; no se certifican ejecucion funcional del CRM, activacion nativa en sesion limpia ni mejora causal del modelo. Informe en `docs/quality/skills-evaluation-2026-10-20.md`. Las skills de gobierno en `.opencode/skills/` se conservan sin duplicacion.
+
+- Entorno local verificado 2026-10-20: con autorizacion del usuario se preparo PostgreSQL 18 nativo aislado en `.local/postgres18/data` y `127.0.0.1:5433`, como alternativa local al Docker bloqueado por virtualizacion. La base nueva `crm` esta en Alembic `20261007_0028`, con administrador local. API en `127.0.0.1:8000` y Vite en `127.0.0.1:5173` responden correctamente. Secretos solo en `.env`. El entorno usa Python 3.14.7; `.python-version` conserva 3.14.5. Esta verificacion no certifica datos ni despliegues anteriores.
+- TCH local verificado 2026-10-20: la proyeccion contiene 10.533 clientes, 10.547 suscripciones y 133.532 transacciones. Las fichas y estados de las suscripciones coinciden exactamente con la transformacion del reporte de septiembre 2026 proporcionado por el usuario. Los resumenes TCH y general responden correctamente. No se repitio la importacion ya realizada; esto no certifica cobertura historica completa ni comparacion campo a campo de todas las entidades.
+- Carga API local verificada 2026-10-20: VirtualPOS cuenta 1 Sandbox sincronizo y consolido 25 clientes, 8 planes, 15 suscripciones, 1.403 cargos y 38 pagos. Toku materializo 30 clientes, 31 suscripciones y 35 facturas; `/organization/payments` respondio 404 y una corrida acotada completo los otros cinco recursos dejando la exclusion explicita en `sync_runs`. No se certifica cobertura de pagos Toku ni carga completa al Core financiero. Payku y VP2 permanecen fuera de esta carga; escrituras de proveedores deshabilitadas.
+
 - Staging saneado e idempotente para canales API.
 - Tablas y vistas operativas por canal, dashboards y reportes existentes.
 - Autenticacion, permisos y registro de sincronizaciones y escrituras autorizadas.
@@ -107,6 +119,8 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 
 ## Deuda tecnica conocida
 
+- Correcciones locales sobre master 4604258 (2026-10-20): 268 pruebas pasan en PostgreSQL aislado; Ruff y alembic check pasan. Corregidos imports de metadata webhooks, fixture transaccional y prueba Payku con evidencia de transiciones. CI incluye alembic check. Base operativa respaldada y actualizada a 0031; login, dashboard y logout responden 200. Persisten 11 advertencias frontend, bundle grande y deprecacion Starlette/httpx. Ver [informe](../quality/update-validation-2026-10-20.md).
+
 - CI parcialmente saneado en `feature/core-centralizado`: `ruff check app tests alembic scripts` pasa limpio; `pytest` tiene 3 fallos pre-existentes no relacionados con el Core ETL (2 en Toku sync mock, 1 en Payku consolidación histórica).
 - `ruff.toml` establece el conjunto de reglas activo del proyecto; E501 excluido explícitamente (líneas largas en migraciones históricas por convención).
 - Documentos historicos de arquitectura y ETL son antecedentes y pueden no reflejar la arquitectura vigente.
@@ -119,3 +133,7 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 ## Convencion terminologica
 
 En SynkmetriX se utilizara el termino modelo centralizado en lugar de modelo canonico.
+
+## Entrega sprint-5 (2026-10-29)
+
+Integracion sobre master 4f06970 en rama independiente `sprint-5/estabilizacion-dashboard`, conservando la estabilizacion original. Conflictos resueltos; atributos pasan a revision nueva 20261029_0037 por colision de las dos 0032. 374 pruebas Python, 4 frontend, Ruff, build y metadata pasan en base aislada. Instalacion desde cero/CI backend bloqueados por error historico `op.Column` en 0035. Base operativa no modificada; su antigua revision local requiere reconciliacion antes de migrar. [Evidencia](../quality/sprint-5-delivery-2026-10-29.md).

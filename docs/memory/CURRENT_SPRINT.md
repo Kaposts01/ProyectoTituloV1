@@ -1,5 +1,29 @@
 # Sprint Actual
 
+## Dashboard general — DASH-02 (2026-10-20)
+
+**Status: Completed**
+
+Diseno basado en referencias del usuario, sin copiar cifras ni categorias sin fuente. KPI mensuales, cuatro graficos, meta de analisis opcional, rangos y tablas. 304 pruebas Python y 4 TypeScript pasan; validacion visual autenticada y conciliacion TCH. Sin cambios de esquema ni datos. [Definiciones y limites](../quality/dashboard-kpis-2026-10-20.md).
+
+## Integridad de datos — DATA-01 (2026-10-20)
+
+**Status: Completed**
+
+Atributos compartidos preservados sin duplicar cada asociacion; migracion 0032 verificada y aplicada a crm local con respaldo. VirtualPOS evita elecciones arbitrarias por RUT y respeta IDs externos. 296 pruebas pasan; sin backfill ni cambios de vinculos existentes. Siguientes tareas: contrato de pagos Toku y cache por sesion. [Evidencia y limites](../quality/data-integrity-2026-10-20.md).
+
+## Estabilizacion local — REL-01 (2026-10-20)
+
+**Status: Completed** (primera entrega de confiabilidad)
+
+Rama `codex/estabilizacion-synkmetrix`, sin push. Scripts Toku/VirtualPOS usan consolidacion vigente; rutas Core estaticas preceden a la dinamica. Fallos de canal o consolidacion producen estado failed con evidencia parcial preservada; el stream distingue errores intermedios del resultado final. Verificado con 283 pruebas en base aislada, Ruff y build frontend. No se han probado interacciones visuales ni proveedores reales. Siguientes tareas: integridad de atributos/identidades, contrato de pagos Toku y cache por sesion. El historial documental anterior se conserva como antecedente.
+
+## Skills Codex por stack (2026-10-20)
+
+**Status: Completed** (creacion, validacion estructural y evaluacion offline)
+
+Se crearon nueve skills de repositorio en `.agents/skills/` para el stack vigente. `AGENTS.md` registra sus nombres y limites. Se ejecutaron 37 pruebas estructurales, 27 revisiones tecnicas offline y 12 casos de seleccion por metadatos, con resultados favorables dentro de ese alcance. No se certifica ejecucion de implementaciones ni activacion nativa en una sesion limpia; el informe registra los limites y un fallo global Ruff ajeno a los cambios. No cambia la arquitectura de aplicacion ni autoriza refactorizaciones, despliegues o operaciones de proveedor adicionales.
+
 ## Objetivo actual
 
 **Status: Completed**
@@ -47,3 +71,7 @@ La auditoria `AUD-01` incorporo las tareas `SYNC-01`, `DB-02`, `DASH-01`, `FE-01
 **Status: Completed**
 
 `STR-01` separo los artefactos locales de la raiz, los scripts operativos de mantenimiento/diagnostico y la documentacion vigente de los antecedentes historicos, sin alterar la arquitectura de aplicacion ni los comandos operativos documentados.
+
+## Entrega sprint-5 (2026-10-29)
+
+Integracion sobre master 4f06970 en rama independiente `sprint-5/estabilizacion-dashboard`, conservando la estabilizacion original. Conflictos resueltos; atributos pasan a revision nueva 20261029_0037 por colision de las dos 0032. 374 pruebas Python, 4 frontend, Ruff, build y metadata pasan en base aislada. Instalacion desde cero/CI backend bloqueados por error historico `op.Column` en 0035. Base operativa no modificada; su antigua revision local requiere reconciliacion antes de migrar. [Evidencia](../quality/sprint-5-delivery-2026-10-29.md).

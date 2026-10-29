@@ -2,6 +2,10 @@
 
 Toku aporta clientes, suscripciones, metodos de pago, deudas y transacciones. Usa una clave de API solo en el backend; los sincronizadores aplican limites y reintentos para respuestas temporales.
 
+**Confirmed 2026-10-20:** la [referencia oficial](https://docs.trytoku.com/reference/introduccion) define `https://api.trytoku.com` como base. La [autenticacion](https://docs.trytoku.com/reference/autenticacion) admite API KEY en `x-api-key`, obtenida en Ajustes > Organizacion; OAuth, cuando se habilita, reemplaza ese mecanismo. El cliente actual del proyecto usa API KEY. Esta verificacion documental no certifica la clave configurada ni una sincronizacion real.
+
+**Observed 2026-10-20, cuenta local:** `GET /organization/payments` devuelve HTTP 404. La sincronizacion estandar falla en ese recurso; no se debe interpretar como ausencia de pagos. Se completo una carga operativa acotada de `customer`, `subscription`, `invoice`, `transaction` y `payment_method` mediante el runner local, con la exclusion de `payment` explicitada en `sync_runs.error_message`. Los tres primeros recursos contienen 30, 31 y 35 registros respectivamente; los otros listados devolvieron cero registros reconocidos. La cobertura financiera no esta certificada y el sincronizador versionado sigue requiriendo corregir o confirmar el contrato de pagos. El [listado oficial de metodos de pago](https://docs.trytoku.com/reference/get_payment_methods) confirma `/payment-methods`.
+
 Las operaciones mutables implementadas requieren `TOKU_WRITES_ENABLED=true`, permisos y proteccion CSRF. El navegador no llama a Toku directamente.
 
 El dashboard usa las deudas para su actividad y las transacciones para resultados de pago. La comparación con suscripciones activas usa exclusivamente transacciones fechadas del canal, no facturas.

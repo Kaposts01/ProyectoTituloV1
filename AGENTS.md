@@ -54,10 +54,24 @@ Inherited technical names containing `canonical` may remain temporarily for comp
 
 Available project skills: `prompt-optimizer`, `project-memory`, `data-modeling`, and `provider-integration`.
 
+These governance skills remain in `.opencode/skills/`; read their real files when required rather than assuming Codex automatically discovers that directory. Codex stack skills live in `.agents/skills/` and are scoped to this repository:
+
+| Codex skill | Scope |
+| --- | --- |
+| `synkmetrix-python-api` | Python, FastAPI, Pydantic, API contracts and backend authorization. |
+| `synkmetrix-postgres-orm` | PostgreSQL, SQLAlchemy, transactions, queries and Alembic migrations. |
+| `synkmetrix-react-typescript` | React, TypeScript, components, forms, routes and cache. |
+| `synkmetrix-dashboard-recharts` | Recharts, reporting, KPI definitions and data coverage. |
+| `synkmetrix-etl-pandas` | Pandas/openpyxl, TCH Excel and STG/channel-to-Core transformations. |
+| `synkmetrix-integrations-httpx` | HTTPX, provider contracts, authentication, pagination and retries. |
+| `synkmetrix-scheduler-sse` | APScheduler, orchestration, concurrency and SSE progress. |
+| `synkmetrix-quality-tests` | pytest, Ruff, regression strategy and proportional validation. |
+| `synkmetrix-runtime-ci` | Docker Compose, Uvicorn, Vite, environment setup and GitHub Actions. |
+
 - It is mandatory before every user request: interpret intent, inspect relevant context, define acceptance criteria, execute, validate, and respond.
 - Keep its result internal unless the user sends `/prompt` or asks to see it.
 - Load specialized skills only when their scope applies; do not duplicate a skill's full instructions here.
-- Future skills such as `etl-engineering`, `testing-qa`, and `documentation` are not available until created.
+- Use the exact available names and paths. Do not assume that a skill exists merely because its subject appears in the stack; load only specialties relevant to the requested change.
 
 ## 7. Context7
 
