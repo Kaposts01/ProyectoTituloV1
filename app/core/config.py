@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     toku_read_retries: int = 2
     toku_writes_enabled: bool = False
     toku_webhook_secret: str = ""
+    toku_report_hash_pepper: str = ""  # HMAC de `ID Producto` de los reportes (TK-18); vacio = importador cerrado
     toku_base_sandbox_url: str = ""
     toku_sandbox_api_key: str = ""
     toku_sandbox_account_key: str = ""
