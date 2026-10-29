@@ -588,3 +588,173 @@ async def delete_invoice(db: Session, invoice_id: str, *, requested_by_user_id: 
         raise ReconciliationRequiredError from exc
 
     return record
+
+
+async def set_subscription_end_date(
+    db: Session, subscription_id: str, end_date: str, *, requested_by_user_id: uuid.UUID | None = None
+) -> Subscription:
+    """Fin programado de una suscripcion Toku via PUT /subscriptions/{id} `end_date` (reversible: baja sin DELETE).
+
+    Usado por el ejecutor de bajas multicanal (MGT-09). `end_date` es una fecha ISO `YYYY-MM-DD` ya validada."""
+    sub = db.scalar(
+        select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "toku")
+    )
+    if sub is None:
+        raise SubscriptionNotFoundError
+    if not settings.toku_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source="toku", resource_type="subscription", external_id=subscription_id, operation="set_subscription_end_date",
+        status="pending", requested_by_user_id=requested_by_user_id,
+        request_payload={"subscription_id": subscription_id, "end_date": end_date},
+    )
+    db.add(write_run)
+    db.commit()
+    try:
+        async with TokuClient() as provider:
+            await provider.update_subscription(subscription_id, {"end_date": end_date})
+            try:
+                refreshed = _subscription_from_response(await provider.get_subscription(subscription_id))
+            except Exception:
+                refreshed = None
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, _all_secrets())
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    payload = sanitize_record(refreshed or {**dict(sub.raw_payload or {}), "end_date": end_date})
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = payload
+    db.commit()
+    try:
+        _materialize_subscription(sub, payload)
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, _all_secrets())
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+    return sub
+
+
+async def void_unpaid_invoices(
+    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None
+) -> dict[str, list[str]]:
+    """Anula las invoices impagas de la suscripcion (POST /invoices/{id}/void, IRREVERSIBLE), fail-closed.
+
+    D30: si alguna esta `in_progress` se NIEGA todo (`DeleteAbortedError("INVOICE_IN_PROGRESS")`) sin anular nada.
+    Un fallo de listado o de anulacion aborta con codigo fijo (`INVOICE_LIST_FAILED` | `INVOICE_VOID_FAILED`); con
+    anulaciones ya hechas el `write_run` queda `reconciliation_required`. NO elimina la suscripcion (eso lo decide el
+    llamador: la baja de Toku usa PAUSED o `end_date`, nunca DELETE). Devuelve `{"voided": [...]}`.
+    """
+    sub = db.scalar(
+        select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "toku")
+    )
+    if sub is None:
+        raise SubscriptionNotFoundError
+    if not settings.toku_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source="toku", resource_type="subscription_invoices", external_id=subscription_id,
+        operation="void_unpaid_invoices", status="pending", requested_by_user_id=requested_by_user_id,
+        request_payload={"subscription_id": subscription_id},
+    )
+    db.add(write_run)
+    db.commit()
+
+    voided: list[str] = []
+    in_progress: list[str] = []
+
+    def _abort(code: str, exc: DeleteAbortedError) -> None:
+        reconcile = bool(exc.voided_invoice_ids)
+        write_run.status = "reconciliation_required" if reconcile else "failed"
+        write_run.error_message = f"{code}: anulacion de invoices abortada" + ("; hay invoices ya anuladas (irreversible)" if reconcile else "")
+        write_run.response_payload = {
+            "step": _ABORT_STEPS.get(code, "unknown"), "voided_invoice_ids": list(exc.voided_invoice_ids),
+            "failed_invoice_id": exc.failed_invoice_id, "skipped_in_progress": in_progress,
+            "requires_reconciliation": reconcile,
+        }
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+
+    try:
+        async with TokuClient() as provider:
+            to_void: list[str] = []
+            try:
+                resp = await provider.list_subscription_invoices(
+                    subscription_id, general_statuses=["unpaid", "partially_paid"]
+                )
+                for inv in (resp or {}).get("invoices") or []:
+                    inv_id = inv.get("id") or inv.get("external_id")
+                    if not inv_id:
+                        continue
+                    (in_progress if inv.get("in_progress") else to_void).append(inv_id)
+            except TokuWriteBlockedError:
+                raise
+            except Exception as exc_list:
+                raise DeleteAbortedError("INVOICE_LIST_FAILED") from exc_list
+            if in_progress:
+                raise DeleteAbortedError("INVOICE_IN_PROGRESS")
+            provider.precheck_writes([("POST", f"/invoices/{i}/void", {"delete_invoice": False}) for i in to_void])
+            for inv_id in to_void:
+                try:
+                    await provider.void_invoice(inv_id, {"delete_invoice": False})
+                except TokuWriteBlockedError:
+                    raise
+                except Exception as exc_void:
+                    raise DeleteAbortedError(
+                        "INVOICE_VOID_FAILED", voided_invoice_ids=voided, failed_invoice_id=inv_id
+                    ) from exc_void
+                voided.append(inv_id)
+    except TokuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
+    except DeleteAbortedError as exc:
+        _abort(exc.code, exc)
+        raise
+    except Exception as exc:
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, _all_secrets())
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    write_run.status = "completed"
+    write_run.response_payload = {"voided_invoice_ids": list(voided), "skipped_in_progress": [], "requires_reconciliation": False}
+    write_run.finished_at = datetime.now(UTC)
+    db.commit()
+    return {"voided": voided}
+
+
+async def precheck_unpaid_invoices(subscription_id: str) -> dict[str, list[str]]:
+    """Lectura (sin escribir) de las invoices impagas: `{"to_void": [...], "in_progress": [...]}`.
+
+    Sirve para negar la baja ANTES de tocar nada cuando alguna esta `in_progress` (D30) y para el dry-run. Un fallo de
+    listado lanza `DeleteAbortedError("INVOICE_LIST_FAILED")` (fail-closed, codigo fijo)."""
+    to_void: list[str] = []
+    in_progress: list[str] = []
+    try:
+        async with TokuClient() as provider:
+            resp = await provider.list_subscription_invoices(
+                subscription_id, general_statuses=["unpaid", "partially_paid"]
+            )
+        for inv in (resp or {}).get("invoices") or []:
+            inv_id = inv.get("id") or inv.get("external_id")
+            if inv_id:
+                (in_progress if inv.get("in_progress") else to_void).append(inv_id)
+    except Exception as exc:
+        raise DeleteAbortedError("INVOICE_LIST_FAILED") from exc
+    return {"to_void": to_void, "in_progress": in_progress}

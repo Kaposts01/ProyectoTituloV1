@@ -1450,7 +1450,7 @@ async def cancel_subscription(
 
 
 async def cancel_subscription_with_outcome(
-    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None
+    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None, lock_held: bool = False
 ) -> tuple[Subscription, CancelOutcome]:
     """Baja de una suscripcion VirtualPOS con el mismo guard y lock que la Opcion A (MGT-03) y verificacion posterior
     (MGT-04).
@@ -1462,6 +1462,9 @@ async def cancel_subscription_with_outcome(
     cancelacion individual por `charge_id`; nunca el DELETE plural) -> `canceled_at`. Un cobro `procesando` no se
     cancela. Si algo no verifica, la baja ya hecha NO se revierte: se devuelve `requires_reconciliation` con un
     motivo fijo y el `write_run` queda `reconciliation_required`.
+
+    `lock_held=True`: el llamador (el ejecutor de bajas multicanal) YA tiene el advisory lock de la suscripcion; no se
+    vuelve a tomar (seria un segundo intento sobre la misma clave y fallaria). El guard de conflicto se mantiene.
     """
     from app.services.billing_apply import (
         subscription_lock,  # import local: billing_apply importa este modulo
@@ -1477,6 +1480,9 @@ async def cancel_subscription_with_outcome(
         raise WriteDisabledError
 
     platform = sub.source
+    if lock_held:
+        ensure_no_billing_flow_conflict(db, platform, subscription_id, closing_subscription=True)
+        return await _cancel_subscription_locked(db, sub, subscription_id, requested_by_user_id)
     with subscription_lock(db, platform, subscription_id):
         ensure_no_billing_flow_conflict(db, platform, subscription_id, closing_subscription=True)
         return await _cancel_subscription_locked(db, sub, subscription_id, requested_by_user_id)
