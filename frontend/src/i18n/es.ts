@@ -133,6 +133,7 @@ export const es = {
     aborted: "Abortada",
     skipped: "Omitida",
     idle: "Inactivo",
+    scheduled: "Programado",
   },
   /** Fase de una corrida de sincronización. */
   phase: {

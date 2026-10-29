@@ -2,16 +2,11 @@ import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getJson, postJson, postForm, friendlyError } from "../../api";
 import { invalidateCache } from "../../apiCache";
+import { label } from "../../i18n/label";
 import { CHANNEL_UNAVAILABLE_TITLE, useEnabledChannels } from "../shared/environment";
 import type { EtlRun, SchedulerJob, SseEvent } from "../shared/types";
-
-const _PHASE_LABELS: Record<string, string> = {
-  sync_virtualpos1: "VirtualPOS VP1",
-  sync_virtualpos2: "VirtualPOS VP2",
-  sync_toku: "Toku",
-  sync_payku: "Payku",
-  consolidating: "Consolidación centralizada",
-};
+import { API_CHANNELS, phaseText, runTypeLabel } from "./schedulerLabels";
+import { SseLogEntry } from "./SseLogEntry";
 
 type ChannelKey = "all" | "virtualpos" | "toku" | "payku" | "tch";
 type VpSubKey = "both" | "vp1" | "vp2";
@@ -27,7 +22,7 @@ const VP_SUB_OPTS: Array<{ key: VpSubKey; label: string; channels: string[] }> =
   { key: "vp1",  label: "Solo VP1",  channels: ["virtualpos1"] },
   { key: "vp2",  label: "Solo VP2",  channels: ["virtualpos2"] },
 ];
-const _API_CHANNELS = ["virtualpos1", "virtualpos2", "toku", "payku"];
+const _API_CHANNELS = API_CHANNELS;
 
 /** Presets de cuentas VirtualPOS; con una sola cuenta habilitada, "VP1 + VP2" se sustituye por "VP1"/"VP2". */
 export function vpSubOptions(enabled: string[]): Array<{ key: VpSubKey; label: string; channels: string[] }> {
@@ -70,17 +65,6 @@ function cronLabel(cron: string): string {
     "5,20,35,50 * * * *": "Cada 15 min (minutos 5, 20, 35 y 50)",
   };
   return map[cron] ?? cron;
-}
-
-function runTypeLabel(channels: string[] | null, enabled: string[]): string {
-  if (!channels || channels.length === 0) return "—";
-  const map: Record<string, string> = { virtualpos1: "VP1", virtualpos2: "VP2", toku: "Toku", payku: "Payku", tch: "TCH" };
-  const apiChannels = _API_CHANNELS.filter((c) => enabled.includes(c));
-  const hasAllApi = apiChannels.length > 0 && apiChannels.every((c) => channels.includes(c));
-  if (hasAllApi && channels.includes("tch")) return "Sync completa";
-  if (hasAllApi) return "Sync completa";
-  if (channels.length === 1 && channels[0] === "tch") return "TCH (importación)";
-  return channels.map((c) => map[c] ?? c).join(" + ");
 }
 
 export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boolean; canViewRuns: boolean; canImportTch: boolean }) {
@@ -272,8 +256,9 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
   function statusBadge(st: string) {
     // `partial`: corrida con errores parciales (p. ej. billing_renewal_check). Advertencia, no error ni éxito.
     const cls = st === "completed" ? "badge-green" : st === "failed" ? "badge-red" : st === "running" ? "badge-blue" : st === "partial" ? "badge-orange" : "badge-gray";
-    const label = st === "completed" ? "OK" : st === "failed" ? "Error" : st === "running" ? "En curso" : st === "partial" ? "Parcial" : st;
-    return <span className={`badge ${cls}`}>{label}</span>;
+    // Vocabulario compacto propio del panel para los cuatro estados habituales; el resto sale del catálogo.
+    const text = st === "completed" ? "OK" : st === "failed" ? "Error" : st === "running" ? "En curso" : st === "partial" ? "Parcial" : label("runStatus", st);
+    return <span className={`badge ${cls}`}>{text}</span>;
   }
 
   const channelAvailable = (key: ChannelKey): boolean => {
@@ -366,7 +351,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
               <h3 className="sse-title">
                 {isCompleted ? `✓ Completado — ${(completedEv?.total_records ?? 0).toLocaleString()} registros en ${Math.floor((completedEv?.duration_s ?? 0) / 60)}m ${(completedEv?.duration_s ?? 0) % 60}s` : sseEvents.length === 0 ? "Conectando al stream…" : `Sincronizando… ${globalPct !== null ? `${globalPct}%` : ""}`}
               </h3>
-              {sseEvents.length === 0 && polledPhase && <p className="sse-polled-phase">{_PHASE_LABELS[polledPhase] ?? polledPhase} — actualizando cada 4s</p>}
+              {sseEvents.length === 0 && polledPhase && <p className="sse-polled-phase">{phaseText(polledPhase)} — actualizando cada 4s</p>}
               {!isCompleted && globalPct !== null ? <div className="sse-global-bar-wrap"><div className="sse-global-bar-fill" style={{ width: `${globalPct}%` }} /></div> : null}
               {!isCompleted && sseEvents.length > 0 && globalPct === null ? <div className="sse-indeterminate-wrap"><div className="sse-indeterminate-fill" /></div> : null}
               {sseEvents.length === 0 ? <div className="sse-indeterminate-wrap"><div className="sse-indeterminate-fill" /></div> : null}
@@ -385,7 +370,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
                 return (
                   <li key={phase} className="phase-item">
                     <span className="phase-icon" style={{ color }}>{icon}</span>
-                    <span className="phase-label">{_PHASE_LABELS[phase]}</span>
+                    <span className="phase-label">{phaseText(phase)}</span>
                     {st === "running" && pct === null ? <div className="progress-bar-wrap"><div className="progress-bar-indeterminate" /></div> : pct !== null ? <div className="progress-bar-wrap"><div className="progress-bar-fill" style={{ width: `${pct}%` }} /></div> : null}
                     {pct !== null ? <span className="phase-pct">{pct}%</span> : null}
                   </li>
@@ -397,7 +382,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
             <div className="sse-log">
               {sseEvents.filter((e) => e.type === "progress" || e.type === "error").slice(-80).map((e, i) => (
                 <div key={i} style={{ color: e.type === "error" ? "#DC2626" : undefined }}>
-                  [{e.phase}]{e.resource ? ` ${e.resource}` : ""}{e.pct != null ? ` ${e.pct}%` : ""}{e.records != null ? ` (${e.records.toLocaleString()})` : ""}{e.msg ? ` — ${e.msg}` : ""}
+                  <SseLogEntry event={e} />
                 </div>
               ))}
             </div>

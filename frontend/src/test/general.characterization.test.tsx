@@ -144,7 +144,7 @@ describe("Dashboard general (/central/resumen)", () => {
     const busy = screen.getByRole("button", { name: "Procesando…" });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
     expect(await screen.findByText(/1\.234 registros/, undefined, { timeout: 6000 })).toBeTruthy();
-    expect(document.querySelector(".etl-status .status-pill")?.textContent).toBe("completed");
+    expect(document.querySelector(".etl-status .status-pill")?.textContent).toBe("Completada");
     expect(screen.getByRole("button", { name: "↻ Sync completo" })).toBeTruthy();
     expect(app.find("GET", "/api/v1/etl/runs/run-1")).toHaveLength(1);
   }, 15000);

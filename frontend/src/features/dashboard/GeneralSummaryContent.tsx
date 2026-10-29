@@ -1,3 +1,4 @@
+import { label } from "../../i18n/label";
 import { ActivacionCaidaChart, ChannelKpiChart, IngresosMensualesChart, MonthlyStatusChart } from "../../MonthlyStatusChart";
 import type { ChannelRow, MonthlyEntry } from "../../MonthlyStatusChart";
 import { defaultYear } from "../shared/utils";
@@ -107,8 +108,8 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
           return (
             <article className="panel channel-summary-card" key={channel.source}>
               <div className="panel-heading">
-                <div><p className="eyebrow">{channel.source.toUpperCase()}</p><h3>{channel.active_subscriptions.toLocaleString("es-CL")} suscripciones vigentes</h3></div>
-                {lastSync ? <span className={`status-pill ${lastSync.status === "completed" ? "" : "status-attention"}`}>{lastSync.status}</span> : null}
+                <div><p className="eyebrow">{label("channel", channel.source).toUpperCase()}</p><h3>{channel.active_subscriptions.toLocaleString("es-CL")} suscripciones vigentes</h3></div>
+                {lastSync ? <span className={`status-pill ${lastSync.status === "completed" ? "" : "status-attention"}`}>{label("runStatus", lastSync.status)}</span> : null}
               </div>
               <div className="channel-summary-details">
                 <div><span>Operación</span><strong>{channel.clients.toLocaleString("es-CL")} clientes · {channel.accepted.toLocaleString("es-CL")} aceptadas</strong></div>
@@ -116,7 +117,7 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
                 <div><span>{staging ? "Carga staging" : "Carga local"}</span><strong>{staging ? `${staging.records.toLocaleString("es-CL")} registros` : "Histórico TCH integrado"}</strong></div>
                 <div><span>Consolidación</span><strong>Entidades centralizadas disponibles</strong></div>
               </div>
-              {staging ? <p className="resource-copy">{Object.entries(staging.resources).map(([resource, count]) => `${resource}: ${count}`).join(" · ")}</p> : null}
+              {staging ? <p className="resource-copy">{Object.entries(staging.resources).map(([resource, count]) => `${label("resourcePlural", resource)}: ${count}`).join(" · ")}</p> : null}
               {lastSync?.finished_at ? <p className="channel-summary-sync">Última carga: {new Date(lastSync.finished_at).toLocaleString("es-CL")} · {lastSync.records_processed.toLocaleString("es-CL")} procesados</p> : null}
             </article>
           );
