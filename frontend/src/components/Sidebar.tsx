@@ -33,6 +33,8 @@ export type SidebarProps = {
   onRecovery: () => void;
   billingOpen?: boolean;
   onBilling?: () => void;
+  cancellationsOpen?: boolean;
+  onCancellations?: () => void;
   profileOpen?: boolean;
   health?: ChannelHealthMap;
 };
@@ -42,7 +44,7 @@ export function Sidebar({
   generalView, onGeneralClients, onGeneralSubscriptions, onAutoReport,
   onChannel, onSection, onTheme, onTch,
   permissions, onAdmin, adminOpen, adminTab,
-  onLogout, onProfile, open, onClose, recoveryOpen, onRecovery, billingOpen = false, onBilling, profileOpen = false, health,
+  onLogout, onProfile, open, onClose, recoveryOpen, onRecovery, billingOpen = false, onBilling, cancellationsOpen = false, onCancellations, profileOpen = false, health,
 }: SidebarProps) {
   const can = (permission: string) => permissions.includes(permission);
   const [query, setQuery] = useState("");
@@ -86,7 +88,7 @@ export function Sidebar({
     return () => { if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
   }, [open]);
 
-  const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !profileOpen && generalView === "summary";
+  const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !cancellationsOpen && !profileOpen && generalView === "summary";
   const go = (fn: () => void) => () => { fn(); onClose(); };
   const searching = query.trim() !== "";
   const { groups, channels } = filterMenu(visibleMenu(can), detailChannels(can), query);
@@ -101,12 +103,14 @@ export function Sidebar({
       else onAutoReport();
     } else if (action.kind === "recovery") onRecovery();
     else if (action.kind === "billing") onBilling?.();
+    else if (action.kind === "cancellations") onCancellations?.();
     else onAdmin(action.view);
   };
   const menuActive = (action: MenuAction): boolean => {
     if (action.kind === "central") return action.view === "summary" ? centralActive : generalView === action.view;
     if (action.kind === "recovery") return recoveryOpen;
     if (action.kind === "billing") return billingOpen;
+    if (action.kind === "cancellations") return cancellationsOpen;
     return adminOpen && adminTab === action.view;
   };
   const runDetail = (action: DetailAction) => {

@@ -16,6 +16,8 @@ import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { RecoveryPanel } from "./features/recovery/RecoveryPanel";
 import { BillingInbox } from "./features/billing/BillingInbox";
+import { CancellationsInbox } from "./features/cancellations/CancellationsInbox";
+import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
 import { AdminPanel } from "./features/admin/AdminPanel";
 import { useEnabledChannels } from "./features/shared/environment";
 import { ChannelDashboardView } from "./features/dashboard/ChannelDashboardView";
@@ -100,6 +102,7 @@ function AppCore() {
   const [reportScope, setReportScope] = useState<string | null>(null);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
+  const [cancellationsOpen, setCancellationsOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
@@ -176,6 +179,7 @@ function AppCore() {
     }
     if (route.kind === "recovery") return can("virtualpos.recovery.view");
     if (route.kind === "billingChanges") return can("virtualpos.billing_changes.view");
+    if (route.kind === "cancellations") return can(PERM_CANCELLATION_VIEW);
     if (route.kind === "tchSubscription") return can("tch.suscripciones.view");
     if (route.kind === "tch") return route.view === "summary"
       ? can("tch.dashboard.view")
@@ -203,6 +207,7 @@ function AppCore() {
     setAdminOpen(true);
     setRecoveryOpen(false);
     setBillingOpen(false);
+    setCancellationsOpen(false);
     setAdminTab(view);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "admin", view });
@@ -212,6 +217,7 @@ function AppCore() {
     setAdminOpen(false);
     setRecoveryOpen(false);
     setBillingOpen(false);
+    setCancellationsOpen(false);
     clearDetails();
     setActiveSection(null);
     setChannel(null);
@@ -256,6 +262,7 @@ function AppCore() {
     setAdminOpen(false);
     setRecoveryOpen(false);
     setBillingOpen(false);
+    setCancellationsOpen(false);
     setError(null);
     setTchSubscriptionDetail(null);
     setTchTransactionDetail(null);
@@ -284,6 +291,7 @@ function AppCore() {
     setTchView(null);
     setRecoveryOpen(false);
     setBillingOpen(false);
+    setCancellationsOpen(false);
     setAdminOpen(false);
     const cached = getCached<ChannelDashboard>(`dashboard:${source}`, 5 * 60 * 1000);
     setChannelData(cached);
@@ -302,6 +310,7 @@ function AppCore() {
     setChannel(null);
     setRecoveryOpen(false);
     setBillingOpen(false);
+    setCancellationsOpen(false);
     setAdminOpen(false);
     setLoading(true);
     setError(null);
@@ -341,6 +350,7 @@ function AppCore() {
     setAdminOpen(false);
     setRecoveryOpen(true);
     setBillingOpen(false);
+    setCancellationsOpen(false);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "recovery" });
   }
@@ -354,8 +364,23 @@ function AppCore() {
     setAdminOpen(false);
     setRecoveryOpen(false);
     setBillingOpen(true);
+    setCancellationsOpen(false);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "billingChanges" });
+  }
+
+  function showCancellations(updateUrl = true) {
+    clearDetails();
+    setGeneralView("summary");
+    setChannel(null);
+    setActiveSection(null);
+    setTchView(null);
+    setAdminOpen(false);
+    setRecoveryOpen(false);
+    setBillingOpen(false);
+    setCancellationsOpen(true);
+    setProfileView(null);
+    if (updateUrl) navigate({ kind: "cancellations" });
   }
 
   function showProfile(view: "summary" | "edit", updateUrl = true) {
@@ -366,6 +391,7 @@ function AppCore() {
     setTchView(null);
     setRecoveryOpen(false);
     setBillingOpen(false);
+    setCancellationsOpen(false);
     setAdminOpen(false);
     setProfileView(view);
     if (updateUrl) navigate({ kind: "profile", view });
@@ -436,6 +462,8 @@ function AppCore() {
     } else if (route.kind === "billingChanges") {
       showBillingChanges(false);
       if (legacyRedirectPath(location.pathname)) navigate(route, true);
+    } else if (route.kind === "cancellations") {
+      showCancellations(false);
     } else if (route.kind === "tch") {
       showTch(route.view, false);
     } else if (route.kind === "tchSubscription") {
@@ -564,6 +592,10 @@ function AppCore() {
   const recoveryView = recoveryOpen ? <RecoveryPanel channel="virtualpos" can={can} /> : null;
   const billingView = billingOpen ? <BillingInbox can={can} currentUserId={session?.user.id} isAdmin={session?.user.roles.some((role) => role.name === "admin") ?? false} /> : null;
 
+  const cancellationsView = cancellationsOpen ? (
+    <CancellationsInbox can={can} currentUserId={session?.user.id} isAdmin={session?.user.roles.some((role) => role.name === "admin") ?? false} />
+  ) : null;
+
   const providerDetail = activeSection ? (
     <StagingRecordsList
       activeSection={activeSection}
@@ -612,6 +644,7 @@ function AppCore() {
     providerRecordDetailView ??
     recoveryView ??
     billingView ??
+    cancellationsView ??
     providerDetail ??
     tchContent ??
     (channel ? (
@@ -693,6 +726,8 @@ function AppCore() {
         onRecovery={showRecovery}
         billingOpen={billingOpen}
         onBilling={showBillingChanges}
+        cancellationsOpen={cancellationsOpen}
+        onCancellations={showCancellations}
         profileOpen={profileView !== null}
         health={channelHealth}
       />

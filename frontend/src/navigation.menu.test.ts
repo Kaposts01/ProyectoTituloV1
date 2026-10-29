@@ -9,6 +9,7 @@ const menuRoute = (a: MenuAction): AppRoute => {
   if (a.kind === "central") return { kind: "central", view: a.view };
   if (a.kind === "recovery") return { kind: "recovery" };
   if (a.kind === "billing") return { kind: "billingChanges" };
+  if (a.kind === "cancellations") return { kind: "cancellations" };
   return { kind: "admin", view: a.view };
 };
 const detailRoute = (a: DetailAction): AppRoute => {

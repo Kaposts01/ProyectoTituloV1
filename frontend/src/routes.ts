@@ -16,6 +16,7 @@ export type AppRoute =
   | { kind: "record"; source: ProviderSource; resource: string; externalId: string }
   | { kind: "recovery" }
   | { kind: "billingChanges" }
+  | { kind: "cancellations" }
   | { kind: "tch"; view: TchRouteView }
   | { kind: "tchSubscription"; fileNumber: number }
   | { kind: "admin"; view: "users" | "sync" }
@@ -93,6 +94,7 @@ export function parseRoute(pathname: string): AppRoute | null {
 
   if (parts[0] === "virtualpos" && parts[1] === "recuperador-socios") return { kind: "recovery" };
   if (parts[0] === "general" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
+  if (parts[0] === "general" && parts[1] === "bajas" && parts.length === 2) return { kind: "cancellations" };
   // Ruta anterior (grupo VirtualPOS): sigue resolviendo; AppCore la redirige a la ruta canónica.
   if (parts[0] === "virtualpos" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
 
@@ -129,6 +131,7 @@ export function routePath(route: AppRoute): string {
   if (route.kind === "channel") return `/${route.source}/resumen`;
   if (route.kind === "recovery") return "/virtualpos/recuperador-socios";
   if (route.kind === "billingChanges") return "/general/cambios-de-cobro";
+  if (route.kind === "cancellations") return "/general/bajas";
   if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : TCH_URL_SEGMENT[route.view]}`;
   if (route.kind === "tchSubscription") return `/tch/suscripciones/${route.fileNumber}`;
   if (route.kind === "admin") return `/admin/${route.view === "users" ? "usuarios" : "sincronizaciones"}`;

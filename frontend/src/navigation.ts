@@ -58,6 +58,7 @@ export type MenuAction =
   | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "report" }
   | { kind: "recovery" }
   | { kind: "billing" }
+  | { kind: "cancellations" }
   | { kind: "admin"; view: "users" | "sync" };
 
 export type MenuItem = { id: string; label: string; action: MenuAction; allowed: (can: Can) => boolean };
