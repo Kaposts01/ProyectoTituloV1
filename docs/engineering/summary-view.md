@@ -36,8 +36,8 @@ Reglas verificadas por pruebas:
 
 - Selector de mes («Mes actual») y filtro de canales; pestañas «Últimos 12 meses / Año / Todo».
 - Tarjetas con variación contra el mes anterior y el chip «sin meta» (no hay metas: D2 pendiente). Ingreso total va destacada. Socios totales lleva la nota «Suma por canal, no deduplicada (unidad: suscripciones)». MRR y ARPU muestran «—» y «Solo disponible para el mes en curso» cuando son `null`.
-- Churn con `ChurnKpiCard` (D20) y un texto visible: «Definición propuesta, pendiente de confirmación: bajas del mes ÷ socios al inicio del mes» (D31 pendiente).
-- Gráficos desde `series` (12 meses): ingreso por canal apilado, socios totales como área, activaciones y bajas con crecimiento neto. Cada uno con «Ver datos».
+- Churn con `ChurnKpiCard` (D20) y su definición como ayuda normal DENTRO de la tarjeta (prop `help`): «Bajas del mes ÷ socios al inicio del mes» (D31 confirmada; el contrato la dice «socios al cierre del mes anterior», que es lo mismo).
+- Gráficos desde `series` (12 meses): ingreso por canal apilado, socios totales como área, activaciones y bajas con crecimiento neto. Cada uno con «Ver datos». El eje Y se ensancha según la etiqueta más larga (no recorta «$200.000») y el eje X usa `interval="preserveStartEnd"` con `minTickGap` de 24 px para que los meses no se superpongan.
 - TCH se rotula «Dato al <fecha>», porque viene de Excel.
 - Estados de carga (esqueleto), error con «Reintentar» y mes sin datos (con «Ver el mes anterior»).
 
@@ -56,7 +56,6 @@ Las pruebas `general.characterization` y `etl.i18n` apuntan ahora a la ruta clá
 - Etas y Donación individual (sin fuente de datos).
 - Histórico de MRR (UX-13).
 - Deduplicación entre canales (ADR-001).
-- Confirmación del churn (D31): ajustar `CHURN_HELP` en `SummaryKpiGrid.tsx` y `churnHistory` en `summaryChartData.ts`.
 - «Año» y «Todo» recortan solo lo recibido: el endpoint entrega 12 meses.
 - Tarjetas de ingreso por canal (el dato se adapta pero solo se usa en gráficos y tablas).
 - Retirar la vista clásica (UX-15) y capturas visuales (UX-16).

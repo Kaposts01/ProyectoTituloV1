@@ -55,8 +55,9 @@ function Sparkline({ values, label }: { values: number[]; label?: string }) {
  *   el texto dice el avance real); con `atMost` muestra «Meta: ≤ X».
  * - `chip`: fuerza el chip «en meta / lejos de meta / sin meta»; si falta se deriva de `goal`.
  * - `sparkline` / `sparklineLabel`: serie opcional; decorativa (aria-hidden) salvo que haya etiqueta.
+ * - `help`: texto de ayuda dentro de la tarjeta (p. ej. la definición del churn).
  */
-export function KpiCard({ label, value, format, caption, emptyCaption, variant = "normal", delta, goal, chip, sparkline, sparklineLabel }: {
+export function KpiCard({ label, value, format, caption, emptyCaption, variant = "normal", delta, goal, chip, sparkline, sparklineLabel, help }: {
   label: string;
   value: number | null | undefined;
   format: KpiFormat;
@@ -68,6 +69,8 @@ export function KpiCard({ label, value, format, caption, emptyCaption, variant =
   chip?: KpiChipStatus;
   sparkline?: number[];
   sparklineLabel?: string;
+  /** Texto de ayuda (p. ej. la definición del indicador), dentro de la tarjeta y siempre visible. */
+  help?: string;
 }) {
   const empty = !hasKpiValue(value);
   const sub = empty ? emptyCaption : caption;
@@ -126,6 +129,7 @@ export function KpiCard({ label, value, format, caption, emptyCaption, variant =
       {goalText && !empty ? <span className="kpi-goal">{goalText}</span> : null}
       {deltaEl}
       {sub ? <span className="metric-amount">{sub}</span> : null}
+      {help ? <p className="kpi-help">{help}</p> : null}
     </article>
   );
 }
@@ -134,7 +138,7 @@ export function KpiCard({ label, value, format, caption, emptyCaption, variant =
  * Tarjeta de churn (D20): valor + chip de meta + meta de tope + sparkline del histórico, en lugar de un
  * velocímetro. `previous` es el churn del mes anterior (el delta se calcula acá; bajar es bueno).
  */
-export function ChurnKpiCard({ churnRate, target, history, previous, windowLabel, label = "Churn", variant }: {
+export function ChurnKpiCard({ churnRate, target, history, previous, windowLabel, label = "Churn", variant, help }: {
   churnRate: number | null | undefined;
   target: number | null | undefined;
   history?: number[];
@@ -142,6 +146,7 @@ export function ChurnKpiCard({ churnRate, target, history, previous, windowLabel
   windowLabel?: string;
   label?: string;
   variant?: "normal" | "featured";
+  help?: string;
 }) {
   const hasDelta = hasKpiValue(churnRate) && hasKpiValue(previous);
   return (
@@ -155,6 +160,7 @@ export function ChurnKpiCard({ churnRate, target, history, previous, windowLabel
       sparkline={history}
       caption={windowLabel}
       emptyCaption={KPI_EMPTY_CAPTION}
+      help={help}
     />
   );
 }

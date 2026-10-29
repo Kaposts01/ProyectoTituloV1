@@ -111,15 +111,15 @@ describe("Resumen unificado: tarjetas", () => {
     expect(within(card("Ingreso total")).getByTestId("kpi-delta").textContent).toMatch(/sube.*\+\$17\.000/);
   });
 
-  it("el churn es una tarjeta con sparkline y muestra su definición como PROPUESTA pendiente de confirmar", async () => {
+  it("el churn es una tarjeta con sparkline y su definición confirmada (D31) queda DENTRO de la tarjeta", async () => {
     installFetch(() => ({ body: rawSummary() }));
     render(<SummaryView />);
     await ready();
     expect(card("Churn").querySelector("svg.kpi-spark")).toBeTruthy();
     const help = screen.getByText(/Bajas del mes ÷ socios al inicio del mes/);
-    expect(help.textContent).toMatch(/propuesta/i);
-    expect(help.textContent).toMatch(/pendiente de confirmación/i);
-    expect(card("Churn").parentElement?.contains(help)).toBe(true);
+    expect(card("Churn").contains(help)).toBe(true);
+    expect(help.textContent).not.toMatch(/propuesta|pendiente de confirmación/i);
+    expect(screen.queryByText(/Definición propuesta/i)).toBeNull();
   });
 
   it("el delta del churn baja es bueno y subir es malo (sube 33,3 pts => clase «bad»)", async () => {

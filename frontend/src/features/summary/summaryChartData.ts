@@ -72,7 +72,7 @@ export function netGrowthHistory(series: SummarySeries): number[] {
 
 /**
  * Historia del churn para la miniatura: bajas del mes ÷ socios al cierre del mes anterior × 100 (la definición
- * PROPUESTA, D31 sin confirmar), calculada con las mismas series. Omite el primer mes y los meses sin base.
+ * D31 confirmada), calculada con las mismas series. Omite el primer mes y los meses sin base.
  */
 export function churnHistory(series: SummarySeries): number[] {
   const cancellations = new Map(series.cancellations.map((point) => [point.month, point.value]));

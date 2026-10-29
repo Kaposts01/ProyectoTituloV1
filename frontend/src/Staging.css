@@ -1376,10 +1376,8 @@
 
 .summary-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .summary-kpi-grid .kpi-card { height: 100%; box-sizing: border-box; }
-.summary-kpi-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.summary-kpi-cell .kpi-card { flex: 1; }
-.summary-kpi-help { margin: 0; padding: 0 4px; color: var(--text-2); font-size: 12px; line-height: 1.45; }
-.summary-kpi-help strong { color: var(--text-1); }
+.kpi-help { margin: 0; color: var(--text-2); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.kpi-card--featured .kpi-help { color: var(--kpi-hero-muted); }
 .summary-skeleton { min-height: 120px; border-radius: 12px; background: var(--bg-muted); animation: summary-pulse 1.4s ease-in-out infinite; }
 @keyframes summary-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 

@@ -15,6 +15,10 @@ const MONO = "'JetBrains Mono', 'Courier New', monospace";
 const MAX_BAR_SIZE = 56;
 const tick = { fontFamily: MONO, fontSize: 11, fill: "var(--text-2)" };
 
+/** Ancho del eje Y según la etiqueta más larga (monoespaciada de 11 px, ~7 px por carácter + holgura), nunca menos de `min`. */
+const AXIS_CHAR_WIDTH = 7;
+const yAxisWidth = (labels: string[], min: number) => Math.max(min, Math.max(0, ...labels.map((l) => l.length)) * AXIS_CHAR_WIDTH + 12);
+
 const fmt = (value: unknown, mode: "count" | "amount") => {
   const n = Number(value);
   if (value === null || value === undefined || !Number.isFinite(n)) return "—";
@@ -149,12 +153,13 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
       );
     });
   }
+  const yWidth = yAxisWidth([...(ticks ?? []), peak].map((v) => yFormat(v)), pctAxis ? 52 : 56);
   const customTooltip = kind === "stacked" || isCum || reference !== undefined;
   const axes = (
     <>
       <CartesianGrid stroke="var(--chart-grid, var(--border-subtle))" vertical={false} />
-      <XAxis dataKey="label" tickLine={false} axisLine={false} tick={tick} />
-      <YAxis tickLine={false} axisLine={false} width={pctAxis ? 52 : 56} tick={tick} tickFormatter={yFormat} allowDecimals={mode !== "count" || pctAxis}
+      <XAxis dataKey="label" tickLine={false} axisLine={false} tick={tick} interval="preserveStartEnd" minTickGap={24} />
+      <YAxis tickLine={false} axisLine={false} width={yWidth} tick={tick} tickFormatter={yFormat} allowDecimals={mode !== "count" || pctAxis}
         {...(ticks ? { ticks } : {})} {...(yDomain ? { domain: yDomain } : {})} />
       {customTooltip ? (
         <Tooltip content={<ChartTooltipContent mode={mode} showTotal={kind === "stacked"} reference={isCum ? undefined : reference} cumulative={isCum} />} />

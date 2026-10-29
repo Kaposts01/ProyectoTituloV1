@@ -7,11 +7,11 @@ import {
 } from "./MonthlyStatusChart";
 
 type Props = Record<string, unknown>;
-const seen = vi.hoisted(() => ({ Bar: [] as Props[], Line: [] as Props[], Area: [] as Props[], YAxis: [] as Props[], CartesianGrid: [] as Props[] }));
+const seen = vi.hoisted(() => ({ Bar: [] as Props[], Line: [] as Props[], Area: [] as Props[], YAxis: [] as Props[], XAxis: [] as Props[], CartesianGrid: [] as Props[] }));
 
 vi.mock("recharts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("recharts")>();
-  const spy = (name: "Bar" | "Line" | "Area" | "YAxis" | "CartesianGrid") => {
+  const spy = (name: "Bar" | "Line" | "Area" | "YAxis" | "XAxis" | "CartesianGrid") => {
     const Real = actual[name] as unknown as (p: Props) => ReactElement;
     return (props: Props) => {
       seen[name].push(props);
@@ -20,7 +20,7 @@ vi.mock("recharts", async (importOriginal) => {
   };
   return {
     ...actual,
-    Bar: spy("Bar"), Line: spy("Line"), Area: spy("Area"), YAxis: spy("YAxis"), CartesianGrid: spy("CartesianGrid"),
+    Bar: spy("Bar"), Line: spy("Line"), Area: spy("Area"), YAxis: spy("YAxis"), XAxis: spy("XAxis"), CartesianGrid: spy("CartesianGrid"),
     ResponsiveContainer: ({ children }: { children: ReactElement<{ width?: number; height?: number }> }) => (
       <div>{cloneElement(children, { width: 600, height: 280 })}</div>
     ),
@@ -54,6 +54,30 @@ describe("ChannelChart: mínimos de gráfico", () => {
     seen.YAxis.length = 0;
     render(<ChannelChart series={series} data={one} kind="bar" mode="amount" year={2025} />);
     expect(seen.YAxis[0].allowDecimals).not.toBe(false);
+  });
+
+  it("el eje Y de montos es lo bastante ancho para «$200.000» y «$12.345.678» (no recorta el «$»)", () => {
+    const money = [{ year: 2025, month: 3, count: 200000 }];
+    render(<ChannelChart series={series} data={money} kind="bar" mode="amount" year={2025} />);
+    const narrow = seen.YAxis[0].width as number;
+    expect(narrow).toBeGreaterThanOrEqual(8 * 7);
+    cleanup();
+    seen.YAxis.length = 0;
+    render(<ChannelChart series={series} data={[{ year: 2025, month: 3, count: 12345678 }]} kind="bar" mode="amount" year={2025} />);
+    expect(seen.YAxis[0].width as number).toBeGreaterThan(narrow);
+    expect(seen.YAxis[0].width as number).toBeGreaterThanOrEqual(11 * 7);
+  });
+
+  it("el eje Y de conteos conserva su ancho compacto", () => {
+    render(<ChannelChart series={series} data={one} kind="bar" mode="count" year={2025} />);
+    expect(seen.YAxis[0].width).toBe(56);
+  });
+
+  it("el eje X reduce la densidad de marcas: intervalo automático con separación mínima", () => {
+    const months = Array.from({ length: 12 }, (_, i) => ({ year: 2025 + Math.floor(i / 12), month: i + 1, count: 5 }));
+    render(<ChannelChart series={series} data={months} kind="grouped" mode="count" year={null} />);
+    expect(seen.XAxis[0].interval).toBe("preserveStartEnd");
+    expect(seen.XAxis[0].minTickGap as number).toBeGreaterThanOrEqual(24);
   });
 
   it("las líneas no se suavizan (linear)", () => {

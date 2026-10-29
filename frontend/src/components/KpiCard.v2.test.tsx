@@ -167,6 +167,13 @@ describe("ChurnKpiCard (D20)", () => {
     expect(container.querySelector("[role=meter], .gauge")).toBeNull();
   });
 
+  it("el texto de ayuda va dentro de la tarjeta", () => {
+    const { container } = render(<ChurnKpiCard churnRate={1} target={null} help="Bajas del mes ÷ socios al inicio del mes" />);
+    const help = screen.getByText("Bajas del mes ÷ socios al inicio del mes");
+    expect(container.querySelector("article")?.contains(help)).toBe(true);
+    expect(help).toHaveClass("kpi-help");
+  });
+
   it("sin meta ni dato: «sin meta» y «—»", () => {
     render(<ChurnKpiCard churnRate={null} target={null} />);
     expect(screen.getByLabelText("sin datos")).toBeInTheDocument();

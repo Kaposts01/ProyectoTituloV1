@@ -6,9 +6,8 @@ import type { SummaryGoalStatus, SummaryKpi, SummaryUnit, UnifiedSummary } from 
 const FORMAT: Record<SummaryUnit, KpiFormat> = { count: "count", clp: "clp", pct: "percent" };
 const CHIP: Record<SummaryGoalStatus, KpiChipStatus> = { none: "none", met: "met", near: "off", off: "off" };
 
-/** Texto de la definición PROPUESTA del churn (D31 pendiente): siempre visible junto a la tarjeta. */
-export const CHURN_HELP = "Bajas del mes ÷ socios al inicio del mes.";
-export const CHURN_HELP_TITLE = "Definición propuesta, pendiente de confirmación:";
+/** Definición del churn (D31 confirmada): siempre visible dentro de la tarjeta. */
+export const CHURN_HELP = "Bajas del mes ÷ socios al inicio del mes";
 const MEMBERS_NOTE = "Suma por canal, no deduplicada";
 const ONLY_CURRENT_MONTH = "Solo disponible para el mes en curso";
 
@@ -46,16 +45,14 @@ export function SummaryKpiGrid({ summary }: { summary: UnifiedSummary }) {
       <KpiCard label="Activaciones" {...common(kpis.activations)} caption="Altas del mes" emptyCaption={KPI_EMPTY_CAPTION} sparkline={activations} />
       <KpiCard label="Bajas" {...common(kpis.cancellations, "down")} caption="Bajas del mes" emptyCaption={KPI_EMPTY_CAPTION} sparkline={cancellations} />
       <KpiCard label="Crecimiento neto" {...common(kpis.netGrowth)} caption="Activaciones menos bajas" emptyCaption={KPI_EMPTY_CAPTION} sparkline={netGrowthHistory(series)} />
-      <div className="summary-kpi-cell">
-        <ChurnKpiCard
-          churnRate={kpis.churn.value}
-          target={kpis.churn.goal}
-          previous={kpis.churn.previousMonthValue}
-          history={churnHistory(series)}
-          windowLabel={kpis.churn.windowLabel ?? undefined}
-        />
-        <p className="summary-kpi-help"><strong>{CHURN_HELP_TITLE}</strong> {CHURN_HELP}</p>
-      </div>
+      <ChurnKpiCard
+        churnRate={kpis.churn.value}
+        target={kpis.churn.goal}
+        previous={kpis.churn.previousMonthValue}
+        history={churnHistory(series)}
+        windowLabel={kpis.churn.windowLabel ?? undefined}
+        help={CHURN_HELP}
+      />
       <KpiCard label="Cobrabilidad" {...common(kpis.collectability)} caption="Pagados ÷ (pagados + rechazados)" emptyCaption={KPI_EMPTY_CAPTION} />
       <KpiCard label="No cobrado" {...common(kpis.uncollected, "down")} caption="Cobros rechazados del mes" emptyCaption={KPI_EMPTY_CAPTION} />
       <KpiCard label="Por cobrar" {...common(kpis.receivable)} caption="Pendientes con fecha dentro del mes" emptyCaption={KPI_EMPTY_CAPTION} />
