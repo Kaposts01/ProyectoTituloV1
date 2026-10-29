@@ -122,3 +122,18 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
         )
         logger.info("Job '%s' registrado (cada minuto; detras de WEBHOOK_PROCESSOR_ENABLED).", JOB_WEBHOOK_PROCESSOR)
+
+    # RT-06: reconciliacion dirigida (cada 3 h de 07:00 a 22:00, D10). Detras de TARGETED_RECONCILE_ENABLED (apagada).
+    from app.scheduler.jobs.reconcile_targeted import reconcile_targeted
+
+    if not scheduler.get_job(JOB_TARGETED_RECONCILE):
+        scheduler.add_job(
+            reconcile_targeted,
+            trigger="cron",
+            hour="7,10,13,16,19,22",
+            minute=0,
+            id=JOB_TARGETED_RECONCILE,
+            name="Reconciliación dirigida por ventana de riesgo",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (07,10,13,16,19,22 h; detras de TARGETED_RECONCILE_ENABLED).", JOB_TARGETED_RECONCILE)
