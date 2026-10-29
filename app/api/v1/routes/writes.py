@@ -40,6 +40,9 @@ from app.services.write_toku import (
     CustomerNotFoundError as TokuCustomerNotFoundError,
 )
 from app.services.write_toku import (
+    DeleteAbortedError as TokuDeleteAbortedError,
+)
+from app.services.write_toku import (
     InvoiceNotFoundError as TokuInvoiceNotFoundError,
 )
 from app.services.write_toku import (
@@ -917,6 +920,11 @@ async def delete_toku_subscription(
         raise HTTPException(status_code=403, detail=_toku_blocked_detail(exc)) from None
     except TokuSubscriptionNotFoundError:
         raise HTTPException(status_code=404, detail="Suscripción Toku no encontrada") from None
+    except TokuDeleteAbortedError as exc:
+        # Fail-closed (MGT-05): la suscripción NO se eliminó. Solo el código fijo, sin texto del proveedor.
+        raise HTTPException(
+            status_code=502, detail=f"Eliminación abortada: la suscripción no se eliminó ({exc.code})."
+        ) from None
     except HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail="Toku rechazó la eliminación") from None
     except TokuReconciliationRequiredError:

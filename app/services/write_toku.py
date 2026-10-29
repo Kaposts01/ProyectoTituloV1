@@ -286,8 +286,32 @@ async def change_subscription_status(db: Session, subscription_id: str, status: 
     return sub
 
 
-async def delete_subscription(db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
-    """Delete a Toku subscription via DELETE /subscriptions/{id}."""
+class DeleteAbortedError(Exception):
+    """El borrado de la suscripcion se aborto ANTES de borrarla (fail-closed en todos los ambientes, MGT-05).
+
+    `code` es estable y fijo (`INVOICE_LIST_FAILED` | `INVOICE_VOID_FAILED`); nunca lleva texto libre del proveedor.
+    `voided_invoice_ids` son las invoices ya anuladas (irreversible) antes del fallo.
+    """
+
+    def __init__(self, code: str, *, voided_invoice_ids: list[str] | None = None, failed_invoice_id: str | None = None):
+        super().__init__(code)
+        self.code = code
+        self.voided_invoice_ids = list(voided_invoice_ids or [])
+        self.failed_invoice_id = failed_invoice_id
+
+
+_ABORT_STEPS = {"INVOICE_LIST_FAILED": "list_invoices", "INVOICE_VOID_FAILED": "void_invoice"}
+
+
+async def delete_subscription(
+    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None
+) -> Subscription:
+    """Delete a Toku subscription via DELETE /subscriptions/{id}.
+
+    Fail-closed en TODOS los ambientes (MGT-05): si falla el listado de invoices impagas, o la anulacion de alguna
+    invoice impaga que no esta `in_progress`, NO se borra la suscripcion (el DELETE es irreversible) y se lanza
+    `DeleteAbortedError` con un codigo fijo. Las `in_progress` no se tocan.
+    """
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "toku")
     )
@@ -309,6 +333,8 @@ async def delete_subscription(db: Session, subscription_id: str, *, requested_by
     db.add(write_run)
     db.commit()
 
+    voided: list[str] = []
+    skipped_in_progress: list[str] = []
     try:
         async with TokuClient() as provider:
             delete_op = ("DELETE", f"/subscriptions/{subscription_id}", None)
@@ -316,7 +342,7 @@ async def delete_subscription(db: Session, subscription_id: str, *, requested_by
             provider.precheck_writes([delete_op])
 
             # Anular invoices impagas antes del DELETE para evitar cobros huérfanos (RISK-TK-01).
-            # Solo se anulan las que no están in_progress; las in_progress se omiten con advertencia.
+            # Solo se anulan las que no están in_progress; las in_progress se omiten (quedan intactas).
             to_void: list[str] = []
             try:
                 invoices_resp = await provider.list_subscription_invoices(
@@ -328,20 +354,17 @@ async def delete_subscription(db: Session, subscription_id: str, *, requested_by
                     if not inv_id:
                         continue
                     if inv.get("in_progress"):
-                        log.warning(
-                            "Toku delete_subscription %s: invoice %s in_progress — omitida",
-                            subscription_id, inv_id,
-                        )
+                        skipped_in_progress.append(inv_id)
                         continue
                     to_void.append(inv_id)
+            except TokuWriteBlockedError:
+                raise
             except Exception as exc_list:
                 log.warning(
-                    "Toku delete_subscription %s: no se pudo obtener invoices impagas: %s",
-                    subscription_id, exc_list,
+                    "Toku delete_subscription %s: no se pudo obtener invoices impagas (%s); se aborta",
+                    subscription_id, type(exc_list).__name__,
                 )
-                if not settings.is_production:
-                    # Fail-closed fuera de produccion: sin el listado no se sabe si hay cobros pendientes.
-                    raise
+                raise DeleteAbortedError("INVOICE_LIST_FAILED") from exc_list
 
             # Los voids son IRREVERSIBLES: fuera de produccion se validan TODOS (voids + DELETE, incluido el
             # cupo restante) antes de anular ninguno; si algo no seria permitido se aborta sin tocar la red.
@@ -351,29 +374,63 @@ async def delete_subscription(db: Session, subscription_id: str, *, requested_by
             for inv_id in to_void:
                 try:
                     await provider.void_invoice(inv_id, {"delete_invoice": False})
-                    log.info("Toku delete_subscription %s: invoice %s anulada", subscription_id, inv_id)
                 except TokuWriteBlockedError:
                     raise
                 except Exception as exc_void:
                     log.warning(
-                        "Toku delete_subscription %s: no se pudo anular invoice %s: %s",
-                        subscription_id, inv_id, exc_void,
+                        "Toku delete_subscription %s: no se pudo anular invoice %s (%s); se aborta",
+                        subscription_id, inv_id, type(exc_void).__name__,
                     )
-                    if not settings.is_production:
-                        raise  # fail-closed: no borrar con invoices impagas sin anular
+                    # Fail-closed: no borrar con invoices impagas sin anular.
+                    raise DeleteAbortedError(
+                        "INVOICE_VOID_FAILED", voided_invoice_ids=voided, failed_invoice_id=inv_id
+                    ) from exc_void
+                voided.append(inv_id)
+                log.info("Toku delete_subscription %s: invoice %s anulada", subscription_id, inv_id)
 
             await provider.delete_subscription(subscription_id)
     except TokuWriteBlockedError as exc:
         _mark_blocked(db, write_run, exc)
         raise
+    except DeleteAbortedError as exc:
+        reconcile = bool(exc.voided_invoice_ids)
+        write_run.status = "reconciliation_required" if reconcile else "failed"
+        write_run.error_message = (
+            f"{exc.code}: borrado abortado antes de eliminar la suscripcion"
+            + ("; hay invoices ya anuladas (irreversible), revisar" if reconcile else "")
+        )
+        write_run.response_payload = {
+            "step": _ABORT_STEPS.get(exc.code, "unknown"),
+            "voided_invoice_ids": list(exc.voided_invoice_ids),
+            "failed_invoice_id": exc.failed_invoice_id,
+            "skipped_in_progress": skipped_in_progress,
+            "requires_reconciliation": reconcile,
+        }
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
     except Exception as exc:
-        write_run.status = "failed"
+        # Fallo del DELETE: con invoices ya anuladas (irreversible) hay que conciliar.
+        reconcile = bool(voided)
+        write_run.status = "reconciliation_required" if reconcile else "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
+        write_run.response_payload = {
+            "step": "delete_subscription",
+            "voided_invoice_ids": list(voided),
+            "failed_invoice_id": None,
+            "skipped_in_progress": skipped_in_progress,
+            "requires_reconciliation": reconcile,
+        }
         write_run.finished_at = datetime.now(UTC)
         db.commit()
         raise
 
     write_run.status = "remote_succeeded"
+    write_run.response_payload = {
+        "voided_invoice_ids": list(voided),
+        "skipped_in_progress": skipped_in_progress,
+        "requires_reconciliation": False,
+    }
     db.commit()
 
     try:

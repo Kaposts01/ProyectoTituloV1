@@ -484,14 +484,15 @@ def test_delete_subscription_fails_closed_when_unpaid_listing_fails_in_sandbox(m
         raise RuntimeError("listado caido")
 
     monkeypatch.setattr(toku_client.TokuClient, "_get", failing_get)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(write_toku.DeleteAbortedError):
         asyncio.run(write_toku.delete_subscription(db_session, "TEST-SUB-FC"))
     assert ("DELETE", "/subscriptions/TEST-SUB-FC") not in fake_http.calls
     run = db_session.scalars(select(WriteRun).where(WriteRun.external_id == "TEST-SUB-FC")).one()
     assert run.status == "failed"
 
 
-def test_delete_subscription_keeps_warning_behavior_in_production(monkeypatch, db_session, fake_http) -> None:
+def test_delete_subscription_fails_closed_when_unpaid_listing_fails_in_production(monkeypatch, db_session, fake_http) -> None:
+    """MGT-05: antes avisaba y borraba igual en produccion (fail-open); ahora aborta como fuera de produccion."""
     use_settings(monkeypatch, production())
     db_session.add(_sub("sub_prod_fc"))
     db_session.flush()
@@ -500,9 +501,12 @@ def test_delete_subscription_keeps_warning_behavior_in_production(monkeypatch, d
         raise RuntimeError("listado caido")
 
     monkeypatch.setattr(toku_client.TokuClient, "_get", failing_get)
-    sub = asyncio.run(write_toku.delete_subscription(db_session, "sub_prod_fc"))
-    assert sub.status == "deleted"
-    assert ("DELETE", "/subscriptions/sub_prod_fc") in fake_http.calls
+    with pytest.raises(write_toku.DeleteAbortedError) as e:
+        asyncio.run(write_toku.delete_subscription(db_session, "sub_prod_fc"))
+    assert e.value.code == "INVOICE_LIST_FAILED"
+    assert ("DELETE", "/subscriptions/sub_prod_fc") not in fake_http.calls
+    sub = db_session.scalars(select(Subscription).where(Subscription.external_id == "sub_prod_fc")).one()
+    assert sub.status != "deleted"
 
 
 @pytest.mark.parametrize(
