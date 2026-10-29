@@ -141,8 +141,8 @@ export function ActivacionCaidaChart({
         <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <Tooltip formatter={(v: unknown) => fmtVal(v, mode)} />
         <Legend wrapperStyle={{ fontSize: 10 }} />
-        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="activaciones" name="Activaciones" fill="#2563EB" radius={[4, 4, 0, 0]} barSize={20} />
-        <Line type="linear" dataKey="caidas" name="Caídas" stroke="#DC2626" strokeWidth={2} dot={{ fill: '#DC2626', r: 3 }} />
+        <Bar maxBarSize={MAX_BAR_SIZE} dataKey="activaciones" name="Activaciones" fill="var(--series-1)" radius={[4, 4, 0, 0]} barSize={20} />
+        <Line type="linear" dataKey="caidas" name="Caídas" stroke="var(--status-rejected)" strokeWidth={2} dot={{ fill: 'var(--status-rejected)', r: 3 }} />
       </ComposedChart>
     </ResponsiveContainer>
   )
@@ -188,10 +188,10 @@ export function CrecimientoMensualChart({
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
         <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10 }} allowDecimals={mode !== 'count'} />
         <Tooltip formatter={(v: unknown) => fmtVal(v, mode)} />
-        <ReferenceLine y={0} stroke="#94a3b8" />
+        <ReferenceLine y={0} stroke="var(--status-neutral)" />
         <Bar maxBarSize={MAX_BAR_SIZE} dataKey="net" name="Crecimiento neto" radius={[4, 4, 0, 0]}>
           {rows.map((entry, index) => (
-            <Cell key={`cell-${index}`} fill={entry.net >= 0 ? '#16A34A' : '#DC2626'} />
+            <Cell key={`cell-${index}`} fill={entry.net >= 0 ? 'var(--status-paid)' : 'var(--status-rejected)'} />
           ))}
         </Bar>
       </BarChart>
@@ -213,12 +213,12 @@ export function ChurnMensualChart({
   return (
     <ResponsiveContainer width="100%" height={220}>
       <ComposedChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="#e1e7e5" vertical={false} />
+        <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} />
         <YAxis tickLine={false} axisLine={false} width={52} tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${v}%`} />
         <Tooltip formatter={(v: unknown) => `${Number(v).toLocaleString('es-CL')}%`} />
-        <ReferenceLine y={0} stroke="#94a3b8" />
-        <Line type="monotone" dataKey="rate" name="Churn mensual (%)" stroke="#D97706" strokeWidth={2} dot={{ fill: '#D97706', r: 3 }} />
+        <ReferenceLine y={0} stroke="var(--status-neutral)" />
+        <Line type="monotone" dataKey="rate" name="Churn mensual (%)" stroke="var(--status-pending)" strokeWidth={2} dot={{ fill: 'var(--status-pending)', r: 3 }} />
       </ComposedChart>
     </ResponsiveContainer>
   )
@@ -294,9 +294,9 @@ export function TransaccionesSuscripcionesChart({
           name === 'Transacciones pagadas' ? fmtVal(v, mode) : Number(v).toLocaleString('es-CL')
         } />
         <Legend wrapperStyle={{ fontSize: 10 }} />
-        <Bar maxBarSize={MAX_BAR_SIZE} yAxisId="tx" dataKey="transacciones" name="Transacciones pagadas" fill="#2563EB" radius={[4, 4, 0, 0]} barSize={20} />
-        <Line yAxisId="subs" type="linear" dataKey="activas" name="Subs activas" stroke="#16A34A" strokeWidth={2} dot={{ fill: '#16A34A', r: 3 }} />
-        <Line yAxisId="subs" type="linear" dataKey="cobrables" name="Subs cobrables" stroke="#D97706" strokeWidth={2} dot={{ fill: '#D97706', r: 3 }} strokeDasharray="5 5" />
+        <Bar maxBarSize={MAX_BAR_SIZE} yAxisId="tx" dataKey="transacciones" name="Transacciones pagadas" fill="var(--series-1)" radius={[4, 4, 0, 0]} barSize={20} />
+        <Line yAxisId="subs" type="linear" dataKey="activas" name="Subs activas" stroke="var(--series-2)" strokeWidth={2} dot={{ fill: 'var(--series-2)', r: 3 }} />
+        <Line yAxisId="subs" type="linear" dataKey="cobrables" name="Subs cobrables" stroke="var(--series-4)" strokeWidth={2} dot={{ fill: 'var(--series-4)', r: 3 }} strokeDasharray="5 5" />
       </ComposedChart>
     </ResponsiveContainer>
   )
@@ -312,7 +312,7 @@ export function ChannelKpiChart({ channels, mode }: { channels: ChannelRow[]; mo
     clientes: c.clients,
   }))
   if (!rows.length) return <p className="empty-chart">Sin datos por canal.</p>
-  const COLOR = ['#2563EB', '#16A34A', '#D97706', '#7C3AED']
+  const COLOR = ['var(--series-1)', 'var(--series-2)', 'var(--series-4)', 'var(--series-3)']
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 24, left: 0, bottom: 4 }}>
@@ -342,15 +342,15 @@ export function IngresosMensualesChart({ data, year }: { data: MonthlyStatusEntr
   }
   const rows = [...byKey.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v)
   if (!rows.length) return <p className="empty-chart">Sin datos para este período.</p>
-  const COLORS: Record<string, string> = { VirtualPOS: '#2563EB', Toku: '#16A34A', Payku: '#D97706', TCH: '#7C3AED' }
+  const COLORS: Record<string, string> = { VirtualPOS: 'var(--series-1)', Toku: 'var(--series-2)', Payku: 'var(--series-4)', TCH: 'var(--series-3)' }
   return (
     <ResponsiveContainer width="100%" height={240}>
       <AreaChart data={rows} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
         <defs>
           {channels.map(ch => (
             <linearGradient key={ch} id={`grad-${ch}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={COLORS[ch] ?? '#94a3b8'} stopOpacity={0.3} />
-              <stop offset="95%" stopColor={COLORS[ch] ?? '#94a3b8'} stopOpacity={0.05} />
+              <stop offset="5%" stopColor={COLORS[ch] ?? 'var(--status-neutral)'} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={COLORS[ch] ?? 'var(--status-neutral)'} stopOpacity={0.05} />
             </linearGradient>
           ))}
         </defs>
@@ -362,7 +362,7 @@ export function IngresosMensualesChart({ data, year }: { data: MonthlyStatusEntr
         <Legend wrapperStyle={{ fontSize: 10 }} />
         {channels.map(ch => (
           <Area key={ch} type="linear" dataKey={ch} name={ch}
-            stroke={COLORS[ch] ?? '#94a3b8'} fill={`url(#grad-${ch})`} strokeWidth={2} stackId="1" />
+            stroke={COLORS[ch] ?? 'var(--status-neutral)'} fill={`url(#grad-${ch})`} strokeWidth={2} stackId="1" />
         ))}
       </AreaChart>
     </ResponsiveContainer>

@@ -12,18 +12,18 @@
   --fs-h3:           17px;
 
   /* backgrounds */
-  --bg-base:         #f2f5f4;
+  --bg-base: #f3f5fa;
   --bg-sidebar:      #111727; /* azul marino (D1; muestreado de docs/dashboardeinspiracion.png) */
   --bg-surface:      #ffffff;
-  --bg-metric-from:  #f4f8f7;
-  --bg-metric-to:    #eaf2ef;
-  --bg-hover:        #dde9e5;
-  --bg-muted:        #e4ebe9;
-  --bg-expand:       #dce7e3;
-  --bg-tag:          #e4eeeb;
+  --bg-metric-from: #f6f8fd;
+  --bg-metric-to: #ecf0f9;
+  --bg-hover: #e3e8f4;
+  --bg-muted: #e8ecf6;
+  --bg-expand: #dfe5f2;
+  --bg-tag: #e6eaf6;
   --bg-input:        #ffffff;
-  --bg-filter:       #edf4f1;
-  --bg-accent-panel: #1a3d47;
+  --bg-filter: #eef1f9;
+  --bg-accent-panel: #1c2a5a;
   /* ancho unico del menu lateral (DESIGN.md: 220 px) */
   --sidebar-w:       220px;
   /* etiquetas de grupo del menu sobre --bg-sidebar (AA >= 4.5:1) */
@@ -39,31 +39,31 @@
   --sidebar-brand-bg:     #6d3fd0;
   --sidebar-brand-text:   #ffffff;
   /* pestaña/pildora activa (texto sobre fondo, AA >= 4.5:1) */
-  --pill-active-bg:   #1a3d47;
+  --pill-active-bg: #1a5cae;
   --pill-active-text: #ffffff;
 
   /* borders */
-  --border:          #c9d5d2;
-  --border-light:    #d6dfdd;
-  --border-subtle:   #e1e7e5;
+  --border: #cbd2e3;
+  --border-light: #d8deed;
+  --border-subtle: #e3e7f2;
 
   /* text */
-  --text-1:          #111e22;
-  --text-2:          #4a6168;
-  --text-3:          #5e7278;
-  --text-4:          #809095;
-  --text-label:      #5e7278;
-  --text-on-primary: #f0f8f6;
+  --text-1: #131a2e;
+  --text-2: #475270;
+  --text-3: #5a6584;
+  --text-4: #8590aa;
+  --text-label: #5a6584;
+  --text-on-primary: #f4f7ff;
 
   /* brand */
-  --color-primary:   #1a3d47;
-  --color-accent:    #2a7a64;
-  --brand-text:      #f0f8f6;
+  --color-primary: #1a5cae;
+  --color-accent: #1f6fc1;
+  --brand-text: #f4f7ff;
 
   /* semantic */
   --pill-text:       #196b40;
   --pill-bg:         #d8f0e3;
-  --link-color:      #2a7a64;
+  --link-color: #1565b0;
   --error-border:    #e3c7ba;
   --error-bg:        #fff6f1;
   --error-text:      #8b3030;
@@ -72,17 +72,17 @@
   --status-paid:       #196b40;
   --status-rejected:   #8b3030;
   --status-pending:    #b7791f;
-  --status-processing: #4f7f93;
-  --status-neutral:    #7b8c91;
-  --status-unknown:    #a9b7ba;
+  --status-processing: #4f78a8;
+  --status-neutral: #7a869f;
+  --status-unknown: #a7b0c4;
   --warn-bg:         #fdf3dc;
   --warn-text:       #7a5200;
-  /* sync health dots (sit on the always-teal sidebar) */
+  /* puntos de salud de sincronizacion (sobre el menu azul marino) */
   --health-ok:       #4ecf8a;
   --health-warn:     #f2c14e;
   --health-error:    #ff8a80;
-  --health-unknown:  #93adb3;
-  --shadow-card:     rgba(26, 61, 71, 0.08);
+  --health-unknown: #9aa6c0;
+  --shadow-card: rgba(23, 32, 74, 0.08);
 
   /* paleta categorica de series (D19; violeta e indigo de la referencia, verde/azul/rosa como extras).
      Son MARCAS (barras, lineas, puntos): >= 3:1 sobre --bg-surface. El texto de leyenda usa --text-1/-2. */
@@ -118,7 +118,7 @@
   --env-warn-bg:     #f2c14e;
   --env-warn-text:   #2b1d00;
   --env-banner-h:    32px;
-  --scrim:           rgb(9 20 24 / 55%);
+  --scrim: rgb(10 14 30 / 55%);
 
   /* aliases for App.css compatibility */
   --bg:              var(--bg-base);
@@ -129,19 +129,19 @@
 
 html[data-theme="dark"] {
   --scrim:           rgb(0 0 0 / 72%);
-  /* Dark mode derived from brand teal — not GitHub Dark */
-  --bg-base:         #0d1e23;
+  /* Modo oscuro azul-gris (D27), derivado de la referencia de inspiracion; no GitHub Dark */
+  --bg-base: #101626;
   --bg-sidebar:      #0a0f1c;
-  --bg-surface:      #162830;
-  --bg-metric-from:  #1a2f37;
-  --bg-metric-to:    #162830;
-  --bg-hover:        #1e3440;
-  --bg-muted:        #1a2f37;
-  --bg-expand:       #1e3440;
-  --bg-tag:          #1a2f37;
-  --bg-input:        #0d1e23;
-  --bg-filter:       #162830;
-  --bg-accent-panel: #162830;
+  --bg-surface: #182036;
+  --bg-metric-from: #1c2540;
+  --bg-metric-to: #182036;
+  --bg-hover: #232d4a;
+  --bg-muted: #1c2540;
+  --bg-expand: #232d4a;
+  --bg-tag: #1c2540;
+  --bg-input: #101626;
+  --bg-filter: #182036;
+  --bg-accent-panel: #182036;
   --sidebar-label:        #9aa5bd;
   --sidebar-label-active: #ffffff;
   --sidebar-text:         #b6bfd2;
@@ -152,27 +152,27 @@ html[data-theme="dark"] {
   --sidebar-border:       #1f2638;
   --sidebar-brand-bg:     #6d3fd0;
   --sidebar-brand-text:   #ffffff;
-  --pill-active-bg:   #226655;
+  --pill-active-bg: #2f6fc4;
   --pill-active-text: #ffffff;
 
-  --border:         #243d47;
-  --border-light:    #1e3440;
-  --border-subtle:   #1a2f37;
+  --border: #2a3555;
+  --border-light: #232c48;
+  --border-subtle: #1d2540;
 
-  --text-1:          #d0e5e0;
-  --text-2:          #7a9ca4;
-  --text-3:          #5d7d87;
-  --text-4:          #3a5a64;
-  --text-label:      #7a9ca4;
-  --text-on-primary: #d0e5e0;
+  --text-1: #dde4f5;
+  --text-2: #9aa7c7;
+  --text-3: #7d8bb0;
+  --text-4: #56628a;
+  --text-label: #9aa7c7;
+  --text-on-primary: #f4f7ff;
 
-  --color-primary:   #2a7a64;
-  --color-accent:    #3a9d7e;
-  --brand-text:      #d0e5e0;
+  --color-primary: #2f6fc4;
+  --color-accent: #5aa2ee;
+  --brand-text: #f4f7ff;
 
   --pill-text:       #4ecf8a;
   --pill-bg:         #0d2b1a;
-  --link-color:      #3a9d7e;
+  --link-color: #6fb0f2;
   --error-border:    #4a1a1a;
   --error-bg:        #1a0d0d;
   --error-text:      #f08080;
@@ -180,15 +180,15 @@ html[data-theme="dark"] {
   --status-paid:       #4ecf8a;
   --status-rejected:   #f08080;
   --status-pending:    #f2c14e;
-  --status-processing: #6fa3b8;
-  --status-neutral:    #8aa0a6;
-  --status-unknown:    #5d7d87;
+  --status-processing: #7ea4d6;
+  --status-neutral: #8c9ac0;
+  --status-unknown: #62709a;
   --warn-bg:         #2b2208;
   --warn-text:       #f2c14e;
   --health-ok:       #4ecf8a;
   --health-warn:     #f2c14e;
   --health-error:    #ff8a80;
-  --health-unknown:  #93adb3;
+  --health-unknown: #9aa6c0;
   --shadow-card:     rgba(0, 0, 0, 0.45);
   --series-1:        #9b7af0;
   --series-2:        #7f8af5;
@@ -207,7 +207,7 @@ html[data-theme="dark"] {
   --chip-none-text:  #b7c0d4;
   --delta-up:        #4ecf8a;
   --delta-down:      #f08080;
-  --delta-flat:      #7a9ca4;
+  --delta-flat: #9aa7c7;
   --kpi-hero-bg:     #3b3fbf;
   --kpi-hero-text:   #ffffff;
   --kpi-hero-muted:  #e0e2ff;

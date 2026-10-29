@@ -1,14 +1,16 @@
 ---
 # gstack: design-md-format=spec
 name: SynkmetriX
-description: "Registro industrial — herramienta operativa teal oscuro, datos en mono, confiabilidad como norte visual."
+description: "Registro industrial — herramienta operativa azul-gris con acento azul, datos en mono, confiabilidad como norte visual."
 colors:
-  primary: "#1a3d47"
-  on-primary: "#f0f8f6"
+  primary: "#1a5cae"
+  on-primary: "#f4f7ff"
   surface: "#ffffff"
-  text: "#111e22"
-  text-muted: "#4a6168"
-  accent: "#2a7a64"
+  background: "#f3f5fa"
+  text: "#131a2e"
+  text-muted: "#475270"
+  link: "#1565b0"
+  accent: "#1f6fc1"
   success: "#196b40"
   warning: "#7a5200"
   error: "#8b3030"
@@ -56,9 +58,9 @@ components:
     textColor: "#ffffff"
     rounded: "{rounded.md}"
   button-primary-hover:
-    backgroundColor: "#226655"
+    backgroundColor: "#1f6fc1"
   input:
-    borderColor: "#cdd8d5"
+    borderColor: "#cbd2e3"
     rounded: "{rounded.md}"
   card:
     backgroundColor: "{colors.surface}"
@@ -85,16 +87,16 @@ components:
 **Key characteristics:**
 - Sidebar azul marino oscuro (#111727 claro / #0a0f1c oscuro): señal de "estoy en la herramienta", no decoración (D1, 2026-10-29; antes teal)
 - Todos los datos numéricos en JetBrains Mono — RUTs, IDs, montos, timestamps; los datos se leen como datos
-- Dark mode derivado del teal para superficies — no préstamo de GitHub Dark; el sidebar es azul marino en ambos temas
-- Gráficos con paleta categórica violeta/índigo (`--series-1..6`), no con el acento teal
+- Dark mode azul-gris propio (D27), derivado de la imagen de inspiración — no préstamo de GitHub Dark; el sidebar es azul marino en ambos temas
+- Gráficos con paleta categórica violeta/índigo (`--series-1..6`), no con el acento azul de interacción
 - Tablas first-class: filas de 38px, header en caps pequeñas, hover suave
 - Sin decoración: ni blobs, ni íconos en círculo de color, ni sombras agresivas
 
 ## Colors
 
-**Strategy:** Committed — el teal profundo (#1a3d47) es dueño de la marca. Los neutrales tienen base azul-verde, no gris puro.
+**Strategy:** Committed — el azul de acción (#1a5cae) es el color de marca interactivo y los neutrales tienen base azul-gris (D27, 2026-10-29; antes teal profundo #1a3d47 con neutrales azul-verdosos).
 
-**Light or dark:** Ambos modos definidos. La sidebar siempre en azul marino (#111727 en claro; en oscuro deriva a #0a0f1c, más oscuro que el bg de base). No invertir ingenuamente: el modo oscuro tiene su propia paleta, verificada para contraste. Las superficies oscuras siguen derivadas del teal (ver duda abierta al final).
+**Light or dark:** Ambos modos definidos. La sidebar siempre en azul marino (#111727 en claro; en oscuro deriva a #0a0f1c, más oscuro que el bg de base). No invertir ingenuamente: el modo oscuro tiene su propia paleta azul-gris, verificada para contraste.
 
 **Sidebar azul marino (D1).** Tonos muestreados píxel a píxel de `docs/dashboardeinspiracion.png`: fondo #111727, ítem activo/campo de búsqueda #242a38. Tokens: `--bg-sidebar`, `--sidebar-text` (#c3cada claro / #b6bfd2 oscuro, ≥ 4,5:1), `--sidebar-text-strong` (#ffffff), `--sidebar-label` (#a3adc2 / #9aa5bd), `--sidebar-hover-bg` (blanco 8 %), `--sidebar-active-bg` (#242a38 claro / #1b2233 oscuro) con `--sidebar-active-text` (#fff, además en peso 700: el activo no depende solo del color), `--sidebar-border`, marca `--sidebar-brand-bg` (#6d3fd0, violeta de la serie 1 oscurecido para texto blanco ≥ 4,5:1). Foco de teclado en el menú: anillo `--series-4` de 2px.
 
@@ -111,15 +113,28 @@ components:
 | `--series-muted` | #f5eaff | #2a2350 | barras no seleccionadas, relleno de área |
 | `--chart-ref` | #2b3350 | #cbd3e6 | línea punteada de meta (≥ 3:1) |
 
-Orden de uso: series 1 y 2 primero; 3–6 solo si hay más categorías. Los estados de negocio (pagado/rechazado/pendiente) siguen en `--status-*` (statusColors.ts) y los canales en chartColors.ts: no se mezclan con `--series-N`. Con series 1 y 2 en el mismo gráfico, distinguirlas además por leyenda directa o etiqueta (violeta e índigo son cercanos para daltonismo).
+Orden de uso: series 1 y 2 primero; 3–6 solo si hay más categorías. Los estados de negocio (pagado/rechazado/pendiente) siguen en `--status-*` (statusColors.ts). Los canales (`chartColors.ts`) usan un mapeo fijo sobre `--series-N`: VirtualPOS `--series-1`, Toku `--series-2`, TCH `--series-3`, Payku `--series-4`; un estado nunca usa un token de serie. Los gráficos antiguos (`MonthlyStatusChart.tsx`) ya no tienen hex fijos: usan `--series-N` para series, `--status-*` para semántica (rojo de bajas/caídas, verde de neto positivo, ámbar de churn) y `--chart-grid`. Con series 1 y 2 en el mismo gráfico, distinguirlas además por leyenda directa o etiqueta (violeta e índigo son cercanos para daltonismo).
 
 **Chips de meta y semáforo.** Tres chips pill con dot + texto (nunca solo color): «en meta» (`--chip-ok-*`, verde), «lejos de meta» (`--chip-off-*`, rojo), «sin meta» (`--chip-none-*`, neutro). Texto ≥ 4,5:1 sobre su fondo en ambos temas. Delta vs período anterior: `--delta-up` / `--delta-down` / `--delta-flat` (texto ≥ 4,5:1 sobre superficie) con flecha ▲ ▼ ▬ y texto «sube/baja/sin cambio». Semáforo semántico: `--status-paid`, `--status-rejected`, `--status-pending` ≥ 3:1 como marca.
 
 **Tarjeta KPI destacada.** `--kpi-hero-bg` (#2e2a8f claro / #3b3fbf oscuro), texto `--kpi-hero-text` y subtexto `--kpi-hero-muted` ≥ 4,5:1, barra `--kpi-hero-fill` sobre `--kpi-hero-track`. Máximo 1–2 por pantalla. Todas las razones de contraste las vigila `frontend/src/designTokens.test.ts`.
 
-El acento (#2a7a64) señala interacción: hover, focus ring, botón primario, nav item activo. En dark mode escala a #3a9d7e para mantener contraste sobre fondos oscuros. No usar el acento como decoración — solo para estados interactivos o alertas de acción positiva.
+**Superficies, primario y acción azul-gris / azul (D27).** Tonos tomados de la imagen de inspiración (contenido blanco y azul-gris muy claro, enlaces y acciones en azul). Todos los pares de texto cumplen ≥ 4,5:1 y las marcas de acción ≥ 3:1; los vigila `frontend/src/designTokens.test.ts` (bloque «D27»).
 
-Los colores semánticos (success/warning/error) son independientes del acento. No usar verde de acento para éxito — el éxito es #196b40, un verde más saturado y diferenciable.
+| Token | Claro | Oscuro | Uso |
+|---|---|---|---|
+| `--bg-base` | #f3f5fa | #101626 | fondo de la página |
+| `--bg-surface` | #ffffff | #182036 | tarjetas, tablas, diálogos |
+| `--bg-hover` / `--bg-muted` / `--bg-filter` | #e3e8f4 / #e8ecf6 / #eef1f9 | #232d4a / #1c2540 / #182036 | hover, relleno neutro, paneles de filtro |
+| `--border` / `--border-light` / `--border-subtle` | #cbd2e3 / #d8deed / #e3e7f2 | #2a3555 / #232c48 / #1d2540 | bordes |
+| `--text-1` / `-2` / `-3` | #131a2e / #475270 / #5a6584 | #dde4f5 / #9aa7c7 / #7d8bb0 | texto (≥ 4,5:1 sobre superficie y fondo) |
+| `--color-primary` | #1a5cae | #2f6fc4 | botón primario, pestaña activa (texto `--text-on-primary` #f4f7ff ≥ 4,5:1) |
+| `--color-accent` | #1f6fc1 | #5aa2ee | foco, subrayado de pestaña, hover (≥ 3:1) |
+| `--link-color` | #1565b0 | #6fb0f2 | enlaces y botones de texto (≥ 4,5:1) |
+
+El acento azul señala interacción: hover, focus ring, botón primario, pestaña activa, enlaces. No usarlo como decoración — solo para estados interactivos o alertas de acción positiva. En modo oscuro escala a #5aa2ee para mantener contraste sobre fondos oscuros. El panel de sincronización destacado usa `--bg-accent-panel` (#1c2a5a claro / #182036 oscuro).
+
+Los colores semánticos (success/warning/error) son independientes del acento. El éxito es #196b40 (verde), nunca el azul de acción.
 
 ## Typography
 
@@ -145,11 +160,11 @@ Sidebar colapsa a top-bar en mobile con scroll horizontal para nav items.
 
 ## Elevation & Depth
 
-Shadow card: `0 1px 3px rgba(26,61,71,.08), 0 0 0 1px rgba(26,61,71,.04)` — offset mínimo + ring tenue. En dark mode: `0 1px 3px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.04)`.
+Shadow card: `0 1px 3px rgba(23,32,74,.08), 0 0 0 1px rgba(23,32,74,.04)` — offset mínimo + ring tenue. En dark mode: `0 1px 3px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.04)`.
 
 No zero-offset colored shadows. No glow halos. La profundidad viene del borde sutil, no de la sombra agresiva.
 
-Cards elevadas (modales, drawers): `0 3px 12px rgba(26,61,71,.10), 0 0 0 1px rgba(26,61,71,.04)`.
+Cards elevadas (modales, drawers): `0 3px 12px rgba(23,32,74,.10), 0 0 0 1px rgba(23,32,74,.04)`.
 
 ## Shapes
 
@@ -162,13 +177,13 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 ## Components
 
-**Botones:** Tres variantes: primary (accent bg, white text), secondary (accent-sub bg, accent text), ghost (transparent bg, border). Destructive (error-bg, error text). Todos con `border-radius: var(--r2)`. Disabled siempre con `opacity: 0.45`, cursor `not-allowed`.
+**Botones:** Tres variantes: primary (`--color-primary` bg, `--text-on-primary`), secondary (accent-sub bg, accent text), ghost (transparent bg, border). Destructive (error-bg, error text). Todos con `border-radius: var(--r2)`. Disabled siempre con `opacity: 0.45`, cursor `not-allowed`.
 
 **Badges de estado:** Cuatro variantes semánticas (ok/warning/error/neutral) + dot indicador de 5px. Font-size 11px / weight 600. Siempre pill (`border-radius: 9999px`). Padding 2px 8px. No usar el color del badge como único indicador — siempre acompañar con texto o dot.
 
 **Channel tags:** Font-size 10px / JetBrains Mono / background surface-alt / border color. Pequeños y discretos — son metadata, no foco.
 
-**Inputs:** Border 1px solid `--border`. Focus ring: `0 0 0 3px rgba(42,122,100,.12)` + border-color `--accent`. Mono variant para valores de datos (RUT, monto). Labels: 10px / 600 / uppercase / text-label.
+**Inputs:** Border 1px solid `--border`. Focus ring: anillo azul de 3px con `--color-accent` al 12–35 % + border-color `--color-accent`. Mono variant para valores de datos (RUT, monto). Labels: 10px / 600 / uppercase / text-label.
 
 **Tables:** Ver Layout. Header en caps pequeñas. TD con `font-variant-numeric: tabular-nums` en todas las columnas numéricas. Columnas de monto: `text-align: right`. Hover de fila: `background: var(--surface-alt)` — no shadow, no scale.
 
@@ -204,11 +219,11 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 - Usar `--series-N` para series de gráficos (violeta/índigo primero) y validar ≥ 3:1 de marcas y ≥ 4,5:1 de texto
 - Señalar estado con badge + dot + texto (nunca solo color)
 - Usar `font-variant-numeric: tabular-nums` en columnas de tabla numéricas
-- Derivar el dark mode del teal — no copiar paletas de otras herramientas
+- Mantener el dark mode azul-gris propio (D27) — no copiar paletas de otras herramientas
 
 **Don't:**
 - No usar Inter como fuente en ningún rol — Cabinet Grotesk y General Sans la reemplazan completamente
-- No usar el acento verde como decoración — solo estados interactivos y acción positiva
+- No usar el acento azul como decoración — solo estados interactivos y acción positiva
 - No anidar cards (card dentro de card)
 - No usar sombras de borde de color lateral en cards
 - No usar `rgba(0,0,0,.X)` para bordes — usar los tokens `--border` y `--border-subtle`
@@ -238,6 +253,7 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 | 2026-10-29 | D20: churn como tarjeta KPI con chip, meta y sparkline (no velocímetro) | Decisión del usuario; alineado con el tablero de la jefatura |
 | 2026-10-29 | D9: los cambios se avisarán por SSE | Decisión del usuario; sin cambios de diseño por ahora (se implementa aparte) |
 | 2026-10-29 | Chips de meta, delta, tarjeta KPI destacada y gráficos de evolución especificados (UX-01/02/03) | Referencia: tablero de la jefatura. Texto ≥ 4,5:1, marcas ≥ 3:1 |
+| 2026-10-29 | D27: se migran TAMBIÉN las superficies del contenido, el color primario y el color de acción (botones, enlaces, foco) a azul-gris y azul, en claro y oscuro; los gráficos antiguos pasan a `--series-N` | Decisión del usuario, a partir de docs/dashboardeinspiracion.png. Revierte «Dark mode derivado del teal» (2026-10-21) y el primario/acento teal; cierra las dudas abiertas 1, 2 y 5. Texto ≥ 4,5:1 y marcas ≥ 3:1 vigilados por `designTokens.test.ts`. Pendiente: `--accent-primary`/`--accent-secondary` de Staging.css no están definidos (preexistente) y los tonos de `metric-dot` y badges siguen fijos |
 | 2026-10-21 | Estados UI especificados en tabla (tabla Interaction States) | Empty states son features: OperationalAlerts con null-return → estado positivo con warmth |
 
 ## Design Review Completion Summary
@@ -280,8 +296,7 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 **VERDICT:** Design Review completa — 6 brechas aprobadas para implementación. eng review required antes de ship.
 
 **Dudas abiertas para el usuario (2026-10-29), NO aplicadas:**
-1. Las superficies del modo oscuro siguen en teal (#0d1e23 / #162830) con sidebar azul marino; la referencia usa todo azul-gris. ¿Migrar también superficies, primario y acento a azul/violeta?
-2. El acento interactivo (botones, foco, enlaces) sigue en teal #2a7a64; la referencia usa azul (#2197d3 en enlaces). ¿Se cambia?
+1. ~~Superficies oscuras en teal~~ y 2. ~~acento teal~~: resueltas por D27 (2026-10-29), ver Decisions Log.
 3. El Layout sigue describiendo la navegación de 2 niveles por proveedor; se reescribe en UX-05 con la nueva IA.
 4. Título «hero» grande (DEC-41) y encabezado marino de página (C1/C4/C6 de la auditoría): sin aplicar.
-5. Colores de canal (chartColors.ts) y de MonthlyStatusChart siguen con sus hex propios; migrarlos a `--series-N` queda para una tarea posterior.
+5. ~~Colores de canal y de MonthlyStatusChart~~: migrados a `--series-N` / `--status-*` (D27). Queda DEC-36 (color de altas/bajas): bajas usa el rojo semántico `--status-rejected`.

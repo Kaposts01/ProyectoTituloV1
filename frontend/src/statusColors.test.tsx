@@ -133,7 +133,9 @@ describe("mismo estado, mismo color en barra, gráfico apilado y leyenda", () =>
   });
 
   it("los colores de CANAL siguen aparte (no se mezclan con estados)", () => {
-    expect(chartStatusColor("VirtualPOS")).toBe("#2563EB");
-    expect(chartStatusColor("Toku")).toBe("#7C3AED");
+    expect(chartStatusColor("VirtualPOS")).toBe("var(--series-1)");
+    expect(chartStatusColor("Toku")).toBe("var(--series-2)");
+    expect(chartStatusColor("Payku")).toBe("var(--series-4)");
+    expect(chartStatusColor("TCH")).toBe("var(--series-3)");
   });
 });

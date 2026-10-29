@@ -18,7 +18,7 @@ export type PivotSeries = { key: string; label: string; color: string };
 import { statusColor } from "../statusColors";
 
 /** Paleta genérica para series que NO son un estado (altas, tendencia). El color de un estado sale de statusColors.ts. */
-export const STATUS_PALETTE = ["#2a7a64", "#2563EB", "#D97706", "#7C3AED", "#DC2626", "#0891B2", "#DB2777", "#65A30D", "#94a3b8"];
+export const STATUS_PALETTE = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)", "var(--status-rejected)", "var(--status-pending)", "var(--status-neutral)"];
 
 const ym = (y: number, m: number) => y * 12 + (m - 1);
 

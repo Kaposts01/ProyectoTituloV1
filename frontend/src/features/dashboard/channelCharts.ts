@@ -10,7 +10,7 @@ type StatusValue = MonthValue & { status?: string | null };
 const ym = (y: number, m: number) => y * 12 + (m - 1);
 const toYm = (id: number) => ({ year: Math.floor(id / 12), month: (id % 12) + 1 });
 const ALTAS_COLOR = STATUS_PALETTE[0];
-const BAJAS_COLOR = "#DC2626";
+const BAJAS_COLOR = "var(--status-rejected)"; // rojo semántico; DEC-36 (altas/bajas) sigue abierta
 const NEUTRAL_COLOR = STATUS_PALETTE[1];
 
 const valueOf = (entry: MonthValue, mode: ChartMode): number => Number(entry[mode] ?? 0) || 0;

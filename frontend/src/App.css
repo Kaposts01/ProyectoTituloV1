@@ -173,12 +173,12 @@ h3 { margin: 0; font-size: var(--fs-h3); font-weight: 600; letter-spacing: -.01e
 .sync-panel {
   width: 280px;
   background: var(--bg-accent-panel);
-  color: #edf5f3;
+  color: #eef1fb;
   border-color: transparent;
 }
-.sync-panel .eyebrow { color: #b4c9c8; }
+.sync-panel .eyebrow { color: #bcc6e0; }
 .sync-panel strong { display: block; margin: 34px 0 8px; font-size: 27px; text-transform: capitalize; }
-.sync-panel p { color: #b4c9c8; font-size: 13px; }
+.sync-panel p { color: #bcc6e0; font-size: 13px; }
 .sync-panel a { display: inline-block; margin-top: 28px; color: #fff1c9; font-size: 13px; font-weight: 700; }
 .panel-heading { display: flex; justify-content: space-between; align-items: end; margin-bottom: 15px; }
 .panel-heading > span { color: var(--text-3); font-size: 13px; }
@@ -261,7 +261,7 @@ td:first-child { font-weight: 700; }
   /* ── Overlay ─────────────────────────────────────────────────────── */
   .sidebar-overlay {
     display: block; position: fixed; inset: 0; z-index: 199;
-    background: var(--scrim, rgb(9 20 24 / 62%));
+    background: var(--scrim, rgb(10 14 30 / 62%));
   }
 
   /* ── Sidebar drawer ──────────────────────────────────────────────── */
@@ -642,7 +642,7 @@ td:first-child { font-weight: 700; }
 .health-dot.error { background: var(--health-error); }
 .health-dot.unknown { background: var(--health-unknown); }
 
-/* ── Burger button (mobile) with teal bg ────────────────────────────── */
+/* ── Burger button (mobile) con fondo primario ────────────────────────────── */
 @media (max-width: 800px) {
   .burger-btn span { background: rgba(255, 255, 255, 0.90); }
 }

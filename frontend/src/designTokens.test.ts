@@ -254,3 +254,50 @@ describe("chips de meta, delta y semaforo", () => {
     });
   }
 });
+
+describe("D27 superficies, primario y accion en azul-gris y azul (claro y oscuro)", () => {
+  /** Matiz en grados (0-360); el teal anterior estaba en ~190-195, el azul-gris de la referencia en ~205-250. */
+  const hueOf = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return 220; // gris neutro/blanco puro: no tiene matiz propio
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  };
+  const bluish = (hex: string) => hueOf(hex) >= 205 && hueOf(hex) <= 250;
+  for (const [name, t] of Object.entries(themesAll)) {
+    it(`${name}: superficies, bordes, primario, acento y enlace son azulados (ya no teal)`, () => {
+      for (const k of ["--bg-base", "--bg-surface", "--bg-hover", "--bg-muted", "--bg-input", "--border", "--border-subtle", "--color-primary", "--color-accent", "--link-color"]) {
+        expect(bluish(hexOf(t, k)), `${k} ${name}`).toBe(true);
+      }
+    });
+    it(`${name}: texto (--text-1/-2/-3) >= 4.5:1 sobre --bg-surface y --bg-base`, () => {
+      for (const bg of ["--bg-surface", "--bg-base"]) {
+        for (const k of ["--text-1", "--text-2", "--text-3", "--text-label"]) {
+          expect(ratio(hexOf(t, k), hexOf(t, bg)), `${k} sobre ${bg} ${name}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+    it(`${name}: enlaces >= 4.5:1 sobre superficie y fondo; texto sobre hover y relleno de filtro >= 4.5:1`, () => {
+      for (const bg of ["--bg-surface", "--bg-base"]) expect(ratio(hexOf(t, "--link-color"), hexOf(t, bg)), `link sobre ${bg}`).toBeGreaterThanOrEqual(4.5);
+      for (const bg of ["--bg-hover", "--bg-muted", "--bg-filter", "--bg-tag"]) expect(ratio(hexOf(t, "--text-2"), hexOf(t, bg)), `text-2 sobre ${bg}`).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${name}: boton primario (texto sobre --color-primary) y pestaña activa >= 4.5:1`, () => {
+      expect(ratio(hexOf(t, "--text-on-primary"), hexOf(t, "--color-primary"))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--brand-text"), hexOf(t, "--color-primary"))).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${name}: marcas de accion (primario, acento de foco/subrayado) >= 3:1 sobre la superficie`, () => {
+      expect(ratio(hexOf(t, "--color-primary"), hexOf(t, "--bg-surface"))).toBeGreaterThanOrEqual(3);
+      expect(ratio(hexOf(t, "--color-accent"), hexOf(t, "--bg-surface"))).toBeGreaterThanOrEqual(3);
+      expect(ratio(hexOf(t, "--status-processing"), hexOf(t, "--bg-surface"))).toBeGreaterThanOrEqual(3);
+    });
+    it(`${name}: el menu sigue siendo mas oscuro que el contenido azul-gris`, () => {
+      expect(lum(hexOf(t, "--bg-sidebar"))).toBeLessThan(lum(hexOf(t, "--bg-base")));
+    });
+  }
+  it("los gráficos de canal usan tokens --series-N, no hex fijos", () => {
+    const chartColors = readFileSync("src/chartColors.ts", "utf8");
+    expect(chartColors).not.toMatch(/#[0-9a-f]{6}/i);
+    expect(readFileSync("src/MonthlyStatusChart.tsx", "utf8")).not.toMatch(/#[0-9a-f]{6}/i);
+  });
+});

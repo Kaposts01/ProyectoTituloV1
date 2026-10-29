@@ -810,7 +810,7 @@
   padding: 0 13px;
   cursor: pointer;
   color: #fff;
-  background: var(--accent-primary, #1a7f3c);
+  background: var(--color-primary);
   font: inherit;
   font-size: 12px;
   font-weight: 800;
@@ -1213,13 +1213,13 @@
   padding: 0 13px;
   cursor: pointer;
   color: #fff;
-  background: #238636;
+  background: var(--color-primary);
   font: inherit;
   font-size: 12px;
   font-weight: 800;
 }
 
-.new-client-button:hover { background: #1a6b2a; }
+.new-client-button:hover { filter: brightness(1.12); }
 
 @media (max-width: 800px) {
   .source-summary { grid-template-columns: 1fr; }
