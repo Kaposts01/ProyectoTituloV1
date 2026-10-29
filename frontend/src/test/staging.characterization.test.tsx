@@ -289,15 +289,22 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
     expect(await screen.findByText("Cargando mini dashboard...")).toBeTruthy();
   });
 
-  // Rareza actual (sin corregir): si falla la carga, la vista de canal no muestra el error
-  // (el mensaje queda en `error`, que esta vista no pinta) y se queda en «Cargando mini dashboard...».
-  it("RAREZA: si falla la carga se queda en «Cargando mini dashboard...» sin mostrar el error", async () => {
-    const app = mountApp("/toku/resumen", [["GET", "/api/v1/staging/dashboard/toku", failWith(500, "dashboard roto")]]);
+  // Hallazgo 4 de UX-04 (corregido): antes el mensaje quedaba en `error`, que esta vista no pinta,
+  // y la pantalla se quedaba en «Cargando mini dashboard...».
+  it("si falla la carga muestra el error con «Reintentar» y, al reintentar, el dashboard", async () => {
+    let calls = 0;
+    const app = mountApp("/toku/resumen", [[
+      "GET", "/api/v1/staging/dashboard/toku",
+      () => (++calls === 1 ? failWith(500, "dashboard roto") : channelDashboard("toku")),
+    ]]);
     await appReady();
-    await waitFor(() => expect(app.exact("GET", "/api/v1/staging/dashboard/toku")).toHaveLength(1));
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(screen.getByText("Cargando mini dashboard...")).toBeTruthy();
-    expect(screen.queryByText("dashboard roto")).toBeNull();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("dashboard roto");
+    expect(screen.queryByText("Cargando mini dashboard...")).toBeNull();
+    fireEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(app.exact("GET", "/api/v1/staging/dashboard/toku")).toHaveLength(2);
   });
 
   it("cambiar de modo y de año conserva la selección; abrir un recurso navega a su lista", async () => {

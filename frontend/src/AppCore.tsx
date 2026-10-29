@@ -75,7 +75,7 @@ function AppCore() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const {
-    channel, setChannel, channelData, setChannelData, channelLoading, setChannelLoading, channelRefreshing, syncing, mode, setMode, year, setYear, syncChannel,
+    channel, setChannel, channelData, setChannelData, channelLoading, setChannelLoading, channelRefreshing, channelError, setChannelError, reloadChannel, syncing, mode, setMode, year, setYear, syncChannel,
   } = useChannelDashboard(session, setError);
   const stagingList = useStagingRecords({ session, activeSection, setError, setLoading });
   const {
@@ -279,6 +279,7 @@ function AppCore() {
     const cached = getCached<ChannelDashboard>(`dashboard:${source}`, 5 * 60 * 1000);
     setChannelData(cached);
     setChannelLoading(!cached);
+    setChannelError(null);
     setError(null);
     setYear(null);
     setChannel(source);
@@ -602,7 +603,14 @@ function AppCore() {
     providerDetail ??
     tchContent ??
     (channel ? (
-      channelLoading || !channelData ? (
+      channelError && !channelData ? (
+        <main className="app-shell">
+          <div className="error-message" role="alert">
+            <p>{channelError}</p>
+            <button type="button" className="secondary-button" onClick={reloadChannel}>Reintentar</button>
+          </div>
+        </main>
+      ) : channelLoading || !channelData ? (
         <main className="app-shell">
           <p className="muted-copy">Cargando mini dashboard...</p>
         </main>

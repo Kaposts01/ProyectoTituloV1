@@ -13,6 +13,8 @@ export function useChannelDashboard(session: AuthSession | null | undefined, set
   const [channelData, setChannelData] = useState<ChannelDashboard | null>(null);
   const [channelLoading, setChannelLoading] = useState(false);
   const [channelRefreshing, setChannelRefreshing] = useState(false);
+  const [channelError, setChannelError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [mode, setMode] = useState<"count" | "amount">("count");
   const [year, setYear] = useState<number | null>(null);
@@ -28,7 +30,10 @@ export function useChannelDashboard(session: AuthSession | null | undefined, set
         setYear(defaultYear(data.years));
       })
       .catch((err: unknown) => {
-        if (mounted) setError(friendlyError(err, "No se pudo cargar el dashboard del canal."));
+        if (!mounted) return;
+        const message = friendlyError(err, "No se pudo cargar el dashboard del canal.");
+        setError(message);
+        setChannelError(message);
       })
       .finally(() => {
         if (mounted) { setChannelLoading(false); setChannelRefreshing(false); }
@@ -36,7 +41,15 @@ export function useChannelDashboard(session: AuthSession | null | undefined, set
     return () => {
       mounted = false;
     };
-  }, [session, channel, setError]);
+  }, [session, channel, setError, reloadKey]);
+
+  /** Reintenta la carga del dashboard tras un error (vuelve a pedirlo, sin usar la caché). */
+  function reloadChannel() {
+    if (channel) invalidateCache(`dashboard:${channel}`);
+    setChannelError(null);
+    setChannelLoading(true);
+    setReloadKey((key) => key + 1);
+  }
 
   function syncChannel(source: string) {
     if (syncing) return;
@@ -54,7 +67,11 @@ export function useChannelDashboard(session: AuthSession | null | undefined, set
         setChannelData(data);
         setYear(defaultYear(data.years));
       })
-      .catch((err: unknown) => setError(friendlyError(err, "Error al sincronizar el canal.")))
+      .catch((err: unknown) => {
+        const message = friendlyError(err, "Error al sincronizar el canal.");
+        setError(message);
+        setChannelError(message);
+      })
       .finally(() => {
         setSyncing(false);
         setChannelLoading(false);
@@ -70,6 +87,9 @@ export function useChannelDashboard(session: AuthSession | null | undefined, set
     setChannelLoading,
     channelRefreshing,
     setChannelRefreshing,
+    channelError,
+    setChannelError,
+    reloadChannel,
     syncing,
     setSyncing,
     mode,
