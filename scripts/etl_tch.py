@@ -125,7 +125,7 @@ def _norm_periodo(val: Any) -> str | None:
         "ENERO": "01", "ENE": "01", "FEBRERO": "02", "FEB": "02",
         "MARZO": "03", "MAR": "03", "ABRIL": "04", "ABR": "04",
         "MAYO": "05", "MAY": "05", "JUNIO": "06", "JUN": "06", "JULIO": "07", "JUL": "07",
-        "AGOSTO": "08", "AGO": "08", "SEPTIEMBRE": "09", "SEPT": "09", "SEP": "09",
+        "AGOSTO": "08", "AGO": "08", "SEPTIEMBRE": "09", "SETIEMBRE": "09", "SEPT": "09", "SEP": "09",
         "OCTUBRE": "10", "OCT": "10", "NOVIEMBRE": "11", "NOV": "11",
         "DICIEMBRE": "12", "DIC": "12",
     }
@@ -135,7 +135,7 @@ def _norm_periodo(val: Any) -> str | None:
         s = str(val).strip().upper()
         for mes, num in meses.items():
             if mes in s:
-                years = re.findall(r"\b\d{4}\b", s) or re.findall(r"\b\d{2}\b", s)
+                years = re.findall(r"(?<!\d)\d{4}(?!\d)", s) or re.findall(r"(?<!\d)\d{2}(?!\d)", s)
                 if years:
                     year = int(years[-1])
                     return f"{year + 2000 if year < 100 else year}-{num}"
@@ -164,6 +164,15 @@ def _find_col(df: pd.DataFrame, *keywords: str) -> Any:
 
     for col in df.columns:
         if col_matches(col):
+            return col
+    return None
+
+
+def _find_leaf_col(df: pd.DataFrame, *keywords: str, exclude: tuple[str, ...] = ()) -> Any:
+    """Primera columna cuyo rotulo final (ultimo nivel del encabezado) contiene todas las keywords."""
+    for col in df.columns:
+        leaf = str(col[-1] if isinstance(col, tuple) else col).lower()
+        if all(k in leaf for k in keywords) and not any(x in leaf for x in exclude):
             return col
     return None
 
@@ -237,17 +246,6 @@ def _read_sheet(filepath: Path, sheet: str) -> pd.DataFrame | None:
     except Exception as exc:
         log.warning(f"  Error en fallback de lectura '{sheet}': {exc}")
 
-    return None
-
-
-def _periodo_from_filename(filepath: Path) -> str | None:
-    match = re.search(r"(\d{8})", filepath.stem)
-    if match:
-        try:
-            d = datetime.strptime(match.group(1), "%Y%m%d")
-            return d.strftime("%Y-%m")
-        except Exception:
-            pass
     return None
 
 
@@ -486,7 +484,7 @@ def _estado_cargo(estado: str) -> str:
     return normalized
 
 
-def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, periodo_fallback: str | None) -> list[dict]:
+def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> list[dict]:
     """
     Estructura real de CARGOS (header=[5,6]):
       ('Número Ficha', ...)              → numero_ficha
@@ -494,7 +492,8 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
       ('Entidad Recaudadora', ...)       → entidad_recaudadora
       ('Transacción', ...)               → tipo_transaccion
       ('Numero Pagos del Mandato', ...)  → total_cuotas
-      ('DETALLE DEL PAGO', 'Periodo')    → periodo
+      ('DETALLE DEL PAGO', 'Periodo')    → NO se usa: es un correlativo 1..n, no un mes
+      ('DETALLE DEL PAGO', 'Cuota Mes')  → periodo (mes real del cargo, p. ej. "SEPT 26")
       ('DETALLE DEL PAGO', 'N° Cuota')  → numero_cuota
       ('DETALLE DEL PAGO', 'Monto Cuota') → monto
       ('DETALLE DEL PAGO', 'Fecha Cobro') → fecha_cargo
@@ -506,10 +505,15 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
     c_entidad = _find_col(df, "entidad") or _find_col(df, "recaudadora")
     c_tipo = _find_col(df, "transacci")
     c_total_cuotas = _find_col(df, "pagos", "mandato")
-    c_periodo = _find_col(df, "periodo")
-    c_cuota = (_find_col(df, "cuota") and _find_col(df, "n")) or _find_col(df, "cuota")
-    # Buscar 'N° Cuota' específicamente
-    c_cuota = _find_col(df, "detalle", "cuota") or _find_col(df, "n", "cuota") or _find_col(df, "cuota")
+    # El periodo real es "Cuota Mes". Ni la columna numerica "Periodo" ni el nombre del archivo
+    # (que puede llevar la fecha del dia siguiente al cierre o no llevar fecha) definen el mes.
+    c_cuota_mes = _find_leaf_col(df, "cuota", "mes")
+    # 'N° Cuota' (excluye 'Cuota Mes' y 'Monto Cuota')
+    c_cuota = (
+        _find_leaf_col(df, "cuota", exclude=("mes", "monto"))
+        or _find_col(df, "detalle", "cuota")
+        or _find_col(df, "n", "cuota")
+    )
     c_monto = (
         _find_col(df, "total", "carg")
         or _find_col(df, "total", "rechaz")
@@ -523,7 +527,11 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
     if c_ficha is None:
         log.warning(f"  No se encontró columna 'Número Ficha' en transacciones ({estado})")
         return rows
+    if c_cuota_mes is None:
+        log.warning(f"  No se encontró columna 'Cuota Mes' en transacciones ({estado}); no se cargan cargos sin periodo real")
+        return rows
 
+    sin_periodo = 0
     for _, row in df.iterrows():
         ficha_raw = _col_val(row, c_ficha)
         if ficha_raw is None or (isinstance(ficha_raw, float) and pd.isna(ficha_raw)):
@@ -535,7 +543,10 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
         if ficha <= 0:
             continue
 
-        periodo = _norm_periodo(_col_val(row, c_periodo)) if c_periodo else periodo_fallback
+        periodo = _norm_periodo(_col_val(row, c_cuota_mes))
+        if periodo is None:
+            sin_periodo += 1
+            continue
         raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
 
         cuota = _norm_str(_col_val(row, c_cuota), 20) if c_cuota else None
@@ -543,7 +554,7 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
         rows.append({
             "numero_ficha": ficha,
             "numero_mandato": _norm_int(_col_val(row, c_mandato)),
-            "periodo": periodo or periodo_fallback,
+            "periodo": periodo,
             "numero_cuota": cuota,
             "total_cuotas": _norm_str(_col_val(row, c_total_cuotas), 20) if c_total_cuotas else None,
             "monto": monto,
@@ -554,9 +565,11 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str, period
             "codigo_respuesta": _norm_str(_col_val(row, c_codigo), 50) if c_codigo else None,
             "razon_rechazo": _norm_str(_col_val(row, c_razon), 500) if c_razon else None,
             "archivo_origen": archivo,
-            "dedupe_key": _dedupe_key(ficha, periodo or periodo_fallback, cuota, estado, monto),
+            "dedupe_key": _dedupe_key(ficha, periodo, cuota, estado, monto),
             "raw_payload": raw,
         })
+    if sin_periodo:
+        log.warning(f"  {sin_periodo} cargos ({estado}) omitidos: 'Cuota Mes' vacio o ilegible")
     return rows
 
 
@@ -886,8 +899,7 @@ def _clear_tch_data(db) -> None:
 
 def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     nombre = filepath.name
-    periodo_fallback = _periodo_from_filename(filepath)
-    log.info(f"Procesando: {nombre}  (periodo aprox: {periodo_fallback})")
+    log.info(f"Procesando: {nombre}")
 
     totales = {"archivo": nombre, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
 
@@ -941,11 +953,11 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     # --- CARGOS ---
     df_acep = _read_sheet(filepath, SHEET_ACEPTADOS)
     if df_acep is not None:
-        trans_rows += _transform_transacciones(df_acep, "ACEPTADA", nombre, periodo_fallback)
+        trans_rows += _transform_transacciones(df_acep, "ACEPTADA", nombre)
 
     df_rech = _read_sheet(filepath, SHEET_RECHAZADOS)
     if df_rech is not None:
-        trans_rows += _transform_transacciones(df_rech, "RECHAZADA", nombre, periodo_fallback)
+        trans_rows += _transform_transacciones(df_rech, "RECHAZADA", nombre)
 
     history_periods = {
         row["periodo"]

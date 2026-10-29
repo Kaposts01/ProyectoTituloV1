@@ -44,13 +44,14 @@ def test_transform_suscripciones_sanitizes_raw_account_data() -> None:
 def test_transform_transacciones_sanitizes_raw_account_data() -> None:
     frame = pd.DataFrame({
         "Numero Ficha": [101],
-        "Periodo": ["AGOSTO 2026"],
+        "Periodo": [1],
         "N Cuota": ["3"],
+        "Cuota Mes": ["AGOSTO 2026"],
         "Monto Cuota": ["$12.000"],
         "Numero Cuenta": ["1234567890"],
     })
 
-    rows = etl_tch._transform_transacciones(frame, "ACEPTADA", "tch.xlsx", None)
+    rows = etl_tch._transform_transacciones(frame, "ACEPTADA", "tch.xlsx")
 
     assert len(rows) == 1
     assert rows[0]["periodo"] == "2026-08"
@@ -144,14 +145,15 @@ def test_dedupe_key_is_str_ficha_not_zero_padded() -> None:
     assert etl_tch._dedupe_key(7, "2026-08", "1", "ACEPTADA", "1") == "7|2026-08|1|ACEPTADA|1"
 
 
-def test_transform_transacciones_dedupe_key_matches_helper_and_uses_period_fallback() -> None:
+def test_transform_transacciones_dedupe_key_matches_helper() -> None:
     frame = pd.DataFrame({
         "Numero Ficha": [101, 101],
-        "Periodo": ["AGOSTO 2026", None],
+        "Periodo": [1, 2],
         "N Cuota": ["3", "4"],
+        "Cuota Mes": ["AGOSTO 2026", "JULIO 2026"],
         "Monto Cuota": ["$12.000", "$12.000"],
     })
-    rows = etl_tch._transform_transacciones(frame, "ACEPTADA", "tch.xlsx", "2026-07")
+    rows = etl_tch._transform_transacciones(frame, "ACEPTADA", "tch.xlsx")
     keys = [r["dedupe_key"] for r in rows]
     assert "101|2026-08|3|ACEPTADA|12000" in keys
     assert "101|2026-07|4|ACEPTADA|12000" in keys
@@ -160,10 +162,109 @@ def test_transform_transacciones_dedupe_key_matches_helper_and_uses_period_fallb
 def test_transform_same_cuota_accepted_and_rejected_keep_two_distinct_keys() -> None:
     frame = pd.DataFrame({
         "Numero Ficha": [101],
-        "Periodo": ["AGOSTO 2026"],
+        "Periodo": [1],
         "N Cuota": ["3"],
+        "Cuota Mes": ["AGOSTO 2026"],
         "Monto Cuota": ["$12.000"],
     })
-    accepted = etl_tch._transform_transacciones(frame, "ACEPTADA", "a.xlsx", None)[0]["dedupe_key"]
-    rejected = etl_tch._transform_transacciones(frame, "RECHAZADA", "r.xlsx", None)[0]["dedupe_key"]
+    accepted = etl_tch._transform_transacciones(frame, "ACEPTADA", "a.xlsx")[0]["dedupe_key"]
+    rejected = etl_tch._transform_transacciones(frame, "RECHAZADA", "r.xlsx")[0]["dedupe_key"]
     assert accepted != rejected  # gap: la misma cuota queda duplicada entre archivos aceptado/rechazado
+
+
+# --- TCH-PAR-01: el periodo del cargo sale de "Cuota Mes", no de "Periodo" ni del nombre del archivo. ---
+# Los datos son sinteticos: mismas columnas que la hoja CARGOS real, sin informacion personal.
+
+def _cargos_frame(cuota_mes: list, periodo: list | None = None) -> pd.DataFrame:
+    n = len(cuota_mes)
+    return pd.DataFrame({
+        "Numero Ficha": list(range(1, n + 1)),
+        "Periodo": periodo if periodo is not None else list(range(1, n + 1)),
+        "N Cuota": ["1"] * n,
+        "Cuota Mes": cuota_mes,
+        "Moneda": ["Pesos"] * n,
+        "Monto Cuota": ["$10.000"] * n,
+    })
+
+
+def test_transform_transacciones_reads_cuota_mes_and_ignores_numeric_periodo() -> None:
+    # "Periodo" es un correlativo 1..n (no un mes): con valores 1 y 2 antes caia al nombre del archivo.
+    frame = _cargos_frame(["SEPT 26", "ABRIL 2026"], periodo=[1, 2])
+    rows = etl_tch._transform_transacciones(frame, "ACEPTADA", "20260101 TCH IG DICIEMBRE 2025.xlsx")
+    assert [r["periodo"] for r in rows] == ["2026-09", "2026-04"]
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("ENE 26", "2026-01"), ("FEB 26", "2026-02"), ("MAR 26", "2026-03"), ("ABR 26", "2026-04"),
+        ("MAY 26", "2026-05"), ("JUN 26", "2026-06"), ("JUL 26", "2026-07"), ("AGO 26", "2026-08"),
+        ("SEPT 26", "2026-09"), ("SEP 26", "2026-09"), ("SEPT. 26", "2026-09"), ("SEPT-26", "2026-09"),
+        ("SEPTIEMBRE 2026", "2026-09"), ("Setiembre 2026", "2026-09"), ("sept 2026", "2026-09"),
+        ("OCT 25", "2025-10"), ("NOV 25", "2025-11"), ("DIC 25", "2025-12"), ("DICIEMBRE 2017", "2017-12"),
+        ("  Diciembre   2025 ", "2025-12"), ("SEPT26", "2026-09"),
+    ],
+)
+def test_transform_transacciones_parses_spanish_month_variants_and_two_digit_years(texto: str, esperado: str) -> None:
+    rows = etl_tch._transform_transacciones(_cargos_frame([texto]), "ACEPTADA", "x.xlsx")
+    assert rows[0]["periodo"] == esperado
+
+
+def test_transform_transacciones_accepts_real_dates_in_cuota_mes() -> None:
+    rows = etl_tch._transform_transacciones(_cargos_frame([pd.Timestamp("2026-09-01")]), "ACEPTADA", "x.xlsx")
+    assert rows[0]["periodo"] == "2026-09"
+
+
+def test_transform_transacciones_skips_rows_without_a_readable_cuota_mes() -> None:
+    frame = _cargos_frame(["SEPT 26", None, "sin mes"])
+    rows = etl_tch._transform_transacciones(frame, "ACEPTADA", "20260101 x.xlsx")
+    assert [r["numero_ficha"] for r in rows] == [1]  # nunca se inventa un periodo desde el nombre del archivo
+
+
+def test_transform_transacciones_without_cuota_mes_column_returns_nothing() -> None:
+    frame = _cargos_frame(["SEPT 26"]).drop(columns=["Cuota Mes"])
+    assert etl_tch._transform_transacciones(frame, "ACEPTADA", "20260930 x.xlsx") == []
+
+
+def _write_cargos_workbook(path, sheet: str, cuota_mes: list[str]) -> None:
+    """Escribe la hoja con el layout real: rotulos de grupo en la fila 6, de columna en la 7, datos desde la 8."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet
+    grupo = [None, None, "DETALLE DEL PAGO", None, None, None, None]
+    hoja = ["Numero Ficha", "Numero Mandato", "Periodo", "N Cuota", "Cuota Mes", "Moneda", "Monto Cuota"]
+    ws.append([])
+    for _ in range(4):
+        ws.append([])
+    ws.append(grupo)
+    ws.append(hoja)
+    for i, mes in enumerate(cuota_mes, start=1):
+        ws.append([910000 + i, 800000 + i, i, 1.0, mes, "Pesos", 10000])
+    wb.save(path)
+
+
+def test_closing_file_named_after_next_month_does_not_shift_the_period(db_session, tmp_path) -> None:
+    # Cierre de diciembre 2025 cuyo nombre lleva la fecha del dia siguiente (20260101): los cargos son de 2025-12.
+    xlsx = tmp_path / "20260101 TCH IG DICIEMBRE 2025.xlsx"
+    _write_cargos_workbook(xlsx, etl_tch.SHEET_ACEPTADOS, ["DIC 25", "DICIEMBRE 2025"])
+
+    frame = etl_tch._read_sheet(xlsx, etl_tch.SHEET_ACEPTADOS)
+    assert frame is not None
+    rows = etl_tch._transform_transacciones(frame, "ACEPTADA", xlsx.name)
+    assert [r["periodo"] for r in rows] == ["2025-12", "2025-12"]
+
+    etl_tch._process_file(xlsx, db_session, set())
+    periods = set(db_session.scalars(select(TchTransaccion.periodo).where(TchTransaccion.archivo_origen == xlsx.name)))
+    assert periods == {"2025-12"}
+
+
+def test_monthly_file_without_date_in_name_still_gets_real_periods(db_session, tmp_path) -> None:
+    # Los mensuales de 2025 se llaman "NN - TCH IG MES 2025" (sin fecha): antes quedaban con periodo NULL.
+    xlsx = tmp_path / "03 - TCH IG MARZO 2025.xlsx"
+    _write_cargos_workbook(xlsx, etl_tch.SHEET_ACEPTADOS, ["MAR 25"])
+    etl_tch._process_file(xlsx, db_session, set())
+    rows = db_session.scalars(select(TchTransaccion).where(TchTransaccion.archivo_origen == xlsx.name)).all()
+    assert [r.periodo for r in rows] == ["2025-03"]
+    assert rows[0].dedupe_key.startswith("910001|2025-03|")
