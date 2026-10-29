@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError } from "./billingErrors";
 import {
-  ALL_STATUSES, expiryText, formatDateTime, PLATFORM_LABELS, REQUEST_TYPES, requestSummary, statusLabel, TYPE_LABELS,
+  ALL_STATUSES, expiryText, formatDateTime, PLATFORM_LABELS, platformLabel, REQUEST_TYPES, requestSummary, statusLabel, TYPE_LABELS, typeLabel,
   HISTORY_STATUSES, PENDING_STATUSES,
 } from "./billingLabels";
 import { EMPTY_FILTERS, lastPageOffset, validateFilters, type InboxFilters, type InboxTab } from "./billingQuery";
@@ -293,9 +293,9 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
                         {r.subscription_external_id}
                       </button>
                       {selectedId === r.id ? <span className="bx-selected-mark">Detalle abajo</span> : null}
-                      <div className="mono bx-platform">{PLATFORM_LABELS[r.platform] ?? r.platform}</div>
+                      <div className="mono bx-platform">{platformLabel(r.platform)}</div>
                     </Cell>
-                    <Cell label="Tipo" className="bx-c-type">{TYPE_LABELS[r.request_type] ?? r.request_type}</Cell>
+                    <Cell label="Tipo" className="bx-c-type">{typeLabel(r.request_type)}</Cell>
                     <Cell label="Cambio" className="mono num bx-c-change">{requestSummary(r)}</Cell>
                     <Cell label="Estado" className="bx-c-status"><StatusBadge status={r.status} /></Cell>
                     <Cell label="Solicitante" className="mono bx-c-who bx-lbl">{r.requested_by ?? "—"}</Cell>

@@ -1,5 +1,6 @@
 import type { Platform, RenewalPriority, RenewalStatus } from "./types";
 import type { Tone } from "./billingLabels";
+import { label, unknownLabel } from "../../i18n/label";
 
 /** Mapeos y consulta puros de la sección «Renovaciones» (tareas del chequeo diario de calendario). */
 
@@ -19,13 +20,13 @@ export const RENEWAL_PRIORITY_META: Record<RenewalPriority, { label: string; ton
 };
 
 export function renewalStatusLabel(status: string): string {
-  return RENEWAL_STATUS_META[status as RenewalStatus]?.label ?? status;
+  return RENEWAL_STATUS_META[status as RenewalStatus]?.label ?? unknownLabel(status);
 }
 export function renewalStatusTone(status: string): Tone {
   return RENEWAL_STATUS_META[status as RenewalStatus]?.tone ?? "neutral";
 }
 export function renewalPriorityLabel(priority: string): string {
-  return RENEWAL_PRIORITY_META[priority as RenewalPriority]?.label ?? priority;
+  return RENEWAL_PRIORITY_META[priority as RenewalPriority]?.label ?? unknownLabel(priority);
 }
 export function renewalPriorityTone(priority: string): Tone {
   return RENEWAL_PRIORITY_META[priority as RenewalPriority]?.tone ?? "neutral";
@@ -55,7 +56,7 @@ export function closeReasonLabel(reason: string | null | undefined): string {
   const r = (reason ?? "").trim();
   if (!r) return "—";
   const active = /^La suscripción ya no está ACTIVA(?: \(estado: ([^)]{1,40})\))?\.?$/.exec(r);
-  if (active) return active[1] && active[1] !== "desconocido" ? `La suscripción dejó de estar activa (estado: ${active[1]}).` : "La suscripción dejó de estar activa.";
+  if (active) return active[1] && active[1] !== "desconocido" ? `La suscripción dejó de estar activa (estado: ${label("status", active[1])}).` : "La suscripción dejó de estar activa.";
   if (r.startsWith("Renovación ejecutada")) return "Renovación ejecutada: el calendario se extendió.";
   if (r.startsWith("El calendario se extendió")) return "El calendario se extendió (sin solicitud de renovación asociada).";
   if (r.startsWith("La suscripción ya no tiene un calendario modificado activo")) return "La suscripción ya no tiene un calendario modificado activo.";

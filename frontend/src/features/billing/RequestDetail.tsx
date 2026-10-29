@@ -3,7 +3,7 @@ import { describeBillingError, type BillingErrorInfo } from "./billingErrors";
 import * as api from "./billingApi";
 import {
   approveBlockReason, availableActions, canWithdrawRequest, CHILE_TZ_NOTE, eventComment, eventLabel, eventNotes, eventTechnical, expiryText,
-  formatDateTime, PLATFORM_LABELS, requestSummary, technicalCode, typeLabel,
+  formatDateTime, platformLabel, requestSummary, technicalCode, typeLabel,
 } from "./billingLabels";
 import { describeDrift } from "./billingPlan";
 import { applyOutcome } from "./billingResult";
@@ -24,7 +24,7 @@ const ACTION_COPY: Record<ActionKind, { title: string; confirm: string; busy: st
 /** Etiqueta técnica corta del error (p. ej. «RuntimeError»): se muestra tal cual, en mono, sin interpretarla. */
 function techLine(value: unknown) {
   const code = technicalCode(value);
-  return code ? <p className="bx-tech">Código técnico: <span className="mono">{code}</span></p> : null;
+  return code ? <p className="bx-tech" data-raw-text>Código técnico: <span className="mono">{code}</span></p> : null;
 }
 
 type DriftState = { info: NonNullable<BillingErrorInfo["drift"]> };
@@ -181,7 +181,7 @@ export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChang
 
       <dl className="bx-dl">
         <dt>Estado</dt><dd><StatusBadge status={detail.status} />{expiry ? <> <span className="mono">{expiry}</span></> : null}</dd>
-        <dt>Plataforma</dt><dd className="mono">{PLATFORM_LABELS[detail.platform] ?? detail.platform}</dd>
+        <dt>Plataforma</dt><dd className="mono">{platformLabel(detail.platform)}</dd>
         <dt>Cambio solicitado</dt><dd className="mono">{requestSummary(detail)}</dd>
         {detail.request_type === "renew_calendar" || detail.horizon_months ? <><dt>Horizonte</dt><dd className="mono">{detail.horizon_months ?? "—"} meses{detail.horizon_start_month ? ` desde ${detail.horizon_start_month}` : ""}</dd></> : null}
         <dt>Solicitante</dt><dd className="mono">{detail.requested_by ?? "—"}</dd>
@@ -223,7 +223,7 @@ export function RequestDetail({ id, can, currentUserId, isAdmin = false, onChang
                 <span><strong>{eventLabel(e.event_type)}</strong> · <span className="mono bx-ev-actor">{e.actor ?? "sistema"}</span></span>
                 <span className="mono bx-ev-time">{formatDateTime(e.created_at)}</span>
                 {eventNotes(e.event_type, e.detail).map((n, i) => <span key={i} className="bx-hint">{n}</span>)}
-                {eventTechnical(e.detail).map((t) => <span key={t.label} className="bx-hint">{t.label}: <span className="mono">{t.code}</span></span>)}
+                {eventTechnical(e.detail).map((t) => <span key={t.label} className="bx-hint" data-raw-text>{t.label}: <span className="mono">{t.code}</span></span>)}
                 {text ? <p className="bx-comment">{text}</p> : null}
               </li>
             );

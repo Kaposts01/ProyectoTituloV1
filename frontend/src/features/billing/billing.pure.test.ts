@@ -13,7 +13,7 @@ describe("etiquetas de estado", () => {
     expect(statusLabel("requiere_conciliacion")).toBe("Requiere conciliación");
     expect(statusTone("ejecutada")).toBe("ok");
     expect(statusTone("fallida")).toBe("error");
-    expect(statusLabel("desconocido")).toBe("desconocido");
+    expect(statusLabel("desconocido")).toBe("Desconocido (desconocido)");
   });
   it("expiracion solo para pendientes", () => {
     const now = new Date("2026-03-01T12:00:00Z");

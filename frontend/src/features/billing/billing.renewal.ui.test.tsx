@@ -165,7 +165,7 @@ describe("renovaciones: lista", () => {
     ];
     await openRenewals(ADMIN);
     expect(screen.getByText("Renovación ejecutada: el calendario se extendió.")).toBeTruthy();
-    expect(screen.getByText("La suscripción dejó de estar activa (estado: CANCELADA).")).toBeTruthy();
+    expect(screen.getByText("La suscripción dejó de estar activa (estado: Cancelada).")).toBeTruthy();
     expect(screen.getByText("Cerrada por el sistema (motivo no reconocido).")).toBeTruthy();
     expect(screen.queryByText(/12\.345\.678-9/)).toBeNull();
     expect(screen.queryByRole("button", { name: /Solicitar renovación/ })).toBeNull();

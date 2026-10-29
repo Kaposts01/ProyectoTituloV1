@@ -383,6 +383,9 @@ describe("11. etiqueta tecnica y linea de tiempo", () => {
     expect(tags[0].className).toContain("mono");
     expect(screen.getAllByText(/Código técnico/).length).toBeGreaterThan(0);
     expect(screen.getByText("RuntimeError").className).toContain("mono");
+    // Excepción documentada: la etiqueta técnica va cruda, marcada para que el guardián de textos no la mire.
+    expect(screen.getByText("RuntimeError").closest("[data-raw-text]")).not.toBeNull();
+    expect(tags[0].closest("[data-raw-text]")).not.toBeNull();
   });
   it("evento reintentada con claves nuevas y sin ellas", async () => {
     detailData = detail({}, {

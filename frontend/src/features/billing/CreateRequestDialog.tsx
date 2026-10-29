@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError, type BillingErrorInfo } from "./billingErrors";
 import { EMPTY_FORM, validateChangeForm, type ChangeFormValues, type FormErrors } from "./billingForm";
-import { formatClp, PLATFORM_LABELS, REQUEST_TYPES, statusLabel, TYPE_LABELS } from "./billingLabels";
+import { formatClp, PLATFORM_LABELS, platformLabel, REQUEST_TYPES, statusLabel, TYPE_LABELS } from "./billingLabels";
 import { PlanPreviewView } from "./PlanPreviewView";
 import type { BillingRequestDetail, Platform, PreviewResponse, RequestType } from "./types";
 import { Dialog, Notice } from "./ui";
@@ -93,7 +93,7 @@ export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
                 <input value={TYPE_LABELS[type]} readOnly />
               </label>
               <label>Plataforma
-                <input value={PLATFORM_LABELS[values.platform] ?? values.platform} readOnly />
+                <input value={platformLabel(values.platform)} readOnly />
               </label>
             </>
           ) : (

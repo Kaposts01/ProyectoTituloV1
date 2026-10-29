@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError } from "./billingErrors";
-import { formatClp, formatDateTime, PLATFORM_LABELS } from "./billingLabels";
+import { formatClp, formatDateTime, PLATFORM_LABELS, platformLabel } from "./billingLabels";
 import {
   closeReasonLabel, daysText, EMPTY_RENEWAL_FILTERS, isOpenRenewal, renewalPriorityLabel, renewalPriorityTone, renewalStatusLabel,
   renewalStatusTone, type RenewalFilters, type RenewalStatusFilter,
@@ -146,7 +146,7 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
                 return (
                   <tr role="row" key={t.id}>
                     <Cell label="Suscripción" className="mono bx-c-sub">{t.subscription_external_id}</Cell>
-                    <Cell label="Plataforma" className="bx-c-platform">{PLATFORM_LABELS[t.platform] ?? t.platform}</Cell>
+                    <Cell label="Plataforma" className="bx-c-platform">{platformLabel(t.platform)}</Cell>
                     <Cell label="Prioridad" className="bx-c-priority"><Badge tone={renewalPriorityTone(t.priority)}>{renewalPriorityLabel(t.priority)}</Badge></Cell>
                     <Cell label="Estado" className="bx-c-status">
                       <Badge tone={renewalStatusTone(t.status)}>{renewalStatusLabel(t.status)}</Badge>

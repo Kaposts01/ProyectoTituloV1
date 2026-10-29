@@ -1,4 +1,5 @@
 import { formatKpi } from "../../components/formatKpi";
+import { unknownLabel } from "../../i18n/label";
 import { serverNow } from "../../serverClock";
 import type { BillingRequest, RequestStatus, RequestType } from "./types";
 import { PERM_APPROVE, PERM_POLICY, PERM_REQUEST } from "./types";
@@ -33,14 +34,18 @@ export const REQUEST_TYPES = Object.keys(TYPE_LABELS) as RequestType[];
 
 export const PLATFORM_LABELS: Record<string, string> = { virtualpos1: "VirtualPOS 1", virtualpos2: "VirtualPOS 2" };
 
+/** Un valor que el catálogo de billing no conoce se ve «Desconocido (valor)», nunca el código crudo. */
 export function statusLabel(status: string): string {
-  return STATUS_META[status as RequestStatus]?.label ?? status;
+  return STATUS_META[status as RequestStatus]?.label ?? unknownLabel(status);
 }
 export function statusTone(status: string): Tone {
   return STATUS_META[status as RequestStatus]?.tone ?? "neutral";
 }
 export function typeLabel(type: string): string {
-  return TYPE_LABELS[type as RequestType] ?? type;
+  return TYPE_LABELS[type as RequestType] ?? unknownLabel(type);
+}
+export function platformLabel(platform: string): string {
+  return PLATFORM_LABELS[platform] ?? unknownLabel(platform);
 }
 
 export function formatClp(value: number | null | undefined): string {
@@ -131,7 +136,7 @@ export const EVENT_LABELS: Record<string, string> = {
   no_ejecutable: "No ejecutable",
 };
 export function eventLabel(type: string): string {
-  return EVENT_LABELS[type] ?? type.replace(/_/g, " ");
+  return EVENT_LABELS[type] ?? unknownLabel(type);
 }
 
 /** Comentario de un evento (solo texto plano; nunca el payload completo). */

@@ -11,7 +11,8 @@ describe("renovaciones: etiquetas", () => {
     expect(renewalStatusLabel("cerrada")).toBe("Cerrada");
     expect(renewalStatusLabel("no_aplica")).toBe("No aplica");
     expect(renewalStatusTone("vencida")).toBe("error");
-    expect(renewalStatusLabel("otra")).toBe("otra");
+    expect(renewalStatusLabel("otra")).toBe("Desconocido (otra)");
+    expect(renewalPriorityLabel("zz")).toBe("Desconocido (zz)");
     expect(renewalPriorityLabel("alta")).toBe("Alta");
     expect(renewalPriorityLabel("normal")).toBe("Normal");
     expect(renewalPriorityTone("alta")).toBe("warning");
@@ -33,7 +34,8 @@ describe("renovaciones: close_reason", () => {
   it("mapea los valores reales del servicio", () => {
     expect(closeReasonLabel("Renovación ejecutada: el calendario se extendió.")).toBe("Renovación ejecutada: el calendario se extendió.");
     expect(closeReasonLabel("El calendario se extendió (sin solicitud de renovación asociada).")).toContain("sin solicitud");
-    expect(closeReasonLabel("La suscripción ya no está ACTIVA (estado: CANCELADA).")).toBe("La suscripción dejó de estar activa (estado: CANCELADA).");
+    expect(closeReasonLabel("La suscripción ya no está ACTIVA (estado: CANCELADA).")).toBe("La suscripción dejó de estar activa (estado: Cancelada).");
+    expect(closeReasonLabel("La suscripción ya no está ACTIVA (estado: PAUSED).")).toBe("La suscripción dejó de estar activa (estado: Pausada).");
     expect(closeReasonLabel("La suscripción ya no está ACTIVA (estado: desconocido).")).toBe("La suscripción dejó de estar activa.");
     expect(closeReasonLabel("La suscripción ya no tiene un calendario modificado activo.")).toContain("calendario modificado activo");
   });
