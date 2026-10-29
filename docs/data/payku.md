@@ -65,8 +65,9 @@
 ### Lógica especial en suscripciones Payku
 
 - **Monto faltante:** si `p_subscriptions.amount` es `NULL`, se rellena con el monto de la última transacción exitosa de esa suscripción (lookup previo sobre `p_transactions` filtrado por `status="success"`).
-- **`canceled_at`:** se extrae del log de estados en `raw_payload.logs.status` buscando el `change_date` más reciente de la transición al estado actual. Si no hay log, se usa `raw_payload.end`.
+- **`canceled_at`:** se extrae del historial de estados `raw_payload.logs.status[]`, cuyas entradas son `{change_date, initial_status, final_status}` (la clave real es **`final_status`**): se toma el `change_date` más reciente de la entrada cuyo `final_status` coincide con el estado actual (sin distinguir mayúsculas). Si no hay esa transición, se usa `raw_payload.end`.
 - **Suscripciones activas:** status `active`, `register`, `suspended_awaits_change_plan` → `canceled_at=NULL`.
+- **`core_subscriptions.ended_at`** (ETL Core, PK-PAR-03): misma regla que `canceled_at` (log `final_status`/`change_date` y, sin esa transición, la columna `p_subscriptions.end_date`). Para los estados vigentes (`active`, `register`, `suspended_awaits_change_plan`) se sigue usando solo `end_date`, porque una transición hacia ellos es un alta y no un término. Cobertura medida el 2026-10-29: el log da fecha para `cancel` 116/116, `delete` 265/681 y `suspended` 579/1.048; unida con `end_date`, `delete` queda en 382/681 (299 suscripciones eliminadas no tienen fecha de término en ninguna fuente). Datos ya cargados: `core_subscriptions.ended_at` se corrige en la próxima ejecución del ETL Core (nocturno o `/etl/core/payku`).
 
 ## Flujo de sincronización
 

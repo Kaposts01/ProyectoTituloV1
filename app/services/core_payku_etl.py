@@ -24,6 +24,7 @@ from app.models.core import (
     ExternalIdentity,
 )
 from app.models.payku_channel import PaykuClient, PaykuSubscription, PaykuTransaction
+from app.services.channel_consolidation import _payku_last_transition_date
 from app.services.core_materialization import materialize_core_clients
 
 log = logging.getLogger(__name__)
@@ -31,6 +32,8 @@ log = logging.getLogger(__name__)
 _BATCH = 500
 _SOURCE = "payku"
 _DEFAULT_CURRENCY = "CLP"
+# Estados vigentes: una transicion hacia ellos es un alta, no un termino.
+_ACTIVE_STATUSES = frozenset({"active", "register", "suspended_awaits_change_plan"})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -52,6 +55,18 @@ def _parse_amount(value: str | None) -> Decimal | None:
         return Decimal(str(value).strip())
     except InvalidOperation:
         return None
+
+
+def _ended_at(s: PaykuSubscription) -> datetime | None:
+    """Fecha de termino (PK-PAR-03): `change_date` mas reciente de `logs.status[]` con `final_status` igual al
+    estado actual; sin esa transicion, `end_date`. Para estados vigentes solo `end_date` (como antes)."""
+    status = (s.status or "").lower()
+    if status and status not in _ACTIVE_STATUSES:
+        payload = s.raw_payload if isinstance(s.raw_payload, dict) else {}
+        transition = _parse_date(_payku_last_transition_date(payload, status))
+        if transition is not None:
+            return transition
+    return _parse_date(s.end_date)
 
 
 # ── Paso 1: atributos de cliente ──────────────────────────────────────────────
@@ -126,7 +141,7 @@ def _materialize_subscriptions(db: Session) -> int:
             "amount": _parse_amount(s.amount),
             "currency": s.currency or _DEFAULT_CURRENCY,
             "started_at": _parse_date(s.start_date),
-            "ended_at": _parse_date(s.end_date),
+            "ended_at": _ended_at(s),
         })
 
     before = db.scalar(select(func.count()).select_from(CoreSubscription).where(CoreSubscription.source == _SOURCE)) or 0
