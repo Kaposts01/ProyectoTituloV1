@@ -51,6 +51,13 @@ Cada vista (Clientes/Socios, Suscripciones, Cobros, Pagos y las del recuperador)
 | EXP-05 | Tests: formulas, datos personales, permisos, auditoría, volumen (TCH) | M | Datos sintéticos |
 | EXP-06 | Exportaciones grandes en segundo plano si superan N filas | M | Solo si el streaming no basta |
 
+### 4.2 Cierre de la oleada: PR a master y revisión de la rama de otro desarrollador
+
+| ID | Tarea | Notas |
+|---|---|---|
+| REL-01 | Revisión previa al PR (`/review`, revisión de seguridad, suite y build) y PR de `sprint-5/sync-confiable` a `master` | Solo cuando el usuario lo confirme en el momento (push y PR son siempre con el usuario). Estrategia en D25. `master` local tiene 1 commit no subido (plan de sprints). Ningún merge a `master` sin la revisión previa |
+| REV-01 | Revisión de solo lectura de los cambios de otro desarrollador | No aplica nada ni toca `master`. Compara con nuestro historial (`git merge-base`, `git diff`, `git merge-tree` en seco), detecta qué ya resolvimos (probablemente partió de un `master` antiguo), y deja una ficha por cambio en la bandeja con recomendación de tomar, adaptar o descartar. Bloqueada: falta saber dónde está su trabajo (D24). Al 2026-10-29 `origin/sprint-5/estabilizacion-dashboard` no tiene commits propios |
+
 ## 5. Decisiones que necesita del usuario (con recomendación)
 
 | # | Decisión | Recomendación |
