@@ -7,9 +7,10 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
-from app.core.security import require_csrf, require_permissions
+from app.core.security import get_current_user, require_csrf, require_permissions
 from app.integrations.toku.write_guard import TokuWriteBlockedError
 from app.integrations.virtualpos.client import VirtualPOSAPIError
+from app.models.auth import User
 from app.models.crm import Charge as CCharge
 from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription
@@ -158,13 +159,14 @@ async def update_virtualpos_client(
     client_id: str,
     body: VirtualPOSClientUpdate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Update an approved VirtualPOS client field set through the internal API."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
         raise HTTPException(status_code=422, detail="At least one field is required")
     try:
-        client = await update_client(db, client_id, changes)
+        client = await update_client(db, client_id, changes, requested_by_user_id=current_user.id)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except ClientNotFoundError:
@@ -195,10 +197,13 @@ async def update_virtualpos_client(
 async def create_virtualpos_client(
     body: VirtualPOSClientCreate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Create an approved VirtualPOS client through the internal API."""
     try:
-        client = await create_client(db, body.model_dump(exclude_none=True, mode="json"))
+        client = await create_client(
+            db, body.model_dump(exclude_none=True, mode="json"), requested_by_user_id=current_user.id
+        )
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except DuplicateClientError:
@@ -224,10 +229,13 @@ async def create_virtualpos_client(
 async def create_virtualpos_plan(
     body: VirtualPOSPlanCreate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Create a VirtualPOS plan through the internal API."""
     try:
-        plan = await create_plan(db, body.model_dump(exclude_none=True, mode="json"))
+        plan = await create_plan(
+            db, body.model_dump(exclude_none=True, mode="json"), requested_by_user_id=current_user.id
+        )
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except _VP_ERRORS as exc:
@@ -263,10 +271,13 @@ class VirtualPOSSubscriptionCreate(BaseModel):
 async def create_virtualpos_subscription(
     body: VirtualPOSSubscriptionCreate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Create a VirtualPOS subscription via POST /v3/suscription."""
     try:
-        sub = await create_subscription(db, body.model_dump(exclude_none=True, mode="json"))
+        sub = await create_subscription(
+            db, body.model_dump(exclude_none=True, mode="json"), requested_by_user_id=current_user.id
+        )
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except DuplicateSubscriptionError as exc:
@@ -287,10 +298,11 @@ async def create_virtualpos_subscription(
 async def cancel_virtualpos_subscription(
     subscription_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id}."""
     try:
-        sub = await cancel_subscription(db, subscription_id)
+        sub = await cancel_subscription(db, subscription_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except SubscriptionNotFoundError:
@@ -321,6 +333,7 @@ async def create_virtualpos_charge(
     subscription_id: str,
     body: VirtualPOSChargeCreate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Create a new charge on an active VirtualPOS subscription."""
     subscription = db.scalar(
@@ -332,7 +345,10 @@ async def create_virtualpos_charge(
     platform = subscription.source if subscription else "virtualpos1"
 
     try:
-        charge = await create_charge(db, subscription_id, body.model_dump(exclude_none=True, mode="json"), platform=platform)
+        charge = await create_charge(
+            db, subscription_id, body.model_dump(exclude_none=True, mode="json"), platform=platform,
+            requested_by_user_id=current_user.id,
+        )
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except FixedPlanChargeBlockedError as exc:
@@ -355,6 +371,7 @@ async def create_virtualpos_charge(
 async def cancel_virtualpos_future_charges(
     subscription_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     dry_run: bool = True,
 ) -> dict:
     """Cancela los cargos futuros `pendiente` de una suscripción (sin cancelar la suscripción).
@@ -362,7 +379,9 @@ async def cancel_virtualpos_future_charges(
     Con `dry_run=true` (por defecto) solo informa qué se cancelaría; la escritura real exige `dry_run=false`.
     """
     try:
-        return await cancel_future_charges(db, subscription_id, dry_run=dry_run)
+        return await cancel_future_charges(
+            db, subscription_id, dry_run=dry_run, requested_by_user_id=current_user.id
+        )
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except PluralCancelForbiddenError as exc:
@@ -396,6 +415,7 @@ async def reassign_virtualpos_subscription_amount(
     subscription_id: str,
     body: VirtualPOSAmountReassign,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     dry_run: bool = True,
 ) -> dict:
     """Crea un cargo nuevo con otro monto y luego cancela los pendientes del periodo reemplazado.
@@ -406,6 +426,7 @@ async def reassign_virtualpos_subscription_amount(
         return await reassign_subscription_amount(
             db, subscription_id, body.new_amount, body.effective_date,
             description=body.description, internal_code=body.internal_code, dry_run=dry_run,
+            requested_by_user_id=current_user.id,
         )
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
@@ -429,10 +450,11 @@ async def reassign_virtualpos_subscription_amount(
 async def cancel_virtualpos_charge(
     charge_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Cancel a pending VirtualPOS charge via DELETE /v3/charge/{id}."""
     try:
-        charge = await cancel_charge(db, charge_id)
+        charge = await cancel_charge(db, charge_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except ChargeNotFoundError:
@@ -453,10 +475,11 @@ async def cancel_virtualpos_charge(
 async def retry_virtualpos_charge(
     charge_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry."""
     try:
-        charge = await retry_charge(db, charge_id)
+        charge = await retry_charge(db, charge_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except RetryBlockedError as exc:
@@ -617,12 +640,13 @@ class BatchRetryBody(BaseModel):
 async def batch_retry_virtualpos_charges(
     body: BatchRetryBody,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Reintenta una lista de cargos rechazados de VirtualPOS."""
     results = []
     for charge_id in body.charge_ids:
         try:
-            charge = await retry_charge(db, charge_id)
+            charge = await retry_charge(db, charge_id, requested_by_user_id=current_user.id)
             results.append({"charge_id": charge_id, "success": True, "status": charge.status, "error": None})
         except WriteDisabledError:
             results.append({"charge_id": charge_id, "success": False, "status": None, "error": "Escrituras deshabilitadas"})
@@ -666,13 +690,14 @@ async def update_toku_customer(
     customer_id: str,
     body: TokuCustomerUpdate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Update a Toku customer via PUT /customers/{id}."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
         raise HTTPException(status_code=422, detail="Al menos un campo es requerido")
     try:
-        client = await update_customer(db, customer_id, changes)
+        client = await update_customer(db, customer_id, changes, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
@@ -695,10 +720,11 @@ async def update_toku_customer(
 async def delete_toku_customer(
     customer_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Delete a Toku customer via DELETE /customers/{id}."""
     try:
-        client = await delete_customer(db, customer_id)
+        client = await delete_customer(db, customer_id, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
@@ -728,10 +754,13 @@ async def change_toku_subscription_status(
     subscription_id: str,
     body: TokuSubscriptionStatusChange,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Change Toku subscription status via POST /subscriptions/{id}/status."""
     try:
-        sub = await change_subscription_status(db, subscription_id, body.status)
+        sub = await change_subscription_status(
+            db, subscription_id, body.status, requested_by_user_id=current_user.id
+        )
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
@@ -770,13 +799,14 @@ async def update_payku_client(
     client_id: str,
     body: PaykuClientUpdate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Update a Payku subscription client via PUT /api/suclient/{id}."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
         raise HTTPException(status_code=422, detail="Al menos un campo es requerido")
     try:
-        client = await payku_update_client(db, client_id, changes)
+        client = await payku_update_client(db, client_id, changes, requested_by_user_id=current_user.id)
     except PaykuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Payku writes are disabled") from None
     except PaykuClientNotFoundError:
@@ -797,10 +827,11 @@ async def update_payku_client(
 async def delete_payku_client(
     client_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Delete a Payku subscription client via DELETE /api/suclient/{id}."""
     try:
-        client = await payku_delete_client(db, client_id)
+        client = await payku_delete_client(db, client_id, requested_by_user_id=current_user.id)
     except PaykuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Payku writes are disabled") from None
     except PaykuClientNotFoundError:
@@ -821,10 +852,11 @@ async def delete_payku_client(
 async def delete_payku_subscription(
     subscription_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Cancel a Payku subscription via DELETE /api/sususcription/{id}."""
     try:
-        sub = await payku_delete_subscription(db, subscription_id)
+        sub = await payku_delete_subscription(db, subscription_id, requested_by_user_id=current_user.id)
     except PaykuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Payku writes are disabled") from None
     except PaykuSubscriptionNotFoundError:
@@ -847,10 +879,11 @@ async def delete_payku_subscription(
 async def cancel_virtualpos_payment(
     payment_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Cancel a VirtualPOS payment via DELETE /v3/payment/{uuid}."""
     try:
-        payment = await cancel_payment(db, payment_id)
+        payment = await cancel_payment(db, payment_id, requested_by_user_id=current_user.id)
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail="VirtualPOS writes are disabled") from None
     except PaymentNotFoundError:
@@ -873,10 +906,11 @@ async def cancel_virtualpos_payment(
 async def delete_toku_subscription(
     subscription_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Delete a Toku subscription via DELETE /subscriptions/{id}."""
     try:
-        sub = await toku_delete_subscription(db, subscription_id)
+        sub = await toku_delete_subscription(db, subscription_id, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
@@ -907,13 +941,14 @@ async def update_toku_invoice(
     invoice_id: str,
     body: TokuInvoiceUpdate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Update a Toku invoice amount or due date via PUT /invoices/{id}."""
     changes = body.model_dump(exclude_none=True, mode="json")
     if not changes:
         raise HTTPException(status_code=422, detail="Al menos un campo es requerido")
     try:
-        record = await toku_update_invoice(db, invoice_id, changes)
+        record = await toku_update_invoice(db, invoice_id, changes, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:
@@ -936,10 +971,11 @@ async def update_toku_invoice(
 async def delete_toku_invoice(
     invoice_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Delete a Toku invoice via DELETE /invoices/{id}."""
     try:
-        record = await toku_delete_invoice(db, invoice_id)
+        record = await toku_delete_invoice(db, invoice_id, requested_by_user_id=current_user.id)
     except TokuWriteDisabledError:
         raise HTTPException(status_code=403, detail="Toku writes are disabled") from None
     except TokuWriteBlockedError as exc:

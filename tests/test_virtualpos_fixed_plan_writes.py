@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.security import ACCESS_COOKIE, create_access_token, get_current_user
 from app.db.session import engine
 from app.main import app
+from app.models.auth import User
 from app.models.crm import Charge, Plan, Subscription
 from app.models.write_run import WriteRun
 from app.services import write_virtualpos as svc
@@ -241,6 +242,8 @@ def _route_client(monkeypatch, db_session, perms: list[str]) -> tuple[TestClient
         id=uuid.uuid4(), is_active=True,
         roles=[SimpleNamespace(name="r", permissions=[SimpleNamespace(code=p) for p in perms])],
     )
+    db_session.add(User(id=user.id, username=f"u-{user.id.hex[:10]}", password_hash="x", is_active=True))
+    db_session.flush()  # MGT-01: write_runs.requested_by_user_id es FK a users
     token, csrf = create_access_token(user)
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: db_session

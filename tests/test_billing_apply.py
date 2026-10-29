@@ -621,6 +621,8 @@ def _route_client(monkeypatch, db_session, perms):
     monkeypatch.setattr(settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
     user = SimpleNamespace(id=uuid.uuid4(), is_active=True,
                            roles=[SimpleNamespace(name="r", permissions=[SimpleNamespace(code=p) for p in perms])])
+    db_session.add(User(id=user.id, username=f"u-{user.id.hex[:10]}", password_hash="x", is_active=True))
+    db_session.flush()  # MGT-01: write_runs.requested_by_user_id es FK a users
     token, csrf = create_access_token(user)
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: db_session

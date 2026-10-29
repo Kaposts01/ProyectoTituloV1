@@ -223,7 +223,7 @@ def _check_duplicate_client(db: Session, social_id: str) -> None:
         raise DuplicateClientError
 
 
-async def update_client(db: Session, client_id: str, changes: dict[str, Any]) -> Client:
+async def update_client(db: Session, client_id: str, changes: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Update a VirtualPOS client, then keep its local and centralized copies aligned."""
     client = db.scalar(
         select(Client).where(Client.external_id == client_id, Client.source.like("virtualpos%"))
@@ -256,6 +256,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
         external_id=client_id,
         operation="update_client",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(changes),
     )
     db.add(write_run)
@@ -313,7 +314,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
     return client
 
 
-async def create_client(db: Session, data: dict[str, Any]) -> Client:
+async def create_client(db: Session, data: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Create a VirtualPOS client and persist its provider response locally."""
     platform = data.pop("platform", "virtualpos1")
     all_secrets = (
@@ -335,6 +336,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
         external_id="pending",
         operation="create_client",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(data),
     )
     db.add(write_run)
@@ -400,7 +402,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
     return client
 
 
-async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
+async def create_plan(db: Session, data: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Plan:
     """Create a VirtualPOS plan and persist its provider response locally."""
     platform = data.pop("platform", "virtualpos1")
     all_secrets = (
@@ -417,6 +419,7 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
         external_id="pending",
         operation="create_plan",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(data),
     )
     db.add(write_run)
@@ -1039,6 +1042,7 @@ async def reassign_subscription_amount(
     description: str | None = None,
     internal_code: str | None = None,
     dry_run: bool = True,
+    requested_by_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """Flujo VIEJO de reasignación de monto. No puede esquivar los controles del flujo de solicitudes de cambio:
     toma el `subscription_lock` de billing_apply (escrituras reales) y se rechaza con `BillingFlowConflictError`
@@ -1057,7 +1061,7 @@ async def reassign_subscription_amount(
         ensure_no_billing_flow_conflict(db, platform, subscription_id)
         return await _reassign_subscription_amount(
             db, subscription_id, new_amount, effective_date, platform=platform, description=description,
-            internal_code=internal_code, dry_run=False)
+            internal_code=internal_code, dry_run=False, requested_by_user_id=requested_by_user_id)
 
 
 async def _reassign_subscription_amount(
@@ -1070,6 +1074,7 @@ async def _reassign_subscription_amount(
     description: str | None = None,
     internal_code: str | None = None,
     dry_run: bool = True,
+    requested_by_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """Reemplaza el cargo pendiente del periodo (mes de `effective_date`) por uno nuevo con `new_amount`.
 
@@ -1107,6 +1112,7 @@ async def _reassign_subscription_amount(
         external_id=subscription_id,
         operation="reassign_subscription_amount",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={
             "subscription_id": subscription_id, "new_amount": new_amount, "effective_date": effective_date,
             "create": sanitize_record(new_charge_request), "cancel_charge_ids": [c["id"] for c in to_cancel],
@@ -1118,7 +1124,9 @@ async def _reassign_subscription_amount(
 
     # Orden seguro: crear primero y cancelar después, para no dejar al socio sin cobros si el POST falla.
     try:
-        new_charge = await create_charge(db, subscription_id, new_charge_request, platform=platform)
+        new_charge = await create_charge(
+            db, subscription_id, new_charge_request, platform=platform, requested_by_user_id=requested_by_user_id
+        )
     except Exception as exc:
         code_hint = _provider_error_code(exc)
         suffix = f" ({code_hint})" if code_hint else ""
@@ -1137,7 +1145,9 @@ async def _reassign_subscription_amount(
     ids = [c["id"] for c in to_cancel if c["id"] != new_charge.external_id]
     try:
         if ids:
-            cancel_result = await cancel_future_charges(db, subscription_id, platform=platform, charge_ids=ids)
+            cancel_result = await cancel_future_charges(
+                db, subscription_id, platform=platform, charge_ids=ids, requested_by_user_id=requested_by_user_id
+            )
             result["cancelled"] = cancel_result["cancelled"]
     except Exception as exc:
         write_run.status = "reconciliation_required"
@@ -1159,7 +1169,7 @@ async def _reassign_subscription_amount(
     return result
 
 
-async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription:
+async def create_subscription(db: Session, data: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
     """Create a VirtualPOS subscription and persist the response locally."""
     platform = data.pop("platform", "virtualpos1")
     all_secrets = (
@@ -1201,6 +1211,7 @@ async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription
         external_id="pending",
         operation="create_subscription",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(data),
     )
     db.add(write_run)
@@ -1296,7 +1307,7 @@ def _is_base64(value: str) -> bool:
         return False
 
 
-async def cancel_subscription(db: Session, subscription_id: str) -> Subscription:
+async def cancel_subscription(db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
     """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id}."""
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source.like("virtualpos%"))
@@ -1318,6 +1329,7 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
         external_id=subscription_id,
         operation="cancel_subscription",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"subscription_id": subscription_id},
     )
     db.add(write_run)
@@ -1384,7 +1396,7 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
     return sub
 
 
-async def cancel_payment(db: Session, payment_id: str) -> Payment:
+async def cancel_payment(db: Session, payment_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Payment:
     """Cancel a VirtualPOS payment via DELETE /v3/payment/{uuid}."""
     payment = db.scalar(
         select(Payment).where(Payment.external_id == payment_id, Payment.source.like("virtualpos%"))
@@ -1406,6 +1418,7 @@ async def cancel_payment(db: Session, payment_id: str) -> Payment:
         external_id=payment_id,
         operation="cancel_payment",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"payment_id": payment_id},
     )
     db.add(write_run)
@@ -1467,7 +1480,7 @@ async def cancel_payment(db: Session, payment_id: str) -> Payment:
     return payment
 
 
-async def retry_charge(db: Session, charge_id: str, source: str | None = None) -> Charge:
+async def retry_charge(db: Session, charge_id: str, source: str | None = None, *, requested_by_user_id: uuid.UUID | None = None) -> Charge:
     """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry."""
     query = select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
     if source is not None:
@@ -1490,6 +1503,7 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None) -
         external_id=charge_id,
         operation="retry_charge",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"charge_id": charge_id},
     )
     db.add(write_run)

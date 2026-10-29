@@ -6,6 +6,8 @@ Sin red: transporte httpx falso (reutiliza los fixtures de test_toku_write_guard
 import asyncio
 import logging
 import threading
+import uuid
+from types import SimpleNamespace
 
 import pytest
 import test_toku_write_guard as base
@@ -27,6 +29,7 @@ from app.integrations.toku.write_guard import (
     WriteGuardState,
     assert_sandbox_write_allowed,
 )
+from app.models.auth import User
 from app.models.crm import Client
 from app.models.write_run import WriteRun
 from app.services import write_toku
@@ -321,7 +324,7 @@ def test_route_403_does_not_leak_variable_names(monkeypatch) -> None:
 
     monkeypatch.setattr(writes_routes, "delete_customer", blocked)
     with pytest.raises(HTTPException) as e:
-        asyncio.run(writes_routes.delete_toku_customer("c1", None))
+        asyncio.run(writes_routes.delete_toku_customer("c1", None, SimpleNamespace(id=uuid.uuid4())))
     assert e.value.status_code == 403
     assert e.value.detail == "Escritura Toku bloqueada por las guardas de ambiente (ID_NOT_ALLOWED)."
     for name in (ENV_ALLOWED_IDS, ENV_MAX_WRITES, ENV_ARMED, "TOKU_SANDBOX"):
@@ -507,9 +510,6 @@ def test_concurrent_threads_respect_cap() -> None:
 
 
 def _api_client(monkeypatch, db_session, perms):
-    import uuid
-    from types import SimpleNamespace
-
     from fastapi.testclient import TestClient
 
     from app.api.v1.routes.crm import get_db
@@ -521,6 +521,8 @@ def _api_client(monkeypatch, db_session, perms):
         id=uuid.uuid4(), is_active=True,
         roles=[SimpleNamespace(name="r", permissions=[SimpleNamespace(code=p) for p in perms])],
     )
+    db_session.add(User(id=user.id, username=f"u-{user.id.hex[:10]}", password_hash="x", is_active=True))
+    db_session.flush()  # MGT-01: write_runs.requested_by_user_id es FK a users
     token, csrf = create_access_token(user)
     main_module.app.dependency_overrides[get_current_user] = lambda: user
     main_module.app.dependency_overrides[get_db] = lambda: db_session

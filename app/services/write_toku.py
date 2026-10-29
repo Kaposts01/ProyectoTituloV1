@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -96,7 +97,7 @@ def _materialize_subscription(sub: Subscription, payload: dict[str, Any]) -> Non
     sub.canceled_at = _as_text(payload.get("end_date") or (recurring or {}).get("end_date"))
 
 
-async def update_customer(db: Session, customer_id: str, changes: dict[str, Any]) -> Client:
+async def update_customer(db: Session, customer_id: str, changes: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Update a Toku customer via PUT /customers/{id}."""
     client = db.scalar(
         select(Client).where(Client.external_id == customer_id, Client.source == "toku")
@@ -113,6 +114,7 @@ async def update_customer(db: Session, customer_id: str, changes: dict[str, Any]
         external_id=customer_id,
         operation="update_customer",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(changes),
     )
     db.add(write_run)
@@ -159,7 +161,7 @@ async def update_customer(db: Session, customer_id: str, changes: dict[str, Any]
     return client
 
 
-async def delete_customer(db: Session, customer_id: str) -> Client:
+async def delete_customer(db: Session, customer_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Delete a Toku customer via DELETE /customers/{id}."""
     client = db.scalar(
         select(Client).where(Client.external_id == customer_id, Client.source == "toku")
@@ -176,6 +178,7 @@ async def delete_customer(db: Session, customer_id: str) -> Client:
         external_id=customer_id,
         operation="delete_customer",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"customer_id": customer_id},
     )
     db.add(write_run)
@@ -217,7 +220,7 @@ async def delete_customer(db: Session, customer_id: str) -> Client:
     return client
 
 
-async def change_subscription_status(db: Session, subscription_id: str, status: str) -> Subscription:
+async def change_subscription_status(db: Session, subscription_id: str, status: str, *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
     """Change Toku subscription status via POST /subscriptions/{id}/status."""
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "toku")
@@ -234,6 +237,7 @@ async def change_subscription_status(db: Session, subscription_id: str, status: 
         external_id=subscription_id,
         operation="change_subscription_status",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"subscription_id": subscription_id, "status": status},
     )
     db.add(write_run)
@@ -282,7 +286,7 @@ async def change_subscription_status(db: Session, subscription_id: str, status: 
     return sub
 
 
-async def delete_subscription(db: Session, subscription_id: str) -> Subscription:
+async def delete_subscription(db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
     """Delete a Toku subscription via DELETE /subscriptions/{id}."""
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "toku")
@@ -299,6 +303,7 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
         external_id=subscription_id,
         operation="delete_subscription",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"subscription_id": subscription_id},
     )
     db.add(write_run)
@@ -391,7 +396,7 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
     return sub
 
 
-async def update_invoice(db: Session, invoice_id: str, changes: dict[str, Any]) -> SourceRecord:
+async def update_invoice(db: Session, invoice_id: str, changes: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> SourceRecord:
     """Update a Toku invoice via PUT /invoices/{id}. Invoices have no centralized model; reconciles SourceRecord only."""
     record = db.scalar(
         select(SourceRecord).where(
@@ -412,6 +417,7 @@ async def update_invoice(db: Session, invoice_id: str, changes: dict[str, Any]) 
         external_id=invoice_id,
         operation="update_invoice",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(changes),
     )
     db.add(write_run)
@@ -458,7 +464,7 @@ async def update_invoice(db: Session, invoice_id: str, changes: dict[str, Any]) 
     return record
 
 
-async def delete_invoice(db: Session, invoice_id: str) -> SourceRecord:
+async def delete_invoice(db: Session, invoice_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> SourceRecord:
     """Delete a Toku invoice via DELETE /invoices/{id}. Marks the SourceRecord payload as deleted."""
     record = db.scalar(
         select(SourceRecord).where(
@@ -479,6 +485,7 @@ async def delete_invoice(db: Session, invoice_id: str) -> SourceRecord:
         external_id=invoice_id,
         operation="delete_invoice",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"invoice_id": invoice_id},
     )
     db.add(write_run)
