@@ -174,11 +174,11 @@ def _materialize_payments(db: Session) -> int:
     ):
         sub_index[row.external_id] = row.id
 
-    transacciones = db.scalars(select(PaykuTransaction)).all()
+    transactions = db.scalars(select(PaykuTransaction)).all()
 
     rows = []
     skipped = 0
-    for t in transacciones:
+    for t in transactions:
         sub_id = sub_index.get(t.subscription_id) if t.subscription_id else None
         if sub_id is None:
             skipped += 1

@@ -10,14 +10,16 @@ TCH (Transferencias Continuas) es un canal propio vía archivos Excel. Los repor
 
 | Tabla | Modelo SQLAlchemy | Clave de idempotencia | Descripción |
 |---|---|---|---|
-| `tch_clientes` | `TchCliente` | `UNIQUE(rut)` | Clientes/socios TCH |
-| `tch_suscripciones` | `TchSuscripcion` | `UNIQUE(numero_ficha)` | Fichas de suscripción TCH |
-| `tch_transacciones` | `TchTransaccion` | `UNIQUE(dedupe_key)` | Cobros/transacciones mensuales |
-| `tch_recaudacion_mensual` | `TchRecaudacionMensual` | `UNIQUE(periodo)` | Control mensual oficial de recaudación |
-| `tch_bancos` | `TchBanco` | `UNIQUE(nombre)` | Catálogo de bancos |
-| `tch_tipos_mandato` | `TchTipoMandato` | `UNIQUE(codigo)` | Catálogo de tipos de mandato |
-| `tch_origenes` | `TchOrigen` | `UNIQUE(nombre)` | Catálogo de orígenes de captación |
-| `tch_centros_costo` | `TchCentroCosto` | `UNIQUE(nombre)` | Catálogo de centros de costo |
+| `tch_clientes` | `TchClient` | `UNIQUE(rut)` | Clientes/socios TCH |
+| `tch_suscripciones` | `TchSubscription` | `UNIQUE(numero_ficha)` | Fichas de suscripción TCH |
+| `tch_transacciones` | `TchTransaction` | `UNIQUE(dedupe_key)` | Cobros/transacciones mensuales |
+| `tch_recaudacion_mensual` | `TchMonthlyCollection` | `UNIQUE(periodo)` | Control mensual oficial de recaudación |
+| `tch_bancos` | `TchBank` | `UNIQUE(nombre)` | Catálogo de bancos |
+| `tch_tipos_mandato` | `TchMandateType` | `UNIQUE(codigo)` | Catálogo de tipos de mandato |
+| `tch_origenes` | `TchOrigin` | `UNIQUE(nombre)` | Catálogo de orígenes de captación |
+| `tch_centros_costo` | `TchCostCenter` | `UNIQUE(nombre)` | Catálogo de centros de costo |
+
+> Desde la tanda de identificadores (D32) las clases y atributos Python están en inglés (`TchTransaction.file_number`, `charge_date`, `installment_number`...) pero las tablas y columnas de la base conservan los nombres en español de esta página (`numero_ficha`, `fecha_cargo`, `numero_cuota`...): cada atributo fija el nombre real con `mapped_column("nombre_real", ...)` y `tests/test_tch_schema_unchanged.py` prueba que el esquema no cambia.
 
 ### tch_clientes — campos clave
 

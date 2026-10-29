@@ -231,11 +231,11 @@ def _materialize_payments(db: Session) -> int:
     ):
         sub_index[row.external_id] = row.id
 
-    transacciones = db.scalars(select(TchTransaction)).all()
+    transactions = db.scalars(select(TchTransaction)).all()
 
     rows = []
     skipped = 0
-    for t in transacciones:
+    for t in transactions:
         if not t.dedupe_key:
             skipped += 1
             continue

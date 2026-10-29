@@ -1529,13 +1529,13 @@ def reload_full(
             cancellations = _apply_implicit_cancellations(db, latest["fichas"])
             log.info(f"Bajas implicitas (ausentes de {latest['archivo']}): {cancellations}")
         result = reconcile(db, tolerance_month, tolerance_total, exclude_months=exclude_months)
-        vigentes = db.scalar(select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")) or 0
+        active_count = db.scalar(select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")) or 0
         committed = apply and result.ok
         if committed:
             db.commit()
         else:
             db.rollback()
-        return ReloadOutcome(committed, result, total, active_file_numbers=vigentes, report_files=len(report_files))
+        return ReloadOutcome(committed, result, total, active_file_numbers=active_count, report_files=len(report_files))
     except Exception:
         db.rollback()
         raise
