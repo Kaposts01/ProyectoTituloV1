@@ -4,7 +4,7 @@ Regla del usuario: TODO lo que ve el usuario va en español: títulos, descripci
 
 ## 1. Catálogo y función `label`
 
-- `frontend/src/i18n/es.ts`: catálogo por dominio (solo datos). Dominios: `status`, `tchStatus`, `secondaryStatus`, `runStatus`, `phase`, `channel`, `resource`, `resourcePlural`, `field`, `recurringField`, `boolean`, `cardType`, `cardBrand`, `paymentMethodType`, `severity`, `documentType`, `frequency`, `personType`, `currency`.
+- `frontend/src/i18n/es.ts`: catálogo por dominio (solo datos). Dominios: `status`, `tchStatus`, `secondaryStatus`, `runStatus`, `phase`, `channel`, `resource`, `resourcePlural`, `field`, `recurringField`, `boolean`, `cardType`, `cardBrand`, `paymentMethodType`, `severity`, `documentType`, `frequency`, `personType`, `currency`. Bajas (MGT-15, ver [`cancellations-ui.md`](cancellations-ui.md)): `cancellationStatus`, `cancellationReason`, `cancellationStep`, `cancellationStepStatus`, `cancellationAction`, `cancellationManual`, `cancellationEvent`, `cancellationStopMode` y `cancellationError` (los códigos de error del API se traducen por `detail.code`, nunca con el texto del servidor).
 - `frontend/src/i18n/label.ts`:
   - `label(domain, valor)`: texto en español. Ausente (`null`, `undefined`, `""`) da «Sin dato»; conocido da su traducción; **desconocido da «Desconocido (valor)»** y, solo en desarrollo y pruebas, un `console.warn` (una vez por dominio y valor, sin datos personales: los valores son estados y códigos).
   - `tryLabel(domain, valor)`: `undefined` si no se conoce (sin aviso). `labelOr(domain, valor, vacío)`: otro texto para el ausente. `normalizeKey`: sin tildes, minúsculas, `_` y `-` como espacio (misma normalización que `statusColors`).
