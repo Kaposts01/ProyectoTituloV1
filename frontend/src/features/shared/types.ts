@@ -134,21 +134,6 @@ export type AuthUser = { id: string; username: string; is_active: boolean; roles
 export type AuthSession = { user: AuthUser; csrf_token: string };
 export type AdminRole = { id: string; name: string; description: string | null; permission_codes: string[] };
 export type PermGroup = { group: string; permissions: Array<{ code: string; description: string }> };
-export type TchSummary = {
-  suscripciones: { vigentes: number; eliminadas: number; total: number; monto_vigentes: number; monto_eliminadas: number; monto_total: number };
-  transacciones: { total: number; aceptadas: number; rechazadas: number; tasa_rechazo_pct: number | null; monto: number };
-  kpis: { mrr: number; arpu: number | null; active_clients: number; active_subscribers: number; churn_rate: number | null; ltv: number | null; churn_window_label?: string | null };
-  churn_window_label?: string | null;
-  years: number[];
-  transacciones_mensuales: MonthlyStatusEntry[];
-  transacciones_fuente?: "recaudacion_mensual" | "transacciones" | string;
-  activaciones_mensuales: MonthlyStatusEntry[];
-  bajas_mensuales: MonthlyStatusEntry[];
-  active_subs_monthly: { year: number; month: number; count: number }[];
-  churn_rate_monthly: { year: number; month: number; rate: number }[];
-  ultimo_etl: { id: string | null; status: string | null; started_at: string | null; records_upserted: number | null };
-  alerts?: DashboardAlert[];
-};
 export type DashboardAlert = { id?: string; sev: "alta" | "media" | "baja"; tipo: string; canal: string; detalle: string; periodo?: string };
 export type AlertDetailItem = {
   external_id: string | null;
@@ -187,29 +172,5 @@ export type GeneralClientDetail = {
   charges: { portal: string; id_cargo: string; external_id: string; status: string; amount: string | null }[];
   transactions: { portal: string; id_transaccion: string; external_id: string; status: string; amount: string | null }[];
 };
-export type TchSuscripcion = {
-  id: string; numero_ficha: number; numero_mandato: number | null;
-  cliente_rut: string | null; banco_nombre: string | null; tipo_mandato: string | null;
-  tipo_cuenta: string | null; origen: string | null; centro_costo: string | null;
-  captador: string | null; monto: string | null; fecha_activacion: string | null;
-  equivalente_pesos: string | null;
-  fecha_rechazo: string | null; fecha_eliminacion: string | null; fecha_fin: string | null;
-  razon_baja: string | null; estado: string;
-  last_paid_date: string | null; secondary_status: string;
-  created_at: string | null; updated_at: string | null;
-};
-export type TchSuscripcionesResp = { total: number; page: number; limit: number; pages: number; items: TchSuscripcion[] };
-export type TchTransaccion = {
-  id: string; numero_ficha: number; periodo: string | null; numero_cuota: string | null;
-  total_cuotas: string | null; monto: string | null; fecha_cargo: string | null;
-  tipo_transaccion: string | null; estado: string; entidad_recaudadora: string | null;
-  razon_rechazo: string | null; archivo_origen: string | null;
-};
-export type TchTransaccionesResp = { total: number; page: number; limit: number; pages: number; items: TchTransaccion[] };
-export type TchSuscripcionDetail = TchSuscripcion & { transacciones: TchTransaccion[] };
-export type TchTransaccionDetail = TchTransaccion & { suscripcion: TchSuscripcion | null };
-export type TchCliente = { id: string; rut: string; nombre: string | null; apellido: string | null; fecha_nacimiento: string | null; profesion: string | null; tipo_persona: string | null; tipo_socio: string | null; telefono: string | null; email: string | null; direccion: string | null; comuna: string | null; ciudad: string | null };
-export type TchClientesResp = { total: number; page: number; limit: number; pages: number; items: TchCliente[] };
-export type TchClienteDetail = TchCliente & { suscripciones: TchSuscripcion[] };
 export type PlanCreateField = { name: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] };
 export type SubscriptionCreateField = { name: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] };

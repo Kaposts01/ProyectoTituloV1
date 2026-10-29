@@ -25,23 +25,6 @@ export function groupPermissions(all: Array<{ code: string; description: string 
   return ORDER.filter(g => map.has(g)).map(group => ({ group, permissions: map.get(group)! }));
 }
 
-export function normalizeTchSummary(data: Partial<import("./types").TchSummary>): import("./types").TchSummary {
-  return {
-    suscripciones: data.suscripciones ?? { vigentes: 0, eliminadas: 0, total: 0, monto_vigentes: 0, monto_eliminadas: 0, monto_total: 0 },
-    transacciones: data.transacciones ?? { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: null, monto: 0 },
-    kpis: data.kpis ?? { mrr: 0, arpu: 0, active_clients: 0, active_subscribers: 0, churn_rate: 0, ltv: 0 },
-    years: data.years ?? [],
-    transacciones_mensuales: data.transacciones_mensuales ?? [],
-    transacciones_fuente: data.transacciones_fuente,
-    activaciones_mensuales: data.activaciones_mensuales ?? [],
-    bajas_mensuales: data.bajas_mensuales ?? [],
-    active_subs_monthly: data.active_subs_monthly ?? [],
-    churn_rate_monthly: data.churn_rate_monthly ?? [],
-    ultimo_etl: data.ultimo_etl ?? { id: null, status: null, started_at: null, records_upserted: null },
-    alerts: data.alerts ?? [],
-  };
-}
-
 export function aggregateChurn(churn: (MonthlyEntry | MonthlyStatusEntry)[]): MonthlyEntry[] {
   const byMonth = new Map<string, MonthlyEntry>();
   for (const entry of churn) {

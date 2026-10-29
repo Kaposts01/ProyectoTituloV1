@@ -161,23 +161,23 @@ export function consolidatedExportTarget(
   return { entity, params, ignored: [], viewPermission: null };
 }
 
-/** Listas TCH. `periodo` llega como `AAAA-MM` y se traduce al mes completo en `date_from`/`date_to`. */
+/** Listas TCH. `period` llega como `AAAA-MM` y se traduce al mes completo en `date_from`/`date_to`. */
 export function tchExportTarget(
   view: "clientes" | "suscripciones" | "transacciones",
-  filters: { nombre?: string; estado?: string; periodo?: string },
+  filters: { name?: string; status?: string; period?: string },
 ): ExportTarget {
   const entity: ExportEntity = view === "transacciones" ? "cobros" : view;
   const params: ExportParams = {};
-  if (view === "clientes" && filters.nombre?.trim()) {
+  if (view === "clientes" && filters.name?.trim()) {
     params.filter_field = "name";
-    params.query = filters.nombre.trim();
+    params.query = filters.name.trim();
   }
-  if (view === "suscripciones" && filters.estado) params.status = filters.estado;
-  if (view === "transacciones" && filters.periodo && /^\d{4}-\d{2}$/.test(filters.periodo)) {
-    const [year, month] = filters.periodo.split("-").map(Number);
+  if (view === "suscripciones" && filters.status) params.status = filters.status;
+  if (view === "transacciones" && filters.period && /^\d{4}-\d{2}$/.test(filters.period)) {
+    const [year, month] = filters.period.split("-").map(Number);
     const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    params.date_from = `${filters.periodo}-01`;
-    params.date_to = `${filters.periodo}-${String(last).padStart(2, "0")}`;
+    params.date_from = `${filters.period}-01`;
+    params.date_to = `${filters.period}-${String(last).padStart(2, "0")}`;
   }
   return { entity, canal: "tch", params, ignored: [], viewPermission: exportViewPermission("tch", entity) };
 }

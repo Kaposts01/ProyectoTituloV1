@@ -10,7 +10,7 @@ import "./Staging.css";
 import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
-import type { ChannelDashboard, AuthSession, TchSuscripcionDetail } from "./features/shared/types";
+import type { ChannelDashboard, AuthSession } from "./features/shared/types";
 import { stagingFilters } from "./features/virtualpos/constants";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
@@ -39,6 +39,7 @@ import { VirtualPosWriteDialogs } from "./features/virtualpos/VirtualPosWriteDia
 import { useProviderWrites } from "./features/provider/useProviderWrites";
 import { ProviderWriteDialogs } from "./features/provider/ProviderWriteDialogs";
 import { useTch } from "./features/tch/useTch";
+import { provisionalTchSubscriptionDetail } from "./features/tch/tchAdapter";
 import { TchContent } from "./features/tch/TchContent";
 
 
@@ -265,13 +266,13 @@ function AppCore() {
     if (updateUrl) navigate({ kind: "tch", view });
   }
 
-  function showTchSubscription(numeroFicha: number, updateUrl = true) {
+  function showTchSubscription(fileNumber: number, updateUrl = true) {
     if (updateUrl) {
-      navigate({ kind: "tchSubscription", numeroFicha });
+      navigate({ kind: "tchSubscription", numeroFicha: fileNumber });
       return;
     }
     showTch("suscripciones", false);
-    setTchSubscriptionDetail({ numero_ficha: numeroFicha, transacciones: [] } as unknown as TchSuscripcionDetail);
+    setTchSubscriptionDetail(provisionalTchSubscriptionDetail(fileNumber));
     setTchView("subscription-detail");
   }
 
