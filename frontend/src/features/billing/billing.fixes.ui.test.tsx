@@ -154,6 +154,17 @@ describe("4. CSRF obsoleto", () => {
     expect(mocks.setCsrfToken).toHaveBeenCalledWith("token-nuevo");
   });
 
+  it("el CSRF que llega como {code: invalid_csrf_token} también refresca el token y reintenta una vez", async () => {
+    mocks.postJson.mockRejectedValueOnce(apiError(403, { code: "invalid_csrf_token", message: "Sesión desactualizada." })).mockResolvedValueOnce(detail({ status: "aprobada" }));
+    await openDetail();
+    fireEvent.click(screen.getByRole("button", { name: "Aprobar" }));
+    const dialog = await screen.findByRole("dialog", { name: "Aprobar solicitud" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Aprobar" }));
+    expect(await screen.findByText(/Solicitud aprobada/)).toBeTruthy();
+    expect(mocks.postJson).toHaveBeenCalledTimes(2);
+    expect(mocks.setCsrfToken).toHaveBeenCalledWith("token-nuevo");
+  });
+
   it("si vuelve a fallar: un solo reintento y mensaje de sesion desactualizada", async () => {
     mocks.postJson.mockRejectedValue(apiError(403, "Invalid CSRF token"));
     await openDetail();

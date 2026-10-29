@@ -200,6 +200,20 @@ describe("cliente HTTP", () => {
     await expect(api.approveCancellation("r1")).rejects.toMatchObject({ status: 403, detail: { code: "stale_session" } });
   });
 
+  it("el CSRF obsoleto que ahora llega como {code: invalid_csrf_token} también refresca y reintenta UNA vez", async () => {
+    const stale = { status: 403, detail: { code: "invalid_csrf_token", message: "Sesión desactualizada. Recarga la página e inténtalo de nuevo." } };
+    mocks.postJson.mockRejectedValueOnce(stale).mockResolvedValueOnce({ id: "r1" });
+    await expect(api.approveCancellation("r1")).resolves.toEqual({ id: "r1" });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(mocks.postJson).toHaveBeenCalledTimes(2);
+  });
+
+  it("si el CSRF {code: invalid_csrf_token} sigue fallando devuelve «stale_session»", async () => {
+    mocks.postJson.mockRejectedValue({ status: 403, detail: { code: "invalid_csrf_token", message: "x" } });
+    await expect(api.approveCancellation("r1")).rejects.toMatchObject({ status: 403, detail: { code: "stale_session" } });
+    expect(mocks.postJson).toHaveBeenCalledTimes(2);
+  });
+
   it("un 403 con código estructurado (not_approver) no se reintenta", async () => {
     mocks.postJson.mockRejectedValue({ status: 403, detail: { code: "not_approver" } });
     await expect(api.approveCancellation("r1")).rejects.toMatchObject({ status: 403 });
