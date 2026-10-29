@@ -247,3 +247,56 @@ def test_a_failed_sync_does_not_make_core_look_late(db_session) -> None:
     core_etl_mark.record(db_session, "toku", {}, finished_at=NOW - timedelta(hours=199))
     assert "core_lag_hours" in _health(db_session)["toku"]
     assert _health(db_session)["toku"]["core_lag_hours"] <= 24
+
+
+# --- RJ-06: captura de glosas de VirtualPOS dentro del flujo ----------------------------------------------------------
+
+
+def _capture_spy(monkeypatch, events, *, fails: tuple[str, ...] = ()):
+    async def fake(platform, run_id):
+        events.append(("capture", platform))
+        if platform in fails:
+            raise RuntimeError("capture boom")
+        return {"details_new": 3, "subscriptions_failed": 0, "subscriptions_pending": 3, "aborted": None}
+
+    monkeypatch.setattr(sync_all, "_capture_vp_rejections", fake)
+
+
+def test_vp_rejection_capture_is_off_by_default_and_does_not_run(monkeypatch) -> None:
+    assert settings.vp_rejection_capture_enabled is False
+    events, _ = _patch(monkeypatch)
+    _capture_spy(monkeypatch, events)
+    asyncio.run(sync_all.sync_all_channels())
+    assert [e for e in events if e[0] == "capture"] == []
+
+
+def test_vp_rejection_capture_runs_between_the_syncs_and_the_consolidation(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "vp_rejection_capture_enabled", True)
+    events, run = _patch(monkeypatch)
+    _capture_spy(monkeypatch, events)
+    asyncio.run(sync_all.sync_all_channels())
+    kinds = [e[0] for e in events]
+    captures = [e for e in events if e[0] == "capture"]
+    assert captures == [("capture", "virtualpos1"), ("capture", "virtualpos2")]
+    assert max(i for i, k in enumerate(kinds) if k == "capture") < kinds.index("consolidate")
+    assert min(i for i, k in enumerate(kinds) if k == "capture") > max(i for i, k in enumerate(kinds) if k == "sync")
+    assert run.status == "completed"
+
+
+def test_vp_rejection_capture_skips_failed_accounts_and_its_failure_does_not_fail_the_run(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "vp_rejection_capture_enabled", True)
+    events, run = _patch(monkeypatch, failing_sync=("virtualpos2",))
+    _capture_spy(monkeypatch, events, fails=("virtualpos1",))
+    asyncio.run(sync_all.sync_all_channels())
+    assert [e for e in events if e[0] == "capture"] == [("capture", "virtualpos1")]  # la cuenta caida no se captura
+    assert run.status == "partial"  # por virtualpos2; la captura fallida no agrego nada
+    assert "capture" not in (run.error_message or "")
+    assert any(e[0] == "consolidate" for e in events)  # la consolidacion siguio
+
+
+def test_vp_rejection_capture_is_not_run_for_explicit_channels_without_virtualpos(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "vp_rejection_capture_enabled", True)
+    events, _ = _patch(monkeypatch)
+    _capture_spy(monkeypatch, events)
+    asyncio.run(sync_all.sync_all_channels(channels=["toku"]))
+    assert [e for e in events if e[0] == "capture"] == []

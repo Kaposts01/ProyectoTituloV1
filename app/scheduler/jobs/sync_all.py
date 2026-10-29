@@ -9,11 +9,12 @@ from datetime import datetime, timezone
 from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
 from app.db.session import SessionLocal
+from app.integrations.virtualpos.client import VirtualPOSClient
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
-from app.services import core_etl_mark, sync_metrics
+from app.services import core_etl_mark, status_events, sync_metrics
 from app.services import tch_report_registry as tch_registry
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_recovery import reconcile_charge_recoveries
@@ -24,6 +25,7 @@ from app.services.payku_sync import sync_payku
 from app.services.sync_metrics import RunMetrics
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
+from app.services.vp_rejection_capture import capture_vp_rejections
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,18 @@ def _mark_sync_run_failed(sync_run_id: uuid.UUID, message: str) -> None:
             sync_run.error_message = message
             sync_run.finished_at = datetime.now(timezone.utc)
             db.commit()
+    finally:
+        db.close()
+
+
+async def _capture_vp_rejections(platform: str, run_id: uuid.UUID) -> dict:
+    """RJ-06: captura la glosa de rechazo de una cuenta VirtualPOS (sesion propia; los eventos llevan el `run_id`)."""
+    db = SessionLocal()
+    try:
+        client_factory = VirtualPOSClient if platform == "virtualpos1" else lambda: VirtualPOSClient(platform)
+        async with client_factory() as client:
+            with status_events.event_context(run_id=run_id):
+                return await capture_vp_rejections(db, platform, client)
     finally:
         db.close()
 
@@ -218,6 +232,25 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 event_bus.emit(run_id, {"type": "error", "phase": phase, "msg": "Error en sync_payku"})
             finally:
                 db.close()
+
+        # — Captura de glosa de rechazo de VirtualPOS (RJ-06) —: tras sincronizar y ANTES de consolidar, para que el
+        # vinculo pago-cobro llegue a `payments`. Apagada por defecto (VP_REJECTION_CAPTURE_ENABLED); auxiliar: un fallo
+        # se registra en las metricas y NO cambia el estado del run ni obliga a reintentar el sync.
+        if settings.vp_rejection_capture_enabled and vp_synced:
+            _update_run(db_run_id, phase="capture_vp_rejections")
+            event_bus.emit(run_id, {"type": "phase_start", "phase": "capture_vp_rejections"})
+            for platform in vp_synced:
+                try:
+                    with metrics.timed("capture_rejections", platform) as info:
+                        captured = await _capture_vp_rejections(platform, db_run_id)
+                        info["records"] = captured.get("details_new", 0)
+                        info["failed"] = captured.get("subscriptions_failed", 0)
+                        info["pending"] = captured.get("subscriptions_pending", 0)
+                    if captured.get("aborted"):
+                        metrics.note(f"vp_rejection_capture_{platform}", f"cortada: {captured['aborted']}")
+                except Exception:
+                    logger.exception("Error en la captura de glosas de %s (no afecta al run)", platform)
+                    metrics.add("capture_rejections", platform, error=True)
 
         # — Consolidación centralizada —
         consolidate_sources: list[str] = []

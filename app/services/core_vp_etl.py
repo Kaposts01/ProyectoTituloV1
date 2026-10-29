@@ -10,8 +10,8 @@ vp_subscriptions.client_external_id is NULL for all records.
 Payment → subscription linkage uses client RUT from the payment payload:
   - Exactly 1 subscription for that RUT on that platform → link it
   - 0 or 2+ subscriptions → subscription_id left NULL (ambiguous)
-charge_id is always NULL for VP payments (no cross-reference exists in
-the current payload format; see docs/integrations/virtualpos.md).
+charge_id is NULL when a payment is inserted (the payload carries no charge reference); it is filled
+afterwards, where known, from payment_rejection_details (RJ-06/RJ-04) by an explicit UPDATE.
 """
 
 import logging
@@ -21,6 +21,7 @@ from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.core import (
@@ -30,6 +31,7 @@ from app.models.core import (
     CoreSubscription,
     ExternalIdentity,
 )
+from app.models.rejection import PaymentRejectionDetail
 from app.models.vp import VpCharge, VpClient, VpPayment, VpSubscription
 from app.services.core_materialization import materialize_core_clients
 from app.services.vp_current_amount import load_monto_vigente
@@ -352,6 +354,43 @@ def _rejected_vp_payments(db: Session, extra_keys: set[tuple[str, str]]):
             yield p, found[0], found[1]
 
 
+def _detail_rows(db: Session) -> list:
+    """Glosas capturadas en `payment_rejection_details` (RJ-06/RJ-04) de las cuentas VP, de la mas antigua a la mas nueva.
+
+    Los marcadores («consultado sin glosa», `code = ''`) no son rechazos y se omiten. Si la tabla aun no existe
+    (migracion 20261029_0043 sin aplicar) devuelve [] y el ETL sigue con lo que ya hacia.
+    """
+    try:
+        with db.begin_nested():
+            return list(db.execute(
+                select(
+                    PaymentRejectionDetail.source, PaymentRejectionDetail.charge_external_id,
+                    PaymentRejectionDetail.payment_external_id, PaymentRejectionDetail.code,
+                    PaymentRejectionDetail.reason, PaymentRejectionDetail.rejected_at,
+                )
+                .where(PaymentRejectionDetail.source.in_(_VP_SOURCES), PaymentRejectionDetail.code != "")
+                .order_by(PaymentRejectionDetail.rejected_at.asc().nulls_first(), PaymentRejectionDetail.captured_at.asc())
+            ))
+    except SQLAlchemyError as exc:
+        log.warning("VP Core ETL: payment_rejection_details no disponible (%s); se omite", type(exc).__name__)
+        return []
+
+
+def _link_payments_from_details(db: Session) -> int:
+    """Rehace pago -> cobro (`vp_payments.charge_external_id`, `core_payments.charge_id`) desde los detalles."""
+    from app.services.vp_rejection_capture import (
+        link_payments_to_charges,  # evita importar el cliente HTTP al cargar el ETL
+    )
+
+    try:
+        with db.begin_nested():
+            linked = link_payments_to_charges(db)
+    except SQLAlchemyError as exc:
+        log.warning("VP Core ETL: no se pudo rehacer el vinculo pago-cobro (%s)", type(exc).__name__)
+        return 0
+    return linked["core_payments"]
+
+
 def _enrich_charges_with_rejections(
     db: Session,
     payment_charge_links: dict[tuple[str, str], str] | None = None,
@@ -378,6 +417,15 @@ def _enrich_charges_with_rejections(
         newer = prev is None or (occurred is not None and (prev["occurred_at"] is None or occurred > prev["occurred_at"]))
         if newer:
             best[key] = {"payment_external_id": p.external_id, "code": code, "reason": reason, "occurred_at": occurred}
+    for d in _detail_rows(db):
+        if not d.charge_external_id:
+            continue
+        key = (d.source, d.charge_external_id)
+        prev = best.get(key)
+        occurred = d.rejected_at
+        newer = prev is None or (occurred is not None and (prev["occurred_at"] is None or occurred >= prev["occurred_at"]))
+        if newer:
+            best[key] = {"payment_external_id": d.payment_external_id, "code": d.code, "reason": d.reason, "occurred_at": occurred}
     if not best:
         return 0
 
@@ -424,6 +472,9 @@ def _enrich_payments_with_rejections(db: Session) -> int:
     found: dict[tuple[str, str], tuple[str, str | None, datetime | None]] = {}
     for p, code, reason in _rejected_vp_payments(db, set()):
         found[(p.platform, p.external_id)] = (code, reason, _parse_date(p.payment_date))
+    for d in _detail_rows(db):
+        if d.payment_external_id:
+            found[(d.source, d.payment_external_id)] = (d.code, d.reason, d.rejected_at)
     if not found:
         return 0
     updates: list[dict] = []
@@ -473,6 +524,7 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
     log.info("VP Core ETL — pagos insertados: %d (sin suscripción por ambigüedad RUT: %d)", payments, ambiguous)
 
     log.info("VP Core ETL — enriqueciendo pagos y cobros con el último rechazo")
+    payments_linked = _link_payments_from_details(db)
     payment_rejections = _enrich_payments_with_rejections(db)
     rejections = _enrich_charges_with_rejections(db)
     log.info("VP Core ETL — pagos con rechazo: %d; cobros con rechazo enriquecido: %d", payment_rejections, rejections)
@@ -485,6 +537,7 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
         "charges_upserted": charges,
         "charges_rejection_enriched": rejections,
         "payments_rejection_enriched": payment_rejections,
+        "payments_charge_linked": payments_linked,
         "payments_inserted": payments,
         "payments_unlinked_ambiguous_rut": ambiguous,
     }

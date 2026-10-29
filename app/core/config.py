@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     # como linea base (no cuentan como novedad); usar en la primera consolidacion de un canal vacio o de una carga historica.
     status_events_enabled: bool = True
     status_events_baseline: bool = False
+    # RJ-06: captura diaria de la glosa de rechazo de VirtualPOS (1 peticion por suscripcion con rechazos sin detalle).
+    # APAGADA por defecto: la enciende el usuario tras revisar. Tope de suscripciones por corrida y por cuenta VP.
+    vp_rejection_capture_enabled: bool = False
+    vp_rejection_capture_max_subscriptions: int = 500
+    vp_rejection_capture_pause_seconds: float = 0.3
+    vp_rejection_capture_recheck_days: int = 30  # cobros consultados sin glosa se reconsultan pasado este plazo
+    vp_rejection_capture_max_retries: int = 3  # reintentos con backoff ante 429/5xx
+    # RJ-15: materializa los intentos FAILED de Toku como core_payments (source_status='FAILED'). APAGADA por defecto.
+    toku_materialize_failed_payments: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""

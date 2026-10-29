@@ -271,3 +271,49 @@ def emit_status_events(
         logger.warning("status_events: no se registraron eventos de %s (%s); la consolidacion continua",
                        model.__tablename__, type(exc).__name__)
         return 0
+
+
+def emit_reason_events(db: Session, entries: list[dict]) -> int:
+    """Registra glosas de rechazo capturadas fuera de la consolidacion (SYNC-D-05 / RJ-13).
+
+    `entries`: `{source, external_id (cobro), subscription_external_id, amount, code, reason}` de detalles NUEVOS.
+    Alimenta `rejection_reason_catalog` (suma ocurrencias) y emite un evento `reason_changed` solo la primera vez
+    que la glosa aparece en el catalogo. Devuelve la cantidad de glosas nuevas. Nunca lanza.
+    """
+    entries = [e for e in entries if (e.get("code") or e.get("reason"))]
+    ctx = _CTX.get()
+    if ctx is None:
+        ctx = EventContext(baseline=settings.status_events_baseline, enabled=settings.status_events_enabled)
+    if not entries or not ctx.enabled:
+        return 0
+    try:
+        with db.begin_nested():
+            now = datetime.now(UTC)
+            chunk = [
+                {
+                    "source": e["source"],
+                    "external_id": e["external_id"],
+                    "subscription_external_id": e.get("subscription_external_id"),
+                    "amount": e.get("amount"),
+                }
+                for e in entries
+            ]
+            hints = {
+                (e["source"], e["external_id"]): ((_norm_text(e.get("code")) or "")[:100], _norm_text(e.get("reason")) or "")
+                for e in entries
+            }
+            events = _record_reasons(db, Charge, chunk, hints, set(hints), ctx, now)
+            inserted = 0
+            if events:
+                result = db.execute(
+                    insert(StatusChangeEvent)
+                    .values(events)
+                    .on_conflict_do_nothing(index_elements=["dedupe_key"])
+                    .returning(StatusChangeEvent.id)
+                )
+                inserted = len(result.all())
+        ctx.emitted += inserted
+        return len(events)
+    except Exception as exc:  # noqa: BLE001 - el historial nunca debe tumbar la captura
+        logger.warning("status_events: no se registraron glosas nuevas (%s); la captura continua", type(exc).__name__)
+        return 0
