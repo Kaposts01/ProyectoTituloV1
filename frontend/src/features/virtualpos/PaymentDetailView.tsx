@@ -1,5 +1,6 @@
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosPaymentDetail } from "../shared/types";
+import { fieldValue } from "../shared/display";
 import { text, nested, objectEntries, fieldLabel } from "../shared/utils";
 import { vpClientRecordName } from "./columns";
 
@@ -42,14 +43,14 @@ export function PaymentDetailView({
             return objectEntries(value).map(([nestedField, nestedValue]) => (
               <div key={`${field}-${nestedField}`}>
                 <dt>{fieldLabel(field)} {fieldLabel(nestedField)}</dt>
-                <dd>{text(nestedValue)}</dd>
+                <dd>{fieldValue(nestedField, nestedValue)}</dd>
               </div>
             ));
           }
           return [
             <div key={field}>
               <dt>{fieldLabel(field)}</dt>
-              <dd>{text(value)}</dd>
+              <dd>{fieldValue(field, value)}</dd>
             </div>,
           ];
         })}

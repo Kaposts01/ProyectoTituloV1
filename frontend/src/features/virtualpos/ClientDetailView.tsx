@@ -53,7 +53,9 @@ export function ClientDetailView({
                   )
                 : field === "social_id_type"
                   ? (virtualPosDocumentTypes[text(clientDetail.client.payload[field], "")] ?? text(clientDetail.client.payload[field]))
-                : fieldValue(field, clientDetail.client.payload[field])}
+                : field === "type" && clientDetail.client.payload.type
+                  ? label("personType", clientDetail.client.payload.type)
+                  : fieldValue(field, clientDetail.client.payload[field])}
             </dd>
           </div>
         ))}

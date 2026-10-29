@@ -1,6 +1,7 @@
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosPlanDetail } from "../shared/types";
 import { label } from "../../i18n/label";
+import { fieldValue } from "../shared/display";
 import { text, fieldLabel, externalUrl } from "../shared/utils";
 import { virtualPosPlanFields } from "./constants";
 import { virtualPosClientName } from "./columns";
@@ -37,7 +38,7 @@ export function PlanDetailView({
                   )
                 : (field === "return_url" || field === "suscription_url") && externalUrl(planDetail.plan.payload[field])
                   ? <a className="record-link" href={externalUrl(planDetail.plan.payload[field]) ?? undefined} target="_blank" rel="noreferrer">Abrir enlace</a>
-                  : text(planDetail.plan.payload[field])}
+                  : fieldValue(field, planDetail.plan.payload[field])}
             </dd>
           </div>
         ))}

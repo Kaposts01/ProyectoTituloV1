@@ -1,14 +1,18 @@
+import { label } from "../../i18n/label";
+import type { Domain } from "../../i18n/es";
 import { text, record, identifierList } from "../shared/utils";
 
 export function TokuPaymentMethodProfile({ payload }: { payload: Record<string, unknown> }) {
   const customer = record(payload.customer);
   const method = record(payload.payment_method);
   const card = record(method.card);
+  /** Traduce con el catálogo un valor presente; lo ausente queda ausente para que `fields` lo omita. */
+  const tr = (domain: Domain, value: unknown): unknown => (value === null || value === undefined || value === "" ? value : label(domain, value));
   const fields = (items: [string, unknown][]) => (
     <dl className="field-list payment-method-fields">
-      {items.filter(([, value]) => value !== null && value !== undefined && value !== "").map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
+      {items.filter(([, value]) => value !== null && value !== undefined && value !== "").map(([caption, value]) => (
+        <div key={caption}>
+          <dt>{caption}</dt>
           <dd>{text(value)}</dd>
         </div>
       ))}
@@ -18,10 +22,10 @@ export function TokuPaymentMethodProfile({ payload }: { payload: Record<string, 
     <>
       <section className="panel">
         <p className="eyebrow">MÉTODO DE PAGO</p>
-        <h3>{text(method.type, "Método sin tipo")}</h3>
+        <h3>{method.type ? label("paymentMethodType", method.type) : "Método sin tipo"}</h3>
         {fields([
-          ["Estado", method.status],
-          ["Gateway", payload.gateway],
+          ["Estado", tr("status", method.status)],
+          ["Gateway", tr("gateway", payload.gateway)],
           ["Creado", method.created_at],
           ["ID método", method.id],
           ["ID externo", method.external_id],
@@ -43,8 +47,8 @@ export function TokuPaymentMethodProfile({ payload }: { payload: Record<string, 
         <section className="panel client-subscriptions">
           <p className="eyebrow">TARJETA</p>
           {fields([
-            ["Marca", card.card_brand],
-            ["Tipo", card.card_type],
+            ["Marca", tr("cardBrand", card.card_brand)],
+            ["Tipo", tr("cardType", card.card_type)],
             ["Titular", card.card_holder],
             ["Últimos dígitos", card.last_digits],
             ["Banco", card.bank_name],

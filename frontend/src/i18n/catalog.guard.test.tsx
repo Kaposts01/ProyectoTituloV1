@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelDashboardView } from "../features/dashboard/ChannelDashboardView";
 import type { ChannelDashboard } from "../features/shared/types";
 import { appReady, listSettled, mountApp, resetApp, type Handler } from "../test/appHarness";
-import { page, paykuClient, paykuSubscription, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "../test/fixtures";
+import { page, paykuClient, rec, paykuSubscription, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "../test/fixtures";
 import { es } from "./es";
 import { label, resetUnknownWarnings } from "./label";
 
@@ -21,7 +21,7 @@ afterEach(resetApp);
 export const FORBIDDEN_EN = [
   "ACTIVE", "PAID", "PENDING", "SUCCESS", "FAILED", "CANCELLED", "CANCELED", "PAUSED", "REJECTED",
   "active", "paid", "pending", "success", "failed", "cancelled", "paused", "rejected", "completed", "running", "partial", "queued",
-  "True", "False", "Status", "Email", "Mail",
+  "True", "False", "true", "false", "Status", "Email", "Mail",
 ];
 const FORBIDDEN_RE = new RegExp(`(?<![\\p{L}\\p{N}_])(${FORBIDDEN_EN.join("|")})(?![\\p{L}\\p{N}_])`, "gu");
 
@@ -145,6 +145,34 @@ GUARDED_VIEWS.push(
       fireEvent.click(await screen.findByRole("button", { name: "11111111-1" }));
       return screen.findByText(/Ficha general/);
     },
+  },
+);
+
+// Paso 6: valores de la ficha de proveedor (booleanos, frecuencia, moneda, tarjeta, medio de pago).
+GUARDED_VIEWS.push(
+  {
+    name: "ficha de plan VirtualPOS con booleanos y frecuencia crudos",
+    path: "/virtualpos/planes/plan-1",
+    handlers: [list([]), vpDetail("plans", "plan-1", { plan: vpPlan(1, { is_active: true, show_in_terminal: false, automatic_renewal: "true", frequency_type: "monthly", currency: "CLP" }), subscriptions: [], subscription_total: 0 })],
+    ready: () => screen.findByText("FICHA DEL PLAN"),
+  },
+  {
+    name: "ficha genérica de una suscripción Toku",
+    path: "/toku/suscripciones/tsu-1",
+    handlers: [list([]), ["GET", "/api/v1/staging/toku/subscription/tsu-1", { record: tokuSubscription(1, { is_active: true, recurring: { status: "ACTIVE", frequency: "monthly", currency: "CLP" } }), related: [] }]],
+    ready: () => screen.findByText("FICHA COMPLETA"),
+  },
+  {
+    name: "ficha de un medio de pago Toku",
+    path: "/toku/metodos-pago/tpm-1",
+    handlers: [list([]), ["GET", "/api/v1/staging/toku/payment_method/tpm-1", { record: rec("toku", "payment_method", "tpm-1", { id: "tpm-1", gateway: "pasarela_x", payment_method: { id: "tpm-1", type: "card", status: "ACTIVE", card: { card_brand: "VISA", card_type: "CREDIT", three_d_secure: true } } }), related: [] }]],
+    ready: () => screen.findByText("TOKU / MÉTODO DE PAGO"),
+  },
+  {
+    name: "ficha de una transacción VirtualPOS",
+    path: "/virtualpos/transacciones/pay-1",
+    handlers: [list([]), vpDetail("payments", "pay-1", { payment: vpPayment(1), charge: null, subscription: null, client: null })],
+    ready: () => screen.findByText("FICHA DE LA TRANSACCIÓN"),
   },
 );
 

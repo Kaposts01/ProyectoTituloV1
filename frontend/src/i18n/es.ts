@@ -257,6 +257,32 @@ export const es = {
     country: "País",
     postal_code: "Código postal",
     private_note: "Nota privada",
+    external_id: "ID externo",
+    id_account: "Cuenta",
+    id_checkout_session: "Sesión de checkout",
+    gateway: "Pasarela",
+    card_brand: "Marca",
+    card_holder: "Titular",
+    last_digits: "Últimos dígitos",
+    expiration_month: "Mes de vencimiento",
+    expiration_year: "Año de vencimiento",
+    institution_country: "País emisor",
+    three_d_secure: "3D Secure",
+    product_id: "ID producto",
+    product_ids: "IDs de productos",
+    recurring: "Recurrencia",
+    client: "Cliente",
+    client_rut: "RUT cliente",
+    client_name: "Nombre cliente",
+    order: "Orden",
+    amount_total: "Monto total",
+    charge_date: "Fecha de cargo",
+    authorized_at: "Fecha autorización",
+    payment_type_code: "Tipo de pago",
+    deposits: "Abonos",
+    payout_amount: "Monto abonado",
+    suscription_id: "ID suscripción",
+    brand: "Marca",
   },
   /** Campos del bloque «recurrente» de una suscripción de Toku. */
   recurringField: {
@@ -322,6 +348,11 @@ export const es = {
    * de cada código lo define el usuario; mientras tanto se muestra «Desconocido (código)».
    */
   paymentType: {} as Record<string, string>,
+  /**
+   * Pasarela de pago de Toku (`gateway`). Vacío a propósito: se desconocen los valores reales; mientras tanto
+   * se muestra «Desconocido (valor)» y el usuario define la traducción.
+   */
+  gateway: {} as Record<string, string>,
   /** Gravedad de una alerta operativa. */
   severity: {
     alta: "Alta",
@@ -361,6 +392,7 @@ export const es = {
     clp: "CLP",
     uf: "UF",
     usd: "USD",
+    eur: "EUR",
   },
 } as const;
 

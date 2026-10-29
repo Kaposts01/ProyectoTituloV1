@@ -1,5 +1,5 @@
 import { setCsrfToken, getJson } from "../../api";
-import { label } from "../../i18n/label";
+import { label, tryLabel } from "../../i18n/label";
 import type { AuthSession, RecoveryRow, StagingRecord } from "./types";
 import type { MonthlyEntry, MonthlyStatusEntry } from "../../MonthlyStatusChart";
 
@@ -135,7 +135,7 @@ export function normalizeRut(value: string): string | null {
 }
 
 export function fieldLabel(field: string): string {
-  return fieldLabels[field] ?? field.replaceAll("_", " ");
+  return fieldLabels[field] ?? tryLabel("field", field) ?? `Campo (${field})`;
 }
 
 export function providerRecordHeading(record: StagingRecord): string {
