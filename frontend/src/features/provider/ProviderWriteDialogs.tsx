@@ -51,9 +51,9 @@ export function ProviderWriteDialogs({ writes }: { writes: ProviderWritesState }
               Nuevo estado<span className="field-required" aria-hidden="true"> *</span>
               <select name="status">
                 <option value="">Seleccionar...</option>
-                <option value="ACTIVE">ACTIVE — Activar</option>
-                <option value="PAUSED">PAUSED — Pausar</option>
-                <option value="CANCELLED">CANCELLED — Cancelar</option>
+                <option value="ACTIVE">Activa — Activar</option>
+                <option value="PAUSED">Pausada — Pausar</option>
+                <option value="CANCELLED">Cancelada — Cancelar</option>
               </select>
             </label>
           </div>

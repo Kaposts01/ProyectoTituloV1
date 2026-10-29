@@ -1,4 +1,5 @@
 import { setCsrfToken, getJson } from "../../api";
+import { label } from "../../i18n/label";
 import type { AuthSession, RecoveryRow, StagingRecord } from "./types";
 import type { MonthlyEntry, MonthlyStatusEntry } from "../../MonthlyStatusChart";
 
@@ -156,8 +157,8 @@ export function externalUrl(value: unknown): string | null {
 
 export function renewalText(value: unknown): string {
   const normalized = String(value).toLowerCase();
-  if (["t", "true", "1"].includes(normalized)) return "True";
-  if (["f", "false", "0"].includes(normalized)) return "False";
+  if (["t", "true", "1"].includes(normalized)) return label("boolean", true);
+  if (["f", "false", "0"].includes(normalized)) return label("boolean", false);
   return text(value);
 }
 

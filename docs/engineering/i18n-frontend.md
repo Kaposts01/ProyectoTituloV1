@@ -29,3 +29,4 @@ Fuera de `label`: nombres propios y datos libres (nombre de rol, de plan, de cli
 | Paso | Contenido | Estado |
 |---|---|---|
 | 0 | `i18n/es.ts`, `label.ts`, tests y guardián | hecho |
+| 1 | Rótulos estáticos en inglés: «Status» y «ID Sub» (fichas de cliente y plan), «Email» y «Mail» a «Correo electrónico» (columnas, filtros, formularios, ficha TCH), `renewalText` a Sí/No, opciones del cambio de estado de Toku («Activa — Activar»…). El valor que se envía a Toku (`ACTIVE`, `PAUSED`, `CANCELLED`) no cambia. | hecho |

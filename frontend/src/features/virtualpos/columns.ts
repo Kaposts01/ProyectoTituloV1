@@ -33,7 +33,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
     return [
       { label: "RUT", value: (rec) => text(rec.payload.social_id) },
       { label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || "Sin dato" },
-      { label: "Email", value: (rec) => text(rec.payload.email) },
+      { label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
       { label: "Telefono", value: (rec) => text(rec.payload.phone_number) },
       plataforma,
       { label: "Estado", value: (rec) => text(rec.payload.status) },
@@ -90,7 +90,7 @@ export function tokuColumns(resource: string): TableColumn[] {
     return [
       { label: "RUT", value: (rec) => text(rec.payload.government_id) },
       { label: "Nombre", value: (rec) => text(rec.payload.name) },
-      { label: "Mail", value: (rec) => text(rec.payload.mail) },
+      { label: "Correo electrónico", value: (rec) => text(rec.payload.mail) },
       { label: "Telefono", value: (rec) => text(rec.payload.phone_number) },
       { label: "Acciones", value: () => "Acciones" },
     ];
@@ -182,7 +182,7 @@ export function paykuColumns(resource: string): TableColumn[] {
       { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
       { label: "RUT", value: (rec) => text(rec.payload.rut) },
       { label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || text(rec.payload.name) },
-      { label: "Email", value: (rec) => text(rec.payload.email) },
+      { label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
       { label: "Telefono", value: (rec) => text(rec.payload.phone) },
       { label: "Acciones", value: () => "Acciones" },
     ];

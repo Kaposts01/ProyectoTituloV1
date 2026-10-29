@@ -66,8 +66,8 @@ export function ClientDetailView({
         <span>{clientDetail.subscription_total} total</span>
       </div>
       <VirtualPosDetailTable records={clientDetail.subscriptions} empty="Sin suscripciones asociadas por RUT." columns={[
-        { label: "ID Sub", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
-        { label: "Status", value: (record) => text(record.payload.status) },
+        { label: "ID suscripción", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
+        { label: "Estado", value: (record) => text(record.payload.status) },
         { label: "Estado sec.", value: (record) => record.secondary_status ?? "—" },
         { label: "Último cobro", kind: "date", value: (record) => record.last_paid_date ? String(record.last_paid_date).slice(0, 10) : "" },
         { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },

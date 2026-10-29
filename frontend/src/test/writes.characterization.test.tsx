@@ -80,7 +80,7 @@ describe("Clientes VirtualPOS: editar", () => {
     expect(await within(f).findByText("El RUT no es válido.")).toBeTruthy();
     expect(within(f).getByText("Revisa los campos marcados.")).toBeTruthy();
     type(field(f, "RUT / documento"), "11111111-1");
-    type(field(f, "Email"), "no-es-correo");
+    type(field(f, "Correo electrónico"), "no-es-correo");
     fireEvent.submit(f);
     expect(await within(f).findByText("Ingresa un correo electrónico válido.")).toBeTruthy();
     expect(app.find("PUT", "/api/v1")).toHaveLength(0);
@@ -128,7 +128,7 @@ describe("Clientes VirtualPOS: crear", () => {
     expect(within(f).getByText("El número de documento es obligatorio.")).toBeTruthy();
     expect(within(f).getByText("Revisa los campos marcados en rojo.")).toBeTruthy();
     type(field(f, "Nombre"), "Persona");
-    type(field(f, "Email"), "nueva@example.invalid");
+    type(field(f, "Correo electrónico"), "nueva@example.invalid");
     type(field(f, "RUT / documento"), "11111111-1");
     fireEvent.submit(f);
     expect(await within(f).findByText("Ya existe un cliente con este documento en el listado actual.")).toBeTruthy();
@@ -187,7 +187,7 @@ describe("Planes y suscripciones VirtualPOS: crear", () => {
     expect(await within(f).findByText("El ID del plan es obligatorio.")).toBeTruthy();
     expect(within(f).getByText("El RUT es obligatorio.")).toBeTruthy();
     type(field(f, "ID del plan"), "plan-1");
-    type(field(f, "Email del cliente"), "s@example.invalid");
+    type(field(f, "Correo electrónico del cliente"), "s@example.invalid");
     type(field(f, "Nombre"), "Persona");
     type(field(f, "Apellido"), "Nueva");
     type(field(f, "RUT"), "33333333-3");
@@ -379,6 +379,9 @@ describe("Toku y Payku: editar, eliminar y cambiar estado", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Gestionar estado" }));
     const f = form("Gestionar estado suscripción Toku");
     await listSettled();
+    expect(Array.from(f.querySelectorAll('[name="status"] option')).map((o) => [o.getAttribute("value"), o.textContent])).toEqual([
+      ["", "Seleccionar..."], ["ACTIVE", "Activa — Activar"], ["PAUSED", "Pausada — Pausar"], ["CANCELLED", "Cancelada — Cancelar"],
+    ]);
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.submit(f);
     expect(await within(f).findByText("Selecciona un estado.")).toBeTruthy();

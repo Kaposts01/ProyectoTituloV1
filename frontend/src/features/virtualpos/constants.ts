@@ -37,7 +37,7 @@ export const virtualPosClientEditFields: ClientEditField[] = [
   { name: "type", label: "Tipo", options: [{ value: "PERSONA", label: "Persona" }, { value: "EMPRESA", label: "Empresa" }] },
   { name: "first_name", label: "Nombre" },
   { name: "last_name", label: "Apellido" },
-  { name: "email", label: "Email", type: "email" },
+  { name: "email", label: "Correo electrónico", type: "email" },
   { name: "phone_number", label: "Teléfono", type: "tel" },
   { name: "social_id_type", label: "Tipo de documento", options: [{ value: "1", label: "RUT" }, { value: "2", label: "DNI" }] },
   { name: "social_id", label: "RUT / documento" },
@@ -74,7 +74,7 @@ export const planDefaultValues: Record<string, string> = {
 export type SubscriptionCreateField = { name: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] };
 export const virtualPosSubscriptionCreateFields: SubscriptionCreateField[] = [
   { name: "plan_id", label: "ID del plan", required: true },
-  { name: "email", label: "Email del cliente", type: "email", required: true },
+  { name: "email", label: "Correo electrónico del cliente", type: "email", required: true },
   { name: "first_name", label: "Nombre", required: true },
   { name: "last_name", label: "Apellido", required: true },
   { name: "social_id", label: "RUT", required: true },
@@ -124,21 +124,21 @@ export function deleteEndpoint(source: string, resourceType: string, record: Sta
 
 export const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
   virtualpos: {
-    client: [{ value: "uuid", label: "UUID" }, { value: "social_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Email" }, { value: "phone_number", label: "Teléfono" }, { value: "status", label: "Estado" }],
+    client: [{ value: "uuid", label: "UUID" }, { value: "social_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Correo electrónico" }, { value: "phone_number", label: "Teléfono" }, { value: "status", label: "Estado" }],
     plan: [{ value: "id", label: "ID" }, { value: "name", label: "Nombre" }, { value: "amount", label: "Monto" }, { value: "automatic_renewal", label: "Renovación" }, { value: "is_active", label: "Estado" }, { value: "show_in_terminal", label: "Activo en POS" }],
     subscription: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "secondary_status", label: "Estado sec." }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "suscription_date", label: "F. Inicio" }, { value: "canceled_at", label: "F. Cancelación" }],
     charge: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscription_id", label: "ID subscripción" }, { value: "amount", label: "Monto" }, { value: "charge_date", label: "Fecha de cargo" }],
     payment: [{ value: "uuid", label: "UUID" }, { value: "status", label: "Estado" }, { value: "social_id", label: "RUT cliente" }, { value: "amount", label: "Monto" }, { value: "authorized_at", label: "F. Pago" }],
   },
   toku: {
-    customer: [{ value: "id", label: "ID" }, { value: "government_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "mail", label: "Mail" }, { value: "phone_number", label: "Teléfono" }],
+    customer: [{ value: "id", label: "ID" }, { value: "government_id", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "mail", label: "Correo electrónico" }, { value: "phone_number", label: "Teléfono" }],
     subscription: [{ value: "client_rut", label: "RUT cliente" }, { value: "client_name", label: "Cliente" }, { value: "id", label: "ID" }, { value: "amount", label: "Monto" }, { value: "status", label: "Estado" }, { value: "secondary_status", label: "Estado sec." }, { value: "anchor", label: "F. Inicio" }, { value: "end_date", label: "F. Cancelación" }],
     payment_method: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "customer_id", label: "Cliente" }, { value: "card_brand", label: "Marca" }, { value: "last_digits", label: "Terminación" }, { value: "bank_name", label: "Banco" }, { value: "card_type", label: "Tipo tarjeta" }, { value: "created_at", label: "F. Creación" }],
     invoice: [{ value: "client_rut", label: "RUT cliente" }, { value: "client_name", label: "Cliente" }, { value: "id", label: "ID" }, { value: "amount", label: "Monto" }, { value: "is_paid", label: "Pagado" }, { value: "status", label: "Estado" }, { value: "due_date", label: "Fecha límite" }],
     transaction: [{ value: "client_rut", label: "RUT cliente" }, { value: "client_name", label: "Cliente" }, { value: "id", label: "ID" }, { value: "amount", label: "Monto" }, { value: "transaction_date", label: "Fecha transacción" }],
   },
   payku: {
-    client: [{ value: "id", label: "ID" }, { value: "rut", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Email" }, { value: "phone", label: "Teléfono" }],
+    client: [{ value: "id", label: "ID" }, { value: "rut", label: "RUT" }, { value: "name", label: "Nombre" }, { value: "email", label: "Correo electrónico" }, { value: "phone", label: "Teléfono" }],
     plan: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "name", label: "Nombre" }],
     subscription: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "rut", label: "RUT" }, { value: "start", label: "F. Inicio" }, { value: "end", label: "F. Cancelación" }],
     transaction: [{ value: "id", label: "ID" }, { value: "status", label: "Estado" }, { value: "subscriptions", label: "ID subscripciones" }, { value: "amount", label: "Monto" }, { value: "created_at", label: "F. Pago" }],
@@ -146,7 +146,7 @@ export const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
 };
 
 const vpColumnFields: Record<string, Record<string, string>> = {
-  client: { RUT: "social_id", Nombre: "name", Email: "email", Telefono: "phone_number", Estado: "status" },
+  client: { RUT: "social_id", Nombre: "name", "Correo electrónico": "email", Telefono: "phone_number", Estado: "status" },
   plan: { Nombre: "name", Monto: "amount", Renovacion: "automatic_renewal", Estado: "is_active", "Activo en POS": "show_in_terminal" },
   subscription: { "RUT cliente": "social_id", Estado: "status", "Estado sec.": "secondary_status", Monto: "amount", "F. Inicio": "suscription_date", "F. Cancelacion": "canceled_at" },
   charge: { "ID subscripción": "subscription_id", "Fecha de cargo": "charge_date", Estado: "status", Monto: "amount" },

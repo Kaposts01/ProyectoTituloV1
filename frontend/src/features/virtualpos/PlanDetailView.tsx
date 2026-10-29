@@ -51,10 +51,10 @@ export function PlanDetailView({
         <span>{planDetail.subscription_total} total</span>
       </div>
       <VirtualPosDetailTable records={planDetail.subscriptions} empty="Sin suscripciones asociadas al plan." columns={[
-        { label: "ID Sub", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
+        { label: "ID suscripción", value: (record) => text(record.payload.id, record.external_id), render: (record) => <button className="record-link" onClick={() => void openVirtualPosSubscription(record)}>{text(record.payload.id, record.external_id)}</button> },
         { label: "Nombre cliente", value: virtualPosClientName },
         { label: "Monto", kind: "amount", value: (record) => text(record.payload.amount, "0") },
-        { label: "Status", value: (record) => text(record.payload.status) },
+        { label: "Estado", value: (record) => text(record.payload.status) },
       ]} />
     </section>
   </main>

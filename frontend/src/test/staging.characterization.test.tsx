@@ -31,7 +31,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(screen.getByRole("heading", { name: "Clientes" })).toBeTruthy();
     expect(screen.getByText("Payloads saneados almacenados localmente")).toBeTruthy();
     expect(screen.getByText("2 registros")).toBeTruthy();
-    expect(headers().slice(0, 7)).toEqual(["RUT", "Nombre", "Email", "Telefono", "Plataforma", "Estado", "Acciones"]);
+    expect(headers().slice(0, 7)).toEqual(["RUT", "Nombre", "Correo electrónico", "Telefono", "Plataforma", "Estado", "Acciones"]);
     expect(screen.getByText("Persona1 Sintética")).toBeTruthy();
     expect(screen.getAllByText("VP 1").length).toBeGreaterThan(1);
     expect(screen.getAllByRole("button", { name: "Editar" })).toHaveLength(2);
@@ -46,7 +46,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
     const clear = screen.getByRole("button", { name: "Limpiar filtros" }) as HTMLButtonElement;
     expect(clear.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Buscar por Email"), { target: { value: "p1@" } });
+    fireEvent.change(screen.getByLabelText("Buscar por Correo electrónico"), { target: { value: "p1@" } });
     await waitFor(() => expect(lastRecordsCall(app).query.getAll("filters")).toEqual(["email:p1@"]));
     expect((screen.getByRole("button", { name: "Limpiar filtros" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
@@ -190,7 +190,7 @@ describe("Listas Toku y Payku", () => {
     expect(await screen.findByRole("button", { name: "Ver ficha de cliente 22222221-2" })).toBeTruthy();
     expect(screen.getByText("TOKU / STAGING")).toBeTruthy();
     expect(screen.getByText("Filtrar registros")).toBeTruthy();
-    expect(headers()).toEqual(["RUT", "Nombre", "Mail", "Telefono", "Acciones"]);
+    expect(headers()).toEqual(["RUT", "Nombre", "Correo electrónico", "Telefono", "Acciones"]);
     expect(lastRecordsCall(app).query.get("source")).toBe("toku");
     expect(lastRecordsCall(app).query.has("filter_field")).toBe(false);
     await listSettled();
@@ -244,7 +244,7 @@ describe("Listas Toku y Payku", () => {
     await appReady();
     expect(await screen.findByRole("button", { name: /Ver ficha de Clientes pcl-1/ })).toBeTruthy();
     expect(screen.getByText("PAYKU / STAGING")).toBeTruthy();
-    expect(headers()).toEqual(["ID", "RUT", "Nombre", "Email", "Telefono", "Acciones"]);
+    expect(headers()).toEqual(["ID", "RUT", "Nombre", "Correo electrónico", "Telefono", "Acciones"]);
     resetApp();
     mountApp("/payku/suscripciones", [recordsHandler(page([paykuSubscription(1)]))]);
     await appReady();

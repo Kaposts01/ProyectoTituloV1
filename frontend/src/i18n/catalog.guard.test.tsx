@@ -5,9 +5,10 @@
  * Excepciones documentadas (docs/engineering/i18n-frontend.md): el texto libre del proveedor y los códigos
  * técnicos se pintan crudos, dentro de un elemento con el atributo `data-raw-text`; el guardián no los mira.
  */
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { appReady, listSettled, mountApp, resetApp, type Handler } from "../test/appHarness";
+import { page, paykuClient, tokuCustomer, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "../test/fixtures";
 import { es } from "./es";
 import { label, resetUnknownWarnings } from "./label";
 
@@ -65,6 +66,47 @@ type GuardCase = { name: string; path: string; handlers: Handler[]; ready: () =>
 
 /** Vistas guardadas. Se amplía en cada paso de la traducción (docs/engineering/i18n-frontend.md). */
 export const GUARDED_VIEWS: GuardCase[] = [];
+
+const list = (items: unknown[]): Handler => ["GET", "/api/v1/staging/records", page(items)];
+const vpDetail = (resource: string, id: string, body: unknown): Handler => ["GET", `/api/v1/staging/virtualpos/${resource}/${id}`, body];
+const tchCliente = { id: "cli-1", rut: "22222221-2", nombre: "Nombre1", apellido: "Apellido1", fecha_nacimiento: "1990-01-01", profesion: "Sintética", tipo_persona: "NATURAL", tipo_socio: "REGULAR", telefono: "000", email: "socio1@example.invalid", direccion: "Calle 1", comuna: "Comuna Uno", ciudad: "Ciudad Uno", suscripciones: [] };
+
+// Paso 1: rótulos estáticos en inglés («Status», «ID Sub», «Email», «Mail»).
+GUARDED_VIEWS.push(
+  {
+    name: "ficha de cliente VirtualPOS",
+    path: "/virtualpos/clientes/cli-1",
+    handlers: [list([]), vpDetail("clients", "cli-1", { client: vpClient(1), subscriptions: [vpSubscription(1)], subscription_total: 1, charges: [], charge_total: 0, payments: [vpPayment(1)], payment_total: 1 })],
+    ready: () => screen.findByText("FICHA DEL CLIENTE"),
+  },
+  {
+    name: "ficha de plan VirtualPOS",
+    path: "/virtualpos/planes/plan-1",
+    handlers: [list([]), vpDetail("plans", "plan-1", { plan: vpPlan(1), subscriptions: [vpSubscription(1)], subscription_total: 1 })],
+    ready: () => screen.findByText("FICHA DEL PLAN"),
+  },
+  {
+    name: "ficha de suscripción VirtualPOS (renovación T)",
+    path: "/virtualpos/suscripciones/sub-1",
+    handlers: [list([]), vpDetail("subscriptions", "sub-1", { subscription: vpSubscription(1), payment_method: null, charges: [vpCharge(1, "pendiente")], charge_total: 1, payments: [], payment_total: 0 })],
+    ready: () => screen.findByText("FICHA DE LA SUBSCRIPCIÓN"),
+  },
+  { name: "lista de clientes VirtualPOS", path: "/virtualpos/clientes", handlers: [list([vpClient(1)])], ready: () => screen.findByRole("button", { name: "Editar" }) },
+  { name: "lista de clientes Payku", path: "/payku/clientes", handlers: [list([paykuClient(1)])], ready: () => screen.findByRole("button", { name: "Eliminar" }) },
+  { name: "lista de clientes Toku", path: "/toku/clientes", handlers: [list([tokuCustomer(1)])], ready: () => screen.findByRole("button", { name: "Eliminar" }) },
+  {
+    name: "ficha de cliente TCH",
+    path: "/tch/clientes",
+    handlers: [
+      ["GET", "/api/v1/tch/clientes", { total: 1, page: 1, limit: 50, pages: 1, items: [tchCliente] }],
+      ["GET", /^\/api\/v1\/tch\/clientes\/[^/]+$/, tchCliente],
+    ],
+    ready: async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "22222221-2" }));
+      return screen.findByText("TCH / CLIENTE");
+    },
+  },
+);
 
 describe("guardián: vistas de caracterización sin valores crudos en inglés", () => {
   for (const view of GUARDED_VIEWS) {
