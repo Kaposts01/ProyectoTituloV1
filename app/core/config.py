@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # SYNC-O-03: la corrida nocturna consolida TCH solo si llego un reporte Excel nuevo (False = siempre, como antes).
     sync_tch_consolidate_only_after_load: bool = True
     # SYNC-O-16: el ETL Core de Toku/Payku/VirtualPOS corre dentro del sync, tras consolidar (False = solo manual).
-    sync_core_etl_enabled: bool = True
+    sync_core_etl_enabled: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""

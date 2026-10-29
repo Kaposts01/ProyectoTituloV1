@@ -236,6 +236,7 @@ def test_a_full_run_persists_its_phases(monkeypatch) -> None:
     finally:
         cleanup.close()
 
+    monkeypatch.setattr(sync_all.settings, "sync_core_etl_enabled", True)
     monkeypatch.setattr(sync_all, "skip_disabled_channel", lambda _c: False)
     monkeypatch.setattr(sync_all, "_CORE_ETL_RUNNERS", {"toku": lambda _db: {"charges_upserted": 4}})
 

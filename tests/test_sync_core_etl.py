@@ -29,7 +29,8 @@ NOW = datetime(2099, 6, 1, 12, 0, tzinfo=timezone.utc)
 
 
 def _patch(monkeypatch, *, failing_sync: tuple[str, ...] = (), consolidation_failures: list[str] | None = None,
-           core_fails: tuple[str, ...] = ()):
+           core_fails: tuple[str, ...] = (), core_etl_enabled: bool = True):
+    monkeypatch.setattr(settings, "sync_core_etl_enabled", core_etl_enabled)
     events: list[tuple] = []
     run = EtlRun(status="running")
     run.id = uuid.uuid4()
@@ -152,10 +153,14 @@ def test_explicit_channels_only_run_their_own_core_etl(monkeypatch) -> None:
 
 
 def test_the_core_etl_can_be_turned_off_by_setting(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "sync_core_etl_enabled", False)
-    events, _ = _patch(monkeypatch)
+    events, _ = _patch(monkeypatch, core_etl_enabled=False)
     asyncio.run(sync_all.sync_all_channels())
     assert _core_events(events) == []
+
+
+def test_the_core_etl_is_off_by_default() -> None:
+    """Producción no debe encender el ETL Core por sorpresa: lo activa el usuario tras una primera corrida manual."""
+    assert type(settings).model_fields["sync_core_etl_enabled"].default is False
 
 
 # --- marca y salud ---------------------------------------------------------------------------------
