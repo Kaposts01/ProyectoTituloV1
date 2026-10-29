@@ -44,6 +44,7 @@ from app.models.payku_channel import (  # noqa: F401
     PaykuSubscription,
     PaykuTransaction,
 )
+from app.models.rejection import PaymentRejectionDetail  # noqa: F401
 from app.models.source_record import SourceRecord  # noqa: F401
 from app.models.status_change import (  # noqa: F401
     RejectionReasonCatalog,
