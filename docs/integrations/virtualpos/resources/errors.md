@@ -242,7 +242,7 @@ La columna "¿Reintentar?" es una **recomendación** nuestra, no de VirtualPOS.
 | `-8` | Tarjeta está expirada. Seleccionar otro medio de pago. | No; otro medio |
 | `-9` | Tarjeta no soportada por adquirente. Pagador debe intentar con otro medio de pago. | No; otro medio |
 | `-10` | Problema general en la transacción. | Sí, más tarde |
-| `-11` | El pagador excedió el límite de rechazos establecidos por la marca. | No hoy |
+| `-11` | El pagador excedió el límite de rechazos establecidos por la marca. En el CRM se muestra como «Excede límite de reintentos de rechazo»: ese es el texto del portal de VirtualPOS y del `rejected_object` real (medido en producción, 2026-10-29); el catálogo oficial no coincide. El texto sigue al portal (D17). | No hoy |
 | `-1001` | El Comercio no tiene habilitado el método de pago Quick Checkout. | Depende (antifraude/límites del comercio) |
 | `-1002` | Esta transacción se encuentra en estado distinto a **pendiente** por lo cual no es posible realizar su pago. | Depende (antifraude/límites del comercio) |
 | `-1003` | El Monto de la orden supera el máximo permitido para el comercio. | Depende (antifraude/límites del comercio) |

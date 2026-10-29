@@ -17,7 +17,7 @@ VP_REJECTION_LABELS: dict[str, str] = {
     "-8": "Tarjeta expirada",
     "-9": "Tarjeta no soportada por el adquirente",
     "-10": "Problema general en la transacción",
-    "-11": "El pagador excedió el límite de rechazos de la marca",
+    "-11": "Excede límite de reintentos de rechazo",  # texto del portal de VirtualPOS (D17), no de la documentación
     "-1001": "El comercio no tiene habilitado Quick Checkout",
     "-1002": "La transacción no está en estado pendiente",
     "-1003": "El monto supera el máximo permitido para el comercio",

@@ -28,11 +28,11 @@ def test_virtualpos_keeps_current_behaviour() -> None:
     assert format_rejection_reason("virtualpos1", None, None) == "No informado por VirtualPOS"
 
 
-def test_virtualpos_minus_11_text_is_unchanged_pending_user_decision() -> None:
-    # El reporte descargado lo llama «Excede límite de reintentos de rechazo»; el catálogo (documentación
-    # oficial) dice otra cosa. La redacción la decide el usuario: este test fija el texto vigente.
-    assert VP_REJECTION_LABELS["-11"] == "El pagador excedió el límite de rechazos de la marca"
-    assert format_rejection_reason("virtualpos1", "-11", None) == "El pagador excedió el límite de rechazos de la marca"
+def test_virtualpos_minus_11_text_follows_the_portal() -> None:
+    # D17: el texto del `-11` sigue al portal de VirtualPOS (el reporte descargado y el rejected_object
+    # real), no la redaccion de la documentacion oficial.
+    assert VP_REJECTION_LABELS["-11"] == "Excede límite de reintentos de rechazo"
+    assert format_rejection_reason("virtualpos1", "-11", None) == "Excede límite de reintentos de rechazo"
 
 
 def test_toku_prefers_catalog_message_for_long_and_short_codes() -> None:
