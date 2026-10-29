@@ -20,10 +20,11 @@ describe("rótulos de columnas y filtros sin inglés", () => {
     expect(labels.filter((l) => ENGLISH.test(l))).toEqual([]);
   });
 
-  it("el filtro y el orden por la columna de correo siguen resolviendo el mismo campo", () => {
-    expect(virtualPosFieldForColumn("client", "Correo electrónico")).toBe("email");
-    expect(filterFieldForColumn("virtualpos", "client", "Correo electrónico")).toBe("email");
-    expect(filterFieldForColumn("payku", "client", "Correo electrónico")).toBe("email");
-    expect(filterFieldForColumn("toku", "customer", "Correo electrónico")).toBe("mail");
+  it("el filtro y el orden por la columna de correo siguen resolviendo el mismo campo (por clave, no por rótulo)", () => {
+    const key = (cols: { key: string; label: string }[]) => cols.find((c) => c.label === "Correo electrónico")!.key;
+    expect(virtualPosFieldForColumn("client", key(virtualPosColumns("client")))).toBe("email");
+    expect(filterFieldForColumn("virtualpos", "client", key(virtualPosColumns("client")))).toBe("email");
+    expect(filterFieldForColumn("payku", "client", key(paykuColumns("client")))).toBe("email");
+    expect(filterFieldForColumn("toku", "customer", key(tokuColumns("customer")))).toBe("mail");
   });
 });

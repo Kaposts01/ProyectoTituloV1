@@ -29,83 +29,83 @@ const vpPlatformLabel = (rec: StagingRecord) =>
 export function virtualPosColumns(resource: string): TableColumn[] {
   const clientRut = (rec: StagingRecord) =>
     text(nested(rec.payload, "client", "social_id") ?? rec.payload.social_id);
-  const plataforma: TableColumn = { label: "Plataforma", value: vpPlatformLabel };
+  const plataforma: TableColumn = { key: "Plataforma", label: "Plataforma", value: vpPlatformLabel };
   if (resource === "client")
     return [
-      { label: "RUT", value: (rec) => text(rec.payload.social_id) },
-      { label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || "Sin dato" },
-      { label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
-      { label: "Telefono", value: (rec) => text(rec.payload.phone_number) },
+      { key: "RUT", label: "RUT", value: (rec) => text(rec.payload.social_id) },
+      { key: "Nombre", label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || "Sin dato" },
+      { key: "Email", label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
+      { key: "Telefono", label: "Telefono", value: (rec) => text(rec.payload.phone_number) },
       plataforma,
-      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
-      { label: "Acciones", value: () => "Editar" },
+      { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { key: "Acciones", label: "Acciones", value: () => "Editar" },
     ];
   if (resource === "plan")
     return [
-      { label: "Nombre", value: (rec) => text(rec.payload.name) },
-      { label: "Monto", value: (rec) => clp(rec.payload.amount) },
-      { label: "Subscripciones", value: (rec) => String(rec.subscription_count ?? 0) },
-      { label: "Activas", value: (rec) => String(rec.active_subscription_count ?? 0) },
-      { label: "Cobrables", value: (rec) => String(rec.cobrable_subscription_count ?? 0) },
-      { label: "Renovacion", value: (rec) => active(rec.payload.automatic_renewal) },
-      { label: "Estado", value: (rec) => active(rec.payload.is_active) },
-      { label: "Activo en POS", value: (rec) => active(rec.payload.show_in_terminal) },
+      { key: "Nombre", label: "Nombre", value: (rec) => text(rec.payload.name) },
+      { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
+      { key: "Subscripciones", label: "Subscripciones", value: (rec) => String(rec.subscription_count ?? 0) },
+      { key: "Activas", label: "Activas", value: (rec) => String(rec.active_subscription_count ?? 0) },
+      { key: "Cobrables", label: "Cobrables", value: (rec) => String(rec.cobrable_subscription_count ?? 0) },
+      { key: "Renovacion", label: "Renovacion", value: (rec) => active(rec.payload.automatic_renewal) },
+      { key: "Estado", label: "Estado", value: (rec) => active(rec.payload.is_active) },
+      { key: "Activo en POS", label: "Activo en POS", value: (rec) => active(rec.payload.show_in_terminal) },
       plataforma,
     ];
   if (resource === "subscription")
     return [
-      { label: "RUT cliente", value: clientRut },
-      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
-      { label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
-      { label: "Monto", value: (rec) => clp(rec.payload.amount) },
-      { label: "F. Inicio", value: (rec) => text(rec.payload.suscription_date) },
-      { label: "F. Cancelacion", value: (rec) => text(rec.payload.canceled_at) },
-      { label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
+      { key: "RUT cliente", label: "RUT cliente", value: clientRut },
+      { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { key: "Estado sec.", label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
+      { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
+      { key: "F. Inicio", label: "F. Inicio", value: (rec) => text(rec.payload.suscription_date) },
+      { key: "F. Cancelacion", label: "F. Cancelacion", value: (rec) => text(rec.payload.canceled_at) },
+      { key: "Último cobro", label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
       plataforma,
-      { label: "Acciones", value: () => "Cancelar" },
+      { key: "Acciones", label: "Acciones", value: () => "Cancelar" },
     ];
   if (resource === "charge")
     return [
-      { label: "ID subscripción", value: (rec) => rec.subscription_id ?? text(rec.payload.subscription_id ?? rec.payload.suscription_id) },
-      { label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
-      { label: "RUT cliente", value: (rec) => rec.client_social_id ?? "Sin dato" },
-      { label: "Fecha de cargo", value: (rec) => text(rec.payload.charge_date) },
-      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
-      { label: "Monto", value: (rec) => clp(rec.payload.amount) },
+      { key: "ID subscripción", label: "ID subscripción", value: (rec) => rec.subscription_id ?? text(rec.payload.subscription_id ?? rec.payload.suscription_id) },
+      { key: "Cliente", label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
+      { key: "RUT cliente", label: "RUT cliente", value: (rec) => rec.client_social_id ?? "Sin dato" },
+      { key: "Fecha de cargo", label: "Fecha de cargo", value: (rec) => text(rec.payload.charge_date) },
+      { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
       plataforma,
-      { label: "Acciones", value: () => "Eliminar" },
+      { key: "Acciones", label: "Acciones", value: () => "Eliminar" },
     ];
   return [
-    { label: "RUT cliente", value: clientRut },
-    { label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
-    { label: "F. Pago", value: (rec) => text(nested(rec.payload, "order", "authorized_at")) },
-    { label: "Monto", value: (rec) => clp(nested(rec.payload, "order", "amount")) },
-    { label: "Estado", value: (rec) => label("status", nested(rec.payload, "order", "status")) },
+    { key: "RUT cliente", label: "RUT cliente", value: clientRut },
+    { key: "Cliente", label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
+    { key: "F. Pago", label: "F. Pago", value: (rec) => text(nested(rec.payload, "order", "authorized_at")) },
+    { key: "Monto", label: "Monto", value: (rec) => clp(nested(rec.payload, "order", "amount")) },
+    { key: "Estado", label: "Estado", value: (rec) => label("status", nested(rec.payload, "order", "status")) },
     plataforma,
-    { label: "Acciones", value: () => "Eliminar" },
+    { key: "Acciones", label: "Acciones", value: () => "Eliminar" },
   ];
 }
 
 export function tokuColumns(resource: string): TableColumn[] {
   if (resource === "customer")
     return [
-      { label: "RUT", value: (rec) => text(rec.payload.government_id) },
-      { label: "Nombre", value: (rec) => text(rec.payload.name) },
-      { label: "Correo electrónico", value: (rec) => text(rec.payload.mail) },
-      { label: "Telefono", value: (rec) => text(rec.payload.phone_number) },
-      { label: "Acciones", value: () => "Acciones" },
+      { key: "RUT", label: "RUT", value: (rec) => text(rec.payload.government_id) },
+      { key: "Nombre", label: "Nombre", value: (rec) => text(rec.payload.name) },
+      { key: "Mail", label: "Correo electrónico", value: (rec) => text(rec.payload.mail) },
+      { key: "Telefono", label: "Telefono", value: (rec) => text(rec.payload.phone_number) },
+      { key: "Acciones", label: "Acciones", value: () => "Acciones" },
     ];
   if (resource === "subscription")
     return [
-      { label: "RUT cliente", value: (rec) => text(rec.client_rut) },
-      { label: "Cliente", value: (rec) => text(rec.client_name) },
-      { label: "Monto", value: (rec) => clp(rec.payload.amount) },
-      { label: "Estado", value: (rec) => label("status", rec.payload.status ?? nested(rec.payload, "recurring", "status")) },
-      { label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
-      { label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
-      { label: "F. Inicio", value: (rec) => dateOnly(rec.payload.anchor ?? nested(rec.payload, "recurring", "anchor")) },
-      { label: "F. Cancelacion", value: (rec) => dateOnly(rec.payload.end_date ?? nested(rec.payload, "recurring", "end_date")) },
-      { label: "Acciones", value: () => "Acciones" },
+      { key: "RUT cliente", label: "RUT cliente", value: (rec) => text(rec.client_rut) },
+      { key: "Cliente", label: "Cliente", value: (rec) => text(rec.client_name) },
+      { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
+      { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status ?? nested(rec.payload, "recurring", "status")) },
+      { key: "Estado sec.", label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
+      { key: "Último cobro", label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
+      { key: "F. Inicio", label: "F. Inicio", value: (rec) => dateOnly(rec.payload.anchor ?? nested(rec.payload, "recurring", "anchor")) },
+      { key: "F. Cancelacion", label: "F. Cancelacion", value: (rec) => dateOnly(rec.payload.end_date ?? nested(rec.payload, "recurring", "end_date")) },
+      { key: "Acciones", label: "Acciones", value: () => "Acciones" },
     ];
   if (resource === "payment_method") {
     const method = (item: StagingRecord) => record(item.payload.payment_method);
@@ -116,101 +116,101 @@ export function tokuColumns(resource: string): TableColumn[] {
       return Array.isArray(subscriptions) ? String(subscriptions.length) : "0";
     };
     return [
-      { label: "ID", value: (item) => text(method(item).id ?? item.payload.id, item.external_id) },
-      { label: "Estado", value: (item) => label("status", method(item).status ?? item.payload.status) },
-      { label: "F. Creacion", value: (item) => dateOnly(method(item).created_at ?? item.payload.created_at) },
-      { label: "Cliente", value: (item) => text(customer(item).name ?? customer(item).id ?? item.payload.customer_id ?? item.payload.customer) },
-      { label: "Marca", value: (item) => text(card(item).card_brand ?? method(item).card_brand) },
-      { label: "Terminacion", value: (item) => text(card(item).last_digits ?? method(item).last_digits) },
-      { label: "Banco", value: (item) => text(card(item).bank_name ?? method(item).bank_name) },
-      { label: "Tipo tarjeta", value: (item) => cardTypeText(card(item).card_type ?? method(item).card_type) },
-      { label: "Subscripciones", value: subscriptionCount },
-      { label: "Acciones", value: () => "Eliminar" },
+      { key: "ID", label: "ID", value: (item) => text(method(item).id ?? item.payload.id, item.external_id) },
+      { key: "Estado", label: "Estado", value: (item) => label("status", method(item).status ?? item.payload.status) },
+      { key: "F. Creacion", label: "F. Creacion", value: (item) => dateOnly(method(item).created_at ?? item.payload.created_at) },
+      { key: "Cliente", label: "Cliente", value: (item) => text(customer(item).name ?? customer(item).id ?? item.payload.customer_id ?? item.payload.customer) },
+      { key: "Marca", label: "Marca", value: (item) => text(card(item).card_brand ?? method(item).card_brand) },
+      { key: "Terminacion", label: "Terminacion", value: (item) => text(card(item).last_digits ?? method(item).last_digits) },
+      { key: "Banco", label: "Banco", value: (item) => text(card(item).bank_name ?? method(item).bank_name) },
+      { key: "Tipo tarjeta", label: "Tipo tarjeta", value: (item) => cardTypeText(card(item).card_type ?? method(item).card_type) },
+      { key: "Subscripciones", label: "Subscripciones", value: subscriptionCount },
+      { key: "Acciones", label: "Acciones", value: () => "Eliminar" },
     ];
   }
   if (resource === "invoice")
     return [
-      { label: "RUT cliente", value: (rec) => text(rec.client_rut) },
-      { label: "Cliente", value: (rec) => text(rec.client_name) },
-      { label: "Monto", value: (rec) => clp(rec.payload.amount) },
-      { label: "Pagado", value: (rec) => paid(rec.payload.is_paid) },
-      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
-      { label: "Fecha limite", value: (rec) => dateOnly(rec.payload.due_date) },
-      { label: "Acciones", value: () => "Acciones" },
+      { key: "RUT cliente", label: "RUT cliente", value: (rec) => text(rec.client_rut) },
+      { key: "Cliente", label: "Cliente", value: (rec) => text(rec.client_name) },
+      { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
+      { key: "Pagado", label: "Pagado", value: (rec) => paid(rec.payload.is_paid) },
+      { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { key: "Fecha limite", label: "Fecha limite", value: (rec) => dateOnly(rec.payload.due_date) },
+      { key: "Acciones", label: "Acciones", value: () => "Acciones" },
     ];
   return [
-    { label: "RUT cliente", value: (rec) => text(nested(rec.payload, "customer", "government_id") ?? rec.client_rut) },
-    { label: "Cliente", value: (rec) => text(nested(rec.payload, "customer", "name") ?? rec.client_name) },
-    { label: "Monto", value: (rec) => clp(nested(rec.payload, "transaction", "amount") ?? rec.payload.amount) },
-    { label: "Fecha transaccion", value: (rec) => dateOnly(nested(rec.payload, "transaction", "transaction_date") ?? rec.payload.transaction_date) },
+    { key: "RUT cliente", label: "RUT cliente", value: (rec) => text(nested(rec.payload, "customer", "government_id") ?? rec.client_rut) },
+    { key: "Cliente", label: "Cliente", value: (rec) => text(nested(rec.payload, "customer", "name") ?? rec.client_name) },
+    { key: "Monto", label: "Monto", value: (rec) => clp(nested(rec.payload, "transaction", "amount") ?? rec.payload.amount) },
+    { key: "Fecha transaccion", label: "Fecha transaccion", value: (rec) => dateOnly(nested(rec.payload, "transaction", "transaction_date") ?? rec.payload.transaction_date) },
   ];
 }
 
 export function tokuRelatedColumns(resource: string): TableColumn[] {
   if (resource === "customer")
     return [
-      { label: "Nombre", value: (item) => text(item.payload.name) },
-      { label: "RUT", value: (item) => text(item.payload.government_id) },
-      { label: "Estado", value: (item) => label("status", item.payload.status) },
+      { key: "Nombre", label: "Nombre", value: (item) => text(item.payload.name) },
+      { key: "RUT", label: "RUT", value: (item) => text(item.payload.government_id) },
+      { key: "Estado", label: "Estado", value: (item) => label("status", item.payload.status) },
     ];
   if (resource === "payment_method")
     return [
-      { label: "Estado", value: (item) => label("status", nested(item.payload, "payment_method", "status") ?? item.payload.status) },
-      { label: "Fecha creación", value: (item) => dateOnly(nested(item.payload, "payment_method", "created_at") ?? item.payload.created_at) },
+      { key: "Estado", label: "Estado", value: (item) => label("status", nested(item.payload, "payment_method", "status") ?? item.payload.status) },
+      { key: "Fecha creación", label: "Fecha creación", value: (item) => dateOnly(nested(item.payload, "payment_method", "created_at") ?? item.payload.created_at) },
     ];
   if (resource === "invoice")
     return [
-      { label: "Estado", value: (item) => label("status", item.payload.status) },
-      { label: "Fecha", value: (item) => dateOnly(item.payload.due_date ?? item.payload.created_at) },
-      { label: "Monto", value: (item) => clp(item.payload.amount) },
+      { key: "Estado", label: "Estado", value: (item) => label("status", item.payload.status) },
+      { key: "Fecha", label: "Fecha", value: (item) => dateOnly(item.payload.due_date ?? item.payload.created_at) },
+      { key: "Monto", label: "Monto", value: (item) => clp(item.payload.amount) },
     ];
   if (resource === "transaction")
     return [
-      { label: "Estado", value: (item) => label("status", nested(item.payload, "transaction", "status") ?? item.payload.status) },
-      { label: "Fecha", value: (item) => dateOnly(nested(item.payload, "transaction", "transaction_date") ?? item.payload.transaction_date) },
-      { label: "Monto", value: (item) => clp(nested(item.payload, "transaction", "amount") ?? item.payload.amount) },
+      { key: "Estado", label: "Estado", value: (item) => label("status", nested(item.payload, "transaction", "status") ?? item.payload.status) },
+      { key: "Fecha", label: "Fecha", value: (item) => dateOnly(nested(item.payload, "transaction", "transaction_date") ?? item.payload.transaction_date) },
+      { key: "Monto", label: "Monto", value: (item) => clp(nested(item.payload, "transaction", "amount") ?? item.payload.amount) },
     ];
   return [
-    { label: "Nombre", value: (item) => text(item.payload.name, text(nested(item.payload, "client", "name"))) },
-    { label: "Estado", value: (item) => label("status", item.payload.status) },
-    { label: "Monto", value: (item) => clp(item.payload.amount) },
+    { key: "Nombre", label: "Nombre", value: (item) => text(item.payload.name, text(nested(item.payload, "client", "name"))) },
+    { key: "Estado", label: "Estado", value: (item) => label("status", item.payload.status) },
+    { key: "Monto", label: "Monto", value: (item) => clp(item.payload.amount) },
   ];
 }
 
 export function paykuColumns(resource: string): TableColumn[] {
   if (resource === "client")
     return [
-      { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-      { label: "RUT", value: (rec) => text(rec.payload.rut) },
-      { label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || text(rec.payload.name) },
-      { label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
-      { label: "Telefono", value: (rec) => text(rec.payload.phone) },
-      { label: "Acciones", value: () => "Acciones" },
+      { key: "ID", label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
+      { key: "RUT", label: "RUT", value: (rec) => text(rec.payload.rut) },
+      { key: "Nombre", label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || text(rec.payload.name) },
+      { key: "Email", label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
+      { key: "Telefono", label: "Telefono", value: (rec) => text(rec.payload.phone) },
+      { key: "Acciones", label: "Acciones", value: () => "Acciones" },
     ];
   if (resource === "plan")
     return [
-      { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
-      { label: "Nombre", value: (rec) => text(rec.payload.name) },
-      { label: "Subscripciones activas", value: (rec) => (rec.active_subscriptions ?? 0).toLocaleString("es-CL") },
-      { label: "Subscripciones cobrables", value: (rec) => (rec.collectible_subscriptions ?? 0).toLocaleString("es-CL") },
+      { key: "ID", label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
+      { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { key: "Nombre", label: "Nombre", value: (rec) => text(rec.payload.name) },
+      { key: "Subscripciones activas", label: "Subscripciones activas", value: (rec) => (rec.active_subscriptions ?? 0).toLocaleString("es-CL") },
+      { key: "Subscripciones cobrables", label: "Subscripciones cobrables", value: (rec) => (rec.collectible_subscriptions ?? 0).toLocaleString("es-CL") },
     ];
   if (resource === "subscription")
     return [
-      { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-      { label: "Estado", value: (rec) => label("status", rec.payload.status) },
-      { label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
-      { label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
-      { label: "RUT", value: (rec) => text(nested(rec.payload, "client", "rut")) },
-      { label: "F. Inicio", value: (rec) => text(rec.payload.start) },
-      { label: "F. Cancelacion", value: (rec) => text(rec.payload.end) },
-      { label: "Acciones", value: () => "Eliminar" },
+      { key: "ID", label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
+      { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
+      { key: "Estado sec.", label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
+      { key: "Último cobro", label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
+      { key: "RUT", label: "RUT", value: (rec) => text(nested(rec.payload, "client", "rut")) },
+      { key: "F. Inicio", label: "F. Inicio", value: (rec) => text(rec.payload.start) },
+      { key: "F. Cancelacion", label: "F. Cancelacion", value: (rec) => text(rec.payload.end) },
+      { key: "Acciones", label: "Acciones", value: () => "Eliminar" },
     ];
   return [
-    { label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-    { label: "Estado", value: (rec) => label("status", rec.payload.status) },
-    { label: "ID subscripciones", value: (rec) => text(rec.payload.subscriptions) },
-    { label: "Monto", value: (rec) => clp(rec.payload.amount) },
-    { label: "F. Pago", value: (rec) => text(rec.payload.created_at) },
+    { key: "ID", label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
+    { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
+    { key: "ID subscripciones", label: "ID subscripciones", value: (rec) => text(rec.payload.subscriptions) },
+    { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
+    { key: "F. Pago", label: "F. Pago", value: (rec) => text(rec.payload.created_at) },
   ];
 }

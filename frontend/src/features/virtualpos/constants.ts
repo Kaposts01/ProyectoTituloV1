@@ -145,20 +145,41 @@ export const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
   },
 };
 
+/** Campo de filtro y de orden de cada columna de VirtualPOS, por la CLAVE estable de la columna (`TableColumn.key`). */
 const vpColumnFields: Record<string, Record<string, string>> = {
-  client: { RUT: "social_id", Nombre: "name", "Correo electrónico": "email", Telefono: "phone_number", Estado: "status" },
+  client: { RUT: "social_id", Nombre: "name", Email: "email", Telefono: "phone_number", Estado: "status" },
   plan: { Nombre: "name", Monto: "amount", Renovacion: "automatic_renewal", Estado: "is_active", "Activo en POS": "show_in_terminal" },
   subscription: { "RUT cliente": "social_id", Estado: "status", "Estado sec.": "secondary_status", Monto: "amount", "F. Inicio": "suscription_date", "F. Cancelacion": "canceled_at" },
   charge: { "ID subscripción": "subscription_id", "Fecha de cargo": "charge_date", Estado: "status", Monto: "amount" },
   payment: { "RUT cliente": "social_id", "F. Pago": "authorized_at", Monto: "amount", Estado: "status" },
 };
 
-export function virtualPosFieldForColumn(resource: string, label: string): string | null {
-  return vpColumnFields[resource]?.[label] ?? null;
+export function virtualPosFieldForColumn(resource: string, columnKey: string): string | null {
+  return vpColumnFields[resource]?.[columnKey] ?? null;
 }
 
-export function filterFieldForColumn(source: string, resource: string, label: string): string | null {
-  if (source === "virtualpos") return virtualPosFieldForColumn(resource, label);
-  const normalize = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
-  return stagingFilters[source]?.[resource]?.find((option) => normalize(option.label) === normalize(label))?.value ?? null;
+/**
+ * Campo de filtro y de orden de cada columna de Toku y Payku, por la CLAVE estable de la columna (`TableColumn.key`).
+ * Antes se buscaba comparando el texto del rótulo con el de las opciones de filtro; así un cambio de rótulo (tildes,
+ * traducción) dejaba de filtrar sin avisar.
+ */
+const columnFields: Record<string, Record<string, Record<string, string>>> = {
+  toku: {
+    customer: { "RUT": "government_id", "Nombre": "name", "Mail": "mail", "Telefono": "phone_number" },
+    subscription: { "RUT cliente": "client_rut", "Cliente": "client_name", "Monto": "amount", "Estado": "status", "Estado sec.": "secondary_status", "F. Inicio": "anchor", "F. Cancelacion": "end_date" },
+    payment_method: { "ID": "id", "Estado": "status", "F. Creacion": "created_at", "Cliente": "customer_id", "Marca": "card_brand", "Terminacion": "last_digits", "Banco": "bank_name", "Tipo tarjeta": "card_type" },
+    invoice: { "RUT cliente": "client_rut", "Cliente": "client_name", "Monto": "amount", "Pagado": "is_paid", "Estado": "status", "Fecha limite": "due_date" },
+    transaction: { "RUT cliente": "client_rut", "Cliente": "client_name", "Monto": "amount", "Fecha transaccion": "transaction_date" },
+  },
+  payku: {
+    client: { "ID": "id", "RUT": "rut", "Nombre": "name", "Email": "email", "Telefono": "phone" },
+    plan: { "ID": "id", "Estado": "status", "Nombre": "name" },
+    subscription: { "ID": "id", "Estado": "status", "RUT": "rut", "F. Inicio": "start", "F. Cancelacion": "end" },
+    transaction: { "ID": "id", "Estado": "status", "ID subscripciones": "subscriptions", "Monto": "amount", "F. Pago": "created_at" },
+  },
+};
+
+export function filterFieldForColumn(source: string, resource: string, columnKey: string): string | null {
+  if (source === "virtualpos") return virtualPosFieldForColumn(resource, columnKey);
+  return columnFields[source]?.[resource]?.[columnKey] ?? null;
 }

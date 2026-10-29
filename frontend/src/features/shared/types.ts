@@ -29,7 +29,11 @@ export type StagingRecord = {
   collectible_subscriptions?: number | null;
 };
 export type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
-export type TableColumn = { label: string; value: (record: StagingRecord) => string };
+/**
+ * Columna de una tabla de registros. `key` es el identificador ESTABLE de la columna: de él dependen el filtro,
+ * el orden y los enlaces guardados (`?orden=`); `label` es solo el texto que ve el usuario y puede cambiar.
+ */
+export type TableColumn = { key: string; label: string; value: (record: StagingRecord) => string };
 export type VirtualPosDetailColumn = {
   label: string;
   kind?: "text" | "amount" | "date";

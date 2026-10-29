@@ -112,7 +112,7 @@ export function ProviderRecordDetailView({
                 <tr>
                   <th>ID</th>
                   {tokuRelatedColumns(group.resource_type).map((column) => (
-                    <th key={column.label}>{column.label}</th>
+                    <th key={column.key}>{column.label}</th>
                   ))}
                   <th>Acción</th>
                 </tr>
@@ -135,7 +135,7 @@ export function ProviderRecordDetailView({
                       </button>
                     </td>
                     {tokuRelatedColumns(group.resource_type).map((column) => (
-                      <td key={column.label}>{column.value(item)}</td>
+                      <td key={column.key}>{column.value(item)}</td>
                     ))}
                     <td className="action-cell">
                       {item.source === "toku" && group.resource_type === "subscription" ? (

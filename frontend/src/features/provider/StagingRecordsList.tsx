@@ -88,14 +88,14 @@ export function StagingRecordsList({
           ? paykuColumns(activeSection.resource)
           : [];
   function toggleColumnSort(column: TableColumn) {
-    if (!activeSection || !filterFieldForColumn(activeSection.source, activeSection.resource, column.label)) return;
-    if (sortColumn === column.label) {
+    if (!activeSection || !filterFieldForColumn(activeSection.source, activeSection.resource, column.key)) return;
+    if (sortColumn === column.key) {
       setRecordsOffset(0);
       setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
       return;
     }
     setRecordsOffset(0);
-    setSortColumn(column.label);
+    setSortColumn(column.key);
     setSortDirection("asc");
   }
   const exportTarget = stagingExportTarget({
@@ -244,11 +244,11 @@ export function StagingRecordsList({
                 <thead>
                   <tr>
                   {columns.map((column) => {
-                    const sortable = Boolean(activeSection && filterFieldForColumn(activeSection.source, activeSection.resource, column.label));
-                    const activeSort = sortColumn === column.label;
+                    const sortable = Boolean(activeSection && filterFieldForColumn(activeSection.source, activeSection.resource, column.key));
+                    const activeSort = sortColumn === column.key;
                     return (
                       <th
-                        key={column.label}
+                        key={column.key}
                         aria-sort={activeSort ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
                       >
                         {sortable ? (
@@ -270,19 +270,19 @@ export function StagingRecordsList({
                   {activeSection.source === "virtualpos" ? (
                     <tr className="table-column-filters">
                       {columns.map((column) => {
-                        const field = virtualPosFieldForColumn(activeSection.resource, column.label);
-                        if (!field) return <th key={column.label} />;
+                        const field = virtualPosFieldForColumn(activeSection.resource, column.key);
+                        if (!field) return <th key={column.key} />;
                         const update = (key: string, value: string) => {
                           setVpColumnFilters((current) => ({ ...current, [key]: value }));
                           setRecordsOffset(0);
                         };
                         if (field === "amount") {
-                          return <th key={column.label} className="range-filter"><input aria-label="Monto mínimo" type="number" value={vpColumnFilters.amount_min ?? ""} onChange={(event) => update("amount_min", event.target.value)} placeholder="Mín." /><input aria-label="Monto máximo" type="number" value={vpColumnFilters.amount_max ?? ""} onChange={(event) => update("amount_max", event.target.value)} placeholder="Máx." /></th>;
+                          return <th key={column.key} className="range-filter"><input aria-label="Monto mínimo" type="number" value={vpColumnFilters.amount_min ?? ""} onChange={(event) => update("amount_min", event.target.value)} placeholder="Mín." /><input aria-label="Monto máximo" type="number" value={vpColumnFilters.amount_max ?? ""} onChange={(event) => update("amount_max", event.target.value)} placeholder="Máx." /></th>;
                         }
                         if (["suscription_date", "canceled_at", "charge_date", "authorized_at"].includes(field)) {
-                          return <th key={column.label} className="range-filter"><input aria-label={`${column.label} desde`} type="date" value={vpColumnFilters.date_from ?? ""} onChange={(event) => update("date_from", event.target.value)} /><input aria-label={`${column.label} hasta`} type="date" value={vpColumnFilters.date_to ?? ""} onChange={(event) => update("date_to", event.target.value)} /></th>;
+                          return <th key={column.key} className="range-filter"><input aria-label={`${column.label} desde`} type="date" value={vpColumnFilters.date_from ?? ""} onChange={(event) => update("date_from", event.target.value)} /><input aria-label={`${column.label} hasta`} type="date" value={vpColumnFilters.date_to ?? ""} onChange={(event) => update("date_to", event.target.value)} /></th>;
                         }
-                        return <th key={column.label}><input aria-label={`Buscar por ${column.label}`} value={vpColumnFilters[field] ?? ""} onChange={(event) => update(field, event.target.value)} placeholder="Buscar" /></th>;
+                        return <th key={column.key}><input aria-label={`Buscar por ${column.label}`} value={vpColumnFilters[field] ?? ""} onChange={(event) => update(field, event.target.value)} placeholder="Buscar" /></th>;
                       })}
                     </tr>
                   ) : null}
@@ -291,10 +291,10 @@ export function StagingRecordsList({
                 {records.items.map((record) => (
                   <tr key={record.id}>
                     {columns.map((column) => (
-                      <td key={column.label}>
+                      <td key={column.key}>
                         {activeSection.source === "virtualpos" &&
                         activeSection.resource === "subscription" &&
-                        column.label === "Acciones" ? (
+                        column.key === "Acciones" ? (
                           isActiveSubscription(record) ? (
                             <div className="table-actions-group">
                               <button
@@ -315,7 +315,7 @@ export function StagingRecordsList({
                           )
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "charge" &&
-                          column.label === "ID subscripción" ? (
+                          column.key === "ID subscripción" ? (
                           record.subscription_id ? (
                             <button
                               className="record-link"
@@ -329,7 +329,7 @@ export function StagingRecordsList({
                           )
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "payment" &&
-                          column.label === "RUT cliente" ? (
+                          column.key === "RUT cliente" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de transacción ${column.value(record)}`}
@@ -339,7 +339,7 @@ export function StagingRecordsList({
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "charge" &&
-                          column.label === "Acciones" ? (
+                          column.key === "Acciones" ? (
                           <div className="table-actions-group">
                             {isPendingCharge(record) ? (
                               <button
@@ -359,7 +359,7 @@ export function StagingRecordsList({
                           </div>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "client" &&
-                          column.label === "Acciones" ? (
+                          column.key === "Acciones" ? (
                           <button
                             className="edit-button edit-button-table"
                             onClick={() => onEditClient(record)}
@@ -368,7 +368,7 @@ export function StagingRecordsList({
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "client" &&
-                          column.label === "RUT" ? (
+                          column.key === "RUT" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de cliente ${column.value(record)}`}
@@ -378,7 +378,7 @@ export function StagingRecordsList({
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "plan" &&
-                          column.label === "Nombre" ? (
+                          column.key === "Nombre" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de plan ${column.value(record)}`}
@@ -388,7 +388,7 @@ export function StagingRecordsList({
                           </button>
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "subscription" &&
-                          column.label === "RUT cliente" ? (
+                          column.key === "RUT cliente" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de subscripción ${column.value(record)}`}
@@ -400,7 +400,7 @@ export function StagingRecordsList({
                           </button>
                         ) : activeSection.source === "toku" &&
                           activeSection.resource === "customer" &&
-                          column.label === "RUT" ? (
+                          column.key === "RUT" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de cliente ${column.value(record)}`}
@@ -411,7 +411,7 @@ export function StagingRecordsList({
                             {column.value(record)}
                           </button>
                         ) : activeSection.source === "toku" &&
-                          column.label === "RUT cliente" ? (
+                          column.key === "RUT cliente" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de ${activeSection.label} ${column.value(record)}`}
@@ -427,7 +427,7 @@ export function StagingRecordsList({
                           </button>
                         ) : (activeSection.source === "toku" ||
                             activeSection.source === "payku") &&
-                          column.label === "ID" ? (
+                          column.key === "ID" ? (
                           <button
                             className="record-link"
                             aria-label={`Ver ficha de ${activeSection.label} ${column.value(record)}`}
@@ -441,7 +441,7 @@ export function StagingRecordsList({
                           >
                             {column.value(record)}
                           </button>
-                        ) : column.label === "Acciones" ? (
+                        ) : column.key === "Acciones" ? (
                           <div className="table-actions">
                             {(providerEditFields[activeSection.source]?.[activeSection.resource] ?? []).length > 0 ? (
                               <button
@@ -458,7 +458,7 @@ export function StagingRecordsList({
                               Eliminar
                             </button>
                           </div>
-                        ) : column.label === "Estado sec." && record.resource_type === "subscription" ? (
+                        ) : column.key === "Estado sec." && record.resource_type === "subscription" ? (
                           <span className={`badge badge-${record.secondary_status === "cobrable" ? "green" : record.secondary_status === "incobrable" ? "orange" : record.secondary_status === "inactiva" ? "gray" : "blue"}`}>{labelOr("secondaryStatus", record.secondary_status, "—")}</span>
                         ) : (
                           column.value(record)
