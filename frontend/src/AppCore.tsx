@@ -1,5 +1,5 @@
 import { Component, Suspense, useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { getCached, getCachedOrFetch, setCached, invalidateCache } from "./apiCache";
+import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson, putJson, deleteJson, friendlyError } from "./api";
 import { useDebouncedValue } from "./hooks";
 import { useChannelHealth } from "./hooks/useChannelHealth";
@@ -17,9 +17,9 @@ import type {
   ProviderRecordDetail, SortDirection, AuthSession, TchSuscripcionDetail,
 } from "./features/shared/types";
 import {
-  RECORDS_PAGE_SIZE, defaultYear, refreshCsrfToken, text, documentType, normalizeRut, fieldLabel,
-  providerRecordHeading, externalUrl, renewalText, cardTypeText, isActiveSubscription, isPendingCharge,
-  isRejectedCharge, nested, objectEntries, title, resourceTitle,
+  RECORDS_PAGE_SIZE, refreshCsrfToken, text, documentType, normalizeRut, fieldLabel, providerRecordHeading,
+  externalUrl, renewalText, cardTypeText, isActiveSubscription, isPendingCharge, isRejectedCharge, nested,
+  objectEntries, title, resourceTitle,
 } from "./features/shared/utils";
 import {
   virtualPosClientFields, virtualPosClientFieldLabels, virtualPosDocumentTypes, recurringFieldLabels,
@@ -41,6 +41,7 @@ import { ReportDialog } from "./features/dashboard/ReportDialog";
 import { useEtl } from "./features/dashboard/useEtl";
 import { useGeneralDashboard } from "./features/dashboard/useGeneralDashboard";
 import { GeneralDashboardView } from "./features/dashboard/GeneralDashboardView";
+import { useChannelDashboard } from "./features/dashboard/useChannelDashboard";
 import { useTch } from "./features/tch/useTch";
 import { renderTchContent } from "./features/tch/TchContent";
 
@@ -74,8 +75,6 @@ function AppCore() {
   const [activeSection, setActiveSection] = useState<ProviderSection | null>(
     null,
   );
-  const [channel, setChannel] = useState<string | null>(null);
-  const [channelData, setChannelData] = useState<ChannelDashboard | null>(null);
   const [openProvider, setOpenProvider] = useState<string | null>("VirtualPOS");
   const [records, setRecords] = useState<StagingResponse>({
     items: [],
@@ -86,9 +85,6 @@ function AppCore() {
   const [recordsOffset, setRecordsOffset] = useState(0);
   const [statusValues, setStatusValues] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [channelLoading, setChannelLoading] = useState(false);
-  const [channelRefreshing, setChannelRefreshing] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [clientDetail, setClientDetail] =
     useState<VirtualPosClientDetail | null>(null);
   const [planDetail, setPlanDetail] = useState<VirtualPosPlanDetail | null>(
@@ -157,8 +153,9 @@ function AppCore() {
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"count" | "amount">("count");
-  const [year, setYear] = useState<number | null>(null);
+  const {
+    channel, setChannel, channelData, setChannelData, channelLoading, setChannelLoading, channelRefreshing, syncing, mode, setMode, year, setYear, syncChannel,
+  } = useChannelDashboard(session, setError);
   const [reportScope, setReportScope] = useState<string | null>(null);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
@@ -288,27 +285,6 @@ function AppCore() {
       .then((data) => setStatusValues(data.values))
       .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar los estados.")));
   }, [session, activeSection, filterField, vpPlatform]);
-
-  useEffect(() => {
-    if (!session || !channel) return;
-    const cacheKey = `dashboard:${channel}`;
-    let mounted = true;
-    getCachedOrFetch(cacheKey, 5 * 60 * 1000, () => getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${channel}`))
-      .then((data) => {
-        if (!mounted) return;
-        setChannelData(data);
-        setYear(defaultYear(data.years));
-      })
-      .catch((err: unknown) => {
-        if (mounted) setError(friendlyError(err, "No se pudo cargar el dashboard del canal."));
-      })
-      .finally(() => {
-        if (mounted) { setChannelLoading(false); setChannelRefreshing(false); }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [session, channel]);
 
 
   useEffect(() => {
@@ -1112,25 +1088,6 @@ function AppCore() {
     setOpenProvider(title(source));
     setProfileView(null);
     if (updateUrl) navigate({ kind: "channel", source });
-  }
-  function syncChannel(source: string) {
-    if (syncing) return;
-    setSyncing(true);
-    setError(null);
-    postJson<{ status: string }>(`/api/v1/staging/sync/${source}`)
-      .then(() => {
-        invalidateCache();
-        setChannelData(null);
-        setChannelLoading(true);
-        return getJson<ChannelDashboard>(`/api/v1/staging/dashboard/${source}`);
-      })
-      .then((data) => {
-        setCached(`dashboard:${source}`, data);
-        setChannelData(data);
-        setYear(defaultYear(data.years));
-      })
-      .catch((err: unknown) => setError(friendlyError(err, "Error al sincronizar el canal.")))
-      .finally(() => setSyncing(false));
   }
   function showSection(section: ProviderSection, updateUrl = true) {
     clearDetails();
