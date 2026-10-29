@@ -132,10 +132,10 @@ def test_dedupe_key_none_and_empty_are_equivalent_but_zero_is_not() -> None:
     assert etl_tch._dedupe_key(1, "2026-08", "0", "ACEPTADA", "0") == "1|2026-08|0|ACEPTADA|0"
 
 
-def test_dedupe_key_does_not_normalize_inputs() -> None:
-    # Fija hoy: sin strip ni upper; la normalizacion ocurre antes (transform), no en la clave.
-    # No incluye RUT: la identidad es solo numero_ficha.
-    assert etl_tch._dedupe_key(101, " 2026-08", "3 ", "aceptada", " 12000") == "101| 2026-08|3 |aceptada| 12000"
+def test_dedupe_key_only_normalizes_the_cuota() -> None:
+    # Fija hoy: sin strip ni upper en periodo, estado y monto (se normalizan antes, en transform).
+    # La cuota si se normaliza a entero (TCH-PAR-02). No incluye RUT: la identidad es solo numero_ficha.
+    assert etl_tch._dedupe_key(101, " 2026-08", "3 ", "aceptada", " 12000") == "101| 2026-08|3|aceptada| 12000"
     assert etl_tch._dedupe_key(101, "2026-08", "3", "ACEPTADA", "12000") != etl_tch._dedupe_key(
         101, "2026-08", "3", "aceptada", "12000"
     )
@@ -268,3 +268,64 @@ def test_monthly_file_without_date_in_name_still_gets_real_periods(db_session, t
     rows = db_session.scalars(select(TchTransaccion).where(TchTransaccion.archivo_origen == xlsx.name)).all()
     assert [r.periodo for r in rows] == ["2025-03"]
     assert rows[0].dedupe_key.startswith("910001|2025-03|")
+
+
+# --- TCH-PAR-02: numero_cuota siempre entero y dedupe_key estable ---
+
+@pytest.mark.parametrize("cuota", ["12", "12.0", 12.0, 12, " 12 ", "12,0", "012"])
+def test_norm_cuota_always_returns_plain_integer_text(cuota) -> None:
+    assert etl_tch._norm_cuota(cuota) == "12"
+
+
+@pytest.mark.parametrize("vacio", [None, float("nan"), "", "   "])
+def test_norm_cuota_returns_none_for_empty_values(vacio) -> None:
+    assert etl_tch._norm_cuota(vacio) is None
+
+
+def test_norm_cuota_keeps_zero_and_non_numeric_text() -> None:
+    assert etl_tch._norm_cuota(0.0) == "0"
+    assert etl_tch._norm_cuota("S/N") == "S/N"
+
+
+def test_dedupe_key_is_identical_for_string_float_text_and_float_cuota() -> None:
+    claves = {
+        etl_tch._dedupe_key(101, "2026-08", cuota, "ACEPTADA", "12000")
+        for cuota in ("12", "12.0", 12.0, 12)
+    }
+    assert claves == {"101|2026-08|12|ACEPTADA|12000"}
+
+
+def test_transform_transacciones_cuota_and_dedupe_key_do_not_depend_on_dtype() -> None:
+    # Con NaN en la columna pandas la vuelve float (12.0); sin NaN queda entera o texto.
+    base = {
+        "Numero Ficha": [101, 102],
+        "Cuota Mes": ["AGOSTO 2026", "AGOSTO 2026"],
+        "Monto Cuota": ["$12.000", "$12.000"],
+        "Numero Pagos del Mandato": [24.0, 24.0],
+    }
+    formas = [
+        pd.DataFrame({**base, "N Cuota": [12, 12]}),
+        pd.DataFrame({**base, "N Cuota": [12.0, 12.0]}),
+        pd.DataFrame({**base, "N Cuota": ["12", "12.0"]}),
+        pd.DataFrame({**base, "N Cuota": [12.0, None]}),
+    ]
+    resultados = [etl_tch._transform_transacciones(f, "ACEPTADA", "x.xlsx") for f in formas]
+    for rows in resultados[:3]:
+        assert [r["numero_cuota"] for r in rows] == ["12", "12"]
+        assert [r["total_cuotas"] for r in rows] == ["24", "24"]
+        assert [r["dedupe_key"] for r in rows] == ["101|2026-08|12|ACEPTADA|12000", "102|2026-08|12|ACEPTADA|12000"]
+    assert resultados[3][0]["dedupe_key"] == resultados[0][0]["dedupe_key"]
+
+
+def test_transform_historial_cargos_normalizes_cuota_like_cargos() -> None:
+    # Hoja VIGENTES: ventana de 12 meses, bloques "N / Estado / Monto" desde la columna 62.
+    columnas = [("Ficha DUES", "Ficha DUES")] + [(f"relleno{i}", "x") for i in range(61)]
+    columnas += [("ENERO 2026", "N"), ("ENERO 2026", "Estado"), ("ENERO 2026", "Monto")]
+    valores = [101] + [None] * 61
+    filas = []
+    for cuota in (12.0, "12.0", "12", 12):
+        filas.append([*valores, cuota, "Pagada", 12000])
+    frame = pd.DataFrame(filas, columns=pd.MultiIndex.from_tuples(columnas))
+    rows = etl_tch._transform_historial_cargos(frame, "x.xlsx")
+    assert {r["numero_cuota"] for r in rows} == {"12"}
+    assert {r["dedupe_key"] for r in rows} == {"101|2026-01|12|ACEPTADA|12000"}

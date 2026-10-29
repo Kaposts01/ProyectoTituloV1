@@ -117,6 +117,26 @@ def _norm_int(val: Any) -> int | None:
         return None
 
 
+def _norm_cuota(val: Any) -> str | None:
+    """Numero de cuota como texto entero: 12, 12.0, '12', '12.0' y '12,0' dan '12'.
+
+    pandas entrega 12.0 cuando la columna tiene NaN y 12 cuando no; sin normalizar,
+    la misma cuota produce claves de deduplicacion distintas segun el archivo.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    text = str(val).strip()
+    if not text:
+        return None
+    try:
+        number = float(text.replace(",", "."))
+    except ValueError:
+        return text[:20]
+    if number.is_integer():
+        return str(int(number))
+    return text[:20]
+
+
 def _norm_periodo(val: Any) -> str | None:
     """Convierte 'AGOSTO 2026' o datetime a 'YYYY-MM'."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
@@ -472,7 +492,8 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _dedupe_key(ficha: int, periodo: str | None, cuota: str | None, estado: str, monto: str | None) -> str:
-    return "|".join([str(ficha), periodo or "", cuota or "", estado, monto or ""])
+    # La cuota se normaliza aqui tambien: '12', '12.0' y 12.0 deben dar la misma clave.
+    return "|".join([str(ficha), periodo or "", _norm_cuota(cuota) or "", estado, monto or ""])
 
 
 def _estado_cargo(estado: str) -> str:
@@ -549,14 +570,14 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> lis
             continue
         raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
 
-        cuota = _norm_str(_col_val(row, c_cuota), 20) if c_cuota else None
+        cuota = _norm_cuota(_col_val(row, c_cuota)) if c_cuota else None
         monto = _norm_monto(_col_val(row, c_monto))
         rows.append({
             "numero_ficha": ficha,
             "numero_mandato": _norm_int(_col_val(row, c_mandato)),
             "periodo": periodo,
             "numero_cuota": cuota,
-            "total_cuotas": _norm_str(_col_val(row, c_total_cuotas), 20) if c_total_cuotas else None,
+            "total_cuotas": _norm_cuota(_col_val(row, c_total_cuotas)) if c_total_cuotas else None,
             "monto": monto,
             "fecha_cargo": _norm_date(_col_val(row, c_fecha)),
             "tipo_transaccion": _norm_str(_col_val(row, c_tipo), 50) if c_tipo else None,
@@ -590,7 +611,7 @@ def _transform_historial_cargos(df: pd.DataFrame, archivo: str) -> list[dict]:
             period = _norm_periodo(df.columns[start][0] if isinstance(df.columns[start], tuple) else df.columns[start])
             if not period:
                 continue
-            cuota = _norm_str(_col_val(row, df.columns[start]), 20)
+            cuota = _norm_cuota(_col_val(row, df.columns[start]))
             estado = _norm_str(_col_val(row, df.columns[start + 1]), 20)
             monto = _norm_monto(_col_val(row, df.columns[start + 2]))
             if not estado:
