@@ -20,7 +20,7 @@ export function PermCheckboxes({ groups, checkedCodes }: { groups: PermGroup[]; 
               {g.permissions.map((p) => (
                 <label key={p.code} style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", cursor: "pointer" }}>
                   <input type="checkbox" name="permission_codes" value={p.code} defaultChecked={checkedCodes?.includes(p.code)} />
-                  {p.description}
+                  {p.description?.trim() || `Permiso (${p.code})`}
                 </label>
               ))}
             </div>
