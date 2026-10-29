@@ -146,7 +146,7 @@ def _norm_bool(val: Any) -> bool | None:
     return None
 
 
-def _norm_personalidad(val: Any) -> str | None:
+def _norm_personality(val: Any) -> str | None:
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
     text = unicodedata.normalize("NFKD", str(val)).encode("ascii", "ignore").decode().strip().upper()
@@ -559,7 +559,7 @@ def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
         currency = normalize_tch_currency(_col_val(row, col_currency))
         raw["moneda_vigente"] = currency  # tambien en el payload: filas cargadas antes de la columna `moneda`
 
-        personality = _norm_personalidad(_col_val(row, col_personality))
+        personality = _norm_personality(_col_val(row, col_personality))
         rut_titular = _norm_rut(_col_val(row, col_holder_rut)) if col_holder_rut else None
         # Solo un indicador: el RUT y el nombre del titular (un tercero) no se guardan.
         different_holder = (rut_titular != rut) if (rut_titular and rut) else None

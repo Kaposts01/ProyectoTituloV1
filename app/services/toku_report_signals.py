@@ -76,7 +76,7 @@ def _is_in_process(status: str | None) -> bool:
 
 
 @dataclass
-class _Cuota:
+class _Installment:
     due: date | None = None
     paid: bool = False
     voided: bool = False
@@ -102,13 +102,13 @@ class _Cuota:
 @dataclass
 class _SubData:
     attempts: list[Any] = field(default_factory=list)
-    cuotas: dict[str, _Cuota] = field(default_factory=dict)
+    installments: dict[str, _Installment] = field(default_factory=dict)
 
 
-def _cuota(data: _SubData, debt_id: str) -> _Cuota:
-    c = data.cuotas.get(debt_id)
+def _installment(data: _SubData, debt_id: str) -> _Installment:
+    c = data.installments.get(debt_id)
     if c is None:
-        c = data.cuotas[debt_id] = _Cuota(tiebreak=debt_id)
+        c = data.installments[debt_id] = _Installment(tiebreak=debt_id)
     return c
 
 
@@ -171,7 +171,7 @@ def _load_subscription_data(db: Session) -> dict[str, _SubData]:
     for a in attempts:
         sub = data[a.subscription_external_id]
         sub.attempts.append(a)
-        c = _cuota(sub, a.debt_external_id)
+        c = _installment(sub, a.debt_external_id)
         c.due = _min_date(c.due, a.due_date)
         c.has_attempt = True
         if _is_paid(a.status):
@@ -193,16 +193,16 @@ def _load_subscription_data(db: Session) -> dict[str, _SubData]:
         ).where(TkReportDebt.subscription_external_id.is_not(None), TkReportDebt.deleted_at_source.is_(None))
     )
     for d in debts:
-        c = _cuota(data[d.subscription_external_id], d.debt_external_id)
+        c = _installment(data[d.subscription_external_id], d.debt_external_id)
         c.due = _min_date(c.due, d.due_date)
         c.paid = c.paid or bool(d.paid)
         c.voided = c.voided or bool(d.voided)
     return data
 
 
-def _streak_of_cuotas(cuotas: dict[str, _Cuota], as_of: datetime, days: int) -> int:
+def _streak_of_installments(installments: dict[str, _Installment], as_of: datetime, days: int) -> int:
     ordered = sorted(
-        cuotas.values(),
+        installments.values(),
         key=lambda c: (c.due or date.min, c.last_attempt or datetime.min.replace(tzinfo=UTC), c.tiebreak),
         reverse=True,
     )
@@ -299,7 +299,7 @@ def compute_report_signals(
         chargeable = pm_status == "chargeable"
         data = per_sub.get(p.subscription_external_id) or _SubData()
         att = _attempt_signals(data.attempts)
-        streak = _streak_of_cuotas(data.cuotas, cutoff, days)
+        streak = _streak_of_installments(data.installments, cutoff, days)
         blocked = att["card_code"] in BLOCKED_CODES or pm_status == "permanent_failed"
         expired = att["card_code"] in EXPIRED_CODES
         reason = (

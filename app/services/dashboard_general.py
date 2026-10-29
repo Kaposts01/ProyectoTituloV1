@@ -263,7 +263,7 @@ def _charge_cells(
                 cell["stat_rows"].append({"date": control.period, "status": "aceptada", "count": control.accepted_count})
                 cell["stat_rows"].append({"date": control.period, "status": "rechazada", "count": control.rejected_count})
         else:
-            for period, estado, n, amount in db.execute(
+            for period, raw_status, n, amount in db.execute(
                 select(
                     TchTransaction.period, TchTransaction.status, func.count(),
                     func.coalesce(func.sum(_amount_col(TchTransaction.amount)), 0),
@@ -271,14 +271,14 @@ def _charge_cells(
                 .where(TchTransaction.period.op("~")(r"^\d{4}-\d{2}$"), TchTransaction.period.between(first, last))
                 .group_by(TchTransaction.period, TchTransaction.status)
             ):
-                outcome = charge_outcome(estado)
+                outcome = charge_outcome(raw_status)
                 if outcome not in ("paid", "rejected"):
                     continue
                 key = "paid" if outcome == "paid" else "rej"
                 cell = cells["tch"][period]
                 cell[f"{key}_n"] += n
                 cell[f"{key}_amt"] += float(amount)
-                cell["stat_rows"].append({"date": period, "status": str(estado).lower(), "count": n})
+                cell["stat_rows"].append({"date": period, "status": str(raw_status).lower(), "count": n})
     return cells
 
 

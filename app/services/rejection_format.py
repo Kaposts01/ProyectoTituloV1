@@ -52,9 +52,9 @@ def format_rejection_reason(source: str | None, code: str | None, reason: str | 
         entry = lookup_toku_code(code_s)
         if entry is not None:
             return entry.message
-        glosa = normalize_processor_message(reason_s)
-        if glosa is not None and glosa.text:
-            return glosa.text
+        processor_message = normalize_processor_message(reason_s)
+        if processor_message is not None and processor_message.text:
+            return processor_message.text
     elif channel == "payku":
         category = payku_rejection_category(reason_s) or (code_s if code_s in PAYKU_CATEGORY_LABELS else None)
         if category:
