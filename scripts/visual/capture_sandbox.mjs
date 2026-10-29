@@ -228,11 +228,12 @@ const SCREENS = [
   { name: "cambios-historial", label: "Cambios de cobro: Historial", path: "/general/cambios-de-cobro", steps: async (p) => { await p.getByRole("tab", { name: /^Historial/ }).click(); await p.locator("table.bx-table").waitFor({ timeout: 20000 }); } },
   { name: "cambios-renovaciones", label: "Cambios de cobro: Renovaciones", path: "/general/cambios-de-cobro", steps: async (p) => { await p.getByRole("tab", { name: /^Renovaciones/ }).click(); await p.locator("#bx-tabpanel").waitFor(); } },
   { name: "cambios-detalle-aprobada-advertencias", label: "Detalle DEMO-SUB-003 (aprobada, kept_due_today, warnings)", path: "/general/cambios-de-cobro", steps: async (p) => { await openPendingTab(p); await selectRow(p, "DEMO-SUB-003"); } },
-  { name: "cambios-detalle-fallida", label: "Detalle DEMO-SUB-005 (fallida, E-113)", path: "/general/cambios-de-cobro", steps: async (p) => { await p.getByRole("tab", { name: /^Historial/ }).click(); await selectRow(p, "DEMO-SUB-005"); } },
+  // Una solicitud «fallida» figura en Pendientes (requiere accion), no en Historial.
+  { name: "cambios-detalle-fallida", label: "Detalle DEMO-SUB-005 (fallida, E-113)", path: "/general/cambios-de-cobro", steps: async (p) => { await openPendingTab(p); await selectRow(p, "DEMO-SUB-005"); } },
   { name: "cambios-detalle-ejecutada-revision", label: "Detalle DEMO-SUB-011 (ejecutada, revision manual)", path: "/general/cambios-de-cobro", steps: async (p) => { await p.getByRole("tab", { name: /^Historial/ }).click(); await selectRow(p, "DEMO-SUB-011"); } },
-  { name: "dialogo-nueva-solicitud", label: "Dialogo Nueva solicitud (sin enviar)", path: "/general/cambios-de-cobro", steps: async (p) => { await p.getByRole("button", { name: "Nueva solicitud", exact: true }).click(); await p.locator('[role="dialog"]').waitFor({ timeout: 20000 }); } },
+  { name: "dialogo-nueva-solicitud", label: "Dialogo Nueva solicitud (sin enviar)", path: "/general/cambios-de-cobro", viewportOnly: true, steps: async (p) => { await p.getByRole("button", { name: "Nueva solicitud", exact: true }).click(); await p.locator('[role="dialog"]').waitFor({ timeout: 20000 }); } },
   {
-    name: "dialogo-aprobar", label: "Dialogo Aprobar con comentario (sin confirmar)", path: "/general/cambios-de-cobro",
+    name: "dialogo-aprobar", label: "Dialogo Aprobar con comentario (sin confirmar)", path: "/general/cambios-de-cobro", viewportOnly: true,
     steps: async (p) => {
       await openPendingTab(p);
       await selectRow(p, "DEMO-SUB-001");
@@ -245,7 +246,7 @@ const SCREENS = [
     },
   },
   {
-    name: "dialogo-rechazar", label: "Dialogo Rechazar con comentario (sin confirmar)", path: "/general/cambios-de-cobro",
+    name: "dialogo-rechazar", label: "Dialogo Rechazar con comentario (sin confirmar)", path: "/general/cambios-de-cobro", viewportOnly: true,
     steps: async (p) => {
       await openPendingTab(p);
       await selectRow(p, "DEMO-SUB-001");
@@ -257,7 +258,7 @@ const SCREENS = [
   },
   { name: "admin-politica-aprobaciones", label: "Administracion: Aprobaciones (politica)", path: "/admin/usuarios", steps: async (p) => { await p.getByRole("button", { name: "Aprobaciones", exact: true }).click(); await p.getByRole("heading", { level: 1, name: /Aprobaciones de cambios de cobro/ }).waitFor({ timeout: 20000 }); } },
   { name: "admin-scheduler", label: "Administracion: panel del scheduler", path: "/admin/sincronizaciones" },
-  { name: "menu-lateral-movil", label: "Menu lateral movil abierto", path: "/central/resumen", mobileOnly: true, steps: async (p) => { await p.locator("button.burger-btn").click(); await p.locator("aside.sidebar.open, .sidebar.open").first().waitFor({ timeout: 10000 }); } },
+  { name: "menu-lateral-movil", label: "Menu lateral movil abierto", path: "/central/resumen", mobileOnly: true, viewportOnly: true, steps: async (p) => { await p.locator("button.burger-btn").click(); await p.locator("aside.sidebar.open, .sidebar.open").first().waitFor({ timeout: 10000 }); } },
 ];
 
 // ----------------------------- esperas -----------------------------
@@ -289,8 +290,10 @@ async function applyThemeCheck(page, theme, entry) {
   if (!entry.themeApplied) throw new Error(`El tema ${theme} no quedo aplicado (data-theme=${attr}).`);
 }
 
-async function stableShot(page, file, entry) {
-  const opts = { fullPage: true, animations: "disabled", caret: "hide" };
+async function stableShot(page, file, entry, fullPage = true) {
+  // Los dialogos y el menu movil son elementos `position: fixed`: en una captura de pagina completa el velo y el menu
+  // quedan mal compuestos (aparecen a mitad de pagina). Esas pantallas se capturan como ventana (`viewportOnly`).
+  const opts = { fullPage, animations: "disabled", caret: "hide" };
   let prev = await page.screenshot(opts);
   entry.stable = false;
   for (let i = 0; i < 4; i += 1) {
@@ -379,7 +382,7 @@ async function runCapture(pw, opts) {
               await settle(page, entry.notes);
             }
             await applyThemeCheck(page, theme, entry);
-            await stableShot(page, file, entry);
+            await stableShot(page, file, entry, !screen.viewportOnly);
           })(), opts.screenTimeout, screen.name);
         } catch (err) {
           entry.status = "error";
