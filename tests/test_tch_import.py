@@ -137,3 +137,34 @@ def test_tch_report_import_requires_admin_role(monkeypatch) -> None:
     )
 
     assert response.status_code == 403
+
+
+class _DuplicateReportDb(_ImportDb):
+    """Sin corrida activa (1.a consulta) y con el sha256 ya registrado (2.a consulta)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    def scalar(self, _statement):
+        self.calls += 1
+        return None if self.calls == 1 else uuid.uuid4()
+
+
+def test_tch_report_import_rejects_a_report_already_loaded_by_sha256(monkeypatch) -> None:
+    client, csrf_token = _admin_client(monkeypatch)
+    db = _DuplicateReportDb()
+    monkeypatch.setattr(tch, "_get_db", lambda: db)
+    launched: list[str] = []
+    monkeypatch.setattr(tch, "_import_report_background", lambda run_id, path: launched.append(path))
+
+    response = client.post(
+        "/api/v1/tch/import-report",
+        headers={"X-CSRF-Token": csrf_token},
+        files={"report": ("20260101 TCH IG DICIEMBRE 2025.xlsx", _xlsx_payload())},
+    )
+
+    assert response.status_code == 409
+    assert "ya fue cargado" in response.json()["detail"].lower()
+    assert launched == []
+    assert db.added == []  # no se crea corrida ETL para un duplicado

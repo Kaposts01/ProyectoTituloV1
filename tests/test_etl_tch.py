@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import engine
 from app.models.tch import TchSuscripcion, TchTransaccion
+from app.services import tch_report_registry as report_registry
 from scripts import etl_tch
 
 
@@ -467,3 +468,115 @@ def test_process_file_without_a_readable_vigentes_sheet_reports_no_fichas(db_ses
     xlsx = tmp_path / "20260331 TCH IG MARZO 2026.xlsx"
     _write_cargos_workbook(xlsx, etl_tch.SHEET_ACEPTADOS, ["MAR 26"])
     assert etl_tch._process_file(xlsx, db_session, set())["fichas"] == set()
+
+
+# --- TCH-PAR-15: sin periodos futuros en el control mensual y sin reportes duplicados (sha256) ---
+
+def _write_control_workbook(path, periodos: list[tuple[str, int, int]]) -> None:
+    """Hojas HISTORICO RECAUDACION CAN / FLUJO sinteticas: (periodo, aceptadas, rechazadas) por columna."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for hoja, factor in ((etl_tch.SHEET_HISTORICO_RECAUDACION_CAN, 1), (etl_tch.SHEET_HISTORICO_RECAUDACION_FLUJO, 1000)):
+        ws = wb.create_sheet(hoja)
+        ws.append([None, None, None, *[p for p, _, _ in periodos]])
+        ws.append(["TOTAL RECAUDACION EFECTUADA", None, None, *[a * factor for _, a, _ in periodos]])
+        ws.append(["TOTAL COBROS RECHAZADOS", None, None, *[r * factor for _, _, r in periodos]])
+    wb.save(path)
+
+
+def test_recaudacion_cutoff_drops_future_zero_months(tmp_path) -> None:
+    xlsx = tmp_path / "20260831 TCH IG AGOSTO 2026.xlsx"
+    _write_control_workbook(
+        xlsx,
+        [("JULIO 2026", 10, 2), ("AGOSTO 2026", 11, 3), ("SEPTIEMBRE 2026", 0, 0), ("DICIEMBRE 2027", 0, 0)],
+    )
+    rows = etl_tch._transform_recaudacion_mensual(xlsx)
+    assert [r["periodo"] for r in rows] == ["2026-07", "2026-08"]
+
+
+def test_recaudacion_cutoff_uses_the_closed_month_not_the_filename_date(tmp_path) -> None:
+    # Cierre de diciembre 2025 con fecha de archivo 2026-01-01: enero 2026 aun no esta cerrado.
+    xlsx = tmp_path / "20260101 TCH IG DICIEMBRE 2025.xlsx"
+    _write_control_workbook(xlsx, [("NOVIEMBRE 2025", 10, 2), ("DICIEMBRE 2025", 12, 4), ("ENERO 2026", 0, 0)])
+    assert [r["periodo"] for r in etl_tch._transform_recaudacion_mensual(xlsx)] == ["2025-11", "2025-12"]
+
+
+def test_recaudacion_cutoff_without_month_in_name_uses_last_month_with_charges(tmp_path) -> None:
+    xlsx = tmp_path / "reporte.xlsx"
+    _write_control_workbook(xlsx, [("MAYO 2026", 0, 0), ("JUNIO 2026", 5, 1), ("JULIO 2026", 6, 1), ("AGOSTO 2026", 0, 0)])
+    # Un mes en cero dentro del rango cerrado se conserva; solo se cortan los futuros.
+    assert [r["periodo"] for r in etl_tch._transform_recaudacion_mensual(xlsx)] == ["2026-05", "2026-06", "2026-07"]
+
+
+def test_purge_future_recaudacion_removes_only_trailing_zero_months(db_session) -> None:
+    from app.models.tch import TchRecaudacionMensual
+
+    def fila(periodo: str, cantidad: int) -> TchRecaudacionMensual:
+        return TchRecaudacionMensual(
+            periodo=periodo, aceptadas_cantidad=cantidad, aceptadas_monto="0",
+            rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="x.xlsx",
+        )
+
+    db_session.add_all([fila("2090-02", 0), fila("2090-06", 7), fila("2090-07", 0), fila("2091-01", 0)])
+    db_session.flush()
+
+    assert etl_tch._purge_future_recaudacion(db_session) == 2
+    quedan = set(db_session.scalars(select(TchRecaudacionMensual.periodo).where(TchRecaudacionMensual.periodo >= "2090")))
+    assert quedan == {"2090-02", "2090-06"}
+
+
+def test_file_sha256_matches_hashlib_and_ignores_the_name(tmp_path) -> None:
+    import hashlib
+
+    a = tmp_path / "12 - TCH IG DICIEMBRE 2025 (1).XLSX"
+    b = tmp_path / "20260101 TCH IG DICIEMBRE 2025.XLSX"
+    a.write_bytes(b"contenido sintetico")
+    b.write_bytes(b"contenido sintetico")
+    assert report_registry.file_sha256(a) == report_registry.file_sha256(b) == hashlib.sha256(b"contenido sintetico").hexdigest()
+
+
+def test_report_registry_remembers_loaded_hashes(db_session) -> None:
+    sha = "ab" * 32
+    assert not report_registry.is_registered(db_session, sha)
+    report_registry.register(db_session, sha, "a.xlsx", 10)
+    report_registry.register(db_session, sha, "a.xlsx", 10)  # idempotente
+    assert report_registry.is_registered(db_session, sha)
+
+
+def test_import_incremental_rejects_a_report_already_loaded(tmp_path, monkeypatch) -> None:
+    xlsx = tmp_path / "20260930 TCH IG SEPTIEMBRE 2026.xlsx"
+    xlsx.write_bytes(b"x")
+    session_ids = {"registered": False}
+
+    class FakeRun:
+        id = "run"
+        status = "running"
+
+    class FakeDb:
+        def get(self, *_a):
+            return FakeRun()
+        def commit(self): pass
+        def rollback(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr(etl_tch, "SessionLocal", lambda: FakeDb())
+    monkeypatch.setattr(etl_tch.report_registry, "is_registered", lambda _db, _sha: True)
+    monkeypatch.setattr(etl_tch, "_process_file", lambda *a, **k: session_ids.update(registered=True))
+    with pytest.raises(etl_tch.ReportAlreadyLoadedError):
+        etl_tch.import_incremental_file(xlsx, run_id="run")
+    assert session_ids["registered"] is False  # no se proceso nada
+
+
+def test_unique_reports_by_sha256_skips_exact_duplicates(tmp_path) -> None:
+    # El cierre de diciembre 2025 existe dos veces con el mismo contenido bajo nombres distintos.
+    uno = tmp_path / "12 - TCH IG DICIEMBRE 2025 (1).XLSX"
+    dos = tmp_path / "20260101 TCH IG DICIEMBRE 2025.XLSX"
+    otro = tmp_path / "20260131 TCH IG ENERO 2026.XLSX"
+    uno.write_bytes(b"A")
+    dos.write_bytes(b"A")
+    otro.write_bytes(b"B")
+    unicos, omitidos = etl_tch._unique_reports_by_sha256([uno, dos, otro])
+    assert unicos == [uno, otro]
+    assert omitidos == [dos]

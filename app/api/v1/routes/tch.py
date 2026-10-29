@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import tempfile
 import uuid
@@ -28,6 +29,7 @@ from app.models.tch import (
     TchSuscripcion,
     TchTransaccion,
 )
+from app.services import tch_report_registry
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
 
 router = APIRouter()
@@ -633,10 +635,12 @@ async def import_report(
         with tempfile.NamedTemporaryFile(prefix="synkmetrix-tch-", suffix=".xlsx", delete=False) as temporary:
             temporary_path = temporary.name
             size = 0
+            digest = hashlib.sha256()
             while chunk := await report.read(1024 * 1024):
                 size += len(chunk)
                 if size > _MAX_REPORT_BYTES:
                     raise HTTPException(status_code=413, detail="El reporte supera el tamaño máximo permitido.")
+                digest.update(chunk)
                 temporary.write(chunk)
     except Exception:
         if temporary_path:
@@ -657,6 +661,11 @@ async def import_report(
             _validate_xlsx_archive(Path(temporary_path))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if tch_report_registry.is_registered(db, digest.hexdigest()):
+            raise HTTPException(
+                status_code=409,
+                detail="Este reporte ya fue cargado (mismo contenido que un archivo anterior).",
+            )
         run = EtlRun(status="running", channels_processed=["tch"], records_upserted=0, phase="tch_import")
         db.add(run)
         db.commit()

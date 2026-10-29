@@ -36,6 +36,7 @@ from app.models.tch import (
     TchTipoMandato,
     TchTransaccion,
 )
+from app.services import tch_report_registry as report_registry
 from app.services.core_tch_etl import normalize_tch_currency
 from app.services.payload_sanitization import sanitize_payload
 
@@ -331,10 +332,14 @@ def _historical_revenue_values(filepath: Path, sheet: str) -> dict[str, tuple[st
 def _transform_recaudacion_mensual(filepath: Path) -> list[dict]:
     amounts = _historical_revenue_values(filepath, SHEET_HISTORICO_RECAUDACION_FLUJO)
     counts = _historical_revenue_values(filepath, SHEET_HISTORICO_RECAUDACION_CAN)
-    report_year, report_month, _, _ = _report_sort_key(filepath)
-    cutoff = f"{report_year:04d}-{report_month:02d}" if report_year else None
+    periods = sorted(amounts.keys() & counts.keys())
+    # Las hojas de control traen meses futuros en cero (hasta 2027-12). El corte es el ultimo mes
+    # cerrado: el mes que nombra el reporte, sin pasar del ultimo mes con cobros en el propio control.
+    with_charges = [p for p in periods if int(counts[p][0]) + int(counts[p][1]) > 0]
+    limits = [p for p in (_report_period(filepath), with_charges[-1] if with_charges else None) if p]
+    cutoff = min(limits) if limits else None
     rows = []
-    for period in sorted(amounts.keys() & counts.keys()):
+    for period in periods:
         if cutoff and period > cutoff:
             continue
         accepted_amount, rejected_amount = amounts[period]
@@ -997,8 +1002,44 @@ def _report_period(filepath: Path) -> str | None:
     return f"{year:04d}-{month:02d}" if year else None
 
 
+def _purge_future_recaudacion(db) -> int:
+    """Borra del control mensual los meses posteriores al ultimo mes cerrado (filas en cero)."""
+    last_closed = _last_closed_period(db)
+    if last_closed is None:
+        return 0
+    result = db.execute(
+        TchRecaudacionMensual.__table__.delete().where(
+            TchRecaudacionMensual.periodo > last_closed,
+            TchRecaudacionMensual.aceptadas_cantidad == 0,
+            TchRecaudacionMensual.rechazadas_cantidad == 0,
+        )
+    )
+    db.flush()
+    return result.rowcount or 0
+
+
+class ReportAlreadyLoadedError(ValueError):
+    """El contenido del reporte (sha256) ya fue cargado antes."""
+
+
+def _unique_reports_by_sha256(files: list[Path]) -> tuple[list[Path], list[Path]]:
+    """Separa los archivos con contenido repetido (el primero, en el orden dado, es el que se conserva)."""
+    seen: set[str] = set()
+    unique: list[Path] = []
+    skipped: list[Path] = []
+    for f in files:
+        sha = report_registry.file_sha256(f)
+        if sha in seen:
+            skipped.append(f)
+        else:
+            seen.add(sha)
+            unique.append(f)
+    return unique, skipped
+
+
 def _clear_tch_data(db) -> None:
     """Rebuild the local TCH projection from the complete report history."""
+    report_registry.clear(db)
     for model in (TchRecaudacionMensual, TchTransaccion, TchSuscripcion, TchCliente, TchCentroCosto, TchOrigen, TchTipoMandato, TchBanco):
         db.query(model).delete()
     db.flush()
@@ -1096,6 +1137,10 @@ def _process_file(filepath: Path, db, loaded_history_periods: set[str]) -> dict:
     totales["trans"] = n_trans
     log.info(f"  Transacciones: {n_trans}")
 
+    futuros = _purge_future_recaudacion(db)
+    if futuros:
+        log.info(f"  Meses futuros en cero eliminados del control mensual: {futuros}")
+
     return totales
 
 
@@ -1130,8 +1175,12 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
             raise ValueError("Ejecución ETL no encontrada")
         run.phase = "tch_import"
         db.commit()
+        sha = report_registry.file_sha256(filepath)
+        if report_registry.is_registered(db, sha):
+            raise ReportAlreadyLoadedError("Este reporte ya fue cargado (mismo contenido, sha256 registrado).")
         ultimo_cargado = _last_closed_period(db)
         totals = _process_file(filepath, db, set())
+        report_registry.register(db, sha, filepath.name, filepath.stat().st_size)
         total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
         if _is_latest_report(ultimo_cargado, _report_period(filepath)):
             bajas = _apply_implicit_bajas(db, totals["fichas"])
@@ -1171,6 +1220,9 @@ def main() -> None:
         if not archivos:
             log.error(f"No se encontraron archivos .xlsx en {folder}")
             sys.exit(1)
+        archivos, duplicados = _unique_reports_by_sha256(archivos)
+        for duplicado in duplicados:
+            log.warning(f"Archivo omitido por contenido duplicado (sha256): {duplicado.name}")
         log.info(f"Modo full: {len(archivos)} archivos a procesar")
     else:
         f = Path(args.file)
@@ -1192,7 +1244,15 @@ def main() -> None:
             _clear_tch_data(db)
             log.info("Proyección TCH anterior eliminada para reconstrucción histórica")
         for archivo in archivos:
+            sha = report_registry.file_sha256(archivo)
+            ultimo_cargado = _last_closed_period(db)
+            if args.mode == "incremental" and report_registry.is_registered(db, sha):
+                raise ReportAlreadyLoadedError("Este reporte ya fue cargado (mismo contenido, sha256 registrado).")
             t = _process_file(archivo, db, loaded_history_periods)
+            report_registry.register(db, sha, archivo.name, archivo.stat().st_size)
+            if args.mode == "incremental" and _is_latest_report(ultimo_cargado, _report_period(archivo)):
+                bajas = _apply_implicit_bajas(db, t["fichas"])
+                log.info(f"  Bajas implicitas (ausentes del reporte): {bajas}")
             ultimo = t
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             log.info(
