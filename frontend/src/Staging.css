@@ -1287,3 +1287,29 @@
 .kpi-card--featured .kpi-progress { background: var(--kpi-hero-track); }
 .kpi-card--featured .kpi-progress-fill { background: var(--kpi-hero-fill); }
 .kpi-card--featured .kpi-spark { color: var(--kpi-hero-fill); }
+
+/* ── ChannelChart ampliado: «Ver datos», tabla alternativa y selector de rango ───── */
+.channel-chart { display: flex; flex-direction: column; gap: 8px; }
+.chart-data-toggle {
+  align-self: flex-start; padding: 2px 0; border: 0; background: transparent;
+  color: var(--link-color); cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.chart-data-toggle:focus-visible, .chart-data:focus-visible, .chart-range-option:focus-visible { outline: 2px solid var(--series-4); outline-offset: 2px; }
+.chart-data { max-height: 320px; overflow: auto; border: 1px solid var(--border-light); border-radius: 6px; }
+.chart-data[hidden] { display: none; }
+.chart-data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.chart-data-table th, .chart-data-table td { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); text-align: right; white-space: nowrap; }
+.chart-data-table thead th { position: sticky; top: 0; background: var(--bg-muted); color: var(--text-label); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.chart-data-table th[scope="row"], .chart-data-table thead th:first-child { text-align: left; font-weight: 600; color: var(--text-1); }
+.chart-data-table tbody tr:hover { background: var(--bg-hover); }
+
+.chart-range {
+  display: inline-flex; gap: 2px; padding: 3px; border-radius: 9999px; background: var(--bg-muted);
+}
+.chart-range-option {
+  padding: 5px 12px; border: 0; border-radius: 9999px; background: transparent;
+  color: var(--text-2); cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap;
+}
+.chart-range-option:hover { color: var(--text-1); }
+.chart-range-option.active { background: var(--bg-surface); color: var(--text-1); font-weight: 700; box-shadow: 0 1px 2px var(--shadow-card); }
