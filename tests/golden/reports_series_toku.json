@@ -1,0 +1,16 @@
+[
+ ".activations",
+ ".cancellations",
+ ".cancellations[].amount",
+ ".cancellations[].count",
+ ".cancellations[].month",
+ ".cancellations[].status",
+ ".cancellations[].year",
+ ".charges",
+ ".charges[].amount",
+ ".charges[].count",
+ ".charges[].month",
+ ".charges[].status",
+ ".charges[].year",
+ ".transactions"
+]

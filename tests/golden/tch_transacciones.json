@@ -1,0 +1,19 @@
+[
+ ".items",
+ ".items[].archivo_origen",
+ ".items[].entidad_recaudadora",
+ ".items[].estado",
+ ".items[].fecha_cargo",
+ ".items[].id",
+ ".items[].monto",
+ ".items[].numero_cuota",
+ ".items[].numero_ficha",
+ ".items[].periodo",
+ ".items[].razon_rechazo",
+ ".items[].tipo_transaccion",
+ ".items[].total_cuotas",
+ ".limit",
+ ".page",
+ ".pages",
+ ".total"
+]

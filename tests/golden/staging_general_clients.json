@@ -1,0 +1,10 @@
+[
+ ".items",
+ ".items[].active_origins",
+ ".items[].name",
+ ".items[].origins",
+ ".items[].rut",
+ ".limit",
+ ".offset",
+ ".total"
+]

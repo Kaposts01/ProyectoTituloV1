@@ -1,0 +1,17 @@
+[
+ ".items",
+ ".items[].amount",
+ ".items[].client",
+ ".items[].currency",
+ ".items[].ended_at",
+ ".items[].id",
+ ".items[].last_paid_date",
+ ".items[].platform",
+ ".items[].rut",
+ ".items[].secondary_status",
+ ".items[].started_at",
+ ".items[].status",
+ ".limit",
+ ".offset",
+ ".total"
+]
