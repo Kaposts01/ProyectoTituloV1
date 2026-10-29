@@ -24,6 +24,27 @@ node scripts\visual\capture_sandbox.mjs capture
 node scripts\visual\capture_sandbox.mjs capture --only cambios-pendientes,dialogo-aprobar --viewports desktop --themes dark
 ```
 
+### Inicio de sesión automático con usuario temporal (D21)
+
+Para no depender de que la persona inicie sesión a mano, `scripts/sandbox/ephemeral_user.py session` crea un usuario
+`PW-<aleatorio>` en `crm_sandbox`, lanza el comando hijo con `PW_USER`/`PW_PASS` **solo en el entorno del proceso hijo** y
+lo borra al terminar (try/finally, también si el hijo falla o se interrumpe):
+
+```powershell
+.venv\Scripts\python.exe scripts\sandbox\ephemeral_user.py session -- node scripts\visual\capture_sandbox.mjs autologin --capture --only dashboard-general --viewports desktop --themes light
+.venv\Scripts\python.exe scripts\sandbox\ephemeral_user.py cleanup     # respaldo: borra todo usuario PW-* del sandbox
+```
+
+- El modo `autologin` inicia sesión headless con esas credenciales (solo permite `POST /api/v1/auth/login`, como `login`),
+  guarda el estado en `<scratchpad>\visual\state-pw.json` (fuera del repo) y, con `--capture`, hace las capturas de solo
+  lectura y **borra ese estado** al terminar. No imprime ni guarda las credenciales.
+- `ephemeral_user.py` fija `APP_ENV=sandbox` antes de importar `settings` y aborta si la base no contiene `sandbox`
+  (`crm`, `*_test` y cualquier otra se rechazan). Rol por defecto `ejecutivo` (menor privilegio que ve las pantallas);
+  `soporte` solo con `--role soporte`; `admin` solo con `--role admin --i-know`. Mismo hash de contraseña que la app; la
+  contraseña viene de `secrets`, no se imprime, no va en argv ni en disco.
+- Una muerte forzada del proceso Python (kill) no puede ejecutar el `finally`: correr `cleanup`. Las sesiones son JWT sin
+  estado en servidor (no hay tabla de sesiones): al borrar el usuario el token deja de valer.
+
 Salida: `<scratchpad>\visual\<timestamp>\<pantalla>__<viewport>__<tema>.png` y `index.json` (estado por captura, errores
 de consola/`pageerror`, respuestas HTTP >= 400 y peticiones bloqueadas; sin cuerpos ni cookies). El estado de sesión
 (`<scratchpad>\visual\state.json`) contiene la cookie: nunca se imprime ni debe copiarse al repo.

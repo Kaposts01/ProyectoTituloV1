@@ -5,8 +5,9 @@ import io
 import random
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.security import hash_password
@@ -37,6 +38,37 @@ def _login(monkeypatch, suffix: str, perms: list[str]) -> TestClient:
     client = TestClient(app)
     assert client.post("/api/v1/auth/login", json={"username": f"exp-{suffix}", "password": "Pw-exp-12345"}).status_code == 200
     return client
+
+
+_TAG = "zq[0-9a-f]{8}"
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_synthetic_rows():
+    """Estos tests hacen commit (la ruta usa sus propias sesiones): se borra todo lo sintetico al terminar para no
+    contaminar otros tests que cuentan filas (status_events, dashboard)."""
+    yield
+    db = SessionLocal()
+    try:
+        params = {"tag": _TAG}
+        stmts = [
+            "DELETE FROM write_runs WHERE request_payload->>'username' ~ ('^exp-' || :tag)",
+            "DELETE FROM user_roles WHERE user_id IN (SELECT id FROM users WHERE username ~ ('^exp-' || :tag))",
+            "DELETE FROM users WHERE username ~ ('^exp-' || :tag)",
+            "DELETE FROM roles WHERE name ~ ('^exp-' || :tag)",
+            "DELETE FROM charges WHERE external_id ~ :tag",
+            "DELETE FROM payments WHERE external_id ~ :tag",
+            "DELETE FROM subscriptions WHERE external_id ~ :tag",
+            "DELETE FROM clients WHERE external_id ~ :tag OR external_id ~ :tag",
+            "DELETE FROM tch_transacciones WHERE dedupe_key ~ :tag",
+            "DELETE FROM tch_suscripciones WHERE cliente_rut IN (SELECT rut FROM tch_clientes WHERE nombre ~ :tag)",
+            "DELETE FROM tch_clientes WHERE nombre ~ :tag",
+        ]
+        for stmt in stmts:
+            db.execute(text(stmt), params)
+        db.commit()
+    finally:
+        db.close()
 
 
 def _parse(resp) -> tuple[list[str], list[dict[str, str]]]:

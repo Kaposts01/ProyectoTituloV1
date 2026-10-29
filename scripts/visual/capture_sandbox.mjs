@@ -4,6 +4,7 @@
  *
  *   node scripts/visual/capture_sandbox.mjs login     # ventana visible; el USUARIO inicia sesion; guarda el estado
  *   node scripts/visual/capture_sandbox.mjs capture   # headless con ese estado; PNG + index.json
+ *   node scripts/visual/capture_sandbox.mjs autologin [--capture]   # inicia sesion con PW_USER/PW_PASS (usuario temporal D21)
  *   node scripts/visual/capture_sandbox.mjs --help
  *
  * Playwright NO es dependencia del proyecto: vive fuera (por defecto en el scratchpad de la sesion, carpeta `pw`).
@@ -21,6 +22,7 @@ import path from "node:path";
 const SCRATCH = "C:\\Users\\Usuario\\AppData\\Local\\Temp\\claude\\C--Users-Usuario-Downloads\\3494c0c2-73e4-5bbb-809f-eb0bb12b4d97\\scratchpad";
 const VISUAL_ROOT = path.join(SCRATCH, "visual");
 const STATE_FILE = path.join(VISUAL_ROOT, "state.json");
+const STATE_FILE_PW = path.join(VISUAL_ROOT, "state-pw.json"); // sesion del usuario temporal (autologin); se borra al terminar
 const ORIGIN = "http://localhost:5174";
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -30,10 +32,13 @@ const VIEWPORTS = {
 };
 const THEMES = ["light", "dark"];
 
-const HELP = `Uso: node scripts/visual/capture_sandbox.mjs <login|capture> [opciones]
+const HELP = `Uso: node scripts/visual/capture_sandbox.mjs <login|autologin|capture> [opciones]
 
   login     Abre una ventana visible en ${ORIGIN}; inicie sesion a mano (espera hasta 10 min).
             Guarda el estado de sesion en ${STATE_FILE} (fuera del repo) y cierra.
+  autologin Headless: inicia sesion en ${ORIGIN} con las credenciales del ENTORNO (PW_USER y PW_PASS, que entrega
+            scripts/sandbox/ephemeral_user.py). Solo permite POST /api/v1/auth/login. Con --capture sigue con las capturas
+            (solo lectura) y borra el estado de sesion al terminar. Nunca imprime las credenciales.
   capture   Headless, con ese estado: recorre las pantallas en 2 viewports x 2 temas y guarda PNG + index.json
             en ${path.join(VISUAL_ROOT, "<timestamp>")}.
 
@@ -43,6 +48,7 @@ Opciones:
   --viewports <desktop,mobile>   Por defecto ambos.
   --themes <light,dark>     Por defecto ambos.
   --screen-timeout-ms <n>   Tope por pantalla (defecto 60000).
+  --capture                 Solo con autologin: tras iniciar sesion, hace las capturas y borra el estado.
   --list                    Lista las pantallas y sale.
   --help                    Esta ayuda.
 
@@ -57,7 +63,7 @@ function fail(code, message) {
 }
 
 function parseArgs(argv) {
-  const out = { mode: null, baseUrl: ORIGIN, only: null, viewports: Object.keys(VIEWPORTS), themes: THEMES, screenTimeout: 60000, list: false, help: false };
+  const out = { mode: null, baseUrl: ORIGIN, only: null, viewports: Object.keys(VIEWPORTS), themes: THEMES, screenTimeout: 60000, capture: false, list: false, help: false };
   const args = [...argv];
   while (args.length) {
     const a = args.shift();
@@ -66,7 +72,8 @@ function parseArgs(argv) {
       if (v === undefined) fail(2, `Falta el valor de ${a}.`);
       return v;
     };
-    if (a === "login" || a === "capture") out.mode = a;
+    if (a === "login" || a === "capture" || a === "autologin") out.mode = a;
+    else if (a === "--capture") out.capture = true;
     else if (a === "--help" || a === "-h") out.help = true;
     else if (a === "--list") out.list = true;
     else if (a === "--base-url") out.baseUrl = val();
@@ -199,6 +206,37 @@ async function runLogin(pw) {
   console.log(`Sesion detectada. Estado guardado en ${STATE_FILE} (no se imprime su contenido).`);
 }
 
+// ----------------------------- modo autologin (D21) -----------------------------
+
+/** Inicia sesion con PW_USER/PW_PASS del entorno (usuario temporal del sandbox). Nunca imprime ni guarda las credenciales. */
+async function runAutologin(pw) {
+  const user = process.env.PW_USER;
+  const pass = process.env.PW_PASS;
+  if (!user || !pass) fail(3, "Faltan PW_USER/PW_PASS en el entorno (los entrega scripts/sandbox/ephemeral_user.py session).");
+  if (!insideScratch(STATE_FILE_PW)) fail(2, "Ruta de estado fuera del scratchpad.");
+  fs.mkdirSync(VISUAL_ROOT, { recursive: true });
+  const browser = await launch(pw.chromium, true);
+  try {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "es-CL" });
+    await installGuards(context, { current: null }, { allowLogin: true });
+    const page = await context.newPage();
+    await page.goto(ORIGIN, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.locator('input[name="username"]').fill(user, { timeout: 20000 });
+    await page.locator('input[name="password"]').fill(pass);
+    await page.locator("form button").first().click();
+    try {
+      await page.waitForSelector(".app-layout", { state: "attached", timeout: 30000 });
+    } catch {
+      fail(1, "No se pudo iniciar sesion con el usuario temporal (credenciales rechazadas, backend sandbox caido o pantalla distinta).");
+    }
+    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+    await context.storageState({ path: STATE_FILE_PW });
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  console.log(`Sesion iniciada con el usuario temporal. Estado guardado en ${STATE_FILE_PW} (no se imprime su contenido).`);
+}
+
 // ----------------------------- pantallas -----------------------------
 
 /** Clics permitidos: solo navegacion y apertura de dialogos; nunca confirmar ni enviar. */
@@ -314,9 +352,9 @@ function withTimeout(promise, ms, label) {
 
 // ----------------------------- modo capture -----------------------------
 
-async function runCapture(pw, opts) {
-  if (!fs.existsSync(STATE_FILE)) {
-    fail(3, `No hay estado de sesion (${STATE_FILE}). Ejecute primero: node scripts/visual/capture_sandbox.mjs login`);
+async function runCapture(pw, opts, stateFile = STATE_FILE) {
+  if (!fs.existsSync(stateFile)) {
+    fail(3, `No hay estado de sesion (${stateFile}). Ejecute primero: node scripts/visual/capture_sandbox.mjs login`);
   }
   const chosen = SCREENS.filter((s) => !opts.only || opts.only.includes(s.name));
   if (chosen.length === 0) fail(2, "Ninguna pantalla coincide con --only. Use --list.");
@@ -337,7 +375,7 @@ async function runCapture(pw, opts) {
     for (const theme of opts.themes) {
       const vp = VIEWPORTS[vpName];
       const context = await browser.newContext({
-        storageState: STATE_FILE,
+        storageState: stateFile,
         viewport: { width: vp.width, height: vp.height },
         isMobile: vp.isMobile,
         hasTouch: vp.hasTouch,
@@ -407,7 +445,7 @@ async function runCapture(pw, opts) {
   flush();
   const bad = index.entries.filter((e) => e.status === "error").length;
   console.log(`Listo: ${index.entries.length} entradas (${bad} con error). Indice: ${path.join(runDir, "index.json")}`);
-  process.exit(bad ? 1 : 0);
+  return bad;
 }
 
 // ----------------------------- main -----------------------------
@@ -427,4 +465,15 @@ if (opts.mode === "capture" && !fs.existsSync(STATE_FILE)) {
 }
 const pw = await loadPlaywright();
 if (opts.mode === "login") await runLogin(pw);
-else await runCapture(pw, opts);
+else if (opts.mode === "autologin") {
+  await runAutologin(pw);
+  if (opts.capture) {
+    let bad = 1;
+    try {
+      bad = await runCapture(pw, opts, STATE_FILE_PW);
+    } finally {
+      fs.rmSync(STATE_FILE_PW, { force: true }); // la cookie del usuario temporal no se conserva
+    }
+    process.exit(bad ? 1 : 0);
+  }
+} else process.exit((await runCapture(pw, opts)) ? 1 : 0);
