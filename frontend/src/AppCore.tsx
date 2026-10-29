@@ -23,6 +23,7 @@ import { ReportDialog } from "./features/dashboard/ReportDialog";
 import { useEtl } from "./features/dashboard/useEtl";
 import { useGeneralDashboard } from "./features/dashboard/useGeneralDashboard";
 import { GeneralDashboardView } from "./features/dashboard/GeneralDashboardView";
+import { SummaryView } from "./features/summary/SummaryView";
 import { useChannelDashboard } from "./features/dashboard/useChannelDashboard";
 import { ClientDetailView } from "./features/virtualpos/ClientDetailView";
 import { PlanDetailView } from "./features/virtualpos/PlanDetailView";
@@ -221,6 +222,13 @@ function AppCore() {
     if (updateUrl) navigate({ kind: "central", view: "summary" });
   }
 
+  /** Vista anterior del dashboard general (TRANSITORIA, fuera del menú; se retira con UX-15). */
+  function showClassicSummary(updateUrl = true) {
+    showDashboard(false);
+    setGeneralView("classic");
+    if (updateUrl) navigate({ kind: "central", view: "classic" });
+  }
+
   function showGeneralClients(updateUrl = true) {
     showDashboard(false);
     setGeneralView("clients");
@@ -379,6 +387,7 @@ function AppCore() {
     if (route.kind === "central") {
       if (route.view === "report") showAutoReport(false);
       else if (route.view === "summary") showDashboard(false);
+      else if (route.view === "classic") showClassicSummary(false);
       else if (route.view === "clients") {
         showGeneralClients(false);
         const field = location.searchParams.get("campo");
@@ -586,6 +595,9 @@ function AppCore() {
 
   const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSuscripcion={showTchSuscripcion} onReport={setReportScope} can={can} /> : null;
 
+  const summaryRoute = parseRoute(routeLocation.split("?")[0]);
+  const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
+
   const content = detailLoading ? (
     <main className="app-shell">
       <p className="muted-copy">Cargando ficha...</p>
@@ -629,7 +641,11 @@ function AppCore() {
         />
       )
     ) : (
-      generalView === "report" ? <AutomaticReport /> : globalDashboard
+      generalView === "report" ? <AutomaticReport /> : generalView === "summary" ? (
+        // El estado inicial es «summary» aunque el enlace profundo apunte a otra vista: solo se monta el Resumen
+        // unificado si la URL es de verdad la suya (así un enlace a otra pantalla no dispara su petición).
+        onSummaryRoute ? <SummaryView /> : <main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>
+      ) : globalDashboard
     )))
   );
 

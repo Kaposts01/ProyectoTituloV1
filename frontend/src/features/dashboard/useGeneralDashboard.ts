@@ -8,7 +8,8 @@ import type {
   AuthSession, GeneralClientDetail, GeneralClients, GeneralDashboard, GeneralSubscriptions, Summary,
 } from "../shared/types";
 
-export type GeneralView = "summary" | "clients" | "subscriptions" | "report";
+/** «summary» = Resumen unificado (features/summary); «classic» = vista anterior del dashboard general (transitoria, UX-15). */
+export type GeneralView = "summary" | "classic" | "clients" | "subscriptions" | "report";
 export type GeneralClientFilter = "all" | "rut" | "name" | "last_name" | "platform" | "email" | "phone";
 export type GeneralSubscriptionFilter = "all" | "id" | "rut" | "client" | "platform" | "status";
 
@@ -53,7 +54,7 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
 
   useEffect(() => {
-    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileView) return;
+    if (!session || generalView !== "classic" || channel || activeSection || tchView || adminOpen || profileView) return;
     let mounted = true;
     getCachedOrFetch("staging:summary", 5 * 60 * 1000, () => getJson<Summary>("/api/v1/staging/summary"))
       .then((data) => {
@@ -72,7 +73,7 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   }, [session, generalView, channel, activeSection, tchView, adminOpen, profileView, setError, setLoading]);
 
   useEffect(() => {
-    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileView) return;
+    if (!session || generalView !== "classic" || channel || activeSection || tchView || adminOpen || profileView) return;
     let mounted = true;
     getCachedOrFetch("dashboard:general", 5 * 60 * 1000, () => getJson<GeneralDashboard>("/api/v1/staging/dashboard/general"))
       .then((data) => {

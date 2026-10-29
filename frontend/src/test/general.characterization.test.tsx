@@ -41,9 +41,11 @@ const summaryHandlers = (dashboard: unknown = general): Handler[] => [
   ["GET", "/api/v1/staging/dashboard/general", dashboard],
 ];
 
+// Vista anterior del dashboard general: desde el Resumen unificado vive en la ruta transitoria /central/resumen-clasico
+// (el nombre del bloque se conserva para que los snapshots del marcado sigan siendo los mismos y prueben que no cambió).
 describe("Dashboard general (/central/resumen)", () => {
   it("pide el resumen de staging y el dashboard general, y muestra cabecera, métricas, gráficos y tarjetas por canal", async () => {
-    const app = mountApp("/central/resumen", summaryHandlers());
+    const app = mountApp("/central/resumen-clasico", summaryHandlers());
     await appReady();
     expect(await screen.findByLabelText("Métricas generales")).toBeTruthy();
     expect(app.exact("GET", "/api/v1/staging/summary")).toHaveLength(1);
@@ -73,20 +75,20 @@ describe("Dashboard general (/central/resumen)", () => {
   });
 
   it("antes de recibir datos muestra «Cargando indicadores consolidados...»", async () => {
-    mountApp("/central/resumen", [["GET", "/api/v1/staging/dashboard/general", () => new Promise(() => {})], ["GET", "/api/v1/staging/summary", staging]]);
+    mountApp("/central/resumen-clasico", [["GET", "/api/v1/staging/dashboard/general", () => new Promise(() => {})], ["GET", "/api/v1/staging/summary", staging]]);
     await appReady();
     expect(await screen.findByText("Cargando indicadores consolidados...")).toBeTruthy();
     expect(screen.getByText("KPIs y actividad mensual calculados desde las entidades centralizadas y TCH.")).toBeTruthy();
   });
 
   it("muestra el error cuando falla el dashboard", async () => {
-    mountApp("/central/resumen", [["GET", "/api/v1/staging/summary", staging], ["GET", "/api/v1/staging/dashboard/general", failWith(500, "falla simulada")]]);
+    mountApp("/central/resumen-clasico", [["GET", "/api/v1/staging/summary", staging], ["GET", "/api/v1/staging/dashboard/general", failWith(500, "falla simulada")]]);
     await appReady();
     expect(await screen.findByText("falla simulada")).toBeTruthy();
   });
 
   it("alterna cantidad/monto, cambia el año, filtra deudas y transacciones y abre el reporte", async () => {
-    mountApp("/central/resumen", summaryHandlers());
+    mountApp("/central/resumen-clasico", summaryHandlers());
     await appReady();
     const metrics = await screen.findByLabelText("Métricas generales");
     fireEvent.click(screen.getByRole("button", { name: "Monto" }));
@@ -106,14 +108,14 @@ describe("Dashboard general (/central/resumen)", () => {
   });
 
   it("muestra el panel de alertas cuando el dashboard trae alertas", async () => {
-    mountApp("/central/resumen", summaryHandlers({ ...general, alerts: [{ id: "a1", sev: "alta", tipo: "Rechazos", canal: "VirtualPOS", detalle: "Detalle sintético" }] }));
+    mountApp("/central/resumen-clasico", summaryHandlers({ ...general, alerts: [{ id: "a1", sev: "alta", tipo: "Rechazos", canal: "VirtualPOS", detalle: "Detalle sintético" }] }));
     await appReady();
     await screen.findByLabelText("Métricas generales");
     expect(screen.getByText("ALERTAS OPERATIVAS")).toBeTruthy();
   });
 
   it("conserva modo, año y filtros al ir a Socios y volver al Resumen desde el menú", async () => {
-    mountApp("/central/resumen", [
+    mountApp("/central/resumen-clasico", [
       ...summaryHandlers(),
       ["GET", "/api/v1/staging/dashboard/general/clients", { items: [], total: 0, offset: 0, limit: 100 }],
     ]);
@@ -124,15 +126,18 @@ describe("Dashboard general (/central/resumen)", () => {
     fireEvent.click(navTop("Socios"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
     expect(await screen.findByText("CLIENTES CONSOLIDADOS")).toBeTruthy();
-    fireEvent.click(navTop("Resumen"));
-    await waitFor(() => expect(window.location.pathname).toBe("/central/resumen"));
+    // Cambio deliberado: el menú «Resumen» ahora abre la vista nueva (/central/resumen); la anterior solo se alcanza por su
+    // ruta transitoria, así que se vuelve a ella con el historial del navegador.
+    window.history.pushState({}, "", "/central/resumen-clasico");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(window.location.pathname).toBe("/central/resumen-clasico"));
     const metrics = await screen.findByLabelText("Métricas generales");
     expect(metrics.querySelector(".metric-value-money")).toBeTruthy();
     expect((screen.getByLabelText("Año dashboard general") as HTMLSelectElement).value).toBe("2024");
   });
 
   it("Sync completo: envía los proveedores habilitados, muestra el progreso y el resultado de la corrida", async () => {
-    const app = mountApp("/central/resumen", [
+    const app = mountApp("/central/resumen-clasico", [
       ...summaryHandlers(),
       ["POST", "/api/v1/etl/full-sync", { run_id: "run-1" }],
       ["GET", "/api/v1/etl/runs/run-1", { id: "run-1", status: "completed", phase: null, started_at: "2025-03-31T10:00:00", finished_at: "2025-03-31T10:05:00", records_upserted: 1234, channels_processed: ["virtualpos"], error_message: null }],
@@ -150,7 +155,7 @@ describe("Dashboard general (/central/resumen)", () => {
   }, 15000);
 
   it("Sync completo: si falla el inicio muestra el error y vuelve a habilitar el botón", async () => {
-    mountApp("/central/resumen", [...summaryHandlers(), ["POST", "/api/v1/etl/full-sync", failWith(409, "ya hay una corrida")]]);
+    mountApp("/central/resumen-clasico", [...summaryHandlers(), ["POST", "/api/v1/etl/full-sync", failWith(409, "ya hay una corrida")]]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "↻ Sync completo" }));
     expect(await screen.findByText("ya hay una corrida")).toBeTruthy();
@@ -172,9 +177,10 @@ describe("Clientes consolidados (/central/clientes)", () => {
     expect(call.query.get("offset")).toBe("0");
     expect(call.query.get("filter_field")).toBe("all");
     expect(call.query.has("query")).toBe(false);
-    // Rareza actual (sin corregir): en un enlace profundo, antes de aplicar la ruta la vista aún es
-    // «summary», así que se pide una vez el dashboard general aunque no se muestre.
-    expect(app.exact("GET", "/api/v1/staging/dashboard/general")).toHaveLength(1);
+    // Cambio deliberado (Resumen unificado): la vista inicial «summary» ya no carga el dashboard anterior, que ahora vive en
+    // /central/resumen-clasico. El hallazgo 5 (se pedía el dashboard general aunque no se mostrara) queda resuelto aquí.
+    expect(app.exact("GET", "/api/v1/staging/dashboard/general")).toHaveLength(0);
+    expect(app.exact("GET", "/api/v1/staging/summary")).toHaveLength(0);
     expect(screen.getByText("CLIENTES CONSOLIDADOS")).toBeTruthy();
     expect(screen.getByText("250 clientes por RUT")).toBeTruthy();
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["RUT", "Nombre completo", "Plataforma de origen", "Suscripciones activas"]);

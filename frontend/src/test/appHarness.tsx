@@ -8,6 +8,7 @@ import { expect, vi } from "vitest";
 import AppCore from "../AppCore";
 import { invalidateCache } from "../apiCache";
 import { setCsrfToken } from "../api";
+import { rawSummary } from "../features/summary/summaryFixtures";
 
 // Las pruebas montan la aplicación completa; con la suite en paralelo 1 s de espera por defecto se queda corto.
 configure({ asyncUtilTimeout: 4000 });
@@ -69,7 +70,9 @@ export function mountApp(path: string, handlers: Handler[] = [], options: { perm
     ["GET", "/api/v1/auth/me", options.authFails ? failWith(401, "No autenticado") : session(options.permissions, options.roles)],
     ["GET", "/api/v1/system/environment", { app_env: "test", label: "Test", is_production: false }],
     ["GET", "/api/v1/sync-runs/health", []],
-    // Al abrir un enlace profundo, AppCore pide primero el resumen y el dashboard general (la vista aún es «summary»).
+    // Resumen unificado (/central/resumen): respuesta sintética por defecto para no ensuciar las pruebas ajenas.
+    ["GET", "/api/v1/dashboard/general", () => rawSummary()],
+    // Vista anterior (/central/resumen-clasico): pide el resumen de staging y el dashboard general.
     ["GET", "/api/v1/staging/summary", { sources: [] }],
     ["GET", "/api/v1/staging/dashboard/general", { clients: 0, subscriptions: { active: 0, amount: 0 }, transactions: { total: 0, accepted: 0, rejected: 0, amount: 0, rejection_rate_pct: null }, channels: [], years: [], transactions_monthly: [], activations_monthly: [], cancellations_monthly: [], debts_monthly: [], transactions_effective_monthly: [] }],
   ];

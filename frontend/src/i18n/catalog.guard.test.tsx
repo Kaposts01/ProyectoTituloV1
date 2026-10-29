@@ -12,6 +12,7 @@ import { ChannelDashboardView } from "../features/dashboard/ChannelDashboardView
 import type { ChannelDashboard } from "../features/shared/types";
 import { appReady, listSettled, mountApp, resetApp, type Handler } from "../test/appHarness";
 import { page, paykuClient, rec, paykuSubscription, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "../test/fixtures";
+import { rawSummary } from "../features/summary/summaryFixtures";
 import { es } from "./es";
 import { label, resetUnknownWarnings } from "./label";
 
@@ -110,6 +111,21 @@ GUARDED_VIEWS.push(
     },
   },
 );
+
+// Resumen unificado (UX-06): el endpoint responde solo con números y claves en español; el guardián vigila que la
+// pantalla no pinte rótulos ni valores crudos en inglés (estados de salud, canales, notas).
+GUARDED_VIEWS.push({
+  name: "Resumen unificado",
+  path: "/central/resumen",
+  handlers: [
+    ["GET", "/api/v1/dashboard/general", rawSummary()],
+    ["GET", "/api/v1/sync-runs/health", [
+      { channel: "virtualpos", level: "ok", last_finished_at: "2026-10-15T09:00:00-03:00", age_hours: 3 },
+      { channel: "tch", level: "warn", last_finished_at: "2026-10-12T20:00:00-03:00", age_hours: 70 },
+    ]],
+  ],
+  ready: () => screen.findByRole("region", { name: "Indicadores del mes" }),
+});
 
 const tokuSubRecord = { record: tokuSubscription(1), related: [] };
 

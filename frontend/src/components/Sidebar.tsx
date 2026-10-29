@@ -13,7 +13,7 @@ export type SidebarProps = {
   onToggleDetail: () => void;
   theme: "light" | "dark";
   onDashboard: () => void;
-  generalView: "summary" | "clients" | "subscriptions" | "report";
+  generalView: "summary" | "classic" | "clients" | "subscriptions" | "report";
   onGeneralClients: () => void;
   onGeneralSubscriptions: () => void;
   onAutoReport: () => void;

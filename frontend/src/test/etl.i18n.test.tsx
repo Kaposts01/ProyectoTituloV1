@@ -31,7 +31,7 @@ const handlers = (status: string, resources: Record<string, number>) => [
 
 describe("Dashboard general: tarjetas por canal en español", () => {
   it("estado de la última carga y recursos traducidos", async () => {
-    mountApp("/central/resumen", handlers("completed", { client: 500, subscription: 300, payment_method: 2 }));
+    mountApp("/central/resumen-clasico", handlers("completed", { client: 500, subscription: 300, payment_method: 2 }));
     await appReady();
     const card = (await screen.findByText("6 suscripciones vigentes")).closest("article")!;
     expect(within(card).getByText("VIRTUALPOS")).toBeTruthy();
@@ -41,7 +41,7 @@ describe("Dashboard general: tarjetas por canal en español", () => {
   });
 
   it("estado fallido y estado o recurso desconocido", async () => {
-    mountApp("/central/resumen", handlers("failed", { client: 1, recurso_nuevo: 2 }));
+    mountApp("/central/resumen-clasico", handlers("failed", { client: 1, recurso_nuevo: 2 }));
     await appReady();
     const card = (await screen.findByText("6 suscripciones vigentes")).closest("article")!;
     expect(within(card).getByText("Fallida")).toBeTruthy();
