@@ -142,7 +142,7 @@ async function launch(chromium, headless) {
 }
 
 /** Guarda de red del contexto: bloquea otros puertos de localhost, navegacion externa y cualquier escritura. */
-async function installGuards(context, bucketRef) {
+async function installGuards(context, bucketRef, { allowLogin = false } = {}) {
   await context.route("**/*", async (route) => {
     const req = route.request();
     let u;
@@ -165,6 +165,8 @@ async function installGuards(context, bucketRef) {
       note("host externo");
       return route.abort("blockedbyclient");
     }
+    // Unica escritura permitida, y solo en el modo `login` (el usuario inicia sesion el mismo): POST /api/v1/auth/login.
+    if (allowLogin && req.method() === "POST" && u.pathname === "/api/v1/auth/login") return route.continue();
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method())) {
       note("escritura bloqueada (solo lectura visual)");
       return route.abort("blockedbyclient");
@@ -180,7 +182,7 @@ async function runLogin(pw) {
   fs.mkdirSync(VISUAL_ROOT, { recursive: true });
   const browser = await launch(pw.chromium, false);
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "es-CL" });
-  await installGuards(context, { current: null });
+  await installGuards(context, { current: null }, { allowLogin: true });
   const page = await context.newPage();
   await page.goto(ORIGIN, { waitUntil: "domcontentloaded", timeout: 30000 });
   console.log(`Ventana abierta en ${ORIGIN}. Inicie sesion (espero hasta 10 minutos)...`);

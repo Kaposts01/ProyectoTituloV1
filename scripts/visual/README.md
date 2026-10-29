@@ -34,6 +34,8 @@ de consola/`pageerror`, respuestas HTTP >= 400 y peticiones bloqueadas; sin cuer
 - Se abortan peticiones a otros puertos de localhost (5173/8000 = producción local) y a hosts externos (solo se dejan pasar
   fuentes, estilos e imágenes por GET).
 - Se abortan **todas** las peticiones de escritura (POST/PUT/PATCH/DELETE); los diálogos se abren pero nunca se confirman.
+  Única excepción, solo en el modo `login` (la persona inicia sesión ella misma): `POST /api/v1/auth/login`. Sin esa
+  excepción el login fallaba con «Failed to fetch» porque el propio script cancelaba la petición; `capture` no la tiene.
 - Solo escribe dentro del scratchpad.
 - Si el estado caducó o el backend sandbox se reinició (la sesión deja de valer), las capturas fallan con `SESION_INVALIDA`:
   volver a ejecutar `login`.
