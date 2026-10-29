@@ -55,6 +55,7 @@ PERMISSIONS: dict[str, str] = {
     "virtualpos.billing_changes.approve": "Aprobar o rechazar cambios de cobro VirtualPOS",
     "virtualpos.billing_changes.view": "Ver bandeja e historial de cambios de cobro VirtualPOS",
     "virtualpos.billing_policy.manage": "Configurar aprobadores de cambios de cobro VirtualPOS",
+    "toku.reports.import": "Importar reportes descargados de Toku",
 }
 
 SUPPORT_ROLE_NAME = "soporte"

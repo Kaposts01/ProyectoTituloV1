@@ -64,6 +64,16 @@ from app.models.toku_channel import (  # noqa: F401
     TokuSubscription,
     TokuTransaction,
 )
+from app.models.toku_report import (  # noqa: F401
+    CoreSubscriptionSignal,
+    TkReportAttempt,
+    TkReportDebt,
+    TkReportFile,
+    TkReportInscription,
+    TkReportPaymentMethod,
+    TkReportProduct,
+    TkReportResponseCode,
+)
 from app.models.vp import (  # noqa: F401
     VpCharge,
     VpClient,
