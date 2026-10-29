@@ -236,6 +236,15 @@ Objetivo: demostrar que cada canal funciona de punta a punta en un ambiente aisl
   - [ ] Revisión visual del usuario en ambos temas (VIZ-12).
 - **Retrospectiva:** se completa al cerrar.
 
+### 3.7 Sprint 5A: datos confiables, al día y gestionables (auditoría del 2026-10-29)
+
+- **Estado:** en curso. Rama `sprint-5/sync-confiable` (desde `sprint-4/recuperador-vp`, sin push ni PR). Plan, olas, decisiones y hallazgos en [`planning/auditoria-2026-10-29/PLAN.md`](planning/auditoria-2026-10-29/PLAN.md); los 10 informes detallados con sus tareas (familias `VP-PAR`, `TK-PAR`, `PK-PAR`, `TCH-PAR`, `RJ`, `SYNC-D`, `SYNC-O`, `RT`, `MGT`, `UX`) están en la misma carpeta. Sus IDs se pasan a la sección 4 al iniciarse cada tarea; mientras tanto el informe es el detalle canónico.
+- **Objetivo:** paridad de cantidad, calidad y tipo de datos con los reportes descargados de los 4 canales; historial de cambios de estado y glosas de rechazo; sincronización diaria rápida y casi en tiempo real; baja y cambio de monto desde el CRM; vista unificada con los KPIs de la jefatura.
+- **Hecho:** SYNC-D-09 / VP-PAR-01 / PK-PAR-01 (commit `b6a590c`): errores de configuración no se reintentan, run `partial`/`failed`, estado `degraded`/`failing` en `/sync-runs/health`; backend 1204 pasan, `ruff` limpio. Pendiente del usuario: reiniciar el backend 8000 y completar el `.env`.
+- **En curso:** Ola 1A (glosa de rechazo: RJ-02, RJ-03, RJ-05, RJ-01).
+- **Pendiente:** Olas 1B a 4 del PLAN.
+- **Bloqueos:** decisiones D1 a D16 del PLAN; migraciones y recargas en `crm` (las ejecuta el usuario); `TOKU_REPORT_HASH_PEPPER`; reexportación de la cartera TCH 2023.
+
 ## 4. Backlog por área
 
 Cada ID aparece en una sola fila. Estado según el vocabulario de 1.3. Orden dentro de cada área: el histórico primero y las tareas nuevas de la sesión del 2026-10-28 al final. Origen de las filas WFL, BLQ, VAL y BUG: revisión comparativa del 2026-10-15 de los documentos de VirtualPOS, Toku y Payku frente a `docs/integrations/` ([informe comparativo](https://claude.ai/artifact/7R7N8sJHPRCoTpBnLhcBzg)). Patrón de las escrituras (WR-*): backend en `app/api/v1/routes/`, servicio que actualiza `source_records` y re-materializa la entidad centralizada, y botón del frontend conectado a la ruta interna.
