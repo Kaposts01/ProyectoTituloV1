@@ -19,7 +19,7 @@ CHILE_TZ = ZoneInfo("America/Santiago")
 E = StatusChangeEvent
 
 # Estados (en minusculas) de una suscripcion que cuentan como BAJA, por canal. `removed` siempre es baja.
-BAJA_STATES: dict[str, frozenset[str]] = {
+CANCELLATION_STATES: dict[str, frozenset[str]] = {
     "virtualpos1": frozenset({"cancelada", "cancelado", "cancelled", "canceled"}),
     "virtualpos2": frozenset({"cancelada", "cancelado", "cancelled", "canceled"}),
     "toku": frozenset({"cancelled", "canceled", "cancelada", "deleted", "ended"}),
@@ -98,8 +98,8 @@ def daily_changes(
     ]
 
     # Altas y bajas de suscripciones.
-    altas = [c for c in created if c["entity_type"] == "subscription"]
-    bajas_acc: dict[str, dict[str, int]] = {}
+    signups = [c for c in created if c["entity_type"] == "subscription"]
+    cancellations_acc: dict[str, dict[str, int]] = {}
     for s, kind, to_value, n in db.execute(
         q(E.source, E.event_kind, E.to_value, func.count())
         .where(E.entity_type == "subscription", E.event_kind.in_(("status_changed", "removed")))
@@ -107,16 +107,16 @@ def daily_changes(
     ):
         if kind == "removed":
             label = "removed"
-        elif (to_value or "").strip().lower() in BAJA_STATES.get(s, frozenset()):
+        elif (to_value or "").strip().lower() in CANCELLATION_STATES.get(s, frozenset()):
             label = to_value or ""
         else:
             continue
-        bajas_acc.setdefault(s, {})
-        bajas_acc[s][label] = bajas_acc[s].get(label, 0) + n
-    bajas = [
+        cancellations_acc.setdefault(s, {})
+        cancellations_acc[s][label] = cancellations_acc[s].get(label, 0) + n
+    cancellations = [
         {"source": s, "count": sum(states.values()),
          "by_state": [{"state": k, "count": v} for k, v in sorted(states.items())]}
-        for s, states in sorted(bajas_acc.items())
+        for s, states in sorted(cancellations_acc.items())
     ]
 
     # Cambios de monto con delta (solo cuando ambos valores son numericos).
@@ -177,7 +177,7 @@ def daily_changes(
         "totals": {"events": sum(by_kind.values()), "by_kind": dict(sorted(by_kind.items()))},
         "transitions": {"items": transitions, "total": transitions_total, "limit": limit, "offset": offset},
         "created": created,
-        "subscriptions": {"altas": altas, "bajas": bajas},
+        "subscriptions": {"altas": signups, "bajas": cancellations},
         "amount_changes": {"summary": amount_summary, "top": top_amount},
         "new_reasons": {"items": new_reasons, "total": reasons_total, "limit": limit},
     }

@@ -47,7 +47,7 @@ from app.services.status_events import (
     pop_reason_hints,
 )
 from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
-from app.services.vp_current_amount import load_monto_vigente
+from app.services.vp_current_amount import load_current_amount
 
 logger = logging.getLogger(__name__)
 
@@ -261,14 +261,14 @@ def _consolidate_vp_subscriptions(db: Session, scope: Scope | None = None) -> in
     # El monto de una suscripcion VP es el ultimo monto cobrado (plan fijo no editable);
     # sin cargos vigentes cae al monto de la suscripcion/plan. Una consulta agregada.
     # `scope` = (platform, subscription_external_id): refresco de UNA suscripcion (MGT-06).
-    vigentes = load_monto_vigente(
+    current_amounts = load_current_amount(
         db, family="vp",
         sources=[scope[0]] if scope else None, subscription_ids=[scope[1]] if scope else None,
     )
     criteria = (VpSubscription.platform == scope[0], VpSubscription.external_id == scope[1]) if scope else ()
     rows = []
     for vp in _vp_records(db, VpSubscription, *criteria):
-        vigente = vigentes.get((vp.platform, vp.external_id))
+        current_amount = current_amounts.get((vp.platform, vp.external_id))
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
@@ -280,7 +280,7 @@ def _consolidate_vp_subscriptions(db: Session, scope: Scope | None = None) -> in
             "automatic_renewal": vp.automatic_renewal,
             "suscription_date": vp.suscription_date,
             "canceled_at": vp.canceled_at,
-            "amount": format(vigente.normalize(), "f") if vigente is not None else vp.amount,
+            "amount": format(current_amount.normalize(), "f") if current_amount is not None else vp.amount,
             "currency": vp.currency,
             "raw_payload": vp.raw_payload,
         })

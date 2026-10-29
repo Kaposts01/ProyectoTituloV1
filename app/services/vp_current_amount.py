@@ -29,9 +29,9 @@ from app.models.crm import Charge, Plan, Subscription
 from app.models.vp import VpCharge, VpPlan, VpSubscription
 from app.services.rejected_month import now_chile
 
-VIGENTE_CHARGE_STATUSES: tuple[str, ...] = ("pagado", "procesando")
+CURRENT_CHARGE_STATUSES: tuple[str, ...] = ("pagado", "procesando")
 
-MontoVigenteMap = dict[tuple[str, str], Decimal]
+CurrentAmountMap = dict[tuple[str, str], Decimal]
 
 
 def parse_amount(value: object) -> Decimal | None:
@@ -48,7 +48,7 @@ def parse_amount(value: object) -> Decimal | None:
     return parsed if parsed.is_finite() else None
 
 
-def pick_monto_vigente(
+def pick_current_amount(
     charges: Iterable[tuple[str | None, str | None, str | None, object]],
     fallback: object = None,
     today: date | None = None,
@@ -61,7 +61,7 @@ def pick_monto_vigente(
     cutoff = (today or now_chile().date()).isoformat()
     best: tuple[str, str, Decimal] | None = None
     for external_id, status, charge_date, amount in charges:
-        if str(status or "").strip().lower() not in VIGENTE_CHARGE_STATUSES:
+        if str(status or "").strip().lower() not in CURRENT_CHARGE_STATUSES:
             continue
         day = str(charge_date or "")[:10]
         parsed = parse_amount(amount)
@@ -73,14 +73,14 @@ def pick_monto_vigente(
     return best[2] if best else parse_amount(fallback)
 
 
-def load_monto_vigente(
+def load_current_amount(
     db: Session,
     *,
     family: Literal["vp", "crm"] = "vp",
     sources: Iterable[str] | None = None,
     today: date | None = None,
     subscription_ids: Iterable[str] | None = None,
-) -> MontoVigenteMap:
+) -> CurrentAmountMap:
     """Mapa ``{(source, subscription_external_id): monto_vigente}``.
 
     ``family="vp"`` lee ``vp_charges``/``vp_subscriptions``/``vp_plans`` (columna
@@ -101,7 +101,7 @@ def load_monto_vigente(
     sub_id_list = list(subscription_ids) if subscription_ids is not None else None  # refresco de UNA suscripcion
     cutoff = (today or now_chile().date()).isoformat()
 
-    result: MontoVigenteMap = {}
+    result: CurrentAmountMap = {}
 
     # 1) Ultimo cargo cobrado por suscripcion (una sola consulta, DISTINCT ON).
     day = func.substr(charge_m.charge_date, 1, 10)
@@ -110,7 +110,7 @@ def load_monto_vigente(
         .where(
             charge_m.subscription_external_id.isnot(None),
             charge_m.charge_date.isnot(None),
-            func.lower(func.trim(charge_m.status)).in_(VIGENTE_CHARGE_STATUSES),
+            func.lower(func.trim(charge_m.status)).in_(CURRENT_CHARGE_STATUSES),
             day <= cutoff,
             charge_m.amount.op("~")(r"^\s*\d+(\.\d+)?\s*$"),
         )

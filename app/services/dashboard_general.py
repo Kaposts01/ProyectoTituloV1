@@ -26,7 +26,7 @@ from app.services.charge_stats import (
     charge_rejection_stats,
     parse_charge_date,
 )
-from app.services.status_history import BAJA_STATES
+from app.services.status_history import CANCELLATION_STATES
 
 CHANNELS = ("virtualpos", "toku", "payku", "tch")
 SERIES_MONTHS = 12
@@ -37,16 +37,16 @@ _CHANNEL_SOURCES = {
     "payku": ("payku",),
 }
 # TCH guarda el estado como VIGENTE / ELIMINADA (BAJA_STATES['tch'] es el estado normalizado del historial).
-_TCH_BAJA_STATES = frozenset(BAJA_STATES["tch"] | {"eliminada"})
+_TCH_CANCELLATION_STATES = frozenset(CANCELLATION_STATES["tch"] | {"eliminada"})
 _FAILED_SUBSCRIPTION = "suscripcion_fallida"  # VirtualPOS: nunca fue una alta real (igual que el dashboard actual)
 
-CHURN_DEFINICION = (
+CHURN_DEFINITION = (
     "Propuesta pendiente de confirmación: bajas del mes ÷ socios al inicio del mes (cierre del mes anterior), "
     "en porcentaje y con la misma definición en todos los canales."
 )
 CHURN_WINDOW_LABEL = "mes calendario (hora de Chile): bajas del mes ÷ socios al cierre del mes anterior"
-SOCIOS_NOTA = "suma por canal, no deduplicada"
-SOCIOS_UNIDAD = "suscripciones"
+MEMBERS_NOTE = "suma por canal, no deduplicada"
+MEMBERS_UNIT = "suscripciones"
 
 _DATE10 = r"^\d{4}-\d{2}-\d{2}"
 _AMOUNT_RE = r"^\d+(\.\d+)?$"
@@ -87,7 +87,7 @@ def _amount_col(column: Any) -> Any:
     return case((column.op("~")(_AMOUNT_RE), cast(column, Numeric)), else_=0)
 
 
-def _parse_monto(value: object) -> float:
+def _parse_tch_amount(value: object) -> float:
     """Monto TCH (texto): '$', '.', ',' tolerados; basura -> 0 (misma regla que `tch._parse_monto`)."""
     text = str(value or "").strip().replace("$", "").replace(" ", "")
     if not text:
@@ -117,9 +117,9 @@ def _invalid(valid: Any) -> Any:
 
 
 # ── suscripciones: altas, bajas, socios ────────────────────────────────────────────────────────────────
-def _baja_condition_csub(sources: tuple[str, ...]) -> Any:
+def _cancellation_condition_csub(sources: tuple[str, ...]) -> Any:
     return or_(*[
-        (CSub.source == source) & (func.lower(func.trim(CSub.status)).in_(tuple(BAJA_STATES[source])))
+        (CSub.source == source) & (func.lower(func.trim(CSub.status)).in_(tuple(CANCELLATION_STATES[source])))
         for source in sources
     ])
 
@@ -132,77 +132,77 @@ def _subscription_histograms(
     Alta = fecha de alta valida (sin SUSCRIPCION_FALLIDA). Baja = estado de baja del canal (BAJA_STATES) con fecha
     de baja valida, y con alta valida anterior o igual (si no, no se puede ubicar en el tiempo y se cuenta aparte).
     """
-    altas: dict[str, dict[str, int]] = {c: defaultdict(int) for c in channels}
-    bajas: dict[str, dict[str, int]] = {c: defaultdict(int) for c in channels}
-    calidad = {"altas_sin_fecha": 0, "bajas_sin_fecha": 0}
+    signups: dict[str, dict[str, int]] = {c: defaultdict(int) for c in channels}
+    cancellations: dict[str, dict[str, int]] = {c: defaultdict(int) for c in channels}
+    quality = {"altas_sin_fecha": 0, "bajas_sin_fecha": 0}
 
     online = [c for c in channels if c in _CHANNEL_SOURCES]
     if online:
         sources = tuple(s for c in online for s in _CHANNEL_SOURCES[c])
         not_failed = func.lower(func.trim(CSub.status)).is_distinct_from(_FAILED_SUBSCRIPTION)
-        valid_alta = CSub.suscription_date.op("~")(_DATE10)
-        valid_baja = CSub.canceled_at.op("~")(_DATE10)
-        is_baja = _baja_condition_csub(sources)
-        alta_m = func.substring(CSub.suscription_date, 1, 7)
-        baja_m = func.substring(CSub.canceled_at, 1, 7)
+        valid_signup = CSub.suscription_date.op("~")(_DATE10)
+        valid_cancellation = CSub.canceled_at.op("~")(_DATE10)
+        is_cancelled = _cancellation_condition_csub(sources)
+        signup_month = func.substring(CSub.suscription_date, 1, 7)
+        cancellation_month = func.substring(CSub.canceled_at, 1, 7)
         for source, month, n in db.execute(
-            select(CSub.source, alta_m, func.count())
-            .where(CSub.source.in_(sources), valid_alta, not_failed)
-            .group_by(CSub.source, alta_m)
+            select(CSub.source, signup_month, func.count())
+            .where(CSub.source.in_(sources), valid_signup, not_failed)
+            .group_by(CSub.source, signup_month)
         ):
-            altas[_SRC_CHANNEL[source]][month] += n
+            signups[_SRC_CHANNEL[source]][month] += n
         for source, month, n in db.execute(
-            select(CSub.source, baja_m, func.count())
+            select(CSub.source, cancellation_month, func.count())
             .where(
-                CSub.source.in_(sources), is_baja, valid_baja, valid_alta, not_failed,
+                CSub.source.in_(sources), is_cancelled, valid_cancellation, valid_signup, not_failed,
                 func.substring(CSub.canceled_at, 1, 10) >= func.substring(CSub.suscription_date, 1, 10),
             )
-            .group_by(CSub.source, baja_m)
+            .group_by(CSub.source, cancellation_month)
         ):
-            bajas[_SRC_CHANNEL[source]][month] += n
-        calidad["altas_sin_fecha"] += db.scalar(
-            select(func.count()).select_from(CSub).where(CSub.source.in_(sources), not_failed, _invalid(valid_alta))
+            cancellations[_SRC_CHANNEL[source]][month] += n
+        quality["altas_sin_fecha"] += db.scalar(
+            select(func.count()).select_from(CSub).where(CSub.source.in_(sources), not_failed, _invalid(valid_signup))
             ) or 0
-        calidad["bajas_sin_fecha"] += db.scalar(
+        quality["bajas_sin_fecha"] += db.scalar(
             select(func.count()).select_from(CSub).where(
-                CSub.source.in_(sources), is_baja, not_failed,
-                or_(_invalid(valid_baja), _invalid(valid_alta),
+                CSub.source.in_(sources), is_cancelled, not_failed,
+                or_(_invalid(valid_cancellation), _invalid(valid_signup),
                     func.substring(CSub.canceled_at, 1, 10) < func.substring(CSub.suscription_date, 1, 10)),
             )
         ) or 0
 
     if "tch" in channels:
-        valid_alta = TchSuscripcion.fecha_activacion.op("~")(_DATE10)
-        valid_baja = TchSuscripcion.fecha_eliminacion.op("~")(_DATE10)
-        is_baja = func.lower(func.trim(TchSuscripcion.estado)).in_(tuple(_TCH_BAJA_STATES))
-        alta_m = func.substring(TchSuscripcion.fecha_activacion, 1, 7)
-        baja_m = func.substring(TchSuscripcion.fecha_eliminacion, 1, 7)
+        valid_signup = TchSuscripcion.fecha_activacion.op("~")(_DATE10)
+        valid_cancellation = TchSuscripcion.fecha_eliminacion.op("~")(_DATE10)
+        is_cancelled = func.lower(func.trim(TchSuscripcion.estado)).in_(tuple(_TCH_CANCELLATION_STATES))
+        signup_month = func.substring(TchSuscripcion.fecha_activacion, 1, 7)
+        cancellation_month = func.substring(TchSuscripcion.fecha_eliminacion, 1, 7)
         for month, n in db.execute(
-            select(alta_m, func.count()).where(valid_alta).group_by(alta_m)
+            select(signup_month, func.count()).where(valid_signup).group_by(signup_month)
         ):
-            altas["tch"][month] += n
+            signups["tch"][month] += n
         for month, n in db.execute(
-            select(baja_m, func.count())
+            select(cancellation_month, func.count())
             .where(
-                is_baja, valid_baja, valid_alta,
+                is_cancelled, valid_cancellation, valid_signup,
                 func.substring(TchSuscripcion.fecha_eliminacion, 1, 10)
                 >= func.substring(TchSuscripcion.fecha_activacion, 1, 10),
             )
-            .group_by(baja_m)
+            .group_by(cancellation_month)
         ):
-            bajas["tch"][month] += n
-        calidad["altas_sin_fecha"] += db.scalar(
-            select(func.count()).select_from(TchSuscripcion).where(_invalid(valid_alta))
+            cancellations["tch"][month] += n
+        quality["altas_sin_fecha"] += db.scalar(
+            select(func.count()).select_from(TchSuscripcion).where(_invalid(valid_signup))
         ) or 0
-        calidad["bajas_sin_fecha"] += db.scalar(
+        quality["bajas_sin_fecha"] += db.scalar(
             select(func.count()).select_from(TchSuscripcion).where(
-                is_baja,
-                or_(_invalid(valid_baja), _invalid(valid_alta),
+                is_cancelled,
+                or_(_invalid(valid_cancellation), _invalid(valid_signup),
                     func.substring(TchSuscripcion.fecha_eliminacion, 1, 10)
                     < func.substring(TchSuscripcion.fecha_activacion, 1, 10)),
             )
         ) or 0
-    return altas, bajas, calidad
+    return signups, cancellations, quality
 
 
 # ── cobros: ingreso, rechazo, pendiente ────────────────────────────────────────────────────────────────
@@ -257,9 +257,9 @@ def _charge_cells(
             for control in controls:
                 cell = cells["tch"][control.periodo]
                 cell["paid_n"] += control.aceptadas_cantidad
-                cell["paid_amt"] += _parse_monto(control.aceptadas_monto)
+                cell["paid_amt"] += _parse_tch_amount(control.aceptadas_monto)
                 cell["rej_n"] += control.rechazadas_cantidad
-                cell["rej_amt"] += _parse_monto(control.rechazadas_monto)
+                cell["rej_amt"] += _parse_tch_amount(control.rechazadas_monto)
                 cell["stat_rows"].append({"date": control.periodo, "status": "aceptada", "count": control.aceptadas_cantidad})
                 cell["stat_rows"].append({"date": control.periodo, "status": "rechazada", "count": control.rechazadas_cantidad})
         else:
@@ -289,7 +289,7 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
     from app.api.v1.routes import staging
     from app.models.crm import PaymentMethod as CPaymentMethod
     from app.models.payku_channel import PaykuTransaction as PkTx
-    from app.services.vp_current_amount import load_monto_vigente
+    from app.services.vp_current_amount import load_current_amount
 
     out: dict[str, tuple[float, int]] = {}
     if "virtualpos" in channels:
@@ -298,12 +298,12 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
             select(CSub.source, CSub.external_id, CSub.amount, CSub.client_social_id)
             .where(CSub.source.in_(srcs), func.lower(CSub.status) == "activa")
         ).all()
-        vigentes = load_monto_vigente(db, family="crm", sources=srcs, today=today)
+        current_amounts = load_current_amount(db, family="crm", sources=srcs, today=today)
         mrr = 0.0
         ruts: set[str] = set()
         for source, external_id, amount, social_id in subs:
-            vigente = vigentes.get((source, external_id))
-            mrr += staging._amount(vigente if vigente is not None else amount)
+            current_amount = current_amounts.get((source, external_id))
+            mrr += staging._amount(current_amount if current_amount is not None else amount)
             if social_id:
                 ruts.add(str(social_id))
         if subs:
@@ -348,9 +348,9 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
         if active_rows:
             out["payku"] = (round(sum(last_success.values()), 0), len(ruts) or len(last_success))
     if "tch" in channels:
-        equivalente = _amount_col(TchSuscripcion.equivalente_pesos)
+        equivalent = _amount_col(TchSuscripcion.equivalente_pesos)
         mrr = float(db.scalar(
-            select(func.coalesce(func.sum(equivalente), 0)).where(TchSuscripcion.estado == "VIGENTE")
+            select(func.coalesce(func.sum(equivalent), 0)).where(TchSuscripcion.estado == "VIGENTE")
         ) or 0)
         clients = db.scalar(
             select(func.count(TchSuscripcion.cliente_rut.distinct()))
@@ -362,18 +362,18 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
 
 
 # ── ensamblado ─────────────────────────────────────────────────────────────────────────────────────────
-def _kpi(valor: float | None, previo: float | None, unidad: str, **extra: Any) -> dict[str, Any]:
-    delta = None if valor is None or previo is None else valor - previo
-    pct = None if delta is None or not previo else round(100 * delta / abs(previo), 1)
+def _kpi(value: float | None, previous: float | None, unit: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    delta = None if value is None or previous is None else value - previous
+    pct = None if delta is None or not previous else round(100 * delta / abs(previous), 1)
     return {
-        "valor": _num(valor),
-        "valor_mes_anterior": _num(previo),
-        "delta_vs_mes_anterior": _num(round(delta, 1) if delta is not None and unidad == "pct" else delta),
+        "valor": _num(value),
+        "valor_mes_anterior": _num(previous),
+        "delta_vs_mes_anterior": _num(round(delta, 1) if delta is not None and unit == "pct" else delta),
         "delta_vs_mes_anterior_pct": pct,
         "meta": None,
         "estado_meta": "sin_meta",
-        "unidad": unidad,
-        **extra,
+        "unidad": unit,
+        **(extra or {}),
     }
 
 
@@ -393,7 +393,7 @@ def build_general_summary(db: Session, month: str | None, channels: list[str]) -
     window = months_between(first, month)
     series_months = window[-SERIES_MONTHS:]
 
-    altas, bajas, calidad = _subscription_histograms(db, channels) if channels else ({}, {}, {})
+    signups, cancellations, quality = _subscription_histograms(db, channels) if channels else ({}, {}, {})
     # Los cobros necesitan ademas el inicio del año de `month` y del mes anterior (acumulado del año y su delta).
     charge_first = min(first, ym(parse_month(add_months(month, -1))[0], 1))
     cells = _charge_cells(db, channels, charge_first, month, today) if channels else {}
@@ -411,13 +411,13 @@ def build_general_summary(db: Session, month: str | None, channels: list[str]) -
             )
             res["stat_rows"] = []
             if not future:
-                has_history = cum(altas[ch], m) > 0
+                has_history = cum(signups[ch], m) > 0
                 if has_history:
-                    res["socios"] = cum(altas[ch], m) - cum(bajas[ch], m)
+                    res["socios"] = cum(signups[ch], m) - cum(cancellations[ch], m)
                     prev = add_months(m, -1)
-                    res["socios_inicio"] = cum(altas[ch], prev) - cum(bajas[ch], prev) if cum(altas[ch], prev) > 0 else None
-                    res["activaciones"] = altas[ch].get(m, 0)
-                    res["bajas"] = bajas[ch].get(m, 0)
+                    res["socios_inicio"] = cum(signups[ch], prev) - cum(cancellations[ch], prev) if cum(signups[ch], prev) > 0 else None
+                    res["activaciones"] = signups[ch].get(m, 0)
+                    res["bajas"] = cancellations[ch].get(m, 0)
                 cell = cells[ch].get(m)
                 if cell is not None:
                     res["ingreso"] = cell["paid_amt"]
@@ -437,17 +437,17 @@ def build_general_summary(db: Session, month: str | None, channels: list[str]) -
     monthly: dict[str, dict[str, Any]] = {}
     for m in window:
         per = per_channel(m)
-        socios, socios_inicio = combine(per, "socios"), combine(per, "socios_inicio")
-        acts, bjs = combine(per, "activaciones"), combine(per, "bajas")
+        members, members_start = combine(per, "socios"), combine(per, "socios_inicio")
+        acts, cancels = combine(per, "activaciones"), combine(per, "bajas")
         stat_rows = [row for ch in channels for row in per[ch]["stat_rows"]]
         stats = charge_rejection_stats(stat_rows, today)
         monthly[m] = {
             "per": per,
-            "socios": socios,
+            "socios": members,
             "activaciones": acts,
-            "bajas": bjs,
-            "crecimiento_neto": None if acts is None or bjs is None else acts - bjs,
-            "churn": _pct(bjs, socios_inicio),
+            "bajas": cancels,
+            "crecimiento_neto": None if acts is None or cancels is None else acts - cancels,
+            "churn": _pct(cancels, members_start),
             "ingreso": combine(per, "ingreso"),
             "cobrabilidad": _pct(stats["paid"], stats["evaluable"]),
             "no_cobrado": combine(per, "no_cobrado"),
@@ -484,14 +484,14 @@ def build_general_summary(db: Session, month: str | None, channels: list[str]) -
     kpis: dict[str, Any] = {
         "socios_totales": _kpi(
             cur["socios"], old["socios"], "count",
-            socios_totales_nota=SOCIOS_NOTA, socios_totales_unidad=SOCIOS_UNIDAD,
+            extra={"socios_totales_nota": MEMBERS_NOTE, "socios_totales_unidad": MEMBERS_UNIT},
         ),
         "activaciones": _kpi(cur["activaciones"], old["activaciones"], "count"),
         "bajas": _kpi(cur["bajas"], old["bajas"], "count"),
         "crecimiento_neto": _kpi(cur["crecimiento_neto"], old["crecimiento_neto"], "count"),
         "churn": _kpi(
             cur["churn"], old["churn"], "pct",
-            churn_definicion=CHURN_DEFINICION, churn_window_label=CHURN_WINDOW_LABEL,
+            extra={"churn_definicion": CHURN_DEFINITION, "churn_window_label": CHURN_WINDOW_LABEL},
         ),
         "ingreso_total": _kpi(cur["ingreso"], old["ingreso"], "clp"),
         "ingreso_por_canal": {
@@ -501,7 +501,7 @@ def build_general_summary(db: Session, month: str | None, channels: list[str]) -
         "cobrabilidad": _kpi(cur["cobrabilidad"], old["cobrabilidad"], "pct"),
         "no_cobrado": _kpi(cur["no_cobrado"], old["no_cobrado"], "clp"),
         "por_cobrar": _kpi(cur["por_cobrar"], old["por_cobrar"], "clp"),
-        "mrr": _kpi(mrr_total, None, "clp", por_canal={ch: _num(v) for ch, v in mrr_by_channel.items()}),
+        "mrr": _kpi(mrr_total, None, "clp", extra={"por_canal": {ch: _num(v) for ch, v in mrr_by_channel.items()}}),
         "arpu": _kpi(arpu, None, "clp"),
     }
 
@@ -527,5 +527,5 @@ def build_general_summary(db: Session, month: str | None, channels: list[str]) -
         "channels": channels,
         "kpis": kpis,
         "series": series,
-        "calidad_datos": calidad,
+        "calidad_datos": quality,
     }

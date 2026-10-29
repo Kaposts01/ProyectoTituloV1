@@ -42,7 +42,7 @@ from app.services.rbac import permission_codes, source_permission
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
-from app.services.vp_current_amount import load_monto_vigente
+from app.services.vp_current_amount import load_current_amount
 
 router = APIRouter()
 SOURCES = ("virtualpos", "toku", "payku")
@@ -2616,7 +2616,7 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
             self.payload = p
 
     vp_records: list[Any] = []
-    vigentes = load_monto_vigente(db, family="crm", sources=sources)
+    vigentes = load_current_amount(db, family="crm", sources=sources)
     for s in subs:
         raw = dict(s.raw_payload or {})
         vigente = vigentes.get((s.source, s.external_id))

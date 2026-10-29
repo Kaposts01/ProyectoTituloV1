@@ -34,7 +34,7 @@ from app.models.core import (
 from app.models.rejection import PaymentRejectionDetail
 from app.models.vp import VpCharge, VpClient, VpPayment, VpSubscription
 from app.services.core_materialization import materialize_core_clients
-from app.services.vp_current_amount import load_monto_vigente
+from app.services.vp_current_amount import load_current_amount
 
 log = logging.getLogger(__name__)
 
@@ -92,14 +92,14 @@ def _build_social_id_index(db: Session) -> dict[tuple[str, str], str]:
 # ── Paso 1: atributos de cliente ──────────────────────────────────────────────
 
 def _materialize_client_attributes(db: Session, ext_to_core: dict) -> int:
-    clientes = db.scalars(select(VpClient)).all()
+    clients = db.scalars(select(VpClient)).all()
     rows: list[dict] = []
-    for c in clientes:
+    for c in clients:
         client_id = ext_to_core.get((c.platform, c.external_id))
         observed = c.updated_at or c.created_at
-        nombre = " ".join(filter(None, [c.first_name, c.last_name])).strip() or None
+        full_name = " ".join(filter(None, [c.first_name, c.last_name])).strip() or None
         for attr_type, attr_val in [
-            ("name", nombre),
+            ("name", full_name),
             ("email", c.email),
             ("phone", c.phone_number),
             ("rut", c.social_id),
@@ -140,11 +140,11 @@ def _materialize_subscriptions(
     social_to_ext: dict[tuple[str, str], str],
     ext_to_core: dict[tuple[str, str], uuid.UUID | None],
 ) -> int:
-    suscripciones = db.scalars(select(VpSubscription)).all()
+    subscriptions = db.scalars(select(VpSubscription)).all()
     # Monto vigente = ultimo monto cobrado (plan fijo no editable en VP); fallback al monto de la suscripcion/plan.
-    vigentes = load_monto_vigente(db, family="vp")
+    current_amounts = load_current_amount(db, family="vp")
     rows = []
-    for s in suscripciones:
+    for s in subscriptions:
         ext_id = social_to_ext.get((s.platform, s.client_social_id)) if s.client_social_id else None
         client_id = ext_to_core.get((s.platform, ext_id)) if ext_id else None
         rows.append({
@@ -153,7 +153,7 @@ def _materialize_subscriptions(
             "source": s.platform,
             "external_id": s.external_id,
             "status": s.status,
-            "amount": vigentes.get((s.platform, s.external_id), _parse_amount(s.amount)),
+            "amount": current_amounts.get((s.platform, s.external_id), _parse_amount(s.amount)),
             "currency": s.currency or _DEFAULT_CURRENCY,
             "started_at": _parse_date(s.suscription_date),
             "ended_at": _parse_date(s.canceled_at),

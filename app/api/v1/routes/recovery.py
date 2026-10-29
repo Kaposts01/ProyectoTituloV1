@@ -25,12 +25,12 @@ from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.write_run import WriteRun
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
 from app.services.charge_stats import chile_today, counts_in_universe
-from app.services.exporter import audit_payload
+from app.services.exporter import ExportColumn, audit_payload, visible_columns
 from app.services.exporter import csv_safe as _csv_safe
 from app.services.rbac import permission_codes
 from app.services.read_only_provider_sync import safe_error_message
 from app.services.rejection_format import format_rejection_reason
-from app.services.vp_current_amount import load_monto_vigente
+from app.services.vp_current_amount import load_current_amount
 from app.services.write_virtualpos import (
     ChargeNotFoundError,
     WriteDisabledError,
@@ -190,9 +190,9 @@ def _rejection_fields(charge: Charge | None, core: CoreCharge | None) -> dict:
     return {"rejection_code": code, "rejection_reason_raw": raw, "rejection_reason": format_rejection_reason(charge.source, code, raw), "rejection_at": at}
 
 
-def _vigente(vigentes: dict[tuple[str, str], Decimal], source: str, sub_id: str | None, sub: Subscription | None) -> float | None:
+def _current_amount(current_amounts: dict[tuple[str, str], Decimal], source: str, sub_id: str | None, sub: Subscription | None) -> float | None:
     """Monto vigente (helper vp_current_amount): ultimo cargo pagado/procesando con fecha <= hoy, else monto de suscripcion/plan."""
-    value = vigentes.get((source, sub_id or ""))
+    value = current_amounts.get((source, sub_id or ""))
     if value is not None:
         return float(value)
     return _num(sub.amount) if sub is not None else None
@@ -288,7 +288,7 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None, filters: 
     charges = db.scalars(select(Charge).where(Charge.source.in_(_SOURCES))).all()
     charge_subscriptions = {(charge.source, charge.external_id): charge.subscription_external_id for charge in charges}
     stats = _charge_stats(list(charges))
-    vigentes = load_monto_vigente(db, family="crm", sources=_SOURCES)
+    current_amounts = load_current_amount(db, family="crm", sources=_SOURCES)
     core = _core_rejections(db)
     paid_by_subscription: dict[tuple[str, str], float] = {}
     for payment in db.scalars(select(Payment).where(Payment.source.in_(_SOURCES))).all():
@@ -319,7 +319,7 @@ def _cancelled_rows(db: Session, start: date | None, end: date | None, filters: 
             "rut": client.social_id if client else sub.client_social_id,
             "client_name": _name(client) or _subscription_client_name(sub), "started_at": sub.suscription_date, "cancelled_at": sub.canceled_at,
             "antiquity_days": days, "amount": paid_by_subscription.get((sub.source, sub.external_id), 0),
-            "monto": _num(sub.amount), "monto_vigente": _vigente(vigentes, sub.source, sub.external_id, sub),
+            "monto": _num(sub.amount), "monto_vigente": _current_amount(current_amounts, sub.source, sub.external_id, sub),
             "estado": "inactiva", "secondary_status": "inactiva",
             "attempts": stat["attempts"] if stat else 0, "last_paid_date": stat["last_paid"] if stat else None,
             **_rejection_fields(last_rej, core.get((last_rej.source, last_rej.external_id)) if last_rej else None),
@@ -368,7 +368,7 @@ def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: st
     for source, ext_ids in sub_ids_by_source.items():
         all_sub_charges.extend(db.scalars(select(Charge).where(Charge.source == source, Charge.subscription_external_id.in_(set(ext_ids)))))
     stats = _charge_stats(all_sub_charges)
-    vigentes = load_monto_vigente(db, family="crm", sources=_SOURCES)
+    current_amounts = load_current_amount(db, family="crm", sources=_SOURCES)
     core = _core_rejections(db)
 
     rows = []
@@ -388,7 +388,7 @@ def _rejected_rows(db: Session, start: date | None, end: date | None, bucket: st
             "rut": client.social_id if client else (subscription.client_social_id if subscription else None),
             "email": client.email if client else None, "phone": client.phone_number if client else None,
             "client_name": _name(client) or _subscription_client_name(subscription), "charge_date": charge.charge_date, "amount": charge.amount,
-            "monto": _num(charge.amount), "monto_vigente": _vigente(vigentes, charge.source, charge.subscription_external_id, subscription),
+            "monto": _num(charge.amount), "monto_vigente": _current_amount(current_amounts, charge.source, charge.subscription_external_id, subscription),
             "currency": charge.currency, **rejection,
             "estado": charge.status,
             "secondary_status": _secondary_status(subscription.status or "", stat["last_paid"] if stat else None) if subscription else None,
@@ -573,7 +573,7 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None, f
         candidates = deduped
 
     stats = _charge_stats(list(charges))
-    vigentes = load_monto_vigente(db, family="crm", sources=_SOURCES)
+    current_amounts = load_current_amount(db, family="crm", sources=_SOURCES)
     core = _core_rejections(db)
     rows = []
     for sub in candidates:
@@ -601,7 +601,7 @@ def _group_rows(db: Session, group: str, start: date | None, end: date | None, f
             "secondary_status": group,
             "estado": group,
             "monto": _num(sub.amount),
-            "monto_vigente": _vigente(vigentes, sub.source, sub.external_id, sub),
+            "monto_vigente": _current_amount(current_amounts, sub.source, sub.external_id, sub),
             "attempts": stat["attempts"] if stat else 0,
             **_rejection_fields(last_rej, core.get((last_rej.source, last_rej.external_id)) if last_rej else None),
             "rut": client.social_id if client else sub.client_social_id,
@@ -634,27 +634,34 @@ def group_subscriptions(
     return _page(_group_rows(db, group, _date(date_from, "date_from"), _date(date_to, "date_to"), filters), offset, limit)
 
 
+# Clave interna (ingles) + encabezado visible del CSV (español legible); `_CSV_ROW_KEYS` mapea la clave a la de la fila.
 CSV_COLUMNS = (
-    "cuenta", "id_suscripcion", "id_cargo", "monto", "fecha_rechazo", "codigo_rechazo", "motivo_rechazo", "estado",
-    "intentos", "ultimo_cobro", "fecha_cancelacion", "source_record_id", "external_id", "rut", "nombre", "email", "telefono",
+    ExportColumn("account", "Cuenta"), ExportColumn("subscription_id", "ID de suscripción"),
+    ExportColumn("charge_id", "ID de cargo"), ExportColumn("amount", "Monto"),
+    ExportColumn("rejection_date", "Fecha de rechazo"), ExportColumn("rejection_code", "Código de rechazo"),
+    ExportColumn("rejection_reason", "Motivo de rechazo"), ExportColumn("status", "Estado"),
+    ExportColumn("attempts", "Intentos"), ExportColumn("last_charge", "Último cobro"),
+    ExportColumn("cancellation_date", "Fecha de cancelación"),
+    ExportColumn("source_record_id", "ID de registro de origen"), ExportColumn("external_id", "ID externo"),
+    ExportColumn("rut", "RUT", pii=True), ExportColumn("name", "Nombre", pii=True),
+    ExportColumn("email", "Correo", pii=True), ExportColumn("phone", "Teléfono", pii=True),
 )
-PII_COLUMNS = ("rut", "nombre", "email", "telefono")
 _CSV_ROW_KEYS = {
-    "cuenta": "account", "id_suscripcion": "subscription_id", "id_cargo": "charge_id", "monto": "monto",
-    "fecha_rechazo": "rejection_at", "codigo_rechazo": "rejection_code", "motivo_rechazo": "rejection_reason",
-    "estado": "estado", "intentos": "attempts", "ultimo_cobro": "last_paid_date", "fecha_cancelacion": "cancelled_at",
-    "source_record_id": "source_record_id", "external_id": "external_id", "rut": "rut", "nombre": "client_name",
-    "email": "email", "telefono": "phone",
+    "account": "account", "subscription_id": "subscription_id", "charge_id": "charge_id", "amount": "monto",
+    "rejection_date": "rejection_at", "rejection_code": "rejection_code", "rejection_reason": "rejection_reason",
+    "status": "estado", "attempts": "attempts", "last_charge": "last_paid_date", "cancellation_date": "cancelled_at",
+    "source_record_id": "source_record_id", "external_id": "external_id", "rut": "rut", "name": "client_name",
+    "email": "email", "phone": "phone",
 }
 
 
 def _csv_response(rows: list[dict], filename: str, include_pii: bool) -> Response:
-    columns = [c for c in CSV_COLUMNS if include_pii or c not in PII_COLUMNS]
+    columns = visible_columns(CSV_COLUMNS, include_pii)
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(columns)
+    writer.writerow([column.header for column in columns])
     for row in rows:
-        writer.writerow([_csv_safe(row.get(_CSV_ROW_KEYS[c])) for c in columns])
+        writer.writerow([_csv_safe(row.get(_CSV_ROW_KEYS[column.key])) for column in columns])
     return Response(output.getvalue().encode("utf-8-sig"), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 

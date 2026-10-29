@@ -71,7 +71,7 @@ def _parse_amount(value: str | None) -> Decimal | None:
 # ── Paso 1: atributos de cliente ──────────────────────────────────────────────
 
 def _materialize_client_attributes(db: Session) -> int:
-    clientes = db.scalars(select(TokuCustomer)).all()
+    customers = db.scalars(select(TokuCustomer)).all()
 
     identity_index: dict[str, uuid.UUID | None] = {}
     for row in db.execute(
@@ -83,7 +83,7 @@ def _materialize_client_attributes(db: Session) -> int:
         identity_index[row.external_id] = row.client_id
 
     rows: list[dict] = []
-    for c in clientes:
+    for c in customers:
         client_id = identity_index.get(c.external_id)
         observed = c.updated_at or c.created_at
         for attr_type, attr_val in [
@@ -137,10 +137,10 @@ def _materialize_subscriptions(db: Session) -> int:
             _inv_latest[row.subscription_id] = (inv_due, row.status)
     last_invoice_status: dict[str, str | None] = {k: v[1] for k, v in _inv_latest.items()}
 
-    suscripciones = db.scalars(select(TokuSubscription)).all()
+    subscriptions = db.scalars(select(TokuSubscription)).all()
 
     rows = []
-    for s in suscripciones:
+    for s in subscriptions:
         client_id = identity_index.get(s.customer_id) if s.customer_id else None
         rows.append({
             "id": uuid.uuid4(),

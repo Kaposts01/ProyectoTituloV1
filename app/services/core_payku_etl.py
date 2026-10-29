@@ -72,7 +72,7 @@ def _ended_at(s: PaykuSubscription) -> datetime | None:
 # ── Paso 1: atributos de cliente ──────────────────────────────────────────────
 
 def _materialize_client_attributes(db: Session) -> int:
-    clientes = db.scalars(select(PaykuClient)).all()
+    clients = db.scalars(select(PaykuClient)).all()
 
     identity_index: dict[str, uuid.UUID | None] = {}
     for row in db.execute(
@@ -84,7 +84,7 @@ def _materialize_client_attributes(db: Session) -> int:
         identity_index[row.external_id] = row.client_id
 
     rows: list[dict] = []
-    for c in clientes:
+    for c in clients:
         client_id = identity_index.get(c.external_id)
         observed = c.updated_at or c.created_at
         for attr_type, attr_val in [
@@ -126,10 +126,10 @@ def _materialize_subscriptions(db: Session) -> int:
     ):
         identity_index[row.external_id] = row.client_id
 
-    suscripciones = db.scalars(select(PaykuSubscription)).all()
+    subscriptions = db.scalars(select(PaykuSubscription)).all()
 
     rows = []
-    for s in suscripciones:
+    for s in subscriptions:
         client_id = identity_index.get(s.client_id) if s.client_id else None
         rows.append({
             "id": uuid.uuid4(),
