@@ -89,6 +89,11 @@ from app.models.vp import (  # noqa: F401
     VpPlan,
     VpSubscription,
 )
+from app.models.vp_report import (  # noqa: F401
+    VpReportFile,
+    VpReportPayment,
+    VpReportSubscription,
+)
 from app.models.write_run import WriteRun  # noqa: F401
 
 config = context.config

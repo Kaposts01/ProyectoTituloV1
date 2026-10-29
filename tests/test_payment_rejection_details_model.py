@@ -46,7 +46,7 @@ def test_unico_head_y_revision_0043_encadenada_a_0042():
     cfg = Config()
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["20261029_0044"]
+    assert len(script.get_heads()) == 1  # un solo head (no se fija cual: crece con cada migracion)
     assert script.get_revision("20261029_0044").down_revision == "20261029_0043"
     assert script.get_revision("20261029_0043").down_revision == "20261029_0042"
 
