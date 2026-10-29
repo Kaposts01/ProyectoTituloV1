@@ -124,6 +124,39 @@ def _norm_int(val: Any) -> int | None:
         return None
 
 
+def _norm_count(val: Any) -> int | None:
+    """Entero que admite 0 (a diferencia de _norm_int, donde 0 no es un ID valido)."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    try:
+        return int(float(str(val).replace(",", ".")))
+    except (TypeError, ValueError):
+        return None
+
+
+def _norm_bool(val: Any) -> bool | None:
+    """Flags del reporte (NVO / RECH MES / ELI MES): 1, SI, X -> True; 0, NO -> False; vacio o ilegible -> None."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    text = str(val).strip().upper()
+    if text in {"1", "1.0", "SI", "S", "X", "TRUE", "VERDADERO", "YES"}:
+        return True
+    if text in {"0", "0.0", "NO", "N", "FALSE", "FALSO"}:
+        return False
+    return None
+
+
+def _norm_personalidad(val: Any) -> str | None:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    text = unicodedata.normalize("NFKD", str(val)).encode("ascii", "ignore").decode().strip().upper()
+    if text.startswith("JUR"):
+        return "Juridica"
+    if text.startswith("NAT"):
+        return "Natural"
+    return None
+
+
 def _norm_cuota(val: Any) -> str | None:
     """Numero de cuota como texto entero: 12, 12.0, '12', '12.0' y '12,0' dan '12'.
 
@@ -219,6 +252,19 @@ def _find_leaf_col(df: pd.DataFrame, *keywords: str, exclude: tuple[str, ...] = 
     for col in df.columns:
         leaf = str(col[-1] if isinstance(col, tuple) else col).lower()
         if all(k in leaf for k in keywords) and not any(x in leaf for x in exclude):
+            return col
+    return None
+
+
+def _find_group_leaf(df: pd.DataFrame, group: str, *leaves: str) -> Any:
+    """Columna del grupo ``group`` cuyo rotulo final es exactamente uno de ``leaves`` (sin tildes ni mayusculas)."""
+    wanted = {unicodedata.normalize("NFKD", leaf).encode("ascii", "ignore").decode().lower() for leaf in leaves}
+    for col in df.columns:
+        levels = col if isinstance(col, tuple) else (col,)
+        if group not in " ".join(str(level).lower() for level in levels[:-1]):
+            continue
+        leaf = unicodedata.normalize("NFKD", str(levels[-1])).encode("ascii", "ignore").decode().strip().lower()
+        if leaf in wanted:
             return col
     return None
 
@@ -450,8 +496,6 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
 
     # Datos titular
     c_rut_titular = _find_col(df, "titular", "rut")
-    c_nombre_titular = _find_col(df, "titular", "nombre")
-    c_apellido_titular = _find_col(df, "titular", "apellido")
 
     # Antecedentes mandato
     c_firma = _find_col(df, "antecedentes", "firma") or _find_col(df, "firma")
@@ -470,6 +514,27 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
     c_razon = _find_col(df, "motivo") or _find_col(df, "raz")
     c_estado = _find_estado_col(df)
 
+    # TCH-PAR-09
+    c_estrategia = _find_col(df, "estrategia")
+    c_lugar = _find_col(df, "lugar")
+    c_folio = _find_col(df, "folio")
+    c_referencia = _find_col(df, "socio", "referencia")
+    c_personalidad = _find_col(df, "personalidad")
+    c_region = _find_leaf_col(df, "regi")
+    c_pc_fecha = _find_col(df, "actual", "primer", "fecha")
+    c_pc_monto = _find_col(df, "actual", "primer", "monto")
+    c_cobradas = _find_col(df, "actual", "cuotas cobradas")
+    c_monto_cobrado = _find_col(df, "actual", "monto cobrado")
+    c_ap_cuotas = _find_col(df, "aportes", "cuotas")
+    c_ap_monto = _find_col(df, "aportes", "monto")
+    c_promedio = _find_col(df, "promedio")
+    c_sin_aporte = _find_col(df, "sin aporte")
+    c_p_meses = _find_group_leaf(df, "permanencia", "meses")
+    c_p_anos = _find_group_leaf(df, "permanencia", "años", "anos")
+    c_nvo = _find_leaf_col(df, "nvo")
+    c_rech = _find_leaf_col(df, "rech", "mes")
+    c_eli = _find_leaf_col(df, "eli", "mes")
+
     # Captación
     c_origen = _find_col(df, "origen")
     c_centro = _find_col(df, "centro", "costo")
@@ -485,9 +550,19 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
             continue
         rut = _norm_rut(_col_val(row, c_rut))
 
-        raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
+        # El titular de la cuenta puede ser un tercero: sus datos no se guardan ni en el payload.
+        raw = sanitize_payload({
+            str(k): (None if isinstance(v, float) and pd.isna(v) else str(v))
+            for k, v in row.items()
+            if "titular" not in str(k).lower()
+        })
         moneda = normalize_tch_currency(_col_val(row, c_moneda))
         raw["moneda_vigente"] = moneda  # tambien en el payload: filas cargadas antes de la columna `moneda`
+
+        personalidad = _norm_personalidad(_col_val(row, c_personalidad))
+        rut_titular = _norm_rut(_col_val(row, c_rut_titular)) if c_rut_titular else None
+        # Solo un indicador: el RUT y el nombre del titular (un tercero) no se guardan.
+        titular_distinto = (rut_titular != rut) if (rut_titular and rut) else None
 
         sus = {
             "numero_ficha": ficha,
@@ -512,6 +587,25 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
             "fecha_eliminacion": _norm_date(_col_val(row, c_felim)),
             "razon_baja": _norm_str(_col_val(row, c_razon), 500),
             "estado": _estado_mandato(_col_val(row, c_estado), estado),
+            "estrategia": _norm_str(_col_val(row, c_estrategia), 150),
+            "lugar_captacion": _norm_str(_col_val(row, c_lugar), 150),
+            "folio": _norm_str(_col_val(row, c_folio), 50),
+            "referencia": _norm_str(_col_val(row, c_referencia), 30),
+            "personalidad": personalidad,
+            "titular_distinto": titular_distinto,
+            "fecha_primer_cobro": _norm_date(_col_val(row, c_pc_fecha)),
+            "monto_primer_cobro": _norm_monto(_col_val(row, c_pc_monto)),
+            "cuotas_cobradas": _norm_count(_col_val(row, c_cobradas)),
+            "monto_cobrado": _norm_monto(_col_val(row, c_monto_cobrado)),
+            "aportes_cuotas": _norm_count(_col_val(row, c_ap_cuotas)),
+            "aportes_monto": _norm_monto(_col_val(row, c_ap_monto)),
+            "promedio_donacion": _norm_monto(_col_val(row, c_promedio)),
+            "meses_sin_aporte": _norm_count(_col_val(row, c_sin_aporte)),
+            "permanencia_meses": _norm_count(_col_val(row, c_p_meses)),
+            "permanencia_anos": _norm_count(_col_val(row, c_p_anos)),
+            "nvo_mes": _norm_bool(_col_val(row, c_nvo)),
+            "rech_mes": _norm_bool(_col_val(row, c_rech)),
+            "eli_mes": _norm_bool(_col_val(row, c_eli)),
             "raw_payload": raw,
             "_cliente": {
                 "rut": rut,
@@ -519,7 +613,7 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
                 "apellido": _norm_str(_col_val(row, c_apellido), 150),
                 "fecha_nacimiento": _norm_date(_col_val(row, c_fnac)),
                 "profesion": _norm_str(_col_val(row, c_prof), 100),
-                "tipo_persona": "Natural",
+                "tipo_persona": personalidad or "Natural",
                 "tipo_socio": _norm_str(_col_val(row, c_tipo_socio), 50),
                 "telefono": _norm_str(_col_val(row, c_telefono), 100),
                 "email": _norm_str(_col_val(row, c_email), 320),
@@ -535,19 +629,10 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
                 ) or None,
                 "comuna": _norm_str(_col_val(row, c_comuna), 150),
                 "ciudad": _norm_str(_col_val(row, c_ciudad), 150),
+                "region": _norm_str(_col_val(row, c_region), 100),
             } if rut else None,
             "_cliente_titular": None,
         }
-
-        if c_rut_titular:
-            rut_titular = _norm_rut(_col_val(row, c_rut_titular))
-            if rut_titular and rut_titular != rut:
-                sus["_cliente_titular"] = {
-                    "rut": rut_titular,
-                    "nombre": _norm_str(_col_val(row, c_nombre_titular), 150) if c_nombre_titular else None,
-                    "apellido": _norm_str(_col_val(row, c_apellido_titular), 150) if c_apellido_titular else None,
-                    "tipo_persona": "Natural",
-                }
 
         rows.append(sus)
     return rows
@@ -796,6 +881,7 @@ _CLIENTE_DEFAULTS: dict = {
     "direccion": None,
     "comuna": None,
     "ciudad": None,
+    "region": None,
     "raw_payload": None,
 }
 
@@ -834,6 +920,8 @@ def _bulk_upsert_clientes(db, clientes: list[dict]) -> int:
                 "direccion": pg_insert(TchCliente).excluded.direccion,
                 "comuna": pg_insert(TchCliente).excluded.comuna,
                 "ciudad": pg_insert(TchCliente).excluded.ciudad,
+                "region": pg_insert(TchCliente).excluded.region,
+                "tipo_persona": pg_insert(TchCliente).excluded.tipo_persona,
             },
         )
         db.execute(stmt)
@@ -932,6 +1020,25 @@ def _load_suscripciones(db, rows: list[dict]) -> tuple[int, int, int]:
                 "centro_costo": pg_insert(TchSuscripcion).excluded.centro_costo,
                 "monto": pg_insert(TchSuscripcion).excluded.monto,
                 "moneda": pg_insert(TchSuscripcion).excluded.moneda,
+                "estrategia": pg_insert(TchSuscripcion).excluded.estrategia,
+                "lugar_captacion": pg_insert(TchSuscripcion).excluded.lugar_captacion,
+                "folio": pg_insert(TchSuscripcion).excluded.folio,
+                "referencia": pg_insert(TchSuscripcion).excluded.referencia,
+                "personalidad": pg_insert(TchSuscripcion).excluded.personalidad,
+                "titular_distinto": pg_insert(TchSuscripcion).excluded.titular_distinto,
+                "fecha_primer_cobro": pg_insert(TchSuscripcion).excluded.fecha_primer_cobro,
+                "monto_primer_cobro": pg_insert(TchSuscripcion).excluded.monto_primer_cobro,
+                "cuotas_cobradas": pg_insert(TchSuscripcion).excluded.cuotas_cobradas,
+                "monto_cobrado": pg_insert(TchSuscripcion).excluded.monto_cobrado,
+                "aportes_cuotas": pg_insert(TchSuscripcion).excluded.aportes_cuotas,
+                "aportes_monto": pg_insert(TchSuscripcion).excluded.aportes_monto,
+                "promedio_donacion": pg_insert(TchSuscripcion).excluded.promedio_donacion,
+                "meses_sin_aporte": pg_insert(TchSuscripcion).excluded.meses_sin_aporte,
+                "permanencia_meses": pg_insert(TchSuscripcion).excluded.permanencia_meses,
+                "permanencia_anos": pg_insert(TchSuscripcion).excluded.permanencia_anos,
+                "nvo_mes": pg_insert(TchSuscripcion).excluded.nvo_mes,
+                "rech_mes": pg_insert(TchSuscripcion).excluded.rech_mes,
+                "eli_mes": pg_insert(TchSuscripcion).excluded.eli_mes,
                 "equivalente_pesos": pg_insert(TchSuscripcion).excluded.equivalente_pesos,
                 "fecha_activacion": pg_insert(TchSuscripcion).excluded.fecha_activacion,
                 "fecha_rechazo": pg_insert(TchSuscripcion).excluded.fecha_rechazo,

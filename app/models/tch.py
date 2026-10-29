@@ -72,6 +72,7 @@ class TchCliente(Base):
     direccion: Mapped[str | None] = mapped_column(String(500), nullable=True)
     comuna: Mapped[str | None] = mapped_column(String(150), nullable=True)
     ciudad: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(100), nullable=True)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -116,6 +117,28 @@ class TchSuscripcion(Base):
     razon_baja: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     estado: Mapped[str] = mapped_column(String(20), nullable=False, index=True, default="VIGENTE")
+
+    # TCH-PAR-09: campos del reporte que antes no se cargaban. Del titular de la cuenta solo se guarda si difiere del
+    # socio (indicador), nunca su RUT ni su nombre.
+    estrategia: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    lugar_captacion: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    folio: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    referencia: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    personalidad: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    titular_distinto: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    fecha_primer_cobro: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    monto_primer_cobro: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cuotas_cobradas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monto_cobrado: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    aportes_cuotas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    aportes_monto: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    promedio_donacion: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    meses_sin_aporte: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    permanencia_meses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    permanencia_anos: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    nvo_mes: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rech_mes: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    eli_mes: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

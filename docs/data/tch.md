@@ -107,3 +107,16 @@ Archivos Excel TCH (histórico 2017–2026)
 | GAP-TCH-05 | Fechas como strings | Todas las fechas son `String(20)` para tolerar datos sucios del Excel histórico. No hay validación de formato. |
 | GAP-TCH-06 | Sin carga incremental | La carga TCH es batch completo desde Excel. No hay sincronización en tiempo real. |
 | GAP-TCH-07 | `numero_ficha` vs `dedupe_key` | `tch_transacciones` usa `dedupe_key` como clave de idempotencia, pero su construcción depende del ETL de carga. Si cambia la lógica del ETL, pueden aparecer duplicados o huecos. |
+
+## Clave de cargos y campos del reporte (TCH-PAR-03, 04, 09)
+
+- `tch_transacciones.dedupe_key` = `ficha|periodo real|cuota` (D13): una fila por cuota con el ultimo estado ("el ultimo
+  reporte gana"); el rechazo previo queda en `rechazo_previo`, `rechazo_previo_motivo`, `rechazo_previo_en`.
+- `origen`: `cargo` (hojas CARGOS, con fecha) o `historial` (estado mensual de 12 meses, sin fecha). El historial de
+  mandatos RECHAZADOS no se carga como cobro. `reporte_periodo` es el mes del reporte que trajo la fila. Hoy la
+  consolidacion y el ETL Core leen ambos origenes (el historial cubre los meses sin detalle de CARGOS); el control
+  oficial cuenta ambos.
+- `tch_suscripciones` suma `moneda`, `estrategia`, `lugar_captacion`, `folio`, `referencia`, `personalidad`,
+  `titular_distinto` (solo indicador; no se guarda el RUT ni el nombre del titular), primer cobro, aportes acumulados,
+  permanencia y flags NVO / RECH MES / ELI MES. `tch_clientes.region`, y `tipo_persona` sale de la personalidad real.
+- Migraciones 0047 y 0048 (solo agregan columnas). Recarga: [tch-reload.md](tch-reload.md).
