@@ -3,6 +3,8 @@ import type { StagingRecord, TableColumn } from "../shared/types";
 import { RECORDS_PAGE_SIZE, isActiveSubscription, isPendingCharge, isRejectedCharge, title } from "../shared/utils";
 import { filterFieldForColumn, stagingFilters, providerEditFields, virtualPosFieldForColumn } from "../virtualpos/constants";
 import { virtualPosColumns, tokuColumns, paykuColumns } from "../virtualpos/columns";
+import { ExportButton } from "../shared/ExportButton";
+import { stagingExportTarget } from "../shared/exportMapping";
 import type { StagingRecordsState } from "./useStagingRecords";
 
 /**
@@ -95,6 +97,14 @@ export function StagingRecordsList({
     setSortColumn(column.label);
     setSortDirection("asc");
   }
+  const exportTarget = stagingExportTarget({
+    source: activeSection.source,
+    resource: activeSection.resource,
+    vpPlatform,
+    filterField,
+    filterQuery,
+    vpColumnFilters,
+  });
   const filterOptions = activeSection
     ? (stagingFilters[activeSection.source]?.[activeSection.resource] ?? [])
     : [];
@@ -199,6 +209,16 @@ export function StagingRecordsList({
             <h3>Payloads saneados almacenados localmente</h3>
           </div>
           <span aria-live="polite">{loading ? "Cargando" : `${records.total} registros`}</span>
+          {exportTarget && (!exportTarget.viewPermission || can(exportTarget.viewPermission)) ? (
+            <ExportButton
+              entity={exportTarget.entity}
+              canal={exportTarget.canal}
+              params={exportTarget.params}
+              window={{ offset: 0, limit: Math.max(1, records.items.length) }}
+              ignoredFilters={exportTarget.ignored}
+              canPii={can("export.pii")}
+            />
+          ) : null}
         </div>
         {activeSection.source === "virtualpos" && activeSection.resource === "client" ? (
           <button className="new-client-button" onClick={onNewClient}>+ Nuevo cliente</button>
