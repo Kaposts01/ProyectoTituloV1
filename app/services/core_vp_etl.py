@@ -1,7 +1,7 @@
 """Materialize VirtualPOS provider tables (vp_*) into Core entities.
 
 Covers both platforms: virtualpos1 and virtualpos2.
-Run order: client attributes → subscriptions → charges → payments
+Run order: client attributes → subscriptions → charges → payments → rejections
 Idempotent: safe to re-run.
 
 Client linkage in subscriptions goes through social_id (RUT) because
@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -240,97 +240,6 @@ def _materialize_charges(db: Session) -> int:
     return after - before
 
 
-# ── Paso 4: enriquecer cargos con último rechazo verificable ─────────────────
-
-def _enrich_charges_with_rejections(db: Session) -> int:
-    """Pobla CoreCharge.latest_rejection_* desde VpPayment rechazados.
-
-    VpPayment.charge_external_id enlaza cada pago al cargo que lo originó.
-    Para cargos con pagos rechazados usamos el más reciente como fuente de
-    latest_rejection_payment_id / code / reason / at.
-    Solo actualiza filas cuyo latest_rejection_at es NULL o tiene un pago más nuevo.
-    Retorna el número de cargos actualizados.
-    """
-    # Construir índice: (platform, charge_external_id) → CorePayment más reciente con rechazo
-    rejection_index: dict[tuple[str, str], dict] = {}
-    for p in db.scalars(
-        select(VpPayment).where(
-            VpPayment.charge_external_id.isnot(None),
-            VpPayment.platform.in_(_VP_SOURCES),
-        )
-    ):
-        payload = p.raw_payload or {}
-        order = (payload.get("payment") or payload).get("order") or {}
-        rejected = order.get("rejected_object") or {}
-        if not rejected:
-            continue
-        code = str(rejected.get("code") or rejected.get("error_code") or "")
-        reason = str(rejected.get("message") or "")
-        if not code:
-            continue
-        occurred = _parse_date(p.payment_date)
-        key = (p.platform, p.charge_external_id)
-        prev = rejection_index.get(key)
-        if prev is None or (occurred and (prev["occurred_at"] is None or occurred > prev["occurred_at"])):
-            rejection_index[key] = {
-                "payment_external_id": p.external_id,
-                "code": code or None,
-                "reason": reason or None,
-                "occurred_at": occurred,
-                "platform": p.platform,
-            }
-
-    if not rejection_index:
-        return 0
-
-    # Recuperar CorePayment.id y CoreCharge.id para hacer el update
-    core_payment_ids: dict[tuple[str, str], uuid.UUID] = {
-        (row.source, row.external_id): row.id
-        for row in db.execute(
-            select(CorePayment.source, CorePayment.external_id, CorePayment.id).where(
-                CorePayment.source.in_(_VP_SOURCES)
-            )
-        )
-    }
-    core_charge_ids: dict[tuple[str, str], uuid.UUID] = {
-        (row.source, row.external_id): row.id
-        for row in db.execute(
-            select(CoreCharge.source, CoreCharge.external_id, CoreCharge.id).where(
-                CoreCharge.source.in_(_VP_SOURCES)
-            )
-        )
-    }
-
-    needed_ids = [cid for cid in core_charge_ids.values() if cid is not None]
-    charges_by_id: dict[uuid.UUID, CoreCharge] = {}
-    if needed_ids:
-        charges_by_id = {
-            c.id: c
-            for c in db.scalars(select(CoreCharge).where(CoreCharge.id.in_(needed_ids)))
-        }
-
-    updated = 0
-    for (platform, charge_ext_id), rej in rejection_index.items():
-        charge_id = core_charge_ids.get((platform, charge_ext_id))
-        if charge_id is None:
-            continue
-        payment_id = core_payment_ids.get((platform, rej["payment_external_id"]))
-
-        charge = charges_by_id.get(charge_id)
-        if charge is None:
-            continue
-        if charge.latest_rejection_at is not None and rej["occurred_at"] is not None:
-            if rej["occurred_at"] <= charge.latest_rejection_at:
-                continue
-        charge.latest_rejection_payment_id = payment_id
-        charge.latest_rejection_code = rej["code"]
-        charge.latest_rejection_reason = rej["reason"]
-        charge.latest_rejection_at = rej["occurred_at"]
-        updated += 1
-
-    return updated
-
-
 # ── Paso 5: pagos ─────────────────────────────────────────────────────────────
 
 def _build_rut_to_sub_index(db: Session) -> dict[tuple[str, str], list[uuid.UUID]]:
@@ -400,6 +309,139 @@ def _materialize_payments(db: Session, rut_to_sub: dict) -> tuple[int, int]:
     return after - before, ambiguous
 
 
+# ── Paso 6: enriquecer cobros y pagos con el último rechazo verificable ──────
+
+def _extract_rejection(payload: object) -> tuple[str, str | None] | None:
+    """(código, mensaje) del `rejected_object` de un detalle de pago de VirtualPOS, o None.
+
+    En `GET /v3/payment/{uuid}` el objeto viene en el nivel superior de la respuesta (hermano de
+    `payment`). Por compatibilidad también se lee dentro de `payment.order` y de `order`. El código
+    puede llegar como `code` o `error_code`. El código `0` es «Operación exitosa», no un rechazo.
+    """
+    if not isinstance(payload, dict):
+        return None
+    inner = payload.get("payment") if isinstance(payload.get("payment"), dict) else payload
+    candidates = (
+        payload.get("rejected_object"),
+        ((inner.get("order") if isinstance(inner.get("order"), dict) else None) or {}).get("rejected_object"),
+        ((payload.get("order") if isinstance(payload.get("order"), dict) else None) or {}).get("rejected_object"),
+    )
+    for rejected in candidates:
+        if not isinstance(rejected, dict) or not rejected:
+            continue
+        raw_code = rejected.get("code") if rejected.get("code") not in (None, "") else rejected.get("error_code")
+        code = str(raw_code).strip() if raw_code not in (None, "") else ""
+        if not code or code == "0":
+            continue
+        message = str(rejected.get("message") or "").strip()
+        return code, (message or None)
+    return None
+
+
+def _rejected_vp_payments(db: Session, extra_keys: set[tuple[str, str]]):
+    """VpPayment cuyo `raw_payload` trae `rejected_object` (en cualquiera de las formas conocidas)."""
+    has_object = or_(
+        VpPayment.raw_payload.has_key("rejected_object"),
+        VpPayment.raw_payload["payment"]["order"].has_key("rejected_object"),
+        VpPayment.raw_payload["order"].has_key("rejected_object"),
+    )
+    query = select(VpPayment).where(VpPayment.platform.in_(_VP_SOURCES), has_object)
+    for p in db.scalars(query):
+        found = _extract_rejection(p.raw_payload)
+        if found is not None:
+            yield p, found[0], found[1]
+
+
+def _enrich_charges_with_rejections(
+    db: Session,
+    payment_charge_links: dict[tuple[str, str], str] | None = None,
+) -> int:
+    """Actualiza CoreCharge.latest_rejection_* con el rechazo más reciente de sus pagos.
+
+    - `rejected_object` se lee en el nivel superior del detalle del pago (ver `_extract_rejection`).
+    - El vínculo pago -> cobro sale de `VpPayment.charge_external_id` (hoy NULL en todas las filas) o
+      de `payment_charge_links` {(plataforma, id de pago): id de cobro}, que entregarán RJ-06 / RJ-04.
+      Sin vínculo no se inventa nada.
+    - UPDATE explícito por clave primaria: los ETL insertan con `on_conflict_do_nothing`, así que una
+      fila existente nunca se corregiría sola. Solo cambia filas cuyo rechazo difiere y nunca reemplaza
+      un rechazo más reciente por uno más antiguo. Idempotente. Retorna los cobros actualizados.
+    """
+    links = payment_charge_links or {}
+    best: dict[tuple[str, str], dict] = {}
+    for p, code, reason in _rejected_vp_payments(db, set(links)):
+        charge_ext = p.charge_external_id or links.get((p.platform, p.external_id))
+        if not charge_ext:
+            continue
+        occurred = _parse_date(p.payment_date)
+        key = (p.platform, charge_ext)
+        prev = best.get(key)
+        newer = prev is None or (occurred is not None and (prev["occurred_at"] is None or occurred > prev["occurred_at"]))
+        if newer:
+            best[key] = {"payment_external_id": p.external_id, "code": code, "reason": reason, "occurred_at": occurred}
+    if not best:
+        return 0
+
+    core_payment_ids = {
+        (row.source, row.external_id): row.id
+        for row in db.execute(select(CorePayment.source, CorePayment.external_id, CorePayment.id).where(CorePayment.source.in_(_VP_SOURCES)))
+    }
+    updates: list[dict] = []
+    for (platform, charge_ext), rej in best.items():
+        current = db.execute(
+            select(
+                CoreCharge.id, CoreCharge.latest_rejection_payment_id, CoreCharge.latest_rejection_code,
+                CoreCharge.latest_rejection_reason, CoreCharge.latest_rejection_at,
+            ).where(CoreCharge.source == platform, CoreCharge.external_id == charge_ext)
+        ).first()
+        if current is None:
+            continue
+        if current.latest_rejection_at is not None and (rej["occurred_at"] is None or rej["occurred_at"] < current.latest_rejection_at):
+            continue
+        new_values = {
+            "latest_rejection_payment_id": core_payment_ids.get((platform, rej["payment_external_id"])),
+            "latest_rejection_code": rej["code"],
+            "latest_rejection_reason": rej["reason"],
+            "latest_rejection_at": rej["occurred_at"],
+        }
+        old_values = {
+            "latest_rejection_payment_id": current.latest_rejection_payment_id,
+            "latest_rejection_code": current.latest_rejection_code,
+            "latest_rejection_reason": current.latest_rejection_reason,
+            "latest_rejection_at": current.latest_rejection_at,
+        }
+        if new_values != old_values:
+            updates.append({"id": current.id, **new_values})
+    if updates:
+        db.execute(update(CoreCharge), updates)
+    return len(updates)
+
+
+def _enrich_payments_with_rejections(db: Session) -> int:
+    """Actualiza CorePayment.rejection_* desde el `rejected_object` del pago (no necesita vínculo a cobro).
+
+    UPDATE explícito por clave primaria (el ETL inserta pagos con `on_conflict_do_nothing`). Idempotente.
+    """
+    found: dict[tuple[str, str], tuple[str, str | None, datetime | None]] = {}
+    for p, code, reason in _rejected_vp_payments(db, set()):
+        found[(p.platform, p.external_id)] = (code, reason, _parse_date(p.payment_date))
+    if not found:
+        return 0
+    updates: list[dict] = []
+    for row in db.execute(
+        select(CorePayment.id, CorePayment.source, CorePayment.external_id, CorePayment.rejection_code,
+               CorePayment.rejection_reason, CorePayment.rejection_reported_at).where(CorePayment.source.in_(_VP_SOURCES))
+    ):
+        hit = found.get((row.source, row.external_id))
+        if hit is None:
+            continue
+        code, reason, at = hit
+        if (row.rejection_code, row.rejection_reason, row.rejection_reported_at) != (code, reason, at):
+            updates.append({"id": row.id, "rejection_code": code, "rejection_reason": reason, "rejection_reported_at": at})
+    if updates:
+        db.execute(update(CorePayment), updates)
+    return len(updates)
+
+
 # ── Punto de entrada ──────────────────────────────────────────────────────────
 
 def run_vp_core_etl(db: Session) -> dict[str, int]:
@@ -423,16 +465,17 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
     charges = _materialize_charges(db)
     log.info("VP Core ETL — cargos upserted: %d", charges)
 
-    log.info("VP Core ETL — enriqueciendo cargos con datos de último rechazo")
-    rejections = _enrich_charges_with_rejections(db)
-    log.info("VP Core ETL — cargos con rechazo enriquecido: %d", rejections)
-
     log.info("VP Core ETL — construyendo índice RUT→suscripción para pagos")
     rut_to_sub = _build_rut_to_sub_index(db)
 
     log.info("VP Core ETL — materializando pagos")
     payments, ambiguous = _materialize_payments(db, rut_to_sub)
     log.info("VP Core ETL — pagos insertados: %d (sin suscripción por ambigüedad RUT: %d)", payments, ambiguous)
+
+    log.info("VP Core ETL — enriqueciendo pagos y cobros con el último rechazo")
+    payment_rejections = _enrich_payments_with_rejections(db)
+    rejections = _enrich_charges_with_rejections(db)
+    log.info("VP Core ETL — pagos con rechazo: %d; cobros con rechazo enriquecido: %d", payment_rejections, rejections)
 
     db.commit()
     return {
@@ -441,6 +484,7 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
         "subscriptions_upserted": subs,
         "charges_upserted": charges,
         "charges_rejection_enriched": rejections,
+        "payments_rejection_enriched": payment_rejections,
         "payments_inserted": payments,
         "payments_unlinked_ambiguous_rut": ambiguous,
     }
