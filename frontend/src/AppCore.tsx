@@ -8,18 +8,13 @@ import { providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
 import "./App.css";
 import "./Staging.css";
-import { ActivacionCaidaChart, ChannelKpiChart, IngresosMensualesChart, MonthlyStatusChart } from "./MonthlyStatusChart";
-import type { ChannelRow, MonthlyEntry } from "./MonthlyStatusChart";
-import { OperationalAlerts } from "./features/dashboard/OperationalAlerts";
-import { GeneralKpis } from "./features/dashboard/GeneralKpis";
 import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type ProviderSource } from "./routes";
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
 import type {
-  Summary, StagingRecord, StagingResponse, TableColumn, ChannelDashboard, VirtualPosClientDetail,
+  StagingRecord, StagingResponse, TableColumn, ChannelDashboard, VirtualPosClientDetail,
   VirtualPosPlanDetail, VirtualPosSubscriptionDetail, VirtualPosChargeDetail, VirtualPosPaymentDetail,
-  ProviderRecordDetail, SortDirection, EtlRun, AuthSession, GeneralDashboard, GeneralClients,
-  GeneralSubscriptions, GeneralClientDetail, TchSuscripcionDetail,
+  ProviderRecordDetail, SortDirection, AuthSession, TchSuscripcionDetail,
 } from "./features/shared/types";
 import {
   RECORDS_PAGE_SIZE, defaultYear, refreshCsrfToken, text, documentType, normalizeRut, fieldLabel,
@@ -40,11 +35,12 @@ import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { RecoveryPanel } from "./features/recovery/RecoveryPanel";
 import { BillingInbox } from "./features/billing/BillingInbox";
 import { AdminPanel } from "./features/admin/AdminPanel";
-import { Metric } from "./features/dashboard/Metric";
 import { useEnabledChannels } from "./features/shared/environment";
 import { ChannelDashboardView } from "./features/dashboard/ChannelDashboardView";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
-import { applyChargeFilter } from "./features/dashboard/applyChargeFilter";
+import { useEtl } from "./features/dashboard/useEtl";
+import { useGeneralDashboard } from "./features/dashboard/useGeneralDashboard";
+import { GeneralDashboardView } from "./features/dashboard/GeneralDashboardView";
 import { useTch } from "./features/tch/useTch";
 import { renderTchContent } from "./features/tch/TchContent";
 
@@ -75,18 +71,6 @@ function AppCore() {
   const [routeLocation, setRouteLocation] = useState(() => window.location.pathname + window.location.search);
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminTab, setAdminTab] = useState<"usuarios" | "sincronizacion">("usuarios");
-  const [summary, setSummary] = useState<Summary>({ sources: [] });
-  const [generalData, setGeneralData] = useState<GeneralDashboard | null>(null);
-  const [generalView, setGeneralView] = useState<"summary" | "clients" | "subscriptions" | "report">("summary");
-  const [generalClients, setGeneralClients] = useState<GeneralClients | null>(null);
-  const [generalClientQuery, setGeneralClientQuery] = useState("");
-  const [generalClientFilter, setGeneralClientFilter] = useState<"all" | "rut" | "name" | "last_name" | "platform" | "email" | "phone">("all");
-  const [generalClientOffset, setGeneralClientOffset] = useState(0);
-  const [generalClientDetail, setGeneralClientDetail] = useState<GeneralClientDetail | null>(null);
-  const [generalSubscriptions, setGeneralSubscriptions] = useState<GeneralSubscriptions | null>(null);
-  const [generalSubscriptionQuery, setGeneralSubscriptionQuery] = useState("");
-  const [generalSubscriptionFilter, setGeneralSubscriptionFilter] = useState<"all" | "id" | "rut" | "client" | "platform" | "status">("all");
-  const [generalSubscriptionOffset, setGeneralSubscriptionOffset] = useState(0);
   const [activeSection, setActiveSection] = useState<ProviderSection | null>(
     null,
   );
@@ -103,8 +87,6 @@ function AppCore() {
   const [statusValues, setStatusValues] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [channelLoading, setChannelLoading] = useState(false);
-  const [summaryRefreshing, setSummaryRefreshing] = useState(false);
-  const [generalRefreshing, setGeneralRefreshing] = useState(false);
   const [channelRefreshing, setChannelRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [clientDetail, setClientDetail] =
@@ -177,19 +159,12 @@ function AppCore() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"count" | "amount">("count");
   const [year, setYear] = useState<number | null>(null);
-  const [generalMode, setGeneralMode] = useState<"count" | "amount">("count");
-  const [generalYear, setGeneralYear] = useState<number | null>(null);
   const [reportScope, setReportScope] = useState<string | null>(null);
-  const [debtFilter, setDebtFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
-  const [transFilter, setTransFilter] = useState<"todas" | "pagada" | "rechazada">("todas");
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
-  const [etlRunning, setEtlRunning] = useState(false);
-  const [lastEtlRun, setLastEtlRun] = useState<EtlRun | null>(null);
-  const [etlError, setEtlError] = useState<string | null>(null);
   const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
   const { isEnabled: isChannelEnabled } = useEnabledChannels();
   const vp2Enabled = isChannelEnabled("virtualpos2");
@@ -210,8 +185,14 @@ function AppCore() {
     burgerRef.current?.focus();
   };
   const [profileView, setProfileView] = useState<"summary" | "edit" | null>(null);
-  const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
-  const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
+  const etl = useEtl(isChannelEnabled);
+  const general = useGeneralDashboard({
+    session, channel, activeSection, tchView, adminOpen, profileView,
+    lastEtlFinishedAt: etl.lastEtlRun?.finished_at, setError, setLoading,
+  });
+  const {
+    generalView, setGeneralView, setGeneralClientQuery, generalClientFilter, setGeneralClientFilter, generalClientOffset, setGeneralClientOffset, setGeneralClientDetail, setGeneralSubscriptionQuery, generalSubscriptionFilter, setGeneralSubscriptionFilter, generalSubscriptionOffset, setGeneralSubscriptionOffset,
+  } = general;
   const debouncedFilterQuery = useDebouncedValue(filterQuery);
   const debouncedVpColumnFilters = useDebouncedValue(vpColumnFilters);
 
@@ -231,64 +212,6 @@ function AppCore() {
 
   const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
 
-  useEffect(() => {
-    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileView) return;
-    let mounted = true;
-    getCachedOrFetch("staging:summary", 5 * 60 * 1000, () => getJson<Summary>("/api/v1/staging/summary"))
-      .then((data) => {
-        if (!mounted) return;
-        setSummary(data);
-      })
-      .catch((err: unknown) => {
-        if (mounted) setError(friendlyError(err, "No se pudo cargar el resumen de staging."));
-      })
-      .finally(() => {
-        if (mounted) { setLoading(false); setSummaryRefreshing(false); }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileView]);
-
-  useEffect(() => {
-    if (!session || generalView !== "summary" || channel || activeSection || tchView || adminOpen || profileView) return;
-    let mounted = true;
-    getCachedOrFetch("dashboard:general", 5 * 60 * 1000, () => getJson<GeneralDashboard>("/api/v1/staging/dashboard/general"))
-      .then((data) => {
-        if (!mounted) return;
-        setGeneralData(data);
-        setGeneralYear((current) => current ?? defaultYear(data.years));
-      })
-      .catch((err: unknown) => {
-        if (mounted) setError(friendlyError(err, "No se pudo cargar el dashboard general."));
-      })
-      .finally(() => { if (mounted) setGeneralRefreshing(false); });
-    return () => {
-      mounted = false;
-    };
-  }, [session, generalView, channel, activeSection, tchView, adminOpen, profileView, lastEtlRun?.finished_at]);
-
-  useEffect(() => {
-    if (!session || generalView !== "clients") return;
-    const params = new URLSearchParams({ limit: "100", offset: String(generalClientOffset), filter_field: generalClientFilter });
-    if (debouncedGeneralClientQuery.trim()) params.set("query", debouncedGeneralClientQuery.trim());
-    const controller = new AbortController();
-    getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${params}`, controller.signal)
-      .then(setGeneralClients)
-      .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")); });
-    return () => controller.abort();
-  }, [session, generalView, debouncedGeneralClientQuery, generalClientFilter, generalClientOffset]);
-
-  useEffect(() => {
-    if (!session || generalView !== "subscriptions") return;
-    const params = new URLSearchParams({ limit: "100", offset: String(generalSubscriptionOffset), filter_field: generalSubscriptionFilter });
-    if (debouncedGeneralSubscriptionQuery.trim()) params.set("query", debouncedGeneralSubscriptionQuery.trim());
-    const controller = new AbortController();
-    getJson<GeneralSubscriptions>(`/api/v1/staging/dashboard/general/subscriptions?${params}`, controller.signal)
-      .then(setGeneralSubscriptions)
-      .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar las suscripciones consolidadas.")); });
-    return () => controller.abort();
-  }, [session, generalView, debouncedGeneralSubscriptionQuery, generalSubscriptionFilter, generalSubscriptionOffset]);
 
   useEffect(() => {
     if (!session || !activeSection) return;
@@ -1189,36 +1112,6 @@ function AppCore() {
     setOpenProvider(title(source));
     setProfileView(null);
     if (updateUrl) navigate({ kind: "channel", source });
-  }
-  function _pollEtlRun(run_id: string) {
-    const poll = setInterval(() => {
-      getJson<EtlRun>(`/api/v1/etl/runs/${run_id}`)
-        .then((run) => {
-          setLastEtlRun(run);
-          if (run.status !== "running") {
-            clearInterval(poll);
-            setEtlRunning(false);
-          }
-        })
-        .catch((err: unknown) => {
-          clearInterval(poll);
-          setEtlRunning(false);
-          setEtlError(friendlyError(err, "Error al consultar el estado del ETL."));
-        });
-    }, 3000);
-  }
-  function runFullSync() {
-    if (etlRunning) return;
-    setEtlRunning(true);
-    setEtlError(null);
-    postJson<{ run_id: string }>("/api/v1/etl/full-sync", {
-      providers: (["virtualpos", "toku", "payku"] as const).filter((provider) => isChannelEnabled(provider === "virtualpos" ? "virtualpos1" : provider)),
-    })
-      .then(({ run_id }) => _pollEtlRun(run_id))
-      .catch((err: unknown) => {
-        setEtlRunning(false);
-        setEtlError(friendlyError(err, "Error al iniciar el Sync completo."));
-      });
   }
   function syncChannel(source: string) {
     if (syncing) return;
@@ -2477,213 +2370,7 @@ function AppCore() {
       </section>
     </main>
   ) : null;
-  // ── KPIs filtrados por año seleccionado ─────────────────────────────────────
-  const selectedYear = generalData ? (generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]) : null;
-  const acceptedForYear = (generalData?.transactions_monthly ?? [])
-    .filter(e => e.status === "Aceptadas" && (selectedYear == null || e.year === selectedYear))
-    .reduce((acc, e) => ({ count: acc.count + e.count, amount: acc.amount + e.amount }), { count: 0, amount: 0 });
-  const rejectedForYear = (generalData?.transactions_monthly ?? [])
-    .filter(e => e.status === "Rechazadas" && (selectedYear == null || e.year === selectedYear))
-    .reduce((acc, e) => ({ count: acc.count + e.count, amount: acc.amount + e.amount }), { count: 0, amount: 0 });
-  const activationsForYear = (generalData?.activations_monthly ?? [])
-    .filter(e => selectedYear == null || e.year === selectedYear)
-    .reduce((acc, e) => ({ count: acc.count + e.count, amount: acc.amount + e.amount }), { count: 0, amount: 0 });
-  const cancellationsAsEntries: MonthlyEntry[] = (() => {
-    const map = new Map<string, MonthlyEntry>();
-    for (const e of (generalData?.cancellations_monthly ?? [])) {
-      const key = `${e.year}-${e.month}`;
-      const ex = map.get(key);
-      if (ex) { ex.count += e.count; ex.amount += e.amount; }
-      else map.set(key, { year: e.year, month: e.month, count: e.count, amount: e.amount });
-    }
-    return [...map.values()];
-  })();
-
-  const globalDashboard = (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">Sx</span>
-          <div>
-            <p className="eyebrow">OPERACIONES RECURRENTES</p>
-            <h1>SynkmetriX</h1>
-          </div>
-        </div>
-        <div className="sync-state ready">
-          <span />
-          Staging local
-        </div>
-      </header>
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">RESUMEN OPERATIVO</p>
-          <h2>
-            Operación consolidada,
-            <br />
-            desde todos los canales.
-            {(generalRefreshing || summaryRefreshing) && <span className="refreshing-badge">⟳ Actualizando</span>}
-          </h2>
-        </div>
-        {generalData ? (
-          <>
-          <div className="dashboard-controls">
-            <div className="mode-switch">
-              <button className={generalMode === "count" ? "active" : ""} onClick={() => setGeneralMode("count")}>Cantidad</button>
-              <button className={generalMode === "amount" ? "active" : ""} onClick={() => setGeneralMode("amount")}>Monto</button>
-            </div>
-            {generalData.years.length ? (
-              <select aria-label="Año dashboard general" value={generalYear ?? defaultYear(generalData.years) ?? generalData.years[0]} onChange={(event) => setGeneralYear(Number(event.target.value))}>
-                {generalData.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-              </select>
-            ) : null}
-            <button className="sync-btn sync-btn-secondary" onClick={() => setReportScope("general")}>Generar reporte</button>
-          </div>
-          </>
-        ) : (
-          <p className="sync-copy">KPIs y actividad mensual calculados desde las entidades centralizadas y TCH.</p>
-        )}
-      </section>
-      {error ? <p className="error-message">{error}</p> : null}
-      {generalView === "subscriptions" ? (
-        <section className="panel">
-          <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES CONSOLIDADAS</p><h3>{generalSubscriptions?.total.toLocaleString("es-CL") ?? ""} suscripciones</h3></div><div className="table-filters"><select aria-label="Campo de búsqueda de suscripciones" value={generalSubscriptionFilter} onChange={(event) => { setGeneralSubscriptionFilter(event.target.value as typeof generalSubscriptionFilter); setGeneralSubscriptionOffset(0); }}><option value="all">Todos los campos</option><option value="id">ID</option><option value="rut">RUT</option><option value="client">Cliente</option><option value="platform">Plataforma</option><option value="status">Estado</option></select><input aria-label="Buscar suscripción consolidada" placeholder="Buscar suscripciones" value={generalSubscriptionQuery} onChange={(event) => { setGeneralSubscriptionQuery(event.target.value); setGeneralSubscriptionOffset(0); }} /></div></div>
-          <div className="table-wrap"><table><thead><tr><th>ID</th><th>Cliente</th><th>RUT</th><th>Plataforma</th><th>Estado</th><th>Estado secundario</th><th>Último cobro</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead><tbody>{(generalSubscriptions?.items ?? []).map((subscription) => <tr key={`${subscription.platform}-${subscription.id}`}><td>{subscription.id}</td><td>{subscription.client || "—"}</td><td>{subscription.rut || "—"}</td><td>{subscription.platform}</td><td>{subscription.status || "—"}</td><td><span className={`badge badge-${subscription.secondary_status === "cobrable" ? "green" : subscription.secondary_status === "incobrable" ? "orange" : subscription.secondary_status === "inactiva" ? "gray" : "blue"}`}>{subscription.secondary_status}</span></td><td>{subscription.last_paid_date ? subscription.last_paid_date.slice(0, 10) : "—"}</td><td>{subscription.started_at ?? "—"}</td><td>{subscription.ended_at ?? "—"}</td><td>{subscription.amount ? `${subscription.currency ?? ""} $${Number(subscription.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{(generalSubscriptions?.items ?? []).length === 0 ? <tr><td colSpan={10}>Sin suscripciones.</td></tr> : null}</tbody></table></div>{generalSubscriptions && generalSubscriptions.total > generalSubscriptions.limit ? <div className="pagination"><button disabled={generalSubscriptionOffset === 0} onClick={() => setGeneralSubscriptionOffset((offset) => Math.max(0, offset - generalSubscriptions.limit))}>← Anterior</button><span>{generalSubscriptionOffset + 1}-{Math.min(generalSubscriptionOffset + generalSubscriptions.items.length, generalSubscriptions.total)} de {generalSubscriptions.total.toLocaleString("es-CL")}</span><button disabled={generalSubscriptionOffset + generalSubscriptions.limit >= generalSubscriptions.total} onClick={() => setGeneralSubscriptionOffset((offset) => offset + generalSubscriptions.limit)}>Siguiente →</button></div> : null}
-        </section>
-      ) : generalView === "clients" ? (
-        <section className="panel">
-          <div className="panel-heading"><div><p className="eyebrow">CLIENTES CONSOLIDADOS</p><h3>{generalClients?.total.toLocaleString("es-CL") ?? ""} clientes por RUT</h3></div><div className="table-filters"><select aria-label="Campo de búsqueda de clientes" value={generalClientFilter} onChange={(event) => { setGeneralClientFilter(event.target.value as typeof generalClientFilter); setGeneralClientOffset(0); }}><option value="all">Todos los campos</option><option value="rut">RUT</option><option value="name">Nombre</option><option value="last_name">Apellido</option><option value="platform">Plataforma</option><option value="email">Correo</option><option value="phone">Teléfono</option></select><input aria-label="Buscar cliente consolidado" placeholder="Buscar clientes" value={generalClientQuery} onChange={(event) => { setGeneralClientQuery(event.target.value); setGeneralClientOffset(0); }} /></div></div>
-          {generalClientDetail ? (
-            <div className="record-detail"><button onClick={() => setGeneralClientDetail(null)}>← Volver a clientes</button><h3>Ficha general: {generalClientDetail.rut}</h3>{(["clients", "subscriptions", "charges", "transactions"] as const).map((section) => <div key={section}><h4>{section === "clients" ? "IDs de cliente" : section === "subscriptions" ? "Suscripciones" : section === "charges" ? "Cargos" : "Transacciones"}</h4><div className="table-wrap"><table><thead><tr><th>Portal</th><th>ID interno</th><th>ID origen</th><th>Estado</th><th>Monto</th></tr></thead><tbody>{generalClientDetail[section].map((item) => <tr key={`${item.portal}-${item.external_id}`}><td>{item.portal}</td><td>{("id_cliente" in item ? item.id_cliente : "id_subscription" in item ? item.id_subscription : "id_cargo" in item ? item.id_cargo : item.id_transaccion)}</td><td>{item.external_id}</td><td>{"status" in item ? item.status : "—"}</td><td>{"amount" in item && item.amount ? `$${Number(item.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{generalClientDetail[section].length === 0 ? <tr><td colSpan={5}>Sin registros relacionados.</td></tr> : null}</tbody></table></div></div>)}</div>
-          ) : <><div className="table-wrap"><table><thead><tr><th>RUT</th><th>Nombre completo</th><th>Plataforma de origen</th><th>Suscripciones activas</th></tr></thead><tbody>{(generalClients?.items ?? []).map((client) => <tr key={client.rut}><td><button className="record-link" onClick={() => getJson<GeneralClientDetail>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(client.rut)}`).then(setGeneralClientDetail).catch((err: unknown) => setError(friendlyError(err, "No se pudo cargar la ficha general.")))}>{client.rut}</button></td><td>{client.name || "—"}</td><td>{client.origins.join(" · ")}</td><td>{client.active_origins.join(" · ") || "—"}</td></tr>)}{(generalClients?.items ?? []).length === 0 ? <tr><td colSpan={4}>Sin clientes con RUT.</td></tr> : null}</tbody></table></div>{generalClients && generalClients.total > generalClients.limit ? <div className="pagination"><button disabled={generalClientOffset === 0} onClick={() => setGeneralClientOffset((offset) => Math.max(0, offset - generalClients.limit))}>← Anterior</button><span>{generalClientOffset + 1}-{Math.min(generalClientOffset + generalClients.items.length, generalClients.total)} de {generalClients.total.toLocaleString("es-CL")}</span><button disabled={generalClientOffset + generalClients.limit >= generalClients.total} onClick={() => setGeneralClientOffset((offset) => offset + generalClients.limit)}>Siguiente →</button></div> : null}</>}
-        </section>
-      ) : generalData ? (
-        <>
-          <section className="metrics provider-metrics" aria-label="Métricas generales">
-            <Metric label="Clientes" value={generalData.clients} tone="blue" />
-            <Metric label="Activaciones" value={activationsForYear.count} tone="green" amount={activationsForYear.amount} mode={generalMode} />
-            <Metric label="Transacciones pagadas" value={acceptedForYear.count} tone="violet" amount={acceptedForYear.amount} mode={generalMode} />
-          </section>
-          <GeneralKpis data={generalData} rejectedCount={rejectedForYear.count} acceptedCount={acceptedForYear.count} selectedYear={selectedYear} />
-          <section className="extended-charts">
-            <article className="panel" style={{ gridColumn: "1 / -1" }}>
-              <div className="panel-heading"><div><p className="eyebrow">INGRESOS</p><h3>Recaudación mensual por canal</h3></div></div>
-              <IngresosMensualesChart data={generalData.transactions_effective_monthly} year={generalYear} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas y bajas por mes</h3></div></div>
-              <ActivacionCaidaChart activaciones={generalData.activations_monthly} caidas={cancellationsAsEntries} year={generalYear} mode={generalMode} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">CANALES</p><h3>Comparativa por canal</h3></div></div>
-              <ChannelKpiChart channels={generalData.channels as ChannelRow[]} mode={generalMode} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual consolidado</h3></div></div>
-              <MonthlyStatusChart data={generalData.transactions_monthly} mode={generalMode} year={generalYear} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activaciones mensuales por canal</h3></div></div>
-              <MonthlyStatusChart data={generalData.activations_monthly} mode={generalMode} year={generalYear} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales por canal</h3></div></div>
-              <MonthlyStatusChart data={generalData.cancellations_monthly} mode={generalMode} year={generalYear} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading">
-                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Deudas mensuales por canal</h3></div>
-                <div className="mode-switch">
-                  {(["todas", "pagada", "rechazada"] as const).map(f => (
-                    <button key={f} className={debtFilter === f ? "active" : ""} onClick={() => setDebtFilter(f)}>
-                      {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <MonthlyStatusChart data={applyChargeFilter(generalData.debts_monthly, debtFilter)} mode={generalMode} year={generalYear} />
-            </article>
-            <article className="panel">
-              <div className="panel-heading">
-                <div><p className="eyebrow">RECAUDACIÓN</p><h3>Transacciones efectivas por canal</h3></div>
-                <div className="mode-switch">
-                  {(["todas", "pagada", "rechazada"] as const).map(f => (
-                    <button key={f} className={transFilter === f ? "active" : ""} onClick={() => setTransFilter(f)}>
-                      {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transFilter)} mode={generalMode} year={generalYear} />
-            </article>
-          </section>
-          {(generalData.alerts ?? []).length > 0 && <OperationalAlerts alerts={generalData.alerts ?? []} />}
-          <section className="source-summary">
-            {generalData.channels.map((channel) => {
-              const staging = summary.sources.find((source) => source.source === channel.source.toLowerCase());
-              const lastSync = staging?.last_sync;
-              return (
-                <article className="panel channel-summary-card" key={channel.source}>
-                  <div className="panel-heading">
-                    <div><p className="eyebrow">{channel.source.toUpperCase()}</p><h3>{channel.active_subscriptions.toLocaleString("es-CL")} suscripciones vigentes</h3></div>
-                    {lastSync ? <span className={`status-pill ${lastSync.status === "completed" ? "" : "status-attention"}`}>{lastSync.status}</span> : null}
-                  </div>
-                  <div className="channel-summary-details">
-                    <div><span>Operación</span><strong>{channel.clients.toLocaleString("es-CL")} clientes · {channel.accepted.toLocaleString("es-CL")} aceptadas</strong></div>
-                    <div><span>Recaudación</span><strong>${channel.amount.toLocaleString("es-CL")}</strong></div>
-                    <div><span>{staging ? "Carga staging" : "Carga local"}</span><strong>{staging ? `${staging.records.toLocaleString("es-CL")} registros` : "Histórico TCH integrado"}</strong></div>
-                    <div><span>Consolidación</span><strong>Entidades centralizadas disponibles</strong></div>
-                  </div>
-                  {staging ? <p className="resource-copy">{Object.entries(staging.resources).map(([resource, count]) => `${resource}: ${count}`).join(" · ")}</p> : null}
-                  {lastSync?.finished_at ? <p className="channel-summary-sync">Última carga: {new Date(lastSync.finished_at).toLocaleString("es-CL")} · {lastSync.records_processed.toLocaleString("es-CL")} procesados</p> : null}
-                </article>
-              );
-            })}
-          </section>
-        </>
-      ) : (
-        <p className="muted-copy">Cargando indicadores consolidados...</p>
-      )}
-      <section className="etl-panel">
-        <div className="etl-panel-heading">
-          <div>
-            <p className="eyebrow">CONSOLIDACIÓN</p>
-            <h3>Base de datos unificada</h3>
-          </div>
-          <button
-            className={`sync-btn ${etlRunning ? "syncing" : ""}`}
-            disabled={etlRunning}
-            onClick={runFullSync}
-          >
-            {etlRunning
-              ? lastEtlRun?.phase
-                ? `Sincronizando ${lastEtlRun.phase.replace("sync_", "")}…`
-                : "Procesando…"
-              : "↻ Sync completo"}
-          </button>
-        </div>
-        {etlError ? <p className="error-message">{etlError}</p> : null}
-        {lastEtlRun ? (
-          <div className="etl-status">
-            <span className={`status-pill ${lastEtlRun.status === "completed" ? "" : lastEtlRun.status === "failed" ? "status-attention" : ""}`}>
-              {lastEtlRun.status}
-            </span>
-            {lastEtlRun.phase && lastEtlRun.status === "running" ? (
-              <span className="etl-phase-badge">{lastEtlRun.phase}</span>
-            ) : null}
-            <span className="muted-copy">
-              {lastEtlRun.records_upserted.toLocaleString()} registros
-              {lastEtlRun.finished_at
-                ? ` · ${new Date(lastEtlRun.finished_at).toLocaleString("es-CL")}`
-                : " · en progreso…"}
-            </span>
-            {lastEtlRun.error_message ? (
-              <p className="error-message">{lastEtlRun.error_message}</p>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-    </main>
-  );
+  const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} />;
   const createRequiredFields = new Set(["first_name", "email", "social_id", "social_id_type"]);
   const createDefaultValues: Record<string, string> = { status: "ACTIVO", type: "PERSONA", social_id_type: "1" };
   const clientEditDialog = editingClient || creatingClient ? (
