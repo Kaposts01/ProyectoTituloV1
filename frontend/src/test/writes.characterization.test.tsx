@@ -45,10 +45,29 @@ describe("Clientes VirtualPOS: editar", () => {
     expect(app.find("PUT", "/api/v1/writes/virtualpos/clients/cli-1")[0].body).toEqual({ first_name: "Nuevo" });
     expect(await screen.findByText("Nuevo Sintética")).toBeTruthy();
     expect(screen.queryByRole("form", { name: "Editar cliente VirtualPOS" })).toBeNull();
-    // Rareza actual (sin corregir): el aviso «Cambios guardados correctamente.» no llega a verse, porque el
-    // efecto que limpia los avisos del formulario de cliente se dispara al cerrar el diálogo (cambia editingClient).
-    expect(screen.queryByText("Cambios guardados correctamente.")).toBeNull();
+    // Hallazgo 3 de UX-04 (corregido): antes el efecto que limpia los avisos se disparaba al cerrar el
+    // diálogo y borraba este aviso al instante; ahora solo se limpia al abrir un diálogo.
+    expect(await screen.findByText("Cambios guardados correctamente.")).toBeTruthy();
     expect(csrfRefreshes(app)).toBeGreaterThan(1);
+  });
+
+  it("el aviso de guardado de cliente se limpia al abrir de nuevo un diálogo de cliente", async () => {
+    mountApp("/virtualpos/clientes", [
+      records([vpClient(1)]),
+      ["PUT", "/api/v1/writes/virtualpos/clients/cli-1", { payload: { ...vpClient(1).payload, first_name: "Nuevo" } }],
+    ]);
+    await appReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    let f = form("Editar cliente VirtualPOS");
+    type(field(f, "Nombre"), "Nuevo");
+    fireEvent.submit(f);
+    expect(await screen.findByText("Cambios guardados correctamente.")).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText("Cambios guardados correctamente.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    f = form("Editar cliente VirtualPOS");
+    expect(screen.queryByText("Cambios guardados correctamente.")).toBeNull();
+    expect(f).toBeTruthy();
   });
 
   it("valida RUT y correo antes de enviar", async () => {
@@ -119,8 +138,8 @@ describe("Clientes VirtualPOS: crear", () => {
     await waitFor(() => expect(app.find("POST", "/api/v1/writes/virtualpos/clients")).toHaveLength(1));
     expect(app.find("POST", "/api/v1/writes/virtualpos/clients")[0].body).toMatchObject({ first_name: "Persona", email: "nueva@example.invalid", social_id: "22222222-2", social_id_type: "1", status: "ACTIVO", type: "PERSONA", platform: "virtualpos2" });
     expect(await screen.findByText("2 registros")).toBeTruthy();
-    // Rareza actual (sin corregir): el aviso de creación se borra de inmediato por el mismo efecto.
-    expect(screen.queryByText("Cliente creado correctamente.")).toBeNull();
+    // Hallazgo 3 de UX-04 (corregido): el aviso de creación ya no se borra al cerrar el diálogo.
+    expect(await screen.findByText("Cliente creado correctamente.")).toBeTruthy();
   });
 });
 

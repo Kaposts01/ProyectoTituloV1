@@ -53,11 +53,13 @@ export function useVirtualPosWrites(ctx: {
   const [savingRetryCharge, setSavingRetryCharge] = useState(false);
   const [retryChargeError, setRetryChargeError] = useState<string | null>(null);
 
+  const clientDialogOpen = Boolean(editingClient) || creatingClient;
   useEffect(() => {
     setClientFormError(null);
     setClientFieldErrors({});
-    setClientSaveNotice(null);
-  }, [editingClient?.id, creatingClient]);
+    // El aviso de éxito se fija justo al cerrar el diálogo: solo se limpia al abrir uno (igual que plan, suscripción y cargo).
+    if (clientDialogOpen) setClientSaveNotice(null);
+  }, [editingClient?.id, creatingClient, clientDialogOpen]);
 
   async function saveVirtualPOSClient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
