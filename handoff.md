@@ -1,8 +1,8 @@
-# Handoff: CRM SynkmetriX (sesiones del 26 al 29 de octubre de 2026)
+# Handoff: CRM SynkmetriX (sesiones del 26 al 29 de octubre de 2026, con el Sprint 5A)
 
 Documento para quien retome el trabajo (persona o Claude). Léelo completo antes de tocar nada. No contiene secretos: las variables de entorno aparecen solo por nombre y las cifras de datos son agregadas (sin datos personales).
 
-> **El plan y el estado de cada tarea viven en [`docs/tasks.md`](docs/tasks.md), la fuente única de verdad.** Este documento conserva lo que no cabe allí: las reglas de trabajo, cómo levantar y verificar el entorno, el estado real de cada ambiente, cómo funciona lo construido, los hallazgos, los incidentes, los errores cometidos y las preferencias del usuario. Actualizado el 2026-10-29 (reescrito por completo; la versión anterior era del 28).
+> **El plan y el estado de cada tarea viven en [`docs/tasks.md`](docs/tasks.md) (§3.7 para el Sprint 5A) y en [`docs/planning/auditoria-2026-10-29/PLAN.md`](docs/planning/auditoria-2026-10-29/PLAN.md)** (olas, decisiones D1 a D40, acciones del usuario). Este documento conserva lo que no cabe allí: las reglas de trabajo, cómo levantar y verificar el entorno, el estado real de cada ambiente, cómo funciona lo construido, los hallazgos, los incidentes, los errores cometidos y las preferencias del usuario. Actualizado el 2026-10-29 por la tarde (reescrito por completo; la versión anterior era de la mañana).
 
 ## Índice
 
@@ -12,48 +12,53 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 4. Estado real de cada ambiente
 5. Lo que se hizo, por sprint y por línea de trabajo
 6. Cómo funciona la Opción A (cambios de cobro de VirtualPOS)
-7. Toku: sandbox, guardas e importador de reportes
-8. Revisión visual con capturas (Playwright) y ciclo de pruebas en sandbox
-9. Hallazgos sobre VirtualPOS (medidos)
-10. Decisiones de negocio del usuario (vigentes)
-11. Decisiones abiertas
-12. Pendientes y roadmap
-13. Incidentes y errores cometidos
-14. Archivos y documentos clave
-15. Archivos sin versionar que NO son nuestros
-16. Datos de prueba que quedaron en los sandboxes
-17. Cómo trabajar con el usuario
-18. Primeros pasos recomendados para quien retome
+7. Toku: sandbox, guardas, reportes y señales
+8. Sistemas nuevos del Sprint 5A (historial, glosas, exportación, webhooks, alertas, reportes PAT, TCH, bajas, Resumen)
+9. Revisión visual con capturas, usuario temporal y la Bandeja de decisiones
+10. Hallazgos sobre VirtualPOS (medidos)
+11. Decisiones de negocio del usuario (vigentes)
+12. Decisiones abiertas
+13. Pendientes y roadmap
+14. Incidentes y errores cometidos
+15. Archivos y documentos clave
+16. Archivos sin versionar que NO son nuestros
+17. Datos de prueba que quedaron en los sandboxes
+18. Cómo trabajar con el usuario
+19. Primeros pasos recomendados para quien retome
 
 ## 1. Estado en una mirada
 
 | Tema | Estado |
 |---|---|
-| Plan y estado detallado | [`docs/tasks.md`](docs/tasks.md): tablero, sprints, backlog por área, bloqueos y decisiones (318 IDs únicos) |
-| Rama | `sprint-4/recuperador-vp` (cada rama de sprint contiene a la anterior: `sprint-0/onboarding` a `sprint-4/recuperador-vp`). **Subida al remoto como respaldo el 2026-10-29, sin PR.** Abrir PR solo cuando el usuario lo pida. `master` local está 1 commit adelante de `origin/master` (plan de sprints antiguo) y no se subió |
-| Pruebas al cierre | Backend 1185 pasan y 1 se omite (`pytest -q`, base `crm_test`; la omitida es la prueba de rendimiento, con `TOKU_PERF_TEST=1`). Frontend 409 pasan (`npm test`). `npm run build` (incluye `tsc -b`) y `npm run lint` sin errores (19 advertencias preexistentes). `ruff` limpio. Contrato VirtualPOS: 17 pruebas, excluidas por defecto |
-| Migraciones | Head del código `20261028_0041`. Aplicadas en `crm_sandbox` (por el orquestador, con aviso) y en `crm` **por accidente** (ver incidente, sección 13) |
-| Sprint 4 | En curso. Completos en código: REC-03, Opción A (BILL-01 a BILL-08), revisión independiente con sus tres tandas de arreglos (BILL-17, BILL-19, BILL-20), guardas de escritura de Toku, importador de reportes de Toku TK-17 y TK-18, revisión visual con tres tandas (UI-22 a UI-27). Falta, entre otros: BILL-09 a BILL-16, BILL-18 (espera DEC-30), BILL-21/22, TK-19 a TK-22, PK-05 |
-| Sprints 5 y 6 | Planificados. Sprint 5 (recuperador general) espera TK-20; Sprint 6 (infraestructura) espera DEC-11 y DEC-12 |
-| Sprint de gráficos VIZ | Registrado (VIZ-01 a VIZ-12, 39 a 55 h de IA según estimación); espera 7 decisiones del usuario (DEC-34 a DEC-40) |
-| Bloqueado por terceros o por el usuario | Soporte de Payku (sandbox y preguntas Q-xx); respuesta de Toku sobre `flow_name`; tarjetas de rechazo para pruebas; DEC-30 (ventana de 31 días); definir `TOKU_REPORT_HASH_PEPPER` y exportar un reporte de Deudas de Toku nuevo para la carga real |
+| Plan y estado detallado | [`docs/tasks.md`](docs/tasks.md) y el [PLAN del Sprint 5A](docs/planning/auditoria-2026-10-29/PLAN.md), con los 10 informes de la auditoría de esa carpeta |
+| Rama | **`sprint-5/sync-confiable`**, creada desde `sprint-4/recuperador-vp` (159 commits por delante, todos locales). **No existe en el remoto: nada de este sprint se subió y no hay PR.** `sprint-4/recuperador-vp` está al día con `origin`. `master` local (`e66c939`) está 1 commit adelante de `origin/master` (`4f06970`). Estrategia acordada (D25): un solo PR de `sprint-5/sync-confiable` a `master`, con `/review` y revisión de seguridad antes, y confirmación del usuario en el momento de subir |
+| Pruebas al cierre | Backend **2043 pasan y 2 se omiten** (`pytest -q`, base `crm_test`; las omitidas son la de rendimiento de Toku, `TOKU_PERF_TEST=1`, y la de rendimiento de VirtualPOS, `VP_PERF_TEST=1`). Frontend **1214 pasan** en 87 archivos (`npm test`). `npm run build` (incluye `tsc -b`) y `npm run lint` (exit 0, 18 advertencias preexistentes). `ruff` limpio. Hay guardianes de i18n, de identificadores y de ortografía en el frontend |
+| Migraciones | Head del código **`20261029_0051`**. Aplicadas en **`crm_sandbox`** (por el orquestador, con aviso, el 2026-10-29). **`crm` sigue en `20261028_0041`: el usuario aplica `0042` a `0051` con respaldo previo** |
+| Sprint 4 | Sigue formalmente en curso en `docs/tasks.md`: lo esencial está en código (sección 5), pero no se cerró con retrospectiva. Pendientes: BILL-09 a BILL-16, BILL-18 (espera DEC-30), BILL-21 y BILL-22, PK-05 |
+| Sprint 5A (`docs/tasks.md` §3.7) | Hecho en código: glosas de rechazo (Toku, VirtualPOS, Payku formato), correcciones del ETL de TCH y recarga transaccional, sync rápido (lock, una consolidación, TCH condicional), historial de estados, exportación, usuario temporal para capturas, bajas multicanal (backend y pantalla), webhooks (cola y procesador, apagados), alertas por correo (apagadas), importadores de reportes PAT y de Toku, Resumen unificado, menú de un solo nivel, textos en español e identificadores en inglés |
+| Bloqueado por el usuario | Aplicar migraciones en `crm`, respaldo, `seed_roles.py`, `TOKU_REPORT_HASH_PEPPER`, reportes nuevos de Toku (Deudas e Intentos), recarga de TCH, variables SMTP, ficha D40 (reporte con nombres), valores del catálogo (`payment_type_code`, `gateway`) |
+| Bloqueado por terceros | Soporte de Payku (sandbox y preguntas Q-xx; la única lectura de producción de Payku dio timeout), respuesta de Toku sobre eventos reales (`subscription.deleted`) y códigos 1051, 2043 y 2044 |
 
 ## 2. Reglas de trabajo (leer primero)
 
 1. **Nunca mostrar ni copiar valores del `.env`.** Leer solo nombres de variables. Para modificarlo, scripts que no impriman nada. Existe una guarda de arranque que compara credenciales de sandbox con las de producción.
 2. **Un solo `.env`.** No existe `.env.sandbox` (solo `frontend/.env.sandbox`, sin secretos: puerto y proxy de Vite). Con `APP_ENV=sandbox` la app usa **solo** las variables `*_SANDBOX_*` y `SANDBOX_DATABASE_URL`. **`APP_ENV=development`, que es el valor actual del `.env`, equivale a producción** (`is_production` es verdadero y las guardas de sandbox no corren). Un valor desconocido de `APP_ENV` falla al arrancar.
-3. **`crm` NO es el sandbox.** `crm` es la base local con datos reales de producción; el sandbox es `crm_sandbox` y solo se activa con `$env:APP_ENV='sandbox'` en el proceso. **Fijar `APP_ENV` y cualquier `DATABASE_URL` ANTES de importar `settings`**: `alembic/env.py` y los scripts leen `settings.database_url` al importar.
+3. **`crm` NO es el sandbox.** `crm` es la base local con datos reales de producción; el sandbox es `crm_sandbox` y solo se activa con `APP_ENV=sandbox` en el proceso. **Fijar `APP_ENV` y cualquier `DATABASE_URL` ANTES de importar `settings`**: `alembic/env.py` y los scripts leen `settings.database_url` al importar. Todo script de depuración de un agente debe fijar la base `_test` antes de importar y fallar cerrado si no termina en `_test` (o `sandbox` donde se autorice).
 4. **Regla de oro del usuario: en sandbox sin problema; en producción siempre con el usuario y con más cuidado.** Ante la duda sobre qué ambiente es, se trata como producción (Toku comparte host con producción; `APP_ENV=development` equivale a producción). Está aprobado en el [runbook](docs/operations/sandbox-testing-and-decisions.md) (DEC-27).
-5. **Escrituras al proveedor solo en sandbox y solo con variables de proceso**, nunca dejando las banderas encendidas en `.env`: VirtualPOS `VIRTUALPOS_SANDBOX_WRITES_ENABLED=true` y `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN=true`; Toku `TOKU_SANDBOX_WRITES_ENABLED=true` más `TOKU_SANDBOX_ALLOW_WRITES_ARMED=1` (ver sección 7). Producción: todas apagadas.
-6. **Ningún agente ejecuta la CLI de Alembic contra ninguna base.** Las migraciones se prueban solo por pytest (`crm_test`). Aplicar migraciones a `crm` lo hace siempre el usuario; a `crm_sandbox` puede hacerlo el orquestador avisando. Además, `alembic/env.py` bloquea todo `downgrade` sobre bases que no terminen en `_test` ni contengan `sandbox` o `qa`, salvo `ALEMBIC_ALLOW_DOWNGRADE=1` en el proceso (`app/db/migration_guard.py`).
-7. **Una sola sesión de pytest a la vez.** Todas recrean `crm_test` al arrancar; dos en paralelo producen fallos falsos.
-8. **`git add` siempre por ruta.** Nunca `git add .`; hay archivos ajenos sin versionar (sección 15). No hacer push ni abrir PR sin que el usuario lo pida (el push de respaldo de la rama sin PR fue autorizado y registrado como DEC-32). Los mensajes de commit terminan con la línea `Co-Authored-By` que indique la sesión.
-9. **Verificar lo que reportan los agentes.** Releer los archivos, correr `ruff`, la suite y el build uno mismo. Varias veces el reporte de un agente fue optimista, incompleto o directamente falso (p. ej. un revisor afirmó que un job no estaba registrado y sí lo estaba).
-10. **No inferir el comportamiento del proveedor de su documentación.** Medirlo en el sandbox (la documentación de VirtualPOS se equivocó en 6 puntos; la de Toku no describe tarjetas de prueba).
-11. **Datos personales:** ningún dato personal en el repo, en tests, logs, documentos ni en el contexto de un agente. Los reportes descargados de Toku (carpetas `Downloads\Reportes Toku` y `Downloads\CRM_reportes\Toku`) **no se abren** salvo para leer el encabezado y confirmar que la fila leída es de encabezados; el campo `ID Producto` contiene el RUT del socio. `*.xlsx` y `*.xls` están en `.gitignore`.
-12. Scripts temporales, capturas y respaldos van fuera del repositorio (carpeta scratchpad de la sesión). No dejar copias de `.env` en el árbol. La cookie de sesión de Playwright (`state.json`) se borra al terminar.
-13. **Tipado del frontend:** `npx tsc --noEmit` casi no comprueba nada (el `tsconfig` raíz solo tiene referencias). La verificación real es `npm run build` (`tsc -b`).
-14. Al usuario siempre se le dan **alternativas con una recomendación** cuando se le pregunta algo (ver sección 17).
+5. **Escrituras al proveedor solo en sandbox y solo con variables de proceso**, nunca dejando las banderas encendidas en `.env` (ver sección 7 para Toku). Producción: todas apagadas.
+6. **Ningún agente ejecuta la CLI de Alembic contra ninguna base.** Las migraciones se prueban solo por pytest (`crm_test`). Aplicar migraciones a `crm` lo hace siempre el usuario; a `crm_sandbox` puede hacerlo el orquestador avisando (se hizo el 2026-10-29 con `0042` a `0051`, confirmando antes y sin mostrar secretos que `APP_ENV=sandbox` resolvía a `crm_sandbox`). `alembic/env.py` bloquea todo `downgrade` sobre bases que no terminen en `_test` ni contengan `sandbox` o `qa`, salvo `ALEMBIC_ALLOW_DOWNGRADE=1`.
+7. **Una sola sesión de pytest a la vez.** Todas recrean `crm_test` al arrancar. Un agente de backend (con pytest) y uno de frontend (solo `npm`) pueden correr en paralelo; dos de backend, no.
+8. **`git add` siempre por ruta, y `git add` + `git commit` en UNA sola llamada encadenada.** El índice de git es compartido entre agentes: dos agentes que commitean a la vez se llevan los archivos del otro (pasó con el paso 19 del frontend, ver sección 14). Verificar con `git show --stat HEAD` que el commit contiene solo lo propio. Nunca `git add .`. Nunca `git stash` con otros agentes activos. No hacer push ni abrir PR sin que el usuario lo pida y lo confirme en el momento. Los mensajes de commit se escriben en un archivo del scratchpad y se usan con `git commit -F`, terminan con la línea `Co-Authored-By` que indique la sesión y van en español.
+9. **Verificar lo que reportan los agentes.** Releer los archivos, correr `ruff`, la suite y el build uno mismo. Varias veces el reporte fue optimista, incompleto o falso. **Las pruebas con respuestas simuladas no detectan cambios de contrato:** una regresión de errores pasó varias olas sin verse; la barrida real de pantallas contra el backend sandbox sí la encuentra (sección 9).
+10. **No inferir el comportamiento del proveedor de su documentación.** Medirlo en el sandbox o con lecturas autorizadas (la documentación de VirtualPOS se equivocó en 6 puntos y la prueba de producción del 2026-10-29 corrigió otro: el listado de cobros por suscripción SÍ trae `rejected_object`).
+11. **Datos personales:** ninguno en el repo, tests, logs, documentos, capturas subidas ni en el contexto de un agente. Los reportes de proveedores (carpetas `Downloads\CRM_reportes` y `docs\Reportes_*`) **no se abren por filas**: solo encabezados, con una función que nunca imprima otra cosa, y conteos. `docs/Reportes_*/` y `*.xlsx`/`*.xls` están en `.gitignore`. Las capturas que se suben fuera del equipo (la Bandeja vive en claude.ai) deben ser solo de cifras agregadas o recortes sin filas: el sandbox contiene nombres que parecen reales.
+12. Scripts temporales, capturas y respaldos van fuera del repositorio (scratchpad de la sesión). No dejar copias de `.env` en el árbol. El estado de sesión de Playwright se borra al terminar.
+13. **Tipado del frontend:** `npx tsc --noEmit` casi no comprueba nada. La verificación real es `npm run build` (`tsc -b`).
+14. Al usuario siempre se le dan **alternativas con una recomendación**, y las preguntas y aprobaciones van como **fichas en la Bandeja de decisiones** (sección 9). Lo que toca producción, permisos, migraciones, borrado, credenciales, exposición a internet o negocio es siempre del usuario y se confirma además en el chat.
+15. **Reglas de idioma (decisiones D32 a D38):** lo que ve el usuario va en **español**, incluidos los valores (`Paid` → «Pagado») mediante el catálogo `frontend/src/i18n/es.ts` y `label()`, con «Desconocido (valor)» ante un valor no mapeado; los **nombres de funciones, variables, constantes, tipos, componentes, hooks, módulos y archivos van en inglés**. Excepciones documentadas: la **base de datos conserva sus nombres** (los modelos usan atributos en inglés con `mapped_column("nombre_real")`, sin migración); las **claves JSON de la API se quedan en español** (el frontend las convierte en adaptadores: `summaryAdapter`, `tchAdapter`, `alertAdapter`…); los **comentarios y docstrings se quedan en español**; se conserva **`rut`**; los valores guardados o recibidos de proveedores (`VIGENTE`, `ACEPTADA`, estados de la Opción A en español) no se renombran y se encapsulan en constantes con nombre inglés. Los errores del backend son `{code, message}` (catálogo en `docs/data/error-codes.md`, 90 códigos) y el frontend los traduce por código. Los CSV generados por el backend llevan encabezados en español legible. Detalle: `docs/engineering/identifiers-backend.md` e `i18n-frontend.md`.
+16. **Banderas apagadas por defecto:** todo lo que escribe en `crm` o llama a proveedores nace apagado (sección 8). Encender cada una es decisión del usuario, tras respaldo y, si corresponde, una primera corrida manual en sandbox.
+17. **Sesiones separadas:** esta sesión es solo del **CRM Proyecto Título**. Lo de **vpbase** (base independiente de VirtualPOS y su Sheet) lo lleva otra sesión; aquí solo se mantiene como puente su Bandeja (otro artifact) cuando esa sesión lo pide: agregar fichas y exportar respuestas a `vpbase\bandeja\respuestas.json`. No mezclar nada de vpbase con el CRM.
+18. **Límites de sesión de la API:** pueden cortar a los agentes largos a mitad de tarea. Por eso se commitea por tarea y solo en verde; al reanudar, revisar `git status` y `git diff` de lo que quedó sin commitear antes de seguir.
 
 ## 3. Cómo levantar, probar y verificar
 
@@ -64,247 +69,227 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 | Backend sandbox | 8001 | `scripts/run_sandbox_backend.ps1` (fija `APP_ENV=sandbox`; **sin recarga automática**) |
 | Front sandbox | 5174 | `cd frontend; npm run dev:sandbox` (Vite sirve el código fuente actual) |
 
-- **Los backends no se recargan solos.** El 8000 falló en silencio con `--reload` y el 8001 se lanza sin él. Tras cambios de backend, comprobar `GET /openapi.json` (¿están las rutas nuevas? p. ej. 13 rutas `/api/v1/billing`) o reiniciar a mano. **Reiniciar el backend sandbox invalida la sesión de Playwright** y obliga a iniciar sesión otra vez.
-- Al cierre de esta sesión, el backend de **producción local (8000) corre código anterior** (sin las rutas `/billing`); reiniciarlo es decisión del usuario. El backend sandbox (8001) lo reinició el orquestador con el código nuevo, desacoplado de la consola; sus registros están en el scratchpad de la sesión.
-- Bases locales, mismo PostgreSQL (puerto 5433): `crm`, `crm_sandbox`, `crm_test` (se destruye y recrea en cada sesión de pytest; no usar para nada más).
-- Para correr algo contra el sandbox: `$env:APP_ENV='sandbox'` antes del comando.
-- Selector de ambiente (panel Administración): usa `SANDBOX_APP_URL` y `PRODUCTION_APP_URL` (hoy apuntan a `localhost`).
-- Backend: `$env:PYTHONPATH='.'; .venv\Scripts\pytest.exe -q`. **Si da `PermissionError` en `tmp_path`** (el directorio temporal por defecto de pytest tiene permisos raros en esta máquina), añadir `--basetemp=<carpeta del scratchpad>`. Lint: `.venv\Scripts\ruff.exe check app tests alembic`.
-- Frontend (desde `frontend/`): `npm test`, `npm run build`, `npm run lint`. Para detectar tests intermitentes, correr los archivos tocados 20 veces seguidas.
-- Suite de contrato contra el sandbox de VirtualPOS: ver `tests_contract/README.md` (exige `APP_ENV=sandbox`, `CONTRACT_TESTS=1`, `CONTRACT_WRITES=1`, banderas de sandbox y los ids `CONTRACT_VP_SUB_FIXED` / `CONTRACT_VP_SUB_VARIABLE`). Genera `reports/contract/virtualpos/drift-*.md` (ignorado por git).
-- Roles en el código: `admin`, `coordinador`, `jefatura`, `soporte` y `ejecutivo` (solo lectura; `soporte` y `ejecutivo` heredan todos los permisos `.view`; `soporte` además puede reintentar cobros y cambiar de ambiente).
-- **Particularidades del entorno Windows/PowerShell** (aprendidas a golpes):
-  - El validador de comandos se confunde con ciertos patrones y los bloquea **sin ejecutar nada**: `Remove-Item` con rutas que empiezan por `C:`, expresiones regulares con `\d`, `\.` o `/me$` dentro del comando, y rutas entre comillas con espacios (`C:\Program Files`). Soluciones: usar `[System.IO.File]::Delete($ruta)` para borrar, `Join-Path $env:ProgramFiles ...`, `-like` en lugar de regex, y escribir scripts con la herramienta de archivos y ejecutarlos.
-  - Los mensajes de commit largos se escriben en un archivo del scratchpad y se usan con `git commit -F`.
-  - Git avisa de «LF will be replaced by CRLF»: es solo la configuración de saltos de línea.
+- **Los backends no se recargan solos.** Tras cambios de backend, comprobar `GET /openapi.json` (rutas nuevas) o reiniciar a mano. El backend de **producción local (8000) corre código anterior** (sin `/billing`, `/cancellations`, `/dashboard/general`, `/export`, etc.): reiniciarlo es decisión del usuario y **debe hacerse DESPUÉS de aplicar las migraciones en `crm`**, porque los jobs nuevos (bajas, webhooks) y varias rutas dependen de tablas que hoy no existen allí. El backend sandbox (8001) se reinició el 2026-10-29 con el código más reciente, desacoplado de la consola (registros en el scratchpad).
+- Bases locales, mismo PostgreSQL (puerto 5433): `crm`, `crm_sandbox`, `crm_test` (se destruye y recrea en cada sesión de pytest).
+- Backend: `$env:PYTHONPATH='.'; .venv\Scripts\pytest.exe -q --basetemp=<scratchpad>\pt`. Lint: `.venv\Scripts\ruff.exe check app tests alembic scripts`.
+- Frontend (desde `frontend/`): `npm test`, `npm run build`, `npm run lint`. Para detectar intermitentes, correr los archivos tocados 20 veces seguidas.
+- **Capturas con usuario temporal (D21):** `.venv\Scripts\python.exe scripts\sandbox\ephemeral_user.py session -- node scripts\visual\capture_sandbox.mjs autologin --capture [--only pantalla,...] [--viewports desktop] [--themes light,dark]`. Crea un usuario `PW-…` con contraseña aleatoria en `crm_sandbox` (rol `ejecutivo` por defecto; `--role admin --i-know` solo si la pantalla lo exige), inicia sesión con Playwright, captura y lo borra (también si falla). Se niega a correr si la base no es `crm_sandbox`. `ephemeral_user.py cleanup` borra cualquier `PW-*` que haya quedado. Las capturas y el índice (`index.json` con errores de consola, de página y HTTP por pantalla) quedan en el scratchpad.
+- Suite de contrato contra el sandbox de VirtualPOS: ver `tests_contract/README.md`.
+- Roles en el código: `admin`, `coordinador`, `jefatura`, `soporte` y `ejecutivo`. `soporte` y `ejecutivo` heredan los `.view`; `soporte` además reintenta cobros y cambia de ambiente. Permisos nuevos del Sprint 5A: `export.pii` (admin y jefatura), `virtualpos.reports.import` (admin), `toku.reports.import` (admin) y `subscriptions.cancellation.request|approve|view` (solicitar y aprobar: jefatura y admin; ver: soporte, ejecutivo, coordinador, jefatura, admin). Los tres permisos «fantasma» (`virtualpos.payments.cancel`, `toku.invoices.update`, `toku.invoices.delete`) **siguen sin sembrarse a propósito (D28)**.
+- **Particularidades del entorno Windows/PowerShell:**
+  - El validador de comandos bloquea patrones inocentes sin ejecutar nada: `Remove-Item` con rutas que empiezan por `C:`, regex con `\d`, `\.` o `/me$`, rutas entre comillas con espacios. Usar `[System.IO.File]::Delete($ruta)`, `-like`, y escribir scripts con la herramienta de archivos.
+  - **Escapes de barras invertidas en heredocs de bash:** escribir JSON con rutas de Windows desde un heredoc sin comillas rompe los escapes. Usar la herramienta de archivos.
+  - Git avisa de «LF will be replaced by CRLF»: es solo configuración.
+  - Playwright lo resuelve `capture_sandbox.mjs` desde la carpeta `pw` del scratchpad de una sesión anterior; si desaparece hay que reinstalarlo fuera del repo (`scripts/visual/README.md`, `PLAYWRIGHT_NODE_DIR`).
 
-## 4. Estado real de cada ambiente (al 2026-10-29)
+## 4. Estado real de cada ambiente (al 2026-10-29, tarde)
 
 | Ambiente | Estado |
 |---|---|
-| `crm` (producción local) | En `20261028_0041` **sin que el usuario lo decidiera** (incidente, sección 13). Las tablas de billing y de reportes de Toku existen y están vacías (la política tiene su fila por defecto). Roles: `admin`, `coordinador`, `jefatura`, `soporte`; **falta correr `scripts/maintenance/seed_roles.py`** (crea `ejecutivo` y asigna permisos de lectura; lo hace el usuario: USR-01/USR-10/USR-11). 3 usuarios. `core_charges` se reconstruyó con el ETL de Core (2.169 filas) y sus totales coinciden con `vp_charges`. El último respaldo es del 2026-10-07 (pre-core) y `pg_dump` no está en el `PATH` |
-| `crm_sandbox` | En `20261028_0041`, con roles `admin`, `ejecutivo` y `soporte`, 1 usuario admin, datos de VirtualPOS sandbox (cuenta 1: unos 1.456 cargos de prueba y 13 suscripciones) y **datos sintéticos de demostración** de la Opción A con prefijo `DEMO-` (11 solicitudes de los 4 tipos y 10 estados, 30 eventos, 6 tareas de renovación, 24 cobros gestionados, 7 marcas de calendario, 2 auditorías de política). Los eventos y la auditoría son inmutables por trigger: esos datos solo se limpian con `TRUNCATE` manual de las tablas de billing en el sandbox |
+| `crm` (producción local) | **En `20261028_0041`.** No se tocó en el Sprint 5A (solo lecturas de solo lectura). Las tablas de billing y de reportes de Toku existen y están vacías. Roles: `admin`, `coordinador`, `jefatura`, `soporte`; **falta `scripts/maintenance/seed_roles.py`** (crea `ejecutivo` y asigna permisos). 3 usuarios. `core_charges` reconstruido el 2026-10-28 y coincide con `vp_charges`. Último respaldo: 2026-10-07 (pre-core); `pg_dump` no está en el `PATH`. **VirtualPOS 2 y Payku fallaron de forma silenciosa del 27 al 28 de octubre** (claves de entorno tras el commit `25eafac`; corregido en código, ver sección 14; el usuario debe revisar su `.env` y reiniciar) |
+| `crm_sandbox` | **En `20261029_0051` (head).** Roles `admin`, `ejecutivo`, `soporte`, 1 usuario admin, datos de VirtualPOS sandbox (cuenta 1) y **datos sintéticos `DEMO-`** de la Opción A. Atención: su lista de clientes de VirtualPOS muestra RUT y nombres que **parecen reales** (de pruebas hechas con datos verdaderos); no subir capturas con filas. Sin solicitudes de baja de demostración todavía |
 | `crm_test` | Solo para pytest |
-| Procesos | Vite 5173 y 5174 y backend 8000 son del usuario; el backend sandbox 8001 lo dejó corriendo el orquestador (sin recarga). **Los dos túneles públicos de Cloudflare se detuvieron el 2026-10-29** (llevaban abiertos desde el 26 de octubre a las 23:15; uno publicaba el frontend de producción local). `state.json` de Playwright borrado |
-| Playwright | Paquete de **Node** (v1.64.1) instalado **fuera** del repo, en la carpeta `pw` del scratchpad de una sesión; si esa carpeta desaparece hay que reinstalarlo fuera del proyecto (ver `scripts/visual/README.md`, variable `PLAYWRIGHT_NODE_DIR`). El script cae a Google Chrome instalado porque el Chromium en caché (`chromium-1234`) no coincide con esa versión |
-| Skill y agentes personales | En `C:\Users\Usuario\.claude\` (no versionados; solo aparecen como tipos con nombre en una sesión nueva): skill `sandbox-orchestrator` y agentes `sandbox-tester` (solo ejecuta escenarios catalogados) y `decision-maker` (solo lectura) |
+| Procesos | Vite 5173 y 5174 y backend 8000 son del usuario. Backend sandbox 8001: reiniciado por el orquestador con el código más reciente; el scheduler está apagado por defecto en sandbox. **Los túneles de Cloudflare están detenidos** (D8: túnel nombrado solo con confirmación del usuario en el momento) |
+| Skill y agentes personales | `C:\Users\Usuario\.claude\`: skill `sandbox-orchestrator`, agentes `sandbox-tester` y `decision-maker`; no versionados |
 
 ## 5. Lo que se hizo, por sprint y por línea de trabajo
 
-El detalle por tarea está en `docs/tasks.md`; aquí el resumen. Los commits de esta sesión van de `413a740` a `a96ea0c` (31 commits).
+El detalle por tarea está en `docs/tasks.md` y en el PLAN del Sprint 5A.
 
-### Sprints 0 a 3 (sesiones anteriores)
-- **Sprint 1** (auditoría de datos): modelos por canal en `docs/data/`, idempotencia en `docs/data/sync-idempotency.md`; SYNC-GAP-01/03/04 resueltos o mitigados; SYNC-GAP-02 (TCH, rechazo y pago posterior de la misma cuota) caracterizado con tests y **abierto como decisión de negocio (DEC-04)**; `crm_materialization.py` desactivado, no borrado (`POST /etl/run` devuelve 410); cada consolidación corre en SAVEPOINT; TK-10 cerrada (no depende de `flow_name`).
-- **Sprint 2**: `KpiCard`, `ChannelChart`, `ChannelKpiStrip`; contrato de KPIs en `features/shared/kpis.ts`; `rejected_charges` en los 4 canales; MRR de Payku desde la última transacción exitosa.
-- **Sprint 3**: `ChannelChart` ampliado; gráficos de los 4 canales (`features/dashboard/channelCharts.ts`); sidebar con salud de canal (`GET /api/v1/sync-runs/health`).
-- **Transversal anterior**: ambientes (`APP_ENV`, guardas de URL y credenciales), rol `soporte`, pruebas aisladas en `crm_test`, limpieza de la base `crm` (549 usuarios y 310 roles de prueba), secreto JWT rotado, cliente de VirtualPOS endurecido (errores con HTTP 200, idempotencia por `internal_code`, `retry_charge` sin reintento ante timeout), suite de contrato (17 pruebas).
+### Sprints 0 a 4 (resumen)
+- **Sprint 1** auditoría de datos y modelos por canal; **Sprint 2** `KpiCard`, `ChannelChart`, KPIs; **Sprint 3** gráficos y sidebar con salud de canal.
+- **Transversal**: ambientes (`APP_ENV`), rol `soporte`, pruebas aisladas en `crm_test`, limpieza de `crm`, cliente de VirtualPOS endurecido, suite de contrato.
+- **Sprint 4**: REC-03 (recuperador VP), `monto_vigente`, **Opción A** completa (sección 6) con revisión independiente y tres tandas de arreglos, guardas de escritura de Toku, importador de reportes de Toku (TK-17 y TK-18), guarda anti-`downgrade`, revisión visual con tres tandas (UI-22 a UI-27) y runbook de pruebas en sandbox.
 
-### Sprint 4: Recuperador VP y Opción A (esta sesión)
-- **REC-03** (recuperador VP) y **`monto_vigente`** (último cobro pagado o procesando con fecha hasta hoy; fecha en **hora de Chile**, corregido en `413a740`).
-- **Opción A completa en código** (BILL-01 a BILL-08): permisos y rol `ejecutivo`, modelos y migración 0038, cálculo puro del plan, aplicación con compensación y lock, API `/billing`, bandeja y política en el frontend, chequeo diario de renovación y pestaña Renovaciones. Ver sección 6.
-- **Revisión de código independiente** (cuatro revisores, 5 frentes) y **tres tandas de arreglos**: tanda 1 (planificador y aplicación: puntuales fuera del calendario regular, día de cobro resuelto por solicitud, marca o día más frecuente, pendiente de hoy sin tocar, E-079 con verificación, listados incompletos fallan cerrado, barredor de solicitudes atascadas, guardianes del DELETE plural y del flujo viejo `reassign`), tanda 2 (API, política con aprobadores efectivos, reabrir con aprobador, errores persistidos sin texto libre, KPIs de sincronización sin las filas de facturación, jobs con fila `running`) y tanda 3 (frontend de aplicar con listas reales, CSRF obsoleto, paginación, hora de Chile, textos por código; endurecimiento de Toku).
-- **Guarda contra `downgrade` accidental** de Alembic (OPS-10) y reglas para agentes.
-- **Consolidación del plan** en un solo archivo (`docs/tasks.md`) y runbook de pruebas en sandbox aprobado.
-- **Importador de reportes de Toku**: TK-17 (modelos y migraciones 0039 a 0041) y TK-18 (parser y carga como servicio). Ver sección 7.
-- **Revisión visual del sandbox** con capturas y tres tandas de arreglos de interfaz (UI-22 a UI-27). Ver sección 8.
+### Sprint 5A: datos confiables, al día y gestionables (2026-10-29)
+Origen: la auditoría de paridad contra los reportes descargados (10 informes en `docs/planning/auditoria-2026-10-29/`). Resultado medido: VirtualPOS y Payku (cuotas exitosas) ya cuadran en cantidad; faltaban glosas, vínculos y campos; **TCH no cuadraba (1,47 M contra ~1,0 M del control)**; Toku tenía el importador de reportes sin ejecutar y fechas de alta y baja erróneas.
+- **Olas 0 a 1C (backend):** errores de configuración de sync tipados, run `partial`/`failed` y estado `degraded`/`failing` en `/sync-runs/health`; catálogos y proyección de rechazos de Toku (`core_charges.latest_rejection_*`), formato de motivo por canal, corrección de `rejected_object`; correcciones del ETL de TCH (período desde `Cuota Mes`, cuota entera, monto, estado, períodos futuros, hash de reportes, `codigo_respuesta`); lock atómico contra ejecuciones simultáneas, VirtualPOS consolida una vez por corrida, TCH solo tras una carga, ETL Core dentro del sync (apagado), instrumentación por fase, KPIs sin cobros futuros, `parity_check.py`.
+- **Olas 2A a 2C:** historial de estados (`status_change_events`, migración `0042`), tabla `payment_rejection_details` y captura diaria de glosa de VirtualPOS (migración `0043`), exportación en streaming con auditoría y `export.pii` (migración `0044`), usuario temporal para capturas.
+- **Olas 3A a 5C:** bajas seguras (autoría, `refresh_subscription`, baja de VirtualPOS con lock, Toku fail-closed y negada con facturas en cobro), importador de reportes PAT de VirtualPOS (migraciones `0045` y `0046`), clave estable de TCH y recarga transaccional con conciliación (`0047`, `0048`), endpoint del Resumen, cola y procesador de webhooks y reconciliación dirigida (`0049`), reportes de Toku con fechas reales y señales de recuperabilidad.
+- **Olas 7A y 7B:** bajas multicanal (`0050`, `0051`) y alertas por correo.
+- **Frontend:** tokens y paleta (menú azul marino, superficies azul-gris, series violeta/índigo), `KpiCard` v2, `ChannelChart` ampliado, `AppCore.tsx` de 3.666 a 700 líneas con 106 pruebas de caracterización, botón Exportar, menú de un solo nivel, Resumen unificado, pantalla Bajas, textos en español, identificadores en inglés y errores por código.
+- **Decisiones:** D1 a D40 (PLAN §5.1). Las pendientes de respuesta están en la sección 12.
 
 ## 6. Cómo funciona la Opción A (cambios de cobro de VirtualPOS)
 
 **Objetivo:** permitir cambiar el monto o el día de cobro de una suscripción VirtualPOS (más de 6.000 están en planes `MONTO_FIJO`, que no se pueden cambiar) creando y cancelando cobros individuales, con solicitud, aprobación, ejecución segura y auditoría. VirtualPOS sigue creando los cobros mensuales; el CRM solo interviene al aplicar un cambio aprobado.
 
 **Módulos**
-- `app/services/billing_plan.py`: cálculo **puro** del plan (sin red ni base): `build_amount_change_plan`, `build_date_change_plan`, `build_renewal_plan`, `build_one_off_plan`, `plan_to_preview_json`. Horizonte de 12 meses, ventana de 31 días, cobertura de mes, días 29 a 31 ajustados a fin de mes, `internal_code` determinista (`{sub}-{YYYYMM}-{monto}`; cambio de fecha con sufijo `-d{DD}`).
-- `app/services/billing_apply.py`: `apply_change_request`. Transición atómica `aprobada` a `aplicando`, `pg_try_advisory_xact_lock` por suscripción en una **conexión dedicada** (queda «idle in transaction» durante la aplicación: revisar `SHOW idle_in_transaction_session_timeout` en la base real, BILL-22), plan recalculado contra el estado real del proveedor y detección de *drift*, **crear todos los cobros nuevos antes de cancelar los antiguos, uno por uno por `charge_id`** (nunca el DELETE plural), compensación si falla a mitad, verificación final de «exactamente un pendiente por mes», registro en `vp_managed_charges` y marca en `vp_calendar_marks`. `sweep_stuck_applying` deja en `requiere_conciliacion` las solicitudes atascadas en `aplicando`.
-- `app/services/billing_requests.py`: crear (con autoaprobación auditada), aprobar (doble aprobación implementada y apagada), rechazar y reabrir con comentario obligatorio, retirar, expirar, y la política con sus reglas (siempre al menos un aprobador efectivo; con doble aprobación 2 o 3).
-- `app/services/billing_renewal.py` y `app/scheduler/jobs/billing_jobs.py`: chequeo de **solo lectura** que abre tareas de renovación cuando a una suscripción con calendario modificado le quedan N días o menos (N de la política, borde inclusivo). Jobs: `billing_renewal_check` (03:00 America/Santiago, entre el sync de las 02:00 y el reintento de las 04:00), `billing_expire_requests` (cada hora, minuto 10) y `billing_sweep_applying` (cada 15 minutos). Dejan filas en `sync_runs` con prefijo `billing_`, que los KPIs de sincronización de canales excluyen (`SyncRun.is_channel_source()`); estado `partial` si hay errores parciales.
-- `app/api/v1/routes/billing_changes.py` (`/api/v1/billing`): `changes/preview`, `changes` (POST y GET), `changes/{id}` y `/events`, `/approve`, `/reject`, `/withdraw`, `/reopen`, `/apply` (con `accept_drift`), `requesters`, `renewal-tasks`, `policy` (GET y PUT) y `policy/audit`. El actor sale siempre del token; los cuerpos rechazan campos extra; los errores llevan `detail={code,message}` sin eco de valores.
-- Modelos (`app/models/billing.py`, migraciones 0037 y 0038): `billing_change_requests` (estados `pendiente`, `aprobada`, `aplicando`, `requiere_conciliacion`, `ejecutada`, `fallida`, `rechazada`, `retirada`, `expirada`, `no_ejecutable`; **índice único parcial: una sola solicitud abierta por suscripción** en `pendiente`, `aprobada`, `aplicando` y `requiere_conciliacion`), `billing_change_request_events` y `billing_policy_audit` (inmutables por trigger de base), `billing_policy` (fila única), `vp_managed_charges`, `vp_calendar_marks` y `billing_renewal_tasks`. `write_runs` recibió `requested_by_user_id` y `request_id`.
-- Permisos (migración 0037, solo `admin`): `virtualpos.billing_changes.request`, `.approve`, `.view` y `virtualpos.billing_policy.manage`.
-- Frontend `frontend/src/features/billing/`: bandeja en `/general/cambios-de-cobro` (la ruta vieja `/virtualpos/cambios-de-cobro` redirige), pestañas Pendientes, Historial y Renovaciones, detalle con la vista previa del plan, diálogos de aprobar, rechazar y reabrir, y la política de aprobadores como sub-pestaña «Aprobaciones» del panel de administración.
-
-**Política por defecto:** aprueba el rol `admin`; autoaprobación activada y auditada; doble aprobación apagada (umbrales: más de 20 suscripciones o variación mayor al 50 %); renovación a los 60 días; expiración de solicitudes a los 7 días; horizonte de 12 meses; ventana de 31 días.
+- `app/services/billing_plan.py`: cálculo **puro** del plan. Horizonte de 12 meses, ventana de 31 días, cobertura de mes, días 29 a 31 ajustados a fin de mes, `internal_code` determinista (`{sub}-{YYYYMM}-{monto}`; cambio de fecha con sufijo `-d{DD}`).
+- `app/services/billing_apply.py`: `apply_change_request`. Transición atómica `aprobada` a `aplicando`, `pg_try_advisory_xact_lock` por suscripción en una **conexión dedicada**, plan recalculado contra el estado real, **crear todos los cobros nuevos antes de cancelar los antiguos, uno por uno por `charge_id`** (nunca el DELETE plural), compensación si falla a mitad, verificación final de «exactamente un pendiente por mes». `sweep_stuck_applying` deja en `requiere_conciliacion` las solicitudes atascadas.
+- `app/services/billing_requests.py`: crear (con autoaprobación auditada), aprobar (doble aprobación implementada y apagada), rechazar y reabrir con comentario, retirar, expirar, y la política.
+- `app/services/billing_renewal.py` y `app/scheduler/jobs/billing_jobs.py`: chequeo de solo lectura de renovación (03:00 America/Santiago), expiración (cada hora) y barredor (cada 15 min), con filas `sync_runs` de prefijo `billing_` que los KPIs de canal excluyen (`SyncRun.is_channel_source()`; ahora también excluye `cancellation_`).
+- `app/api/v1/routes/billing_changes.py` (`/api/v1/billing`). Modelos en `app/models/billing.py`, migraciones 0037 y 0038; **los estados guardados siguen en español (D38) y el código los usa por constantes con nombre inglés** (`STATUS_*`, `EVENT_*`, `MANAGED_*`, `TASK_*`).
+- Frontend `features/billing/`: bandeja en `/general/cambios-de-cobro` y política en el panel de administración.
 
 **Cosas importantes que no son obvias**
-- El **DELETE plural** (`cancel_future_charges` sin `charge_ids`) cancelaría también cobros manuales y automáticos fuera del horizonte: está prohibido desde `apply` y bloqueado (409) si la suscripción tiene marca de calendario modificado o cobros del CRM vivos. El flujo viejo `reassign_subscription_amount` ahora respeta el lock, las marcas y las solicitudes abiertas.
-- Los **cobros puntuales** (`one_off_charge`) se excluyen del calendario regular (no se cancelan, no cuentan para el horizonte de renovación ni para deducir el día).
-- **Pendiente de decisión (DEC-30):** la tanda 1 acotó el reemplazo de un mes atrasado a su propio mes (los meses pasados van a revisión manual con `replacement_outside_month`), lo que **contradice la regla del usuario** de que el reemplazo se fecha «mañana». Opciones: A (recomendada) respetar la regla atribuyendo cada cobro a su mes de origen por el `internal_code`, B dejar lo actual, C híbrido. Bloquea la tanda 1b (BILL-18). Además, por decisión del usuario: mes con solo cobros cancelados va a revisión manual y mes sin ningún cobro se crea con aviso `month_without_charge` (también en BILL-18).
-- No se ha probado nada de la Opción A contra el proveedor real: todo se probó con un `FakeVP`. Las pruebas de contrato P0 (CT-00, CT-CO-AUTO, CT-CO-DUP, CT-CO-NC3, CT-RZ-MC, CT-RZ-SWAP, CT-CANCEL, CT-STALE) son BILL-11 y algunas requieren tarjeta y esperar fechas de cobro. El **piloto en producción** (BILL-12) solo con el usuario presente.
+- El DELETE plural está prohibido desde `apply` y bloqueado si la suscripción tiene marca de calendario modificado o cobros del CRM vivos.
+- Los cobros puntuales se excluyen del calendario regular.
+- **DEC-30 sigue abierta:** la tanda 1 acotó el reemplazo de un mes atrasado a su propio mes, lo que contradice la regla del usuario de fecharlo «mañana». Bloquea BILL-18.
+- Nada de la Opción A se probó contra el proveedor real (todo con `FakeVP`). Pruebas de contrato P0 (BILL-11) y piloto (BILL-12) pendientes.
 
-## 7. Toku: sandbox, guardas e importador de reportes
+## 7. Toku: sandbox, guardas, reportes y señales
 
-### El «sandbox» de Toku
-- **Toku no documenta un sandbox.** El del CRM usa la **misma URL base que producción** (`api.trytoku.com`) con otra llave `x-api-key`. Medido el 2026-10-28 con lecturas (llave sandbox, solo conteos): una organización aparte con **34 clientes, 37 suscripciones y 41 invoices** (todas `UNPAID` y vencidas), **0 transacciones y 0 medios de pago**, `/organization/payments` responde 404, y **0 IDs en común con producción**. Es decir, las lecturas están aisladas; **las escrituras siguen sin verificarse**.
-- Por eso no hay datos para probar el recuperador de Toku en el sandbox (ni rechazos TE/PE/UE, ni tarjeta vencida, ni rachas). La documentación oficial no trae tarjetas de prueba; lo más cercano es el portal sandbox de PAC (RUT de prueba de la documentación y coordenadas «00 00 00» para forzar una inscripción fallida). Las seis consultas para el soporte de Toku están resumidas en DEC-26 y siguen a cargo del usuario.
-- El header de versión (`x-api-version` y `x-toku-api-version`) **no** cambia las respuestas en el sandbox: hipótesis descartada. `recurring` y `recurring.status` existen solo si `is_recurring=true`; `remaining_collection_attempts`, `max_collection_attempts` y `expiration_date` pertenecen a la invoice y vienen nulos. La API **no** entrega estado de cliente ni de suscripción.
-- La API de reportes existe: `GET /reports/{entity}/columns` respondió 200 con la llave sandbox para siete entidades (suscripción, medio de pago, intento de pago, inscripciones, invoice, cliente). `POST /reports/{entity}` **no se ha usado** (genera reportes y está bloqueado por las guardas).
+- **Toku no documenta un sandbox.** El del CRM usa la misma URL base que producción con otra llave. Lecturas aisladas (34 clientes, 37 suscripciones, 41 invoices, 0 transacciones, 0 medios de pago); las escrituras no están verificadas. El header de versión no cambia las respuestas. La API no entrega estado de suscripción ni de medio de pago.
+- **Guardas duras de escritura** (`app/integrations/toku/write_guard.py`): `TOKU_SANDBOX_WRITES_ENABLED=true` más `TOKU_SANDBOX_ALLOW_WRITES_ARMED=1`, host exacto, lista blanca de endpoints, prefijo `TEST-`, `TOKU_SANDBOX_ALLOWED_IDS`, tope `TOKU_SANDBOX_MAX_WRITES`, bulk y batch bloqueados.
+- **Baja de Toku (decisiones D12, D30):** por el flujo de bajas se usa PAUSED o `end_date` (nunca DELETE) y se **niega con facturas `in_progress`** (409 `INVOICE_IN_PROGRESS`). El DELETE directo de `/writes/toku/...` queda solo para el rol admin y **falla cerrado** también en producción (502 `INVOICE_LIST_FAILED`/`INVOICE_VOID_FAILED`, antes avisaba y borraba igual).
+- **Importador de reportes del Backoffice:** `POST /api/v1/imports/toku-reports` (solo admin, CSRF, rechaza el mismo archivo por sha256, 503 sin pepper) y `scripts/maintenance/import_toku_reports.py` (dry-run por defecto). **Hoy las tablas `tk_report_*` tienen 0 filas:** falta `TOKU_REPORT_HASH_PEPPER`, reportes nuevos (Productos, Medios de pago, Intentos de pago, Inscripciones y **Deudas** nuevo) y aplicar migraciones. Procedimiento: `docs/data/toku-reports-load.md`.
+- **Fechas reales y bajas:** `materialize_report_dates` corrige `suscription_date` (hoy guarda el próximo cobro), `started_at`/`ended_at` y crea las ~140 suscripciones eliminadas **solo en `core_subscriptions`** (no en `subscriptions`, para no mover MRR/ARPU antes de TK-13).
+- **Señales de recuperabilidad** (TK-20, bandera `TOKU_REPORT_SIGNALS_ENABLED` apagada): racha por **cuotas** (tres intentos de una cuota cuentan 1), «en firme» a los 7 días (`TOKU_REPORT_FIRM_UNPAID_DAYS`, D39), tarjeta bloqueada (1019, 1051, 2043 o `permanent_failed`), vencida (1010, 2044, 2063); el reporte gana siempre sobre la API para estado y medio de pago (D39). REC-04 (que el recuperador las lea) está pendiente.
+- **Glosa:** `tk_transactions.raw_payload` trae `response_code` y `original_response_message` (95,7 % de los FAILED); `toku_rejection_projection` los proyecta a `core_charges`. Los 1.267 FAILED sin dato dependen de cargar el reporte de Intentos. Los FAILED como `core_payments` (D4) están implementados detrás de `TOKU_MATERIALIZE_FAILED_PAYMENTS` (apagada).
+- **Webhooks:** Toku es el único canal con webhooks completos (48 eventos, firma `Toku-Signature`, reintentos); la cancelación llega como `subscription.deleted`. Ver sección 8.
 
-### Guardas duras de escritura (fuera de producción)
-`app/integrations/toku/write_guard.py`, invocado desde el cliente antes de la red. Para escribir en el sandbox hacen falta: `TOKU_SANDBOX_WRITES_ENABLED=true` **y** la variable de proceso `TOKU_SANDBOX_ALLOW_WRITES_ARMED=1`; host exacto `api.trytoku.com`; lista blanca de endpoints; prefijo `TEST-` en las claves de negocio; los IDs que genera Toku (`cus_`, `sub_`, `in_`, `pm_`) **nunca** empiezan por `TEST-`, así que para tocarlos hay que listarlos en `TOKU_SANDBOX_ALLOWED_IDS`; tope `TOKU_SANDBOX_MAX_WRITES` (25 por defecto, máximo 500, por proceso); bulk y batch bloqueados; en invoices `customer` es obligatorio y se rechazan otras claves de referencia. `delete_subscription` valida la suscripción y todos los cobros antes de anular ninguno (la anulación es irreversible) y falla cerrado si no puede listar. Las rutas `/writes/toku/*` responden 403 con solo el código; el detalle queda en `write_runs`. Al arrancar hay un **aviso** si `APP_ENV` es `development`, `dev` o `local` y `TOKU_WRITES_ENABLED` está encendido (sin cambiar el comportamiento). Producción no cambia.
+## 8. Sistemas nuevos del Sprint 5A
 
-### Importador de reportes descargados (TK-14 a TK-22)
-- **Por qué:** la API REST no entrega estado de la suscripción, medio de pago ni motivo de rechazo; los reportes del Backoffice sí. Se cargan desde la interfaz (como TCH) una vez por semana (DEC-21).
-- **Hecho:** TK-17 (tablas `tk_report_files`, `tk_report_response_codes`, `tk_report_products`, `tk_report_payment_methods`, `tk_report_attempts`, `tk_report_debts`, `tk_report_inscriptions` y `core_subscription_signals`; permiso `toku.reports.import` solo para `admin`; sin columnas personales ni `raw_payload`) y TK-18 (`app/services/toku_report_parser.py` y `toku_report_import.py`: detección del tipo por firma de columnas, encabezado desplazado, columna duplicada por posición, upsert idempotente con guarda de frescura por columna y eliminaciones que no se deshacen, resolución de producto a suscripción, una transacción por archivo, errores sin PII, 30.000 filas en unos 16 s).
-- **Pendiente:** TK-19 (ruta de subida y panel en administración), TK-20 (ETL a core: señales de «activa», racha por cuotas, tarjeta bloqueada y vencida; riesgo alto), TK-21 (más pruebas), TK-22 (documentar columnas en `docs/data/toku.md`) y TK-13 (ajustar KPIs; cambia MRR y ARPU de Toku).
-- **Secreto:** `TOKU_REPORT_HASH_PEPPER` (vacío = el importador se niega a cargar). Lo define el usuario en su `.env`, nunca se versiona, y cambiarlo invalida la correlación con hashes guardados. `ID Producto` (que contiene el RUT) se guarda solo como HMAC.
-- **Definiciones acordadas (DEC-16 a DEC-25):** *recuperable* = racha de 3 o más cuotas impagas «en firme» (código 2070 o tras cierto número de días), o tarjeta bloqueada, o tarjeta vencida; la racha se mide por **cuotas**, no por intentos (72 suscripciones frente a 138); *suscripción activa* = no eliminada y medio de pago `chargeable`; tarjeta bloqueada = código 1019, 1051 o 2043, o medio `permanent_failed`; vencida = 1010, 2044 o 2063 (no hay fecha de expiración en ningún reporte); un medio con falla temporal sin racha no es recuperable; el reporte gana para estado y medio de pago, la API para montos y facturas.
-- **Datos de los reportes (sin datos personales):** el del 2026-10-20 contiene al del 2026-08-09 (las filas mutan: cargar el más nuevo; cargar uno viejo sobre uno nuevo es un error y la guarda de frescura lo evita). Falta un reporte de **Deudas** actualizado (USR-09). La columna `Estado` del reporte de Productos es el estado del medio de pago, **no** el de la suscripción. `last_payment_intent_response_code` viene vacío en todos los medios; el código se obtiene del último intento fallido.
+Cada uno tiene su documento; esta tabla es el mapa. **Todas las banderas nacen apagadas salvo indicación.**
 
-## 8. Revisión visual con capturas (Playwright) y ciclo de pruebas en sandbox
+| Sistema | Qué hace | Documento | Bandera / acción del usuario |
+|---|---|---|---|
+| Historial de estados | `status_change_events` (inmutable) registra cambios de estado, monto y glosa en `_upsert_centralized`; baseline para cargas masivas; `GET /api/v1/changes/daily` | `docs/data/status-history.md` | Migración `0042`; `STATUS_EVENTS_ENABLED`/`STATUS_EVENTS_BASELINE` (ver `.env.example`); `scripts/maintenance/consolidate_baseline.py` solo para cargar un canal vacío |
+| Glosas de rechazo | `payment_rejection_details` (`capture_source`: `api_charges`, `api_payment`, `report_pat`, `toku_projection`); captura diaria de VirtualPOS con una petición por suscripción (el cobro ya trae `rejected_object` y `payment.order.uuid`); catálogo de motivos | `docs/data/rejection-details.md` | Migración `0043`; `VP_REJECTION_CAPTURE_ENABLED` (tope 500 suscripciones por cuenta y noche; el histórico por API tomaría unos 8 días) |
+| Importador de reportes PAT de VirtualPOS | Tablas `vp_report_*`, parser, importación idempotente, glosa e histórico de vínculos pago-cobro, ruta `POST /api/v1/imports/virtualpos-reports` y script (dry-run por defecto). El código de vendedor se guarda como HMAC (`VP_REPORT_HASH_PEPPER`); `vp_subscriptions.raw_payload.seller_id` ya lo guardaba **en claro desde antes** | `docs/data/vp-reports.md` | Migraciones `0045` y `0046`; dry-run con `--dir` y luego `--apply`; después ETL Core de VirtualPOS |
+| Exportación CSV | Streaming, anti-inyección de fórmulas, auditoría en `write_runs` sin contenido, PII solo con `export.pii` (admin y jefatura), `GET /api/v1/export/{clientes,suscripciones,cobros,pagos}` y `/count`; botón en las listas | `docs/data/exports.md` | Migración `0044` (permiso); límite: algunos filtros de pantalla no se pueden expresar y el botón lo avisa |
+| TCH | Clave estable (ficha, período, cuota) con el último estado y rechazo previo como atributo (D13); historial separado de cargos; recarga completa transaccional con conciliación contra el control (`--dry-run`, `--apply --confirm-database`, `--exclude-months`); campos del Excel antes no cargados; baja «en trámite» que se cierra al importar el Excel | `docs/data/tch-reload.md`, `docs/data/tch.md` | Migraciones `0047` y `0048`; **recarga del usuario con respaldo**; 2023 no cuadra (falta la cartera: reexportar o excluir los 12 meses) |
+| Sync más rápido | Lock atómico (`run_lock.py`, `SYNC_RUN_STALE_HOURS`), VirtualPOS consolida una vez, TCH solo tras una carga (`SYNC_TCH_CONSOLIDATE_ONLY_AFTER_LOAD`, activa por defecto), ETL Core dentro del sync (`SYNC_CORE_ETL_ENABLED`, **apagada**, D26), métricas por fase en `source_records` (`sync.metrics`) | `docs/data/sync-idempotency.md` | El usuario enciende el ETL Core tras respaldo y una primera corrida manual por canal |
+| Webhooks | Cola `webhook_events`, receptores que solo validan y encolan (firma Toku, tope de body, PII enmascarada), procesador con `FOR UPDATE SKIP LOCKED` y reintentos, reconciliación dirigida cada 3 h | `docs/data/webhooks.md` | Migración `0049`; `WEBHOOK_PROCESSOR_ENABLED` y `TARGETED_RECONCILE_ENABLED`; secretos y endpoint en Toku; **exponer solo `/api/v1/webhooks/*` con túnel nombrado previa confirmación del usuario (D8)** |
+| Alertas por correo | Job cada 15 minutos: canal degradado o caído, ETL Core atrasado más de 24 h, webhooks fallidos, bajas o cobros atascados; un correo por condición con recordatorio cada 6 h y aviso de recuperado | `docs/data/alerts.md` | `ALERTS_ENABLED` y variables `ALERT_SMTP_*`, `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` en el `.env` (el destinatario nunca va en el repo) |
+| Bajas multicanal | Solicitud con vista previa de la cascada, aprobación, aplicación con lock y pasos verificados; VirtualPOS reutiliza la baja segura, Toku PAUSED/`end_date`, Payku DELETE con confirmación irreversible, TCH «en trámite»; medios de pago como paso manual registrado; API `/api/v1/cancellations`; jobs de expiración y barrido; pantalla `/general/bajas`; botones directos solo para admin | `docs/designs/baja-cascada.md`, `docs/engineering/cancellations-ui.md` | Migraciones `0050` y `0051` y `seed_roles.py` (verificar que existan los roles `jefatura` y `coordinador`) |
+| Resumen unificado | `GET /api/v1/dashboard/general` (KPIs de la jefatura y series de 12 meses) y pantalla `/central/resumen`; la vista anterior sigue en `/central/resumen-clasico` (transitoria) | `docs/data/dashboard-general.md`, `docs/engineering/summary-view.md` | Churn unificado aprobado (D31: bajas del mes ÷ socios al inicio del mes); sin metas (D2) |
+| Idioma | Catálogo `i18n/es.ts`, guardianes, adaptadores, errores por código | `docs/engineering/i18n-frontend.md`, `api-errors-ui.md`, `identifiers-backend.md` | Valores del catálogo pendientes (sección 12) |
 
-- **Herramientas:** `scripts/sandbox/seed_billing_demo.py` (siembra sintética e idempotente con prefijo `DEMO-`; fija `APP_ENV=sandbox` antes de importar y falla cerrado si la base no es sandbox) y `scripts/visual/capture_sandbox.mjs` (+ `README.md`): `login` abre una ventana visible para que **el usuario** inicie sesión (el script nunca ve la contraseña; permite solo el `POST /api/v1/auth/login`) y `capture` hace capturas de **solo lectura** (18 pantallas × escritorio 1440 y móvil 390 × tema claro y oscuro; solo `localhost:5174`; bloquea toda petición que escriba; los diálogos y el menú móvil se capturan como ventana). El estado de sesión y las capturas quedan en el scratchpad; las copias para el usuario están en `Downloads\CRM_capturas_sandbox\2026-10-29` (antes) y `\2026-10-29_despues` (después).
-- **Resultado medido:** cero errores de consola, de página o de red en las 72 entradas; menú lateral de 220 px en 17 de 17 pantallas de escritorio (antes 172 a 220); capturas móviles de la bandeja en 390 px (Renovaciones medía 442); «pagos pendientes» de 1.425 (incluía 1.343 cancelados) a 82; alertas de 64 a grupos con tope de 5; contrastes del menú y de la pestaña activa de 1,2 a 2,5 : 1 subidos a más de 6 : 1 (con un test que vigila 4,5 : 1).
-- **Una sola definición de «rechazo»** (`app/services/charge_stats.py`): universo de cargos con fecha de cobro hasta hoy en hora de Chile, sin cancelados, expirados ni anulados; tasa = rechazados / (pagados + rechazados); `None` (se muestra «—») si no hay denominador. La comparten las tarjetas y las alertas. El churn declara su ventana (`churn_window_label`: VirtualPOS promedia 3 meses; Toku y Payku usan el acumulado; unificarlo es DEC-37).
-- **Pendientes de la revisión (UI-28 a UI-41):** los gráficos «Deudas mensuales» y «Transacciones efectivas» siguen clasificando como «rechazada» todo lo que no es pagado; el KPI `rejected_charges` cuenta transacciones en Toku y Payku y cargos en VirtualPOS y TCH; los reportes HTML tienen su propia lógica de rechazo; VirtualPOS en móvil desborda 7 px; la barra «Planes 8» vacía; textos y controles nativos del recuperador; el color de «Bajas» (DEC-36).
-- **Ciclo de pruebas y decisiones** ([runbook](docs/operations/sandbox-testing-and-decisions.md), aprobado el 2026-10-28, DEC-27): el orquestador despliega, lanza al probador, luego al decisor, aplica lo permitido y resume al usuario. Clases de decisión: *automática* (arreglos con test, documentación, commits locales, lecturas en sandbox, elegir la opción recomendada si es reversible), *avisar* (diseño no trivial, escritura en escenarios ya catalogados) y *siempre con el usuario* (producción, push o PR, migraciones o seeds en bases reales, borrado, credenciales o datos personales, debilitar una guarda, permisos, decisiones de negocio). Ante la duda gana la clase más restrictiva. Los resúmenes al usuario llevan alternativas y recomendación.
+## 9. Revisión visual, usuario temporal y Bandeja de decisiones
 
-## 9. Hallazgos sobre VirtualPOS (medidos en el sandbox el 2026-10-27)
+- **Capturas:** `scripts/visual/capture_sandbox.mjs` (modos `login`, `capture` y `autologin`). Unas 24 pantallas (dashboards, Socios, Suscripciones, Bajas, listas de TCH, recuperador, cambios de cobro, administración y el menú móvil). El 2026-10-29, tras reiniciar el backend sandbox con el código renombrado, una barrida de 24 entradas dio **cero errores de consola, de página y HTTP** (20 «ok»; los 4 diálogos de escritura fallaron porque el rol `ejecutivo` no ve esos botones: para probarlos hace falta un usuario admin temporal). Solo se recorrieron pantallas de lectura: **las acciones de escritura siguen probadas solo con simulaciones en el frontend**.
+- **Una sola definición de rechazo** (`app/services/charge_stats.py`): universo de cobros con fecha hasta hoy en hora de Chile, sin cancelados, expirados ni anulados; tasa = rechazados / (pagados + rechazados); `None` («—») sin denominador. Ahora excluye también los cobros futuros en las alertas, `pending_payments`, `debts_monthly` y el recuperador.
+- **Bandeja de decisiones** (artifact privado en claude.ai, colección `decisions`, leída y escrita con `ArtifactData`): fichas con opciones y recomendación; las críticas nunca se aprueban en lote y se confirman además en el chat; lo marcado no autoriza nada fuera de lo que dice la ficha. Cada decisión resuelta con un cambio visible lleva capturas (`evidence`, subidas como assets): **solo del sandbox, sin filas con nombres; recortar la barra si hace falta**. La Bandeja vpbase es otro artifact, de otra sesión.
 
-La documentación oficial no se debe tomar como verdad. Medido:
+## 10. Hallazgos sobre VirtualPOS (medidos)
 
 | Afirmación de la documentación | Realidad |
 |---|---|
 | `POST /v3/charge` falla con E-113 en planes MONTO_FIJO | **Se acepta** |
-| Los errores llegan con HTTP 400 | Llegan con **HTTP 200** y cuerpo `{"status":"NOK","code":400,"error":{"error_code":"E-0xx",...}}` |
-| `internal_code` evita duplicados (E-086) | **No**: dos POST con el mismo código crean dos cargos. Sí aparece en el listado y detalle de cargos. Reutilizarlo tras cancelar se acepta |
+| Los errores llegan con HTTP 400 | Llegan con **HTTP 200** y cuerpo `{"status":"NOK",...}` |
+| `internal_code` evita duplicados (E-086) | **No**; sí aparece en listado y detalle de cargos |
 | Filtros `charge_date_from/to` en `/charges` | **Se ignoran** |
-| `limit=101` y `page=0` dan error | Se aceptan (comportamiento no documentado) |
-| El listado de clientes trae `page/limit/total` | Trae un objeto `pagination` |
-| El listado de suscripciones trae `charge_program[]` completo | **Confirmado** |
-| `DELETE /v3/charges/{sub}` cancela los pendientes | Confirmado; sin pendientes responde E-079 (con HTTP 200) |
-| Cargo manual en un mes con automático pendiente | **Conviven ambos** (sin E-087, sin límite mensual observable hasta 3). **Sin cancelar el automático hay doble cobro pendiente** |
-| Cargo manual más allá de `num_charges` | Se acepta |
-| Los cargos automáticos traen `internal_code` | No; los manuales sí (sirve para distinguirlos) |
+| Cargo manual en un mes con automático pendiente | **Conviven ambos** (doble cobro si no se cancela el automático) |
+| Los cargos automáticos traen `internal_code` | No; los manuales sí |
 
-Sin medir todavía: si el proveedor cobra ambos cargos del mismo mes en sus fechas, si los cargos cancelados consumen `num_charges`, el comportamiento tras `changecard`, reintentos automáticos de cargos manuales rechazados, rate limits en lotes grandes y qué devuelve un DELETE individual sobre un cobro que ya no está pendiente (E-059 o E-079): el código maneja ambos.
+**Medido el 2026-10-29 con lecturas autorizadas (D5):** `GET /v3/payment/{uuid}` trae `rejected_object {code, message, doc_url}` en el nivel superior, hermano de `payment`; **`GET /v3/suscription/{id}/charges?status=rechazado` trae `rejected_object` por cobro y `payment.order.uuid`** (así se obtiene glosa y vínculo con una petición por suscripción); `/payment/{uuid}/attempts` responde 200 en producción (en sandbox da 403) y puede venir con intentos vacíos; `order.amount` es texto en los cobros y entero en el pago. El listado global de pagos no trae glosa. Los `pay:` huérfanos NO aparecen en la ventana 2025-02..2026-10 (las suscripciones canceladas sí tienen sus cobros `cid_`); queda sin fuente local el histórico anterior a 2025-02. El texto del código `-11` sigue al portal: «Excede límite de reintentos de rechazo» (D17).
 
-## 10. Decisiones de negocio del usuario (vigentes)
+Sin medir todavía: si el proveedor cobra ambos cargos del mismo mes, si los cancelados consumen `num_charges`, comportamiento tras `changecard`, reintentos de cargos manuales rechazados, rate limits en lotes grandes, y la glosa del adquirente (`-2xxx`) en `attempts`.
 
-1. Hay 6000+ suscripciones en planes `MONTO_FIJO`; **no se pueden cambiar planes** ni pedirle la tarjeta de nuevo al socio.
-2. El «monto de la suscripción» en el CRM es el último monto cobrado (`monto_vigente`).
-3. **VirtualPOS sigue creando los cobros mensuales.** El CRM solo crea cobros al aplicar un cambio aprobado o por una tarea puntual.
-4. Cambio de monto: horizonte de 12 meses; se cancelan los automáticos **solo dentro del horizonte**; orden seguro (crear todos primero).
-5. El día de cobro es el del último cargo y se guarda como dato propio (`charge_day`).
-6. Rechazos: el CRM no crea cobros ni suspende nada; solo reintenta. La «racha de rechazos» (3 o más) es una ayuda de solo lectura.
-7. Ventana de 31 días: si el mes ya pasó hace 31 días o menos y no tiene cobro pagado, procesando ni rechazado, se crea el reemplazo con fecha de mañana; si es más antiguo, revisión manual (**implementación pendiente de DEC-30**).
-8. Aprobaciones: por ahora solo **admin** aprueba, con autoaprobación activada y auditada; doble aprobación apagada; política editable en el panel de administración.
-9. «Recuperable» (todos los canales) = socio con racha de rechazos, o tarjeta bloqueada, o tarjeta vencida. **Todos los roles ven todo en el recuperador; el panel de administración es solo `admin`.** Roles: admin y jefatura exportan; soporte reintenta cobros; ejecutivo solo ve.
-10. Columna del CSV del recuperador: `cuenta`; el CSV con datos personales solo con permiso de exportar.
-11. Reportes de Toku: carga por la interfaz, semanal, con aviso si el dato supera 7 días; permiso propio `toku.reports.import`.
-12. Meses con solo cobros cancelados van a revisión manual; meses sin ningún cobro se crean con aviso (BILL-18).
-13. Un solo universo de «rechazo» en los dashboards: cargos, sin cancelados ni meses futuros.
+## 11. Decisiones de negocio del usuario (vigentes)
 
-Detalle de escenarios de la Opción A: `docs/designs/facturacion-gestionada-escenarios.md` (175 escenarios vigentes, resultados medidos al principio).
+1. 6000+ suscripciones en planes `MONTO_FIJO`: no se cambian planes ni se pide de nuevo la tarjeta.
+2. El «monto de la suscripción» es el último monto cobrado (`monto_vigente`).
+3. VirtualPOS sigue creando los cobros mensuales; el CRM solo crea cobros al aplicar un cambio aprobado o una tarea puntual.
+4. Cambio de monto: horizonte de 12 meses; orden seguro (crear todos primero).
+5. El día de cobro es el del último cargo.
+6. Rechazos: el CRM no crea cobros ni suspende nada; solo reintenta; la racha (3 o más) es una ayuda de solo lectura.
+7. Ventana de 31 días: pendiente de DEC-30.
+8. Aprobaciones de cambios de cobro: por ahora solo admin, con autoaprobación auditada.
+9. «Recuperable» = racha de rechazos, tarjeta bloqueada o vencida. Todos los roles ven el recuperador; admin y jefatura exportan.
+10. Reportes de Toku: carga por la interfaz, semanal, permiso propio.
+11. Un solo universo de «rechazo» en los dashboards.
+12. **Sprint 5A (PLAN §5.1):** menú azul marino y superficies azul-gris (D1, D27), paleta violeta/índigo (D19), churn como tarjeta y unificado (D20, D31), Etas, Donación individual y metas fuera por ahora, entregará las bases (D2); tabla única de rechazos (D3), FAILED de Toku como pagos centrales (D4), importador PAT para el histórico (D6), eventos en el código (D7), webhooks por túnel nombrado como puente hasta migrar a hosting (D8), SSE con respaldo de polling (D9), refresco caliente cada 3 h de 07:00 a 22:00 (D10), lock ya y worker separado como destino (D11), **bajas: jefatura solicita, admin o jefatura aprueban, ejecutivo solo lee, Toku con PAUSED/`end_date` (D12)**, clave de TCH por ficha, período y cuota (D13), donaciones de Payku fuera por ahora (D14), alertas por correo (D15), URL de VirtualPOS 2 igual a la de la cuenta 1 (D16), `-11` según el portal (D17), reportes fuera de git (D18), usuario temporal para capturas (D21), exportación con PII solo admin y jefatura y CSV con filtros (D22, D23), un solo PR (D25), ETL Core encendido solo tras respaldo y corrida manual (D26), permisos fantasma sin sembrar (D28), menú de un solo nivel (D29), baja de Toku negada con facturas en cobro (D30), reglas de Toku de 7 días y reporte gana (D39), reglas de idioma D32 a D38.
 
-## 11. Decisiones abiertas
+## 12. Decisiones abiertas
 
-Todas con su detalle y alternativas en `docs/tasks.md` §5 (familia DEC):
-- **DEC-30:** ventana de 31 días y reemplazo de un mes atrasado (bloquea BILL-18).
-- **DEC-41:** escala de títulos (A: 22 px en todo según `DESIGN.md`, lo que quedó; B: título destacado «hero»).
-- **DEC-34 a DEC-40:** sprint de gráficos (librería —se recomienda mantener Recharts—, endpoints nuevos, colores de altas y bajas, definición de churn, metas, código sin uso, familia de IDs).
-- DEC-04 (SYNC-GAP-02, TCH), DEC-05 a DEC-07 (rachas y espaciado), DEC-08 (destino de `reconciliacion-identidad-socios.md`), DEC-11 y DEC-12 (hosting, RPO/RTO y quién ejecuta validaciones), DEC-13 (`monto_vigente` como ADR), DEC-14 (drawer móvil), DEC-15 (continuidad de cobros en WR-VP-05), DEC-26 (seis consultas al soporte de Toku).
+- **D40** (Bandeja SynkmetriX): `app/templates/reports/virtualpos.html` es un reporte generado el 3 de octubre con **1.408 nombres de clientes reales** incrustados; nadie lo usa; git lo ignora (`reports/`). Recomendado: moverlo fuera del proyecto. No lo borró ningún agente: es del usuario.
+- **Valores del catálogo:** significado de `payment_type_code` de VirtualPOS (p. ej. `VN`) y de `gateway` de Toku (hoy se ven «Desconocido (valor)»); y qué hacer con `tipo_mandato`, `origen` y `razon_baja` de TCH (siguen en español del proveedor).
+- **DEC-30** (ventana de 31 días, bloquea BILL-18), DEC-41 (escala de títulos), DEC-35 a DEC-40 de gráficos que sigan sin cerrarse, DEC-04 (resuelta para TCH por D13), DEC-08, DEC-11 y DEC-12 (hosting, RPO/RTO), DEC-26 (consultas al soporte de Toku).
+- Pendientes de decisión técnica: eliminación de medios de pago en Toku (MGT-11), baja de TCH y responsable bancario (MGT-13), jobs de bajas ya registrados, `canal` como nombre de prop en `ExportButton`.
 
-## 12. Pendientes y roadmap
+## 13. Pendientes y roadmap
 
-**Roadmap por fases acordado (DEC-31):** 1) refrescar `tasks.md` y respaldar la rama (hecho); 2) importador de Toku TK-19 a TK-22 y TK-13; 3) BILL-09, BILL-10 y BILL-11 (pruebas de contrato en sandbox de VirtualPOS; necesita DEC-30 y tarjetas); 4) Sprint 5, recuperador general (`/general/recuperador` con pestañas VP, Toku, Payku y TCH, solo lectura; REC-04 espera TK-20, REC-05 espera el modelo de cargos de Payku PK-06); 5) sprint de gráficos VIZ; 6) piloto BILL-12 en producción, solo con supervisión; 7) Sprint 6 (infraestructura: ENV-01, BCK-01, OPS-09), que no se puede planificar sin DEC-11 y DEC-12.
+**Acciones del usuario, en orden recomendado**
+1. **Respaldo** de `crm` con `pg_dump` (no está en el `PATH`) y **aplicar las migraciones `0042` a `0051`**; correr `scripts/maintenance/seed_roles.py` y verificar que existan los roles `jefatura` y `coordinador`.
+2. **Recién después, reiniciar los backends 8000 y 8001** (el 8001 ya está al día); revisar el `.env`: `VIRTUALPOS2_BASE_URL`, `PAYKU_API_KEY` y `PAYKU_SECRET_KEY` (hay alias a los tokens público y privado, y la URL de la cuenta 2 cae a la de la cuenta 1: confirmar que es el mismo host).
+3. **`TOKU_REPORT_HASH_PEPPER`**, exportar los reportes nuevos de Toku (incluidos Deudas e Intentos) y cargarlos con el dry-run del script; luego `toku_report_lifecycle.py --signals`.
+4. **Recarga de TCH** (procedimiento en `docs/data/tch-reload.md`): dry-run con `--exclude-months` de 2023, apply con `--confirm-database crm`, ETL Core de TCH y verificación con `scripts/diagnostics/parity_check.py --channel tch`. Reexportar la cartera 2023.
+5. **Importador PAT de VirtualPOS** (dry-run y apply) y ETL Core de VirtualPOS; opcional `VP_REPORT_HASH_PEPPER`.
+6. **ETL Core automático:** una corrida manual por canal con respaldo y revisión, y solo entonces `SYNC_CORE_ETL_ENABLED=true`.
+7. **Alertas:** variables SMTP y `ALERT_EMAIL_TO`, luego `ALERTS_ENABLED=true`.
+8. **Webhooks de Toku:** crear el endpoint con `POST /webhook_endpoints` (probar primero con la llave sandbox), `TOKU_WEBHOOK_SECRET`, exponer solo `/api/v1/webhooks/*` con túnel nombrado **previa confirmación en el chat**, y encender `WEBHOOK_PROCESSOR_ENABLED`; confirmar con soporte el evento real de baja.
+9. Decidir D40, los valores del catálogo, y abrir el PR (D25) tras `/review` y la revisión de seguridad. La revisión de la rama del otro desarrollador (REV-01, D24) espera a que suba sus commits: `origin/sprint-5/estabilizacion-dashboard` apunta al mismo commit que `master` y no tiene cambios propios.
 
-**Acciones del usuario o de terceros (familia USR)**
-- **USR-11 y USR-01/USR-10:** correr `scripts/maintenance/seed_roles.py` en `crm` (crea `ejecutivo`); revisar que `crm` en `0041` sea lo deseado; considerar un respaldo con `pg_dump` antes de futuras migraciones.
-- **USR-12:** los túneles públicos de Cloudflare estuvieron abiertos dos días: considerar rotar el secreto JWT de producción y revisar accesos.
-- **USR-02:** revisión visual humana (los agentes ya revisaron las capturas; la del usuario sigue pendiente), **USR-03:** KPI-01 y CHART-01 contra VirtualPOS staging.
-- **USR-09:** exportar un reporte de Deudas de Toku nuevo y luego uno por semana; definir `TOKU_REPORT_HASH_PEPPER`; configurar los webhooks de Toku (TK-12: `TOKU_WEBHOOK_SECRET` está vacío y falta el secreto de sandbox).
-- **USR-04, USR-05:** soporte de Payku, tarjetas de prueba de rechazo. **USR-07:** crear usuarios `soporte` y `ejecutivo` por ambiente. **BILL-22:** ejecutar `SHOW idle_in_transaction_session_timeout;` en la base real y reportar el valor.
+**Técnicos pendientes (por valor)**
+- REC-04 (el recuperador general lee las señales de Toku) y su pantalla; UX-09 (vista unificada de Cobros), UX-10 y UX-11 (Socios sobre Core, identidad, ADR-001; hoy «Socios» sigue agrupado por RUT), retirar la vista clásica del Resumen (UX-15), metas y Plan 2030 (UX-14), histórico de MRR (UX-13).
+- SYNC-O-02, 05, 06 y 09: lectura por ventanas de fecha (Toku, VirtualPOS y Payku) y refresco por niveles caliente, tibio y frío; tablas `sync_cursors` y `tch_file_loads`; worker separado del scheduler (SYNC-O-12); SSE hacia el navegador (RT-11 y RT-12).
+- MGT-11 a MGT-14 y MGT-17: eliminar medios de pago, cambio de monto en Toku y Payku, exportación de TCH para tesorería, pruebas de contrato; `close_tch_cancellations_from_report` no se llama en la recarga completa.
+- PK-PAR-05, 09 y 11: glosa de Payku por `GET /api/transaction/{id}` (la única lectura de producción dio timeout; falta una ventana más corta o un sandbox) y donaciones puntuales fuera por decisión.
+- TK-13 (KPIs de Toku, MRR y ARPU), TK-PAR-07 y 09 (Clientes, Pagos, Liquidaciones), BILL-09 a BILL-16, BILL-18, BILL-21 y BILL-22, VAL-PK-01.
+- Deuda: constantes para los valores de proveedor de TCH (~100 literales), ~40 variables locales en español en tests, el dominio `apiDetail` obsoleto de `es.ts`, `LoginScreen` y perfil que aún leen `detail` como texto (`auth.py` fuera de D35), `churn_definicion` del contrato dice «Propuesta pendiente…», pantalla Bajas sin captura de evidencia (faltan datos de demostración), el diálogo de «Solicitar baja» solo advierte ante un bloqueo de vista previa, los tests que dependen del orden de ejecución (`test_sync_core_etl` en ciertas combinaciones), `--accent-primary` sin definir en `Staging.css`, regenerar la colección Postman si usa `operationId` de `/tch/*`.
 
-**Técnicos, en orden sugerido** (todo con estado en `docs/tasks.md`): TK-19 (ruta y panel de carga), TK-20 (señales), TK-21, TK-22 y TK-13; BILL-09 (allowlist del piloto), BILL-10 (controles de consistencia), BILL-11 (contrato en sandbox), BILL-14 (lock por cargo en `retry_charge`), BILL-15, BILL-16, BILL-18 (tanda 1b), BILL-21 y BILL-22; UI-28 a UI-41 (empezando por los de datos: UI-28 a UI-30); PK-06 y `tests_contract/payku` (avanzan sin credenciales); Sprint 5; sprint VIZ. Deuda menor: `tests/test_health.py` depende del `.env`; borrar `crm_materialization.py` y su test cuando se confirme; TCH sin trazabilidad en `source_records`; el filtro `chargeable` de Toku también cambia las series históricas.
+## 14. Incidentes y errores cometidos
 
-**Sprints que faltan**
+### Incidentes (de las sesiones anteriores)
+- **Alembic sobre `crm` (2026-10-28):** un agente corrió `downgrade` y `upgrade` sobre la base real. Corrección: guarda anti-`downgrade` y regla 6.
+- **Túneles públicos de Cloudflare** abiertos del 26 al 29 de octubre (USR-12: considerar rotar el secreto JWT de producción).
+- **Datos personales en el contexto de un agente** al explorar reportes de Toku.
 
-| Sprint | Alcance | Esfuerzo | Necesita |
-|---|---|---|---|
-| 4 (resto) | BILL-09 a BILL-16, BILL-18, BILL-21/22, TK-19 a TK-22, PK-05 | Por re-estimar; TK-18 a TK-22 unas 22 a 30 h de IA según el diseño | Respuestas de Payku, DEC-30, tarjetas de prueba |
-| 5 | Recuperador general (REC-04 a REC-06) | 24 a 32 h / 10 a 13 días | TK-20, PK-06 |
-| VIZ | Gráficos por tipo de KPI (VIZ-01 a VIZ-12) | 39 a 55 h de IA (estimación; 8 a 12 h más con cohortes) | DEC-34 a DEC-40 |
-| 6 | ENV-01, BCK-01, OPS-09, validaciones | 12 a 16 h / 8 a 10 días | Hosting, RPO/RTO, credenciales de sandbox de Toku y Payku, quién ejecuta las validaciones |
-
-## 13. Incidentes y errores cometidos
-
-### Incidentes de esta sesión
-- **Alembic sobre `crm` (2026-10-28).** Un agente de la tarea TK-17 corrió `downgrade` y `upgrade` sobre la base real porque su script fijó `DATABASE_URL` en `os.environ` *después* de importar `settings` y `alembic/env.py` lee `settings.database_url` (el `.env` apunta a `crm` y `APP_ENV=development` equivale a producción). `crm` quedó en `0041` y faltaban 2.169 filas de `core_charges` (VP1 744, VP2 1.425), que se reconstruyeron ejecutando `run_vp_core_etl` sobre `crm` con autorización del usuario (totales de nuevo iguales a `vp_charges`; se recrearon 2.002 pagos y 15 suscripciones core). **La causa del faltante no está confirmada**: sospecha del `DELETE FROM core_charges WHERE subscription_id IS NULL` del `downgrade` de la migración 0034, pero las filas reconstruidas quedaron vinculadas. Se perdió además el contenido de `etl_runs.channels_failed` (estaba vacío). Corrección: guarda anti-`downgrade` y la regla 6 de la sección 2. Lección del orquestador: no pedir a un agente una operación cuya seguridad dependa de que fije bien la base.
-- **Túneles públicos de Cloudflare** abiertos del 26 al 29 de octubre (uno publicaba el frontend de producción local, protegido solo por el login). Detenidos; no hay señal de acceso indebido pero no puede descartarse (USR-12).
-- **Datos personales en el contexto de un agente:** al explorar los reportes de Toku, un agente imprimió filas de hojas que resultaron ser datos y no encabezados (nada se guardó en disco ni se reprodujo). Regla 11 de la sección 2.
+### Incidentes del Sprint 5A (2026-10-29)
+- **VirtualPOS 2 y Payku sin sincronizar del 27 al 28 de octubre, sin alerta:** el commit `25eafac` (un solo `.env`) dejó sin credenciales útiles a esos canales y el run quedaba «completed». Corregido en código y con alertas; el usuario debe revisar su `.env`.
+- **Un script de depuración de un agente (Ola 2A) se conectó a `crm`** porque tomó el `.env`: solo SELECT y un INSERT que falló, todo con rollback; nada escrito. Regla 3.
+- **Un agente usó `git stash`** con otro activo (cambios restaurados). Prohibido.
+- **Datos personales vistos por agentes:** direcciones en texto libre al perfilar un CSV de VirtualPOS y una fila de un socio impresa una vez en consola al leer encabezados de TCH (nada se escribió en el repo ni en documentos). Dos agentes abrieron una vez los Excel de TCH solo para confirmar encabezados con lista blanca.
+- **Captura con nombres reales:** la lista de Socios del sandbox mostraba RUT y nombres de apariencia real; no se subió, se recortó la barra y se borraron las capturas completas. Regla 11.
+- **`app/templates/reports/virtualpos.html`** con 1.408 nombres de clientes en el árbol de trabajo (ignorado por git): ficha D40.
+- **Cortes por límite de sesión de la API** (3 veces); se reanudó a los agentes sin pérdida porque se commitea por tarea.
+- **Regresión de errores en pantalla:** al pasar 154 `detail` del backend a `{code, message}` (D35), el frontend dejó de mostrar el mensaje y los reintentos de CSRF dejaron de funcionar con `invalid_csrf_token`. Pasó inadvertido porque las pruebas usaban respuestas simuladas; corregido en la Ola 11A con 30 pruebas nuevas.
+- **Commit del paso 19 del frontend dentro de un commit de backend** (`a514645`) por el índice compartido; no se reescribió la historia. Regla 8.
+- **Commits intermedios en rojo en el renombrado del backend:** el pedido mezclaba «renombrar los tests en commits aparte» y «commitear solo en verde»; el estado final es verde pero esos commits no sirven para bisecar. Pedir un commit por módulo.
+- **Un archivo de respuestas JSON con las rutas de Windows mal escapadas** (heredoc de bash) y un directorio vacío `C:\tmp` creado por un agente (se puede borrar a mano).
 
 ### Tabla de errores y correcciones
+(Los errores 1 a 27 de las sesiones anteriores siguen vigentes: medir qué cuenta cada campo antes de reportar una cifra, tests nunca contra `crm`, una sola sesión de pytest, verificar rutas nuevas tras cambios de backend, probar `.gitignore` desde cero, `git add` por ruta, no tomar la documentación del proveedor como cierta, validar el cuerpo y no solo el código HTTP, un GET con efectos no se reintenta, contrastar cada decisión de diseño con las decisiones de negocio vigentes, `npm run build` y no `tsc --noEmit`, una prueba «en seco» no ejercita el flujo real, no reiniciar el backend sandbox en mitad de un ciclo de capturas, etc.)
 
-| # | Error | Cómo se corrigió | Para no repetirlo |
+| # | Error | Corrección | Para no repetirlo |
 |---|---|---|---|
-| 1 | Informé «5.644 activos» en TCH; eran transacciones aceptadas, no clientes | Se rotuló «Transacciones aceptadas» y se añadió `accepted_transactions` | Verificar qué cuenta cada campo antes de reportar una cifra |
-| 2 | Los tests escribían en la base `crm` (552 usuarios y cientos de roles basura) | Aislamiento en `crm_test`, guarda dura, limpieza con respaldo y verificación | Los tests jamás apuntan a una base con datos reales |
-| 3 | Dos agentes corrían pytest a la vez sobre `crm_test`: fallos intermitentes que se atribuyeron a los tests | Se confirmó con corridas limpias | Una sola sesión de pytest; esperar a que termine el otro agente |
-| 4 | El backend del 8000 tenía código viejo (`--reload` no recargó); el selector no aparecía | Reinicio y verificación por `/openapi.json` | Tras cambios de backend, comprobar rutas nuevas, no suponer |
-| 5 | `.gitignore` con `.env.*` ignoraba `frontend/.env.sandbox` | Excepción explícita para ese archivo | Probar los comandos desde cero tras tocar `.gitignore` |
-| 6 | `git add docs` agregó un documento ajeno sin versionar | Se reescribieron los dos commits locales (aún sin push) | `git add` por ruta; revisar `git status` antes de cada commit |
-| 7 | Condición de carrera en el test de `EnvironmentBanner` (1 de 20 corridas) | `waitFor` sobre la clase del `<html>`; 30 corridas sin fallos | Probar los tests de front 20 o más veces antes de darlos por estables |
-| 8 | Tests asíncronos con `@pytest.mark.asyncio`, sin `pytest-asyncio` | `asyncio.run` como el resto del proyecto | Revisar cómo prueban los tests existentes antes de escribir uno |
-| 9 | La documentación del proveedor se aceptó como cierta (E-113, HTTP 400, `internal_code`, filtros) | Prueba V-5 y suite de contrato | Medir antes de decidir; marcar como «a verificar» lo inferido |
-| 10 | El cliente trataba como éxito los errores con HTTP 200 | `VirtualPOSAPIError` central y revisión de cada llamador | Todo cliente de un proveedor debe validar el cuerpo, no solo el código HTTP |
-| 11 | `retry_charge` (un GET que relanza el cobro) se reintentaba ante un timeout | `retry=False` para ese método, con test | Un GET con efectos no se reintenta |
-| 12 | `scripts/sync_virtualpos.py` y `sync_toku.py` rotos desde `master` (función renombrada) | Corregidos | Ejecutar los scripts auxiliares al renombrar funciones |
-| 13 | El primer sync del sandbox falló por suscripciones activas duplicadas que violaban un índice único | Reintento fila por fila en SAVEPOINT | Un dato malo no debe tumbar toda la sincronización |
-| 14 | `AUTH_JWT_SECRET` era el marcador público de `.env.example` | Rotado por un valor aleatorio | Comprobar que ningún valor sensible de `.env` coincida con lo versionado |
-| 15 | Mis comparadores de la suite de contrato daban falsos «drift» | Corregidos | Las pruebas de contrato también se prueban |
-| 16 | Un agente eliminó el botón «Solo ETL» en vez de apuntarlo a full-sync | Se reportó la desviación | Revisar que la implementación respete la opción elegida |
-| 17 | La Opción A se diseñó con un job que crea cobros para todos los socios; VirtualPOS crea los mensuales | Rediseño y catálogo reescrito | Confirmar el alcance con el usuario antes de diseñar una pieza grande |
-| 18 | El validador de comandos de PowerShell bloquea patrones inocentes (ver sección 3) | Reescribir sin regex ni rutas con espacios; archivos de mensaje de commit | No depender de expresiones complejas en una sola línea |
-| 19 | Apareció un `.env copy` sin versionar en la raíz | El usuario lo retiró | No dejar copias de `.env` en el árbol |
-| 20 | Un agente ejecutó Alembic sobre la base real `crm` (ver incidente) | ETL de Core, guarda de `downgrade` y regla 6 | Ningún agente corre Alembic; fijar la base antes de importar `settings` |
-| 21 | Recomendé acotar el reemplazo de un mes atrasado a su propio mes (tanda 1) sin notar que contradecía la regla del usuario de fecharlo «mañana»; el agente lo dijo y yo no lo detecté al aprobar | Se registró como DEC-30 abierta, con alternativas, y el commit lo anota | Contrastar cada decisión de diseño con las decisiones de negocio vigentes (sección 10) antes de recomendarla |
-| 22 | El script de capturas instalaba la guarda de solo lectura también en el modo `login`, que cancelaba el `POST` del inicio de sesión («Failed to fetch») | Excepción mínima: solo `POST /api/v1/auth/login` y solo en el modo `login` | La prueba «en seco» de un agente (`--help`, falla sin sesión) no ejercita el flujo real: ejecutar de punta a punta |
-| 23 | Las capturas de página completa componen mal los elementos `position: fixed` (diálogos, menú móvil) y el paso de «detalle fallida» buscaba la solicitud en la pestaña equivocada | `viewportOnly` para esas pantallas y pestaña Pendientes | No concluir un defecto de la app a partir de un artefacto de captura |
-| 24 | Un revisor dio por «no registrada» una función que sí estaba registrada (solo había un comentario desactualizado) y otros afirmaron cifras sin verificarlas | Verificación manual de cada hallazgo grave antes de pedir arreglos | Regla 9 de la sección 2 |
-| 25 | `npx tsc --noEmit` se tomó como verificación de tipos, pero el `tsconfig` raíz solo tiene referencias | `npm run build` (`tsc -b`) como verificación real | Regla 13 de la sección 2 |
-| 26 | Pytest daba `PermissionError` en `tmp_path` (47 errores falsos) | `--basetemp` en el scratchpad | Sección 3 |
-| 27 | Reiniciar el backend sandbox para ver código nuevo invalidó la sesión de Playwright (se había anunciado el riesgo) | Nuevo `login` del usuario | No reiniciar el backend sandbox en mitad de un ciclo de capturas |
+| 28 | La Opción A de cambios de cobro y otras piezas se verificaron solo con simulaciones | Barrida real de pantallas contra el backend sandbox | Complementar los mocks con una pasada real tras cada refactor de contrato |
+| 29 | Supuse que el backend de TCH pasaba «solo origen=cargo» | El agente mantuvo ambos orígenes porque el detalle de cargos existe solo en ~30 meses | Revisar el efecto sobre la conciliación antes de pedir un filtro estricto |
+| 30 | Dejé el ETL Core automático **encendido por defecto** al aprobar una tanda | Lo pasé a apagado por defecto con test | Todo lo que escribe en `crm` nace apagado |
+| 31 | Pedí commits «aparte» y «solo en verde» a la vez | Documentado | Un commit por módulo, con su test |
+| 32 | Confié en que un agente de frontend no pisaría el índice | Reglas 8 y 7 | `git add` y `git commit` encadenados, y verificar `git show --stat HEAD` |
+| 33 | Subí una captura sin mirarla primero | Se detectaron nombres a tiempo y se recortó | Mirar siempre la captura antes de subirla |
 
-## 14. Archivos y documentos clave
+## 15. Archivos y documentos clave
 
-- Plan, sprints y estado (fuente única): `docs/tasks.md`. Estado técnico: `docs/memory/PROJECT_STATE.md`. `docs/memory/CURRENT_SPRINT.md`, `docs/product/roadmap.md` y `knowledge/08 - Roadmap/Roadmap.md` son punteros. Reglas para agentes: `AGENTS.md` y `CLAUDE.md`. Diseño visual: `DESIGN.md` (tipografía, tokens, tema oscuro, reglas de gráficos).
-- **Runbook de pruebas en sandbox y decisiones:** `docs/operations/sandbox-testing-and-decisions.md` (catálogo de escenarios, clases de decisión, formato de informes, «Ciclo ejecutado»).
-- **Opción A:** diseño y escenarios en `docs/designs/facturacion-gestionada-escenarios.md`; código en `app/services/{billing_plan,billing_apply,billing_requests,billing_renewal,charge_stats}.py`, `app/api/v1/routes/billing_changes.py`, `app/models/billing.py`, `app/scheduler/jobs/billing_jobs.py`, `app/db/migration_guard.py`; frontend en `frontend/src/features/billing/`.
-- **Toku:** `app/integrations/toku/{client,write_guard}.py`, `app/services/{write_toku,toku_report_parser,toku_report_import,core_toku_etl}.py`, `app/models/toku_report.py`, `docs/integrations/toku/` (incluye la sección de guardas en `resources/authentication.md`).
-- **VirtualPOS:** `docs/integrations/virtualpos/` (cada afirmación observada en sandbox lleva su `[CLAIM:VP-Cxx]`), `VALIDATION-PLAN.md`, `tests_contract/README.md`, `app/services/write_virtualpos.py`, `app/integrations/virtualpos/client.py`, `app/services/vp_current_amount.py`.
-- **Revisión visual:** `scripts/visual/` y `scripts/sandbox/`.
-- Datos: `docs/data/` (modelos por canal y `sync-idempotency.md`). Código crítico adicional: `app/services/channel_consolidation.py`, `app/api/v1/routes/{recovery,staging,tch,sync_runs,system,writes}.py`, `app/core/config.py` (ambientes y guardas), `tests/conftest.py` (aislamiento), `frontend/src/features/{recovery,dashboard,admin,shared}/`.
-- Scripts de mantenimiento: `scripts/maintenance/` (`seed_roles.py`, backfills, comparaciones de MRR, limpieza de usuarios de prueba con borrado comentado).
+- Plan y estado: `docs/tasks.md` y `docs/planning/auditoria-2026-10-29/PLAN.md` (más los 12 informes de esa carpeta, incluidas las auditorías de idioma). Estado técnico: `docs/memory/PROJECT_STATE.md`. Reglas para agentes: `AGENTS.md` y `CLAUDE.md`. Diseño visual: `DESIGN.md` (menú de un solo nivel con Bajas, tokens azul-gris, series violeta/índigo).
+- **Runbook de pruebas en sandbox:** `docs/operations/sandbox-testing-and-decisions.md`.
+- **Opción A:** `docs/designs/facturacion-gestionada-escenarios.md`, `app/services/{billing_plan,billing_apply,billing_requests,billing_renewal,charge_stats}.py`, `app/api/v1/routes/billing_changes.py`, `app/models/billing.py`, `frontend/src/features/billing/`.
+- **Sprint 5A:** `docs/data/{status-history,rejection-details,exports,vp-reports,webhooks,alerts,tch-reload,toku-reports-load,dashboard-general,error-codes}.md`, `docs/designs/baja-cascada.md`, `docs/engineering/{appcore-extraction,i18n-frontend,identifiers-backend,summary-view,cancellations-ui,api-errors-ui}.md`.
+- Código nuevo clave: `app/services/{status_events,status_history,vp_rejection_capture,toku_rejection_codes,toku_rejection_projection,toku_failed_payments,rejection_format,exporter,export_queries,vp_report_parser,vp_report_import,subscription_refresh,cancellation_requests,cancellation_apply,dashboard_general,webhook_intake,webhook_processor,targeted_reconcile,alerts,toku_report_signals,toku_report_lifecycle,core_etl_mark,sync_metrics}.py`, `app/scheduler/run_lock.py`, `app/api/v1/routes/{changes,export,imports,cancellations,dashboard}.py`, `scripts/etl_tch.py` (recarga), `scripts/maintenance/{import_vp_reports,import_toku_reports,toku_report_lifecycle,consolidate_baseline,project_toku_rejections,materialize_toku_failed_payments}.py`, `scripts/diagnostics/parity_check.py`, `scripts/sandbox/ephemeral_user.py`.
+- Frontend: `frontend/src/i18n/`, `features/{summary,cancellations,tch,shared}/`, `components/{KpiCard,ChannelChart,Sidebar}.tsx`.
+- Datos y reportes fuente: `docs/Reportes_*/` y `C:\Users\Usuario\Downloads\CRM_reportes\` (ignorados por git, con datos personales).
 
-## 15. Archivos sin versionar que NO son nuestros
+## 16. Archivos sin versionar que NO son nuestros
 
 - `docs/designs/reconciliacion-identidad-socios.md` (documento del usuario; destino en DEC-08).
 - `Sin título.canvas`, `Sin título 1.canvas`, `graphify-out/`, `knowledge/00 - Home/2026-10-06.md`.
+- `docs/dashboardeinspiracion.png` (la imagen de referencia del usuario; en realidad es un WebP con extensión .png).
+- Ignorados por git pero presentes: `docs/Reportes_*/` (reportes con datos personales) y `app/templates/reports/virtualpos.html` (D40).
 
-## 16. Datos de prueba que quedaron en los sandboxes
+## 17. Datos de prueba que quedaron en los sandboxes
 
-**VirtualPOS (cuenta 1)**
-- `CT-CO-AUTO` (`c98d0682d8`): plan fijo «Plan Básico», ACTIVA, 12 automáticos pendientes intactos.
-- `CT-DUP1` (`d2000dd026`): ACTIVA; noviembre de 2026 reemplazado por un cobro manual de $6.500 (el automático de ese mes está cancelado).
-- Suscripciones previas usadas por la suite de contrato: una de plan fijo (`a7c5fd80d0`) y una de plan variable (`940cad2ddb`).
-- Se crean con el formulario público del plan (enlaces en `vp_plans.raw_payload->>'suscription_url'` de `crm_sandbox`) y las tarjetas de `docs/integrations/virtualpos/resources/sandbox.md`, automatizado con Playwright instalado fuera del proyecto.
+- **VirtualPOS (cuenta 1):** `CT-CO-AUTO`, `CT-DUP1` y las suscripciones de la suite de contrato (ver sección de pruebas en `tests_contract/README.md`).
+- **`crm_sandbox`:** datos sintéticos `DEMO-SUB-001` a `025` de la Opción A; clientes de VirtualPOS sandbox que parecen reales (no subir filas); migraciones `0042` a `0051` aplicadas, sin datos de bajas ni de eventos; usuarios `PW-*` solo durante una captura (se borran solos).
+- **Toku (organización sandbox):** 34 clientes, 37 suscripciones y 41 invoices preexistentes; no se creó ni se borró nada.
 
-**Billing (`crm_sandbox`)**: datos sintéticos `DEMO-SUB-001` a `DEMO-SUB-025` (ver sección 4); no hay ningún dato de billing en `crm`.
+## 18. Cómo trabajar con el usuario
 
-**Toku (organización sandbox)**: 34 clientes, 37 suscripciones y 41 invoices preexistentes (≈17 invoices y 18 suscripciones con claves `TEST-` anteriores a nuestro trabajo); no creamos ni borramos nada allí.
+- Escribe en **español** (con tildes). Es técnico y delega mucho, con control. Prefiere que el orquestador **divida el trabajo en tareas para subagentes**, los **verifique** (ruff, suites, build, lectura del código, barridas reales) y le resuma lo hecho con honestidad, admitiendo los errores.
+- **Siempre alternativas con una recomendación**, y las preguntas y aprobaciones como **fichas en la Bandeja**. Responder «acepto la recomendada» no autoriza lo que el runbook reserva al usuario (producción, push o PR, borrado, credenciales, exposición a internet).
+- **Sandbox sí, producción con cuidado.** Lo que puede afectar datos reales se avisa y se pide un «sí» explícito.
+- Las decisiones de **negocio** son suyas; las de **mecánica** puede delegarlas con una recomendación. A veces elige distinto de la recomendada (D1, D4, D19, D33 y D34 lo fueron): se respeta tal cual.
+- Idioma: visible en español, código en inglés, comentarios en español (reglas de la sección 2, punto 15).
+- **Dos proyectos, dos sesiones:** esta es el CRM; vpbase va en la otra. Si la otra sesión pide algo de su Bandeja, se atiende de inmediato y sin mezclar.
+- Mensajes de commit sin datos personales ni modelos, en archivos del scratchpad, con `git add` por ruta.
 
-## 17. Cómo trabajar con el usuario
+## 19. Primeros pasos recomendados para quien retome
 
-- Escribe en **español** (con tildes). Es técnico y delega mucho: quiere avanzar rápido con agentes, pero con control.
-- **Siempre que se le pregunte algo, dar alternativas (A, B, C) con una recomendación** y decir qué pasa con cada una. Suele responder «tus recomendaciones» o «acepto la recomendada», que significa tomar la opción A de cada pregunta pendiente. **No es una autorización para operaciones que el runbook reserva al usuario** (producción, push o PR sin pedirlo, borrado, credenciales).
-- **Sandbox sí, producción con cuidado** (regla de oro, sección 2). Si una acción toca `crm` o puede afectar datos reales, avisar y pedir un «sí» explícito.
-- Prefiere que el orquestador **divida el trabajo en tareas para subagentes**, **verifique** lo que reportan (ruff, suites, build, lectura del código y mediciones) y le resuma lo decidido. Valora que se admitan los errores con claridad.
-- Las decisiones de **negocio** (ventana de 31 días, qué es «rechazo», quién aprueba) son suyas; las de **mecánica** (tandas, nombres, orden) puede delegarlas con una recomendación.
-- Mensajes de commit sin datos personales ni modelos; archivos de mensaje en el scratchpad; `git add` por ruta.
-
-## 18. Primeros pasos recomendados para quien retome
-
-1. Leer `docs/tasks.md` (tablero, §3.2 Sprint 4, §5 decisiones) y este documento. `git status` y `git log --oneline -5`; la rama debería estar al día con `origin/sprint-4/recuperador-vp`.
-2. Verificar el entorno sin tocar nada: `GET /openapi.json` de los backends (¿rutas `/billing`?), `alembic heads` (debe dar `20261028_0041`), y la suite (`pytest -q`, con `--basetemp` si hace falta) más `npm test` y `npm run build` en `frontend/`.
-3. Preguntar al usuario por lo que lo bloquea: DEC-30, DEC-41 y las siete decisiones de gráficos; si ya corrió `seed_roles.py` en `crm`; si definió `TOKU_REPORT_HASH_PEPPER` y exportó el reporte de Deudas.
-4. Siguiente trabajo sugerido sin dependencias: **TK-19** (ruta de subida y panel de carga de reportes de Toku), luego TK-20. Cada tarea: delegar a un agente con prompt completo, exigir test en rojo primero, verificar uno mismo y commitear por ruta.
+1. Leer `docs/tasks.md` (§3.7 y §5) y este documento; `git status`, `git log --oneline -10` y confirmar la rama `sprint-5/sync-confiable` (sin remoto).
+2. Verificar sin tocar nada: `GET /openapi.json` del backend sandbox (¿`/api/v1/cancellations`, `/dashboard/general`, `/export/{entity}`?), `alembic heads` leyendo los archivos (debe dar `20261029_0051`), `pytest -q` (2043 y 2 omitidas) y, en `frontend/`, `npm test` (1214), `npm run build` y `npm run lint`.
+3. Preguntar al usuario por lo que lo bloquea (sección 13): respaldo y migraciones en `crm`, pepper de Toku y reportes, recarga de TCH, SMTP, D40 y los valores del catálogo.
+4. Siguiente trabajo sin dependencias, en este orden: **REC-04** (backend, y luego su pantalla), **UX-09** (Cobros unificado), **SYNC-O-02/05/06/09** (ventanas y niveles). Cada tarea: delegar a un agente con prompt completo, exigir el test en rojo primero, verificar uno mismo con la suite, el build y, si hay interfaz, una barrida real en el sandbox con el usuario temporal.
 5. Antes de cualquier prueba con escritura real, releer el [runbook](docs/operations/sandbox-testing-and-decisions.md) y la sección 2.
