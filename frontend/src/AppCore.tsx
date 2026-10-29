@@ -1,7 +1,6 @@
 import { Component, Suspense, useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson, putJson, deleteJson, friendlyError } from "./api";
-import { useDebouncedValue } from "./hooks";
 import { useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
 import { providerGroups, resourcePermission } from "./navigation";
@@ -12,20 +11,16 @@ import { legacyRedirectPath, parseRoute, routePath, type AppRoute, type Provider
 import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
 import type {
-  StagingRecord, StagingResponse, TableColumn, ChannelDashboard, VirtualPosClientDetail,
-  VirtualPosPlanDetail, VirtualPosSubscriptionDetail, VirtualPosChargeDetail, VirtualPosPaymentDetail,
-  ProviderRecordDetail, SortDirection, AuthSession, TchSuscripcionDetail,
+  StagingRecord, ChannelDashboard, VirtualPosClientDetail, VirtualPosPlanDetail,
+  VirtualPosSubscriptionDetail, VirtualPosChargeDetail, VirtualPosPaymentDetail, ProviderRecordDetail,
+  AuthSession, TchSuscripcionDetail,
 } from "./features/shared/types";
-import {
-  RECORDS_PAGE_SIZE, refreshCsrfToken, text, documentType, normalizeRut, isActiveSubscription,
-  isPendingCharge, isRejectedCharge, title, resourceTitle,
-} from "./features/shared/utils";
+import { refreshCsrfToken, text, documentType, normalizeRut, title, resourceTitle } from "./features/shared/utils";
 import {
   virtualPosClientEditFields, virtualPosPlanCreateFields, planDefaultValues,
   virtualPosSubscriptionCreateFields, subscriptionRequiredFields, providerEditFields, deleteEndpoint,
-  stagingFilters, filterFieldForColumn, virtualPosFieldForColumn,
+  stagingFilters,
 } from "./features/virtualpos/constants";
-import { virtualPosColumns, tokuColumns, paykuColumns } from "./features/virtualpos/columns";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { RecoveryPanel } from "./features/recovery/RecoveryPanel";
@@ -44,6 +39,8 @@ import { SubscriptionDetailView } from "./features/virtualpos/SubscriptionDetail
 import { ChargeDetailView } from "./features/virtualpos/ChargeDetailView";
 import { PaymentDetailView } from "./features/virtualpos/PaymentDetailView";
 import { ProviderRecordDetailView } from "./features/provider/ProviderRecordDetailView";
+import { useStagingRecords } from "./features/provider/useStagingRecords";
+import { StagingRecordsList } from "./features/provider/StagingRecordsList";
 import { useTch } from "./features/tch/useTch";
 import { renderTchContent } from "./features/tch/TchContent";
 
@@ -78,14 +75,6 @@ function AppCore() {
     null,
   );
   const [openProvider, setOpenProvider] = useState<string | null>("VirtualPOS");
-  const [records, setRecords] = useState<StagingResponse>({
-    items: [],
-    total: 0,
-    offset: 0,
-    limit: RECORDS_PAGE_SIZE,
-  });
-  const [recordsOffset, setRecordsOffset] = useState(0);
-  const [statusValues, setStatusValues] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [clientDetail, setClientDetail] =
     useState<VirtualPosClientDetail | null>(null);
@@ -149,22 +138,20 @@ function AppCore() {
   const [managingTokuSub, setManagingTokuSub] = useState<StagingRecord | null>(null);
   const [savingTokuSubStatus, setSavingTokuSubStatus] = useState(false);
   const [tokuSubStatusError, setTokuSubStatusError] = useState<string | null>(null);
-  const [filterField, setFilterField] = useState("");
-  const [filterQuery, setFilterQuery] = useState("");
-  const [vpColumnFilters, setVpColumnFilters] = useState<Record<string, string>>({});
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [error, setError] = useState<string | null>(null);
   const {
     channel, setChannel, channelData, setChannelData, channelLoading, setChannelLoading, channelRefreshing, syncing, mode, setMode, year, setYear, syncChannel,
   } = useChannelDashboard(session, setError);
+  const stagingList = useStagingRecords({ session, activeSection, setError, setLoading });
+  const {
+    records, setRecords, recordsOffset, setRecordsOffset, filterField, setFilterField, filterQuery, setFilterQuery, setVpColumnFilters, sortColumn, setSortColumn, sortDirection, setSortDirection, vpPlatform, setVpPlatform,
+  } = stagingList;
   const [reportScope, setReportScope] = useState<string | null>(null);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("crm-theme") as "light" | "dark") ?? "light";
   });
-  const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
   const { isEnabled: isChannelEnabled } = useEnabledChannels();
   const vp2Enabled = isChannelEnabled("virtualpos2");
   useEffect(() => {
@@ -192,8 +179,6 @@ function AppCore() {
   const {
     generalView, setGeneralView, setGeneralClientQuery, generalClientFilter, setGeneralClientFilter, generalClientOffset, setGeneralClientOffset, setGeneralClientDetail, setGeneralSubscriptionQuery, generalSubscriptionFilter, setGeneralSubscriptionFilter, generalSubscriptionOffset, setGeneralSubscriptionOffset,
   } = general;
-  const debouncedFilterQuery = useDebouncedValue(filterQuery);
-  const debouncedVpColumnFilters = useDebouncedValue(vpColumnFilters);
 
   const can = (permission: string) => (session?.user?.permissions ?? []).includes(permission);
 
@@ -212,81 +197,6 @@ function AppCore() {
   const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
 
 
-  useEffect(() => {
-    if (!session || !activeSection) return;
-    if (filterQuery !== debouncedFilterQuery) return;
-    let mounted = true;
-    const controller = new AbortController();
-    const effectiveSource =
-      activeSection.source === "virtualpos" && vpPlatform !== "all"
-        ? vpPlatform
-        : activeSection.source;
-    const params = new URLSearchParams({
-      source: effectiveSource,
-      resource_type: activeSection.resource,
-      offset: String(recordsOffset),
-      limit: String(RECORDS_PAGE_SIZE),
-    });
-    const effectiveFilterQuery = filterQuery ? debouncedFilterQuery : "";
-    if (activeSection.source === "virtualpos") {
-      for (const [field, value] of Object.entries(debouncedVpColumnFilters)) {
-        if (!value.trim()) continue;
-        if (field.endsWith("_min") || field.endsWith("_max") || field.endsWith("_from") || field.endsWith("_to")) {
-          params.set(field, value.trim());
-        } else {
-          params.append("filters", `${field}:${value.trim()}`);
-        }
-      }
-    } else if (filterField && effectiveFilterQuery.trim()) {
-      params.set("filter_field", filterField);
-      params.set("query", effectiveFilterQuery.trim());
-    }
-    const sortField = sortColumn
-      ? filterFieldForColumn(activeSection.source, activeSection.resource, sortColumn)
-      : null;
-    if (sortField) {
-      params.set("sort_field", sortField);
-      params.set("sort_direction", sortDirection);
-    }
-    const path = `/api/v1/staging/records?${params}`;
-    setLoading(true);
-    getJson<StagingResponse>(path, controller.signal)
-      .then((data) => {
-        if (mounted) {
-          setRecords((current) => recordsOffset === 0
-            ? data
-            : { ...data, items: [...current.items, ...data.items.filter((item) => !current.items.some((existing) => existing.id === item.id))] });
-        }
-      })
-      .catch((err: unknown) => {
-        if (mounted && !(err instanceof DOMException && err.name === "AbortError")) setError(friendlyError(err, "No se pudieron cargar los registros."));
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, debouncedVpColumnFilters, sortColumn, sortDirection, vpPlatform, recordsOffset]);
-
-  useEffect(() => {
-    if (!session || !activeSection || !["status", "secondary_status"].includes(filterField)) {
-      setStatusValues([]);
-      return;
-    }
-    const source = activeSection.source === "virtualpos" && vpPlatform !== "all"
-      ? vpPlatform
-      : activeSection.source;
-    const params = new URLSearchParams({
-      source,
-      resource_type: activeSection.resource,
-      filter_field: filterField,
-    });
-    getJson<{ values: string[] }>(`/api/v1/staging/records/filter-values?${params}`)
-      .then((data) => setStatusValues(data.values))
-      .catch((err: unknown) => setError(friendlyError(err, "No se pudieron cargar los estados.")));
-  }, [session, activeSection, filterField, vpPlatform]);
 
 
   useEffect(() => {
@@ -1435,25 +1345,6 @@ function AppCore() {
     replaceListSearch(params);
   }, [session, activeSection, filterField, filterQuery, sortColumn, sortDirection, recordsOffset, vpPlatform]);
 
-  const columns: TableColumn[] =
-    activeSection?.source === "virtualpos"
-      ? virtualPosColumns(activeSection.resource)
-      : activeSection?.source === "toku"
-        ? tokuColumns(activeSection.resource)
-        : activeSection?.source === "payku"
-          ? paykuColumns(activeSection.resource)
-          : [];
-  function toggleColumnSort(column: TableColumn) {
-    if (!activeSection || !filterFieldForColumn(activeSection.source, activeSection.resource, column.label)) return;
-    if (sortColumn === column.label) {
-      setRecordsOffset(0);
-      setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
-      return;
-    }
-    setRecordsOffset(0);
-    setSortColumn(column.label);
-    setSortDirection("asc");
-  }
 
   async function logout() {
     try { await postJson("/api/v1/auth/logout"); } finally {
@@ -1529,375 +1420,37 @@ function AppCore() {
       onDeleteRecord={(record, source, resourceType) => { setProviderDeleteError(null); setDeletingRecord({ record, source, resourceType }); }}
     />
   ) : null;
-  const filterOptions = activeSection
-    ? (stagingFilters[activeSection.source]?.[activeSection.resource] ?? [])
-    : [];
-  const availableStatuses = ["status", "secondary_status"].includes(filterField) ? statusValues : [];
-  const isStatusFilter = ["status", "secondary_status"].includes(filterField);
-  const filterControls = activeSection?.source === "virtualpos" ? null : filterOptions.length ? (
-    <section
-      className="record-filters"
-      aria-label={`Filtros ${activeSection?.label}`}
-    >
-      <div className="record-filters-copy">
-        <p className="eyebrow">BÚSQUEDA</p>
-        <strong>Filtrar registros</strong>
-      </div>
-      <label>
-        Campo
-        <select
-          value={filterField}
-          onChange={(event) => {
-            setFilterField(event.target.value);
-            setFilterQuery("");
-            setRecordsOffset(0);
-          }}
-        >
-          {filterOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="record-filter-query">
-        {isStatusFilter ? (filterField === "secondary_status" ? "Estado secundario" : "Estado") : "Buscar"}
-        {isStatusFilter ? (
-          <select
-            value={filterQuery}
-            onChange={(event) => { setFilterQuery(event.target.value); setRecordsOffset(0); }}
-          >
-            <option value="">Todos los estados</option>
-            {availableStatuses.map((status) => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </select>
-        ) : (
-          <input
-            value={filterQuery}
-            onChange={(event) => { setFilterQuery(event.target.value); setRecordsOffset(0); }}
-            placeholder={`Buscar por ${filterOptions.find((option) => option.value === filterField)?.label ?? "campo"}`}
-          />
-        )}
-      </label>
-      <button
-        className="clear-filter-button"
-        disabled={!filterQuery && filterField === filterOptions[0]?.value}
-        onClick={() => {
-          setFilterField(filterOptions[0]?.value ?? "");
-          setFilterQuery("");
-          setRecordsOffset(0);
-        }}
-      >
-        Restablecer
-      </button>
-    </section>
-  ) : null;
   const recoveryView = recoveryOpen ? <RecoveryPanel channel="virtualpos" can={can} /> : null;
   const billingView = billingOpen ? <BillingInbox can={can} currentUserId={session?.user.id} isAdmin={session?.user.roles.some((role) => role.name === "admin") ?? false} /> : null;
 
   const providerDetail = activeSection ? (
-    <main className="app-shell detail-page provider-page">
-      <button
-        className="back-button"
-        onClick={() => showChannel(activeSection.source)}
-      >
-        Volver al resumen {title(activeSection.source)}
-      </button>
-      <p className="eyebrow">
-        {title(activeSection.source).toUpperCase()} / STAGING
-      </p>
-      <h2>{activeSection.label}</h2>
-      {filterControls}
-      {activeSection.source === "virtualpos" ? (
-        <div className="vp-platform-filter">
-          {(["all", "virtualpos1", "virtualpos2"] as const).filter((p) => p !== "virtualpos2" || vp2Enabled).map((p) => (
-            <button
-              key={p}
-              className={`vp-platform-btn${vpPlatform === p ? " active" : ""}`}
-              onClick={() => { setVpPlatform(p); setRecordsOffset(0); }}
-            >
-              {p === "all" ? "Todas" : p === "virtualpos1" ? "VP 1" : "VP 2"}
-            </button>
-          ))}
-          <button
-            className="clear-filter-button"
-            disabled={!Object.values(vpColumnFilters).some((value) => value.trim())}
-            onClick={() => { setVpColumnFilters({}); setRecordsOffset(0); }}
-          >
-            Limpiar filtros
-          </button>
-        </div>
-      ) : null}
-      <section className="panel provider-panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">SOURCE RECORDS</p>
-            <h3>Payloads saneados almacenados localmente</h3>
-          </div>
-          <span aria-live="polite">{loading ? "Cargando" : `${records.total} registros`}</span>
-        </div>
-        {activeSection.source === "virtualpos" && activeSection.resource === "client" ? (
-          <button className="new-client-button" onClick={() => setCreatingClient(true)}>+ Nuevo cliente</button>
-        ) : null}
-        {activeSection.source === "virtualpos" && activeSection.resource === "plan" ? (
-          <button className="new-client-button" onClick={() => { setPlanFormError(null); setPlanFieldErrors({}); setPlanSaveNotice(null); setCreatingPlan(true); }}>+ Nuevo plan</button>
-        ) : null}
-        {activeSection.source === "virtualpos" && activeSection.resource === "subscription" ? (
-          <button className="new-client-button" onClick={() => { setSubscriptionFormError(null); setSubscriptionFieldErrors({}); setSubscriptionSaveNotice(null); setCreatingSubscription(true); }}>+ Nueva suscripción</button>
-        ) : null}
-        {clientSaveNotice ? <p className="success-message" role="status">{clientSaveNotice}</p> : null}
-        {planSaveNotice ? <p className="success-message" role="status">{planSaveNotice}</p> : null}
-        {subscriptionSaveNotice ? <p className="success-message" role="status">{subscriptionSaveNotice}</p> : null}
-        {chargeSaveNotice ? <p className="success-message" role="status">{chargeSaveNotice}</p> : null}
-        {error ? <p className="error-message">{error}</p> : null}
-        {!loading && !error && records.items.length === 0 ? (
-          <p>Sin registros sincronizados para este recurso.</p>
-        ) : null}
-        {records.items.length > 0 ? (
-          <div className="table-wrap">
-            <table>
-                <thead>
-                  <tr>
-                  {columns.map((column) => {
-                    const sortable = Boolean(activeSection && filterFieldForColumn(activeSection.source, activeSection.resource, column.label));
-                    const activeSort = sortColumn === column.label;
-                    return (
-                      <th
-                        key={column.label}
-                        aria-sort={activeSort ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
-                      >
-                        {sortable ? (
-                          <button
-                            className={`table-sort-button${activeSort ? " active" : ""}`}
-                            title={`Ordenar por ${column.label}${activeSort ? " en sentido inverso" : ""}`}
-                            onClick={() => toggleColumnSort(column)}
-                          >
-                            {column.label}
-                            <span className="table-sort-indicator" aria-hidden="true">
-                              {activeSort ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
-                            </span>
-                          </button>
-                        ) : column.label}
-                      </th>
-                    );
-                  })}
-                  </tr>
-                  {activeSection.source === "virtualpos" ? (
-                    <tr className="table-column-filters">
-                      {columns.map((column) => {
-                        const field = virtualPosFieldForColumn(activeSection.resource, column.label);
-                        if (!field) return <th key={column.label} />;
-                        const update = (key: string, value: string) => {
-                          setVpColumnFilters((current) => ({ ...current, [key]: value }));
-                          setRecordsOffset(0);
-                        };
-                        if (field === "amount") {
-                          return <th key={column.label} className="range-filter"><input aria-label="Monto mínimo" type="number" value={vpColumnFilters.amount_min ?? ""} onChange={(event) => update("amount_min", event.target.value)} placeholder="Mín." /><input aria-label="Monto máximo" type="number" value={vpColumnFilters.amount_max ?? ""} onChange={(event) => update("amount_max", event.target.value)} placeholder="Máx." /></th>;
-                        }
-                        if (["suscription_date", "canceled_at", "charge_date", "authorized_at"].includes(field)) {
-                          return <th key={column.label} className="range-filter"><input aria-label={`${column.label} desde`} type="date" value={vpColumnFilters.date_from ?? ""} onChange={(event) => update("date_from", event.target.value)} /><input aria-label={`${column.label} hasta`} type="date" value={vpColumnFilters.date_to ?? ""} onChange={(event) => update("date_to", event.target.value)} /></th>;
-                        }
-                        return <th key={column.label}><input aria-label={`Buscar por ${column.label}`} value={vpColumnFilters[field] ?? ""} onChange={(event) => update(field, event.target.value)} placeholder="Buscar" /></th>;
-                      })}
-                    </tr>
-                  ) : null}
-                </thead>
-              <tbody>
-                {records.items.map((record) => (
-                  <tr key={record.id}>
-                    {columns.map((column) => (
-                      <td key={column.label}>
-                        {activeSection.source === "virtualpos" &&
-                        activeSection.resource === "subscription" &&
-                        column.label === "Acciones" ? (
-                          isActiveSubscription(record) ? (
-                            <div className="table-actions-group">
-                              <button
-                                className="cancel-subscription-button cancel-subscription-button-table"
-                                onClick={() => setCancelingSubscription(record)}
-                              >
-                                Cancelar Sub
-                              </button>
-                              <button
-                                className="create-charge-button create-charge-button-table"
-                                onClick={() => { setChargeFormError(null); setChargeFieldErrors({}); setChargeSaveNotice(null); setCreatingCharge(record); }}
-                              >
-                                + Cargo
-                              </button>
-                            </div>
-                          ) : (
-                            "-"
-                          )
-                        ) : activeSection.source === "virtualpos" &&
-                          activeSection.resource === "charge" &&
-                          column.label === "ID subscripción" ? (
-                          record.subscription_id ? (
-                            <button
-                              className="record-link"
-                              aria-label={`Ver ficha de subscripción ${record.subscription_id}`}
-                              onClick={() => void openVirtualPosSubscription({ external_id: record.subscription_id! })}
-                            >
-                              {record.subscription_id}
-                            </button>
-                          ) : (
-                            <span>{column.value(record)}</span>
-                          )
-                        ) : activeSection.source === "virtualpos" &&
-                          activeSection.resource === "payment" &&
-                          column.label === "RUT cliente" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de transacción ${column.value(record)}`}
-                            onClick={() => void openVirtualPosPayment(record)}
-                          >
-                            {column.value(record)}
-                          </button>
-                        ) : activeSection.source === "virtualpos" &&
-                          activeSection.resource === "charge" &&
-                          column.label === "Acciones" ? (
-                          <div className="table-actions-group">
-                            {isPendingCharge(record) ? (
-                              <button
-                                className="cancel-charge-button"
-                                onClick={() => { setCancelChargeError(null); setCancelingCharge(record); }}
-                              >
-                                Cancelar
-                              </button>
-                            ) : isRejectedCharge(record) && can("virtualpos.charges.retry") ? (
-                              <button
-                                className="retry-charge-button"
-                                onClick={() => { setRetryChargeError(null); setRetryingCharge(record); }}
-                              >
-                                Reintentar
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : activeSection.source === "virtualpos" &&
-                          activeSection.resource === "client" &&
-                          column.label === "Acciones" ? (
-                          <button
-                            className="edit-button edit-button-table"
-                            onClick={() => setEditingClient(record)}
-                          >
-                            Editar
-                          </button>
-                        ) : activeSection.source === "virtualpos" &&
-                          activeSection.resource === "client" &&
-                          column.label === "RUT" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de cliente ${column.value(record)}`}
-                            onClick={() => void openVirtualPosClient(record)}
-                          >
-                            {column.value(record)}
-                          </button>
-                        ) : activeSection.source === "virtualpos" &&
-                          activeSection.resource === "plan" &&
-                          column.label === "Nombre" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de plan ${column.value(record)}`}
-                            onClick={() => void openVirtualPosPlan(record)}
-                          >
-                            {column.value(record)}
-                          </button>
-                        ) : activeSection.source === "virtualpos" &&
-                          activeSection.resource === "subscription" &&
-                          column.label === "RUT cliente" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de subscripción ${column.value(record)}`}
-                            onClick={() =>
-                              void openVirtualPosSubscription(record)
-                            }
-                          >
-                            {column.value(record)}
-                          </button>
-                        ) : activeSection.source === "toku" &&
-                          activeSection.resource === "customer" &&
-                          column.label === "RUT" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de cliente ${column.value(record)}`}
-                            onClick={() =>
-                              void openProviderRecord("toku", "customer", record)
-                            }
-                          >
-                            {column.value(record)}
-                          </button>
-                        ) : activeSection.source === "toku" &&
-                          column.label === "RUT cliente" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de ${activeSection.label} ${column.value(record)}`}
-                            onClick={() =>
-                              void openProviderRecord(
-                                "toku",
-                                activeSection.resource,
-                                record,
-                              )
-                            }
-                          >
-                            {column.value(record)}
-                          </button>
-                        ) : (activeSection.source === "toku" ||
-                            activeSection.source === "payku") &&
-                          column.label === "ID" ? (
-                          <button
-                            className="record-link"
-                            aria-label={`Ver ficha de ${activeSection.label} ${column.value(record)}`}
-                            onClick={() =>
-                              void openProviderRecord(
-                                activeSection.source,
-                                activeSection.resource,
-                                record,
-                              )
-                            }
-                          >
-                            {column.value(record)}
-                          </button>
-                        ) : column.label === "Acciones" ? (
-                          <div className="table-actions">
-                            {(providerEditFields[activeSection.source]?.[activeSection.resource] ?? []).length > 0 ? (
-                              <button
-                                className="edit-button edit-button-table"
-                                onClick={() => setEditingProviderRecord({ record, source: activeSection.source, resourceType: activeSection.resource })}
-                              >
-                                Editar
-                              </button>
-                            ) : null}
-                            <button
-                              className="delete-button delete-button-table"
-                              onClick={() => setDeletingRecord({ record, source: activeSection.source, resourceType: activeSection.resource })}
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        ) : column.label === "Estado sec." && record.resource_type === "subscription" ? (
-                          <span className={`badge badge-${record.secondary_status === "cobrable" ? "green" : record.secondary_status === "incobrable" ? "orange" : record.secondary_status === "inactiva" ? "gray" : "blue"}`}>{record.secondary_status ?? "—"}</span>
-                        ) : (
-                          column.value(record)
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-        {records.items.length < records.total ? (
-          <div className="table-load-more">
-            <span>Mostrando {records.items.length.toLocaleString("es-CL")} de {records.total.toLocaleString("es-CL")}</span>
-            <button disabled={loading} onClick={() => setRecordsOffset((offset) => offset + RECORDS_PAGE_SIZE)}>
-              {loading ? "Cargando..." : "Ver más"}
-            </button>
-          </div>
-        ) : null}
-      </section>
-    </main>
+    <StagingRecordsList
+      activeSection={activeSection}
+      list={stagingList}
+      loading={loading}
+      error={error}
+      vp2Enabled={vp2Enabled}
+      can={can}
+      notices={{ client: clientSaveNotice, plan: planSaveNotice, subscription: subscriptionSaveNotice, charge: chargeSaveNotice }}
+      showChannel={showChannel}
+      openVirtualPosClient={openVirtualPosClient}
+      openVirtualPosPlan={openVirtualPosPlan}
+      openVirtualPosSubscription={openVirtualPosSubscription}
+      openVirtualPosPayment={openVirtualPosPayment}
+      openProviderRecord={openProviderRecord}
+      onNewClient={() => setCreatingClient(true)}
+      onNewPlan={() => { setPlanFormError(null); setPlanFieldErrors({}); setPlanSaveNotice(null); setCreatingPlan(true); }}
+      onNewSubscription={() => { setSubscriptionFormError(null); setSubscriptionFieldErrors({}); setSubscriptionSaveNotice(null); setCreatingSubscription(true); }}
+      onEditClient={setEditingClient}
+      onCancelSubscription={setCancelingSubscription}
+      onNewCharge={(record) => { setChargeFormError(null); setChargeFieldErrors({}); setChargeSaveNotice(null); setCreatingCharge(record); }}
+      onCancelCharge={(record) => { setCancelChargeError(null); setCancelingCharge(record); }}
+      onRetryCharge={(record) => { setRetryChargeError(null); setRetryingCharge(record); }}
+      onEditRecord={(record, source, resourceType) => setEditingProviderRecord({ record, source, resourceType })}
+      onDeleteRecord={(record, source, resourceType) => setDeletingRecord({ record, source, resourceType })}
+    />
   ) : null;
+
   const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} />;
   const createRequiredFields = new Set(["first_name", "email", "social_id", "social_id_type"]);
   const createDefaultValues: Record<string, string> = { status: "ACTIVO", type: "PERSONA", social_id_type: "1" };
