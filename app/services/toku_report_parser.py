@@ -567,6 +567,9 @@ def open_report(
         meta = ReportMeta(report_type, generated, window_start, window_end, tuple(warnings), extras)
         return ParsedReport(meta, ParseStats(), wb, rows, positions, pepper, severity_lookup if severity_lookup is not None else {})
     except BaseException:
+        close_rows = getattr(locals().get("rows"), "close", None)
+        if close_rows is not None:  # libera el miembro del zip abierto (en Windows impide borrar el temporal)
+            close_rows()
         wb.close()
         raise
 
