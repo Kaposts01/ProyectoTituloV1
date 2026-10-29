@@ -12,11 +12,10 @@ import { tchExportTarget } from "../shared/exportMapping";
 import type { TchState } from "./useTch";
 
 /**
- * Contenido de las vistas TCH (resumen, listas y fichas). Se invoca como función desde AppCore
- * (no como elemento) a propósito: así un fallo de render sigue propagándose a AppCore igual que
- * antes de la extracción (ver el hallazgo de la ficha de suscripción en docs/engineering/appcore-extraction.md).
+ * Contenido de las vistas TCH (resumen, listas y fichas). Es un componente: un fallo de render
+ * queda contenido por `ContentErrorBoundary` y no tumba AppCore.
  */
-export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport, can }: {
+export function TchContent({ tch, showTch, showTchSuscripcion, onReport, can }: {
   tch: TchState;
   showTch: (view: "summary" | "clientes" | "suscripciones" | "transacciones") => void;
   showTchSuscripcion: (numeroFicha: number) => void;
@@ -181,7 +180,7 @@ export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport, c
         <p className="eyebrow">TCH / SUSCRIPCIÓN</p>
         <header className="detail-header"><div><h2>Ficha {tchSuscripcionDetail.numero_ficha}</h2><p>Mandato físico e historial de cargos.</p></div><span className={`status-pill${tchSuscripcionDetail.estado === "VIGENTE" ? "" : " status-attention"}`}>{tchSuscripcionDetail.estado}</span></header>
         <section className="detail-grid"><article className="panel"><h3>Mandato</h3><dl><dt>Inicio</dt><dd>{tchSuscripcionDetail.fecha_activacion ?? "—"}</dd><dt>Fin</dt><dd>{tchSuscripcionDetail.fecha_fin ?? "—"}</dd><dt>Motivo</dt><dd>{tchSuscripcionDetail.razon_baja ?? "—"}</dd><dt>Monto (CLP)</dt><dd>{(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto) ? `$${Number(tchSuscripcionDetail.equivalente_pesos || tchSuscripcionDetail.monto).toLocaleString("es-CL")}` : "—"}</dd><dt>Banco</dt><dd>{tchSuscripcionDetail.banco_nombre ?? "—"}</dd><dt>RUT cliente</dt><dd>{tchSuscripcionDetail.cliente_rut ?? "—"}</dd><dt>Último cobro</dt><dd>{tchSuscripcionDetail.last_paid_date ? tchSuscripcionDetail.last_paid_date.slice(0, 10) : "—"}</dd><dt>Estado sec.</dt><dd><span className={`badge badge-${tchSuscripcionDetail.secondary_status === "cobrable" ? "green" : tchSuscripcionDetail.secondary_status === "incobrable" ? "orange" : tchSuscripcionDetail.secondary_status === "inactiva" ? "gray" : "blue"}`}>{tchSuscripcionDetail.secondary_status}</span></dd></dl></article><article className="panel"><h3>Captación</h3><dl><dt>Origen</dt><dd>{tchSuscripcionDetail.origen ?? "—"}</dd><dt>Centro de costo</dt><dd>{tchSuscripcionDetail.centro_costo ?? "—"}</dd><dt>Captador</dt><dd>{tchSuscripcionDetail.captador ?? "—"}</dd><dt>Mandato</dt><dd>{tchSuscripcionDetail.numero_mandato ?? "—"}</dd><dt>Tipo de cuenta</dt><dd>{tchSuscripcionDetail.tipo_cuenta ?? "—"}</dd></dl></article></section>
-        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Historial</h3></div></div><div className="table-wrap"><table><thead><tr><th>Período</th><th>Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>{tchSuscripcionDetail.transacciones.map((t) => <tr key={t.id}><td><button className="record-link" onClick={() => showTchTransaccion(t.id)}>{t.periodo ?? "—"}</button></td><td>{t.monto ? `$${Number(t.monto).toLocaleString("es-CL")}` : "—"}</td><td>{t.fecha_cargo ?? "—"}</td><td><span className={`status-pill${t.estado === "ACEPTADA" ? "" : " status-attention"}`}>{t.estado}</span></td></tr>)}</tbody></table></div></section>
+        <section className="panel"><div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Historial</h3></div></div><div className="table-wrap"><table><thead><tr><th>Período</th><th>Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>{(tchSuscripcionDetail.transacciones ?? []).map((t) => <tr key={t.id}><td><button className="record-link" onClick={() => showTchTransaccion(t.id)}>{t.periodo ?? "—"}</button></td><td>{t.monto ? `$${Number(t.monto).toLocaleString("es-CL")}` : "—"}</td><td>{t.fecha_cargo ?? "—"}</td><td><span className={`status-pill${t.estado === "ACEPTADA" ? "" : " status-attention"}`}>{t.estado}</span></td></tr>)}</tbody></table></div></section>
       </main>
     ) : tchView === "transaccion-detalle" && tchTransaccionDetail ? (
       <main className="app-shell">

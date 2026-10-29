@@ -39,7 +39,7 @@ import { VirtualPosWriteDialogs } from "./features/virtualpos/VirtualPosWriteDia
 import { useProviderWrites } from "./features/provider/useProviderWrites";
 import { ProviderWriteDialogs } from "./features/provider/ProviderWriteDialogs";
 import { useTch } from "./features/tch/useTch";
-import { renderTchContent } from "./features/tch/TchContent";
+import { TchContent } from "./features/tch/TchContent";
 
 
 class ContentErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -263,7 +263,7 @@ function AppCore() {
       return;
     }
     showTch("suscripciones", false);
-    setTchSuscripcionDetail({ numero_ficha: numeroFicha } as TchSuscripcionDetail);
+    setTchSuscripcionDetail({ numero_ficha: numeroFicha, transacciones: [] } as unknown as TchSuscripcionDetail);
     setTchView("suscripcion-detalle");
   }
 
@@ -584,7 +584,7 @@ function AppCore() {
 
   const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} can={can} />;
 
-  const tchContent = renderTchContent({ tch, showTch, showTchSuscripcion, onReport: setReportScope, can });
+  const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSuscripcion={showTchSuscripcion} onReport={setReportScope} can={can} /> : null;
 
   const content = detailLoading ? (
     <main className="app-shell">

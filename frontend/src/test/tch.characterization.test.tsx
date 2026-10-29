@@ -4,7 +4,7 @@
  * la vista a `features/tch`. Datos sintéticos.
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp } from "./appHarness";
 
 afterEach(resetApp);
@@ -149,19 +149,42 @@ describe("TCH: suscripciones (/tch/suscripciones)", () => {
     expect(await screen.findByText("Sin registros.")).toBeTruthy();
   });
 
-  // HALLAZGO (UX-04, sin corregir): al abrir la ficha, AppCore pinta un detalle provisional
-  // `{ numero_ficha }` sin `transacciones` antes de que llegue la respuesta, y el JSX hace
-  // `transacciones.map(...)`: el render de AppCore lanza TypeError (la ficha de suscripción TCH
-  // no se puede abrir). Esta prueba fija el comportamiento actual para que la extracción no lo
-  // cambie por accidente; al corregirlo, reemplazarla por una que verifique el detalle.
-  it("HALLAZGO: abrir la ficha provoca un TypeError de render (detalle provisional sin transacciones)", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mountApp("/tch/suscripciones", [["GET", "/api/v1/tch/suscripciones", list]]);
+  // Hallazgo 1 de UX-04 (corregido): antes, el detalle provisional `{ numero_ficha }` no traía
+  // `transacciones` y el JSX hacía `.map` sobre `undefined`: la ficha lanzaba TypeError y no se podía abrir.
+  it("la ficha de una suscripción se abre, pide /tch/suscripciones/{ficha} y muestra mandato y cargos (antes: TypeError)", async () => {
+    const detail = { ...sub(1), transacciones: [trx(1), trx(2, { estado: "RECHAZADA", periodo: "2025-04" })] };
+    const app = mountApp("/tch/suscripciones", [
+      ["GET", "/api/v1/tch/suscripciones", list],
+      ["GET", "/api/v1/tch/suscripciones/1001", detail],
+    ]);
     await appReady();
-    const ficha = await screen.findByRole("button", { name: "1001" });
-    expect(() => fireEvent.click(ficha)).toThrow(TypeError);
+    fireEvent.click(await screen.findByRole("button", { name: "1001" }));
     expect(window.location.pathname).toBe("/tch/suscripciones/1001");
-    errorSpy.mockRestore();
+    expect(await screen.findByText("TCH / SUSCRIPCIÓN")).toBeTruthy();
+    expect(await screen.findByText("Ficha 1001")).toBeTruthy();
+    expect(screen.getByText("Mandato físico e historial de cargos.")).toBeTruthy();
+    expect(screen.getByText("Historial")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2025-03" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2025-04" })).toBeTruthy();
+    expect(screen.getByText("RECHAZADA").className).toContain("status-attention");
+    expect(app.find("GET", "/api/v1/tch/suscripciones/1001").length).toBeGreaterThan(0);
+    await listSettled();
+    expect(contentHtml()).toMatchSnapshot();
+    fireEvent.click(screen.getByRole("button", { name: "← Suscripciones TCH" }));
+    expect(await screen.findByText("Mandatos activos e históricos de débito físico.")).toBeTruthy();
+  });
+
+  it("la ficha de una suscripción no falla si la respuesta no trae cargos", async () => {
+    mountApp("/tch/suscripciones/1001", [["GET", "/api/v1/tch/suscripciones/1001", sub(1)]]);
+    await appReady();
+    expect(await screen.findByText("Ficha 1001")).toBeTruthy();
+    expect(screen.getByText("Historial")).toBeTruthy();
+  });
+
+  it("si falla la carga de la ficha de suscripción muestra el error", async () => {
+    mountApp("/tch/suscripciones/1001", [["GET", "/api/v1/tch/suscripciones/1001", failWith(500, "ficha rota")]]);
+    await appReady();
+    expect(await screen.findByText("ficha rota")).toBeTruthy();
   });
 });
 
