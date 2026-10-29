@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { label } from "../../i18n/label";
 import { groupAlerts, normalizeSev, type AlertSev } from "./alertGroups";
 import type { DashboardAlert } from "../shared/types";
 
@@ -21,7 +22,7 @@ export const ALERT_GROUPS_VISIBLE = 5;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 function SevBadge({ sev }: { sev: AlertSev }) {
-  return <span className={`alert-sev alert-sev-${sev}`}>{sev}</span>;
+  return <span className={`alert-sev alert-sev-${sev}`}>{label("severity", sev)}</span>;
 }
 
 export function OperationalAlerts({
@@ -103,7 +104,7 @@ export function OperationalAlerts({
           <div className="alert-detail-table-wrap">
             <table className="alert-detail-table">
               <thead><tr><th>RUT</th><th>ID suscripción</th><th>Estado</th><th>Monto</th><th>Fecha suscripción</th>{alertDetail[0]?.ultimo_cobro !== undefined && <th>Último cobro</th>}{alertDetail[0]?.ultimo_estado !== undefined && <th>Estado último cobro</th>}{alertDetail[0]?.intentos !== undefined && <th>Intentos</th>}</tr></thead>
-              <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td className="mono">{item.rut ?? "—"}</td><td className="alert-detail-id mono">{item.external_id ?? "—"}</td><td>{item.status ?? "—"}</td><td className="mono" style={{ textAlign: "right" }}>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td className="mono">{item.suscription_date?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.ultimo_cobro !== undefined && <td className="mono">{item.ultimo_cobro?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.ultimo_estado !== undefined && <td>{item.ultimo_estado ?? "—"}</td>}{alertDetail[0]?.intentos !== undefined && <td className="mono">{item.intentos}</td>}</tr>)}</tbody>
+              <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td className="mono">{item.rut ?? "—"}</td><td className="alert-detail-id mono">{item.external_id ?? "—"}</td><td>{item.status ? label("status", item.status) : "—"}</td><td className="mono" style={{ textAlign: "right" }}>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td className="mono">{item.suscription_date?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.ultimo_cobro !== undefined && <td className="mono">{item.ultimo_cobro?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.ultimo_estado !== undefined && <td>{item.ultimo_estado ? label("status", item.ultimo_estado) : "—"}</td>}{alertDetail[0]?.intentos !== undefined && <td className="mono">{item.intentos}</td>}</tr>)}</tbody>
             </table>
             <p className="alert-detail-count">{alertDetail.length} registro{alertDetail.length !== 1 ? "s" : ""}</p>
           </div>

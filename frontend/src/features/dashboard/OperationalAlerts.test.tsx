@@ -71,7 +71,7 @@ describe("OperationalAlerts", () => {
     render(<OperationalAlerts alerts={[{ sev: "alta", tipo: "T1", canal: "A", detalle: "1" }, { sev: "baja", tipo: "T2", canal: "B", detalle: "1" }, { sev: "media", tipo: "T3", canal: "C", detalle: "1" }]} />);
     const list = screen.getByRole("list", { name: "Alertas operativas" });
     for (const g of within(list).getAllByTestId("alert-group")) {
-      expect(within(g).getByText(/^(alta|media|baja)$/)).toBeInTheDocument();
+      expect(within(g).getByText(/^(Alta|Media|Baja)$/)).toBeInTheDocument();
     }
   });
 
@@ -93,5 +93,23 @@ describe("OperationalAlerts", () => {
     const rules = readFileSync("src/App.css", "utf8").split("}").filter((r) => /\.dashboard-alert/.test(r.split("{")[0]));
     expect(rules.length).toBeGreaterThan(0);
     for (const r of rules) expect(r).not.toMatch(/border-left/);
+  });
+});
+
+describe("textos en español (paso 9)", () => {
+  it("la severidad se escribe con mayúscula inicial y una desconocida cae a «Baja»", () => {
+    render(<OperationalAlerts alerts={[{ sev: "alta", tipo: "T1", canal: "A", detalle: "1" }, { sev: "zz" as never, tipo: "T2", canal: "B", detalle: "1" }]} />);
+    expect(screen.getAllByText("Alta").length).toBeGreaterThan(0);
+    expect(screen.getByText("Baja")).toBeInTheDocument();
+    expect(screen.queryByText("alta", { selector: ".alert-sev" })).toBeNull();
+  });
+
+  it("el detalle de una alerta traduce el estado y el estado del último cobro", async () => {
+    const loadDetail = vi.fn().mockResolvedValue([{ external_id: "s1", rut: "11111111-1", status: "ACTIVE", amount: 1000, suscription_date: "2025-01-01", ultimo_cobro: "2025-03-01", ultimo_estado: "FAILED", intentos: 2 }]);
+    render(<OperationalAlerts alerts={[{ id: "abc", sev: "alta", tipo: "T", canal: "Toku", detalle: "1" }]} loadDetail={loadDetail} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ver más" }));
+    expect(await screen.findByText("Activa")).toBeInTheDocument();
+    expect(screen.getByText("Fallido")).toBeInTheDocument();
+    expect(screen.queryByText("ACTIVE")).toBeNull();
   });
 });

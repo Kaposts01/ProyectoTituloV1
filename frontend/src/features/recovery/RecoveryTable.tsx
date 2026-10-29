@@ -1,3 +1,4 @@
+import { labelOr } from "../../i18n/label";
 import { clpOrDash } from "./format";
 import { recoveryAmount, recoveryDisplay, recoveryNestedValue, recoveryRowKey, recoveryValue, text } from "../shared/utils";
 import type { RecoveryRow } from "../shared/types";
@@ -46,7 +47,7 @@ export function RecoveryTable({ tab, group, items, selected, submitting, canRetr
       <th>Cuenta</th>
       <th>Monto</th>
       {showVigente ? <th>Monto vigente (último cobrado)</th> : null}
-      {showRejection ? <><th>Código</th><th>Motivo de rechazo</th><th>Fecha de rechazo</th></> : null}
+      {showRejection ? <><th>Código</th><th>Motivo de rechazo (Texto del proveedor)</th><th>Fecha de rechazo</th></> : null}
       {tab === "history" ? <><th>Resultado</th><th>Fecha conciliación</th></> : null}
       {tab === "retry" || tab === "card" ? <th>Acción</th> : null}
     </tr></thead><tbody>
@@ -62,15 +63,15 @@ export function RecoveryTable({ tab, group, items, selected, submitting, canRetr
             {tab === "cancelled" ? <td className="mono">{text(recoveryValue(item, "rut"), "—")}</td> : null}
             <td>{recoveryDisplay(client)}</td>
             <td className="mono">{text(dateValue(item, tab, group), "—")}</td>
-            <td>{text(recoveryValue(item, "account", "source"), "—")}</td>
+            <td>{labelOr("channel", recoveryValue(item, "account", "source"), "—")}</td>
             <td className="mono">{monto !== undefined ? clpOrDash(monto) : recoveryAmount(item)}</td>
             {showVigente ? <td className="mono">{clpOrDash(recoveryValue(item, "monto_vigente"))}</td> : null}
             {showRejection ? <>
               <td className="mono">{text(recoveryValue(item, "rejection_code"), "—")}</td>
-              <td>{text(recoveryValue(item, "rejection_reason", "reason"), "—")}</td>
+              <td data-raw-text>{text(recoveryValue(item, "rejection_reason", "reason"), "—")}</td>
               <td className="mono">{text(recoveryValue(item, "rejection_at"), "—")}</td>
             </> : null}
-            {tab === "history" ? <><td>{text(recoveryValue(item, "result"), "—")}</td><td className="mono">{text(recoveryValue(item, "observed_at"), "—")}</td></> : null}
+            {tab === "history" ? <><td>{labelOr("reconcileResult", recoveryValue(item, "result"), "—")}</td><td className="mono">{text(recoveryValue(item, "observed_at"), "—")}</td></> : null}
             {tab === "retry" ? <td>{canRetry ? <button className="secondary-button" disabled={submitting} onClick={() => onRetry(item)}>Reintentar</button> : "—"}</td> : null}
             {tab === "card" ? <td>{canChangeCard ? <button className="secondary-button" disabled={submitting || !subscription} onClick={() => onCardLink(item)}>Generar enlace</button> : "—"}</td> : null}
           </tr>

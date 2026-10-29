@@ -354,6 +354,14 @@ export const es = {
    * se muestra «Desconocido (valor)» y el usuario define la traducción.
    */
   gateway: {} as Record<string, string>,
+  /** Resultado de la conciliación de un cargo reintentado (recuperador). */
+  reconcileResult: {
+    cobrado: "Cobrado",
+    "no cobrado": "No cobrado",
+    "rechazado inmediato": "Rechazado de inmediato",
+    "pendiente de conciliacion": "Pendiente de conciliación",
+    "en seguimiento": "En seguimiento",
+  },
   /** Gravedad de una alerta operativa. */
   severity: {
     alta: "Alta",

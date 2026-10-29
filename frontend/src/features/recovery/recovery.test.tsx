@@ -86,12 +86,29 @@ describe("RecoveryTable", () => {
   it("renderiza columnas nuevas con montos en mono", () => {
     const item = { source: "virtualpos1", account: "virtualpos1", external_id: "c1", subscription_id: "s1", client_name: "Cliente X", monto: 12500, monto_vigente: 9900, rejection_code: "51", rejection_reason: "Fondos insuficientes", rejection_at: "2026-02-03", charge_date: "2026-02-03" };
     render(<RecoveryTable tab="retry" group="inactiva" items={[item]} selected={new Set()} submitting={false} canRetry canChangeCard={false} onToggle={() => {}} onToggleAll={() => {}} onRetry={() => {}} onCardLink={() => {}} />);
-    for (const h of ["Cuenta", "Monto vigente (último cobrado)", "Motivo de rechazo", "Fecha de rechazo", "Código"]) expect(screen.getByText(h)).toBeTruthy();
+    for (const h of ["Cuenta", "Monto vigente (último cobrado)", "Motivo de rechazo (Texto del proveedor)", "Fecha de rechazo", "Código"]) expect(screen.getByText(h)).toBeTruthy();
     const row = screen.getAllByRole("row")[1];
     expect(within(row).getByText("$12.500").className).toContain("mono");
     expect(within(row).getByText("$9.900").className).toContain("mono");
     expect(within(row).getByText("51").className).toContain("mono");
     expect(within(row).getByText("Fondos insuficientes")).toBeTruthy();
+    // Excepción documentada: el motivo del proveedor va crudo y marcado.
+    expect(within(row).getByText("Fondos insuficientes").closest("[data-raw-text]")).not.toBeNull();
     expect(within(row).getAllByText("2026-02-03").length).toBe(2);
+    // La cuenta se ve con el nombre del canal, no con el identificador.
+    expect(within(row).getByText("VirtualPOS 1")).toBeTruthy();
+    expect(within(row).queryByText("virtualpos1")).toBeNull();
+  });
+
+  it("historial: el resultado de la conciliación se ve en español y uno desconocido se marca", () => {
+    const base = { source: "virtualpos2", account: "virtualpos2", subscription_id: "s1", client_name: "Cliente X", monto: 1000, requested_at: "2026-02-03" };
+    const items = [
+      { ...base, external_id: "c1", result: "cobrado" }, { ...base, external_id: "c2", result: "no_cobrado" },
+      { ...base, external_id: "c3", result: "rechazado_inmediato" }, { ...base, external_id: "c4", result: "pendiente_de_conciliacion" },
+      { ...base, external_id: "c5", result: "en_seguimiento" }, { ...base, external_id: "c6", result: "zz_nuevo" },
+    ];
+    render(<RecoveryTable tab="history" group="inactiva" items={items} selected={new Set()} submitting={false} canRetry={false} canChangeCard={false} onToggle={() => {}} onToggleAll={() => {}} onRetry={() => {}} onCardLink={() => {}} />);
+    for (const text of ["Cobrado", "No cobrado", "Rechazado de inmediato", "Pendiente de conciliación", "En seguimiento", "Desconocido (zz_nuevo)"]) expect(screen.getByText(text)).toBeTruthy();
+    expect(screen.getAllByText("VirtualPOS 2").length).toBe(6);
   });
 });
