@@ -22,7 +22,7 @@ export const ALL_PERMISSIONS = [
 
 export type Call = { method: string; path: string; query: URLSearchParams; url: string; body: unknown };
 export type Reply = unknown | { __status: number; body: unknown };
-export type Handler = [method: string, match: string | RegExp, reply: Reply | ((call: Call) => Reply)];
+export type Handler = [method: string, match: string | RegExp, reply: Reply | ((call: Call) => Reply | Promise<Reply>)];
 
 export const failWith = (status: number, detail: string): Reply => ({ __status: status, body: { detail } });
 
@@ -52,6 +52,8 @@ export interface Mounted {
   calls: Call[];
   /** Peticiones hechas con el método y el prefijo de ruta indicados. */
   find: (method: string, pathPrefix: string) => Call[];
+  /** Peticiones a exactamente esa ruta (sin contar rutas que la tienen como prefijo). */
+  exact: (method: string, path: string) => Call[];
 }
 
 /**
@@ -78,7 +80,7 @@ export function mountApp(path: string, handlers: Handler[] = [], options: { perm
     calls.push(call);
     const entry = table.find(([m, match]) => m === method && (typeof match === "string" ? match === parsed.pathname : match.test(parsed.pathname)));
     if (!entry) return response(404, { detail: `sin simular: ${method} ${parsed.pathname}` });
-    const reply = typeof entry[2] === "function" ? (entry[2] as (c: Call) => Reply)(call) : entry[2];
+    const reply = await (typeof entry[2] === "function" ? (entry[2] as (c: Call) => Reply | Promise<Reply>)(call) : entry[2]);
     if (reply && typeof reply === "object" && "__status" in reply) {
       const failure = reply as { __status: number; body: unknown };
       return response(failure.__status, failure.body);
@@ -87,7 +89,7 @@ export function mountApp(path: string, handlers: Handler[] = [], options: { perm
   }));
   window.history.replaceState({}, "", path);
   render(<AppCore />);
-  return { calls, find: (method, prefix) => calls.filter((c) => c.method === method && c.path.startsWith(prefix)) };
+  return { calls, find: (method, prefix) => calls.filter((c) => c.method === method && c.path.startsWith(prefix)), exact: (method, path) => calls.filter((c) => c.method === method && c.path === path) };
 }
 
 export function resetApp() {
@@ -114,7 +116,8 @@ export const synthetic = {
 function normalizeHtml(html: string): string {
   return html
     .replace(/recharts\d+/g, "recharts#")
-    .replace(/min="\d{4}-\d{2}-\d{2}"/g, 'min="HOY"');
+    .replace(/min="\d{4}-\d{2}-\d{2}"/g, 'min="HOY"')
+    .replace(/\d{1,2}-\d{1,2}-\d{4}, \d{1,2}:\d{2}:\d{2}( [ap]\. ?m\.)?/g, "FECHA-HORA");
 }
 
 /** HTML del área de contenido (sin barra lateral), para comparar el marcado antes y después de mover código. */
@@ -127,4 +130,12 @@ export function contentHtml(): string {
     parts.push(node.outerHTML);
   });
   return normalizeHtml(parts.join("\n"));
+}
+
+/** Botón de primer nivel del menú lateral (los grupos de proveedor repiten rótulos como «Clientes»). */
+export function navTop(label: string): HTMLElement {
+  const nav = document.querySelector(".sidebar-nav") as HTMLElement;
+  const found = Array.from(nav.querySelectorAll(":scope > button")).find((b) => b.textContent?.trim() === label);
+  if (!found) throw new Error(`Sin botón de menú «${label}»`);
+  return found as HTMLElement;
 }
