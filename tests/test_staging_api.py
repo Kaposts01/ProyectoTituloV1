@@ -16,6 +16,7 @@ from app.models.tch import (
     TchSuscripcion,
     TchTransaccion,
 )
+from app.services import rejected_month
 from app.services.channel_store import (
     extract_payku_subscription,
     extract_payku_transaction,
@@ -267,7 +268,9 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
     assert {entry["status"] for entry in response["activations_monthly"] if entry["year"] == 2099} >= {"Payku", "TCH"}
 
 
-def test_pending_payments_counts_only_explicit_pending_charges(db_session) -> None:
+def test_pending_payments_counts_only_explicit_pending_charges(db_session, monkeypatch) -> None:
+    # Los cobros de prueba llevan fecha 2099: "hoy" (Chile) se fija despues para que no sean futuros (VP-PAR-10).
+    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2099, 12, 31, 12, tzinfo=rejected_month.CHILE_TZ))
     # Antes 'in_progress' (estado no terminal desconocido) contaba como pendiente; ahora solo estados
     # explicitamente pendientes (pendiente/pending/procesando). Ver tests/test_dashboard_data_integrity.py.
     staging.invalidate_dashboard_cache()

@@ -17,6 +17,7 @@ from app.db.session import SessionLocal
 from app.models.auth import User
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.tch import TchSuscripcion, TchTransaccion
+from app.services.charge_stats import chile_today, is_future_charge
 from app.services.rbac import permission_codes, source_permission
 
 router = APIRouter()
@@ -196,6 +197,7 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
             .group_by(Charge.source, Charge.subscription_external_id)
         )
     }
+    today_chile = chile_today()
     active_count_by_month = []
     churn = []
     altas, bajas = [], []
@@ -215,8 +217,10 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
         statuses = charge_by_month[month]
         paid = [charge for charge in statuses if _status(charge.status) == "Aceptadas"]
         rejected = [charge for charge in statuses if _status(charge.status) == "Rechazadas"]
-        cancelled = [charge for charge in statuses if str(charge.status or "").lower() == "cancelado"]
-        processing = [charge for charge in statuses if str(charge.status or "").lower() in {"pendiente", "procesando"}]
+        # VP-PAR-10: un cobro con fecha posterior a hoy (Chile) no es un cancelado ni un pendiente reales.
+        past = [charge for charge in statuses if not is_future_charge(charge.charge_date, today_chile)]
+        cancelled = [charge for charge in past if str(charge.status or "").lower() == "cancelado"]
+        processing = [charge for charge in past if str(charge.status or "").lower() in {"pendiente", "procesando"}]
         altas.append(len(month_subs))
         bajas.append(len(month_cancellations))
         active_count_by_month.append(active_end)

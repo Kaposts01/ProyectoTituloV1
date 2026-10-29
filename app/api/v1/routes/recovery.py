@@ -24,6 +24,7 @@ from app.models.core import CoreCharge
 from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.write_run import WriteRun
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
+from app.services.charge_stats import chile_today, counts_in_universe
 from app.services.rbac import permission_codes
 from app.services.read_only_provider_sync import safe_error_message
 from app.services.rejection_format import format_rejection_reason
@@ -153,8 +154,13 @@ def _core_rejections(db: Session) -> dict[tuple[str, str], CoreCharge]:
     return {(c.source, c.external_id): c for c in db.scalars(query)}
 
 
-def _charge_stats(charges: list[Charge]) -> dict[tuple[str, str], dict]:
-    """Per subscription: attempts, last paid date/amount and last rejected charge."""
+def _charge_stats(charges: list[Charge], today: date | None = None) -> dict[tuple[str, str], dict]:
+    """Per subscription: attempts, last paid date/amount and last rejected charge.
+
+    `attempts` cuenta solo cobros con fecha <= hoy (Chile) y no cancelados/expirados/anulados (VP-PAR-10): los
+    cobros programados que VirtualPOS deja `cancelado` al dar de baja una suscripcion no son intentos.
+    """
+    today = today or chile_today()
     stats: dict[tuple[str, str], dict] = {}
     for charge in charges:
         if not charge.subscription_external_id:
@@ -163,7 +169,8 @@ def _charge_stats(charges: list[Charge]) -> dict[tuple[str, str], dict]:
             (charge.source, charge.subscription_external_id),
             {"attempts": 0, "last_paid": None, "paid_amount": None, "last_rejected": None},
         )
-        item["attempts"] += 1
+        if counts_in_universe(charge.status, charge.charge_date, today):
+            item["attempts"] += 1
         cdate = str(charge.charge_date or "")
         status = str(charge.status or "").strip().lower()
         if status in PAID_STATUSES and (item["last_paid"] is None or cdate > item["last_paid"]):

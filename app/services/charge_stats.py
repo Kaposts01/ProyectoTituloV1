@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable
 from datetime import date
 from typing import Any
 
+from app.services import rejected_month
 from app.services.billing_plan import CANCELLED_STATES, PENDING_STATES, norm_state
 
 PAID_STATES = frozenset({"pagado", "pago", "aceptado", "accepted", "paid", "success", "aprobada", "aceptada"})
@@ -47,6 +48,27 @@ def parse_charge_date(value: Any) -> date | None:
         return date(int(match.group(1)), int(match.group(2)), int(match.group(3) or 1))
     except ValueError:
         return None
+
+
+def chile_today() -> date:
+    """Hoy en America/Santiago (el reloj unico del proyecto, `rejected_month.now_chile`)."""
+    return rejected_month.now_chile().date()
+
+
+def is_future_charge(charge_date: Any, today: date) -> bool:
+    """True si la fecha de cobro es POSTERIOR a hoy (hora de Chile). Sin fecha parseable no es futuro.
+
+    VirtualPOS programa los cobros de los proximos meses y, al cancelar una suscripcion, los deja `cancelado`
+    con fecha futura (VP-PAR-10): no ocurrieron, asi que no son cancelados reales ni pendientes por cobrar.
+    """
+    day = parse_charge_date(charge_date)
+    return day is not None and day > today
+
+
+def counts_in_universe(status: Any, charge_date: Any, today: date) -> bool:
+    """Universo comun de KPIs y alertas: fecha de cobro <= hoy y estado distinto de cancelado/expirado/anulado."""
+    day = parse_charge_date(charge_date)
+    return day is not None and day <= today and charge_outcome(status) != "excluded"
 
 
 def charge_rejection_stats(

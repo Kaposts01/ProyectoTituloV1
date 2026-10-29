@@ -23,6 +23,7 @@ from app.models.auth import Permission, Role, User
 from app.models.core import CoreCharge
 from app.models.crm import Charge, Client, Subscription
 from app.models.write_run import WriteRun
+from app.services import rejected_month
 from app.services.rbac import seed_permissions
 from app.services.vp_rejection_codes import format_rejection_reason
 from tests.test_charge_recovery import db_session  # noqa: F401  (fixture)
@@ -61,7 +62,9 @@ def test_rejected_rows_prefer_core_rejection_and_fallback_to_raw_payload(db_sess
     assert rows["rec03-unknown"]["rejection_reason"] == "-7777"
 
 
-def test_filters_apply_globally_and_monto_vigente(db_session: Session) -> None:  # noqa: F811
+def test_filters_apply_globally_and_monto_vigente(db_session: Session, monkeypatch) -> None:  # noqa: F811
+    # Los cobros de prueba llevan fecha 2099: "hoy" (Chile) se fija despues para que no sean futuros (VP-PAR-10).
+    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2099, 12, 31, 12, tzinfo=rejected_month.CHILE_TZ))
     db_session.add_all([
         Subscription(source="virtualpos1", external_id="rec03-sub", status="activa", amount="5000", suscription_date="2098-01-01"),
         Charge(source="virtualpos1", external_id="rec03-paid", subscription_external_id="rec03-sub", status="pagado", charge_date="2020-01-01", amount="7000"),

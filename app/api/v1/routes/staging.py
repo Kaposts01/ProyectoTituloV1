@@ -31,8 +31,10 @@ from app.services import rejected_month
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_stats import (
     PENDING_DASHBOARD_STATES,
+    charge_outcome,
     charge_rejection_stats,
     fmt_pct,
+    is_future_charge,
     rejection_stats_by,
 )
 from app.services.payku_sync import sync_payku
@@ -415,7 +417,10 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
             bucket["count"] += count
             bucket["amount"] += _amount(total_amount)
 
+    today = rejected_month.now_chile().date()  # hora Chile (punto unico monkeypatcheable)
+
     # ── Deudas mensuales por canal (CCharge) ─────────────────────────────
+    # VP-PAR-10: sin cobros futuros (fecha > hoy) ni cancelados/expirados/anulados, que no son deuda ni rechazo.
     charge_amount = case(
         (CCharge.amount.op("~")(r"^\d+(\.\d+)?$"), cast(CCharge.amount, Numeric)),
         else_=0,
@@ -426,11 +431,15 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
 
     for source, period, raw_status, count, total_amount in db.execute(
         select(CCharge.source, charge_period_col, CCharge.status, func.count(), func.coalesce(func.sum(charge_amount), 0))
-        .where(CCharge.source.in_((*_VP_SRCS, "toku", "payku")), CCharge.charge_date.op("~")(r"^\d{4}-\d{2}"))
+        .where(
+            CCharge.source.in_((*_VP_SRCS, "toku", "payku")),
+            CCharge.charge_date.op("~")(r"^\d{4}-\d{2}"),
+            func.substring(CCharge.charge_date, 1, 10) <= today.isoformat(),
+        )
         .group_by(CCharge.source, charge_period_col, CCharge.status)
     ).all():
         month = _month(period)
-        if month:
+        if month and charge_outcome(raw_status) != "excluded":
             cs = "pagada" if _general_transaction_status(raw_status) == "Aceptadas" else "rechazada"
             charge_months[(*month, source_labels[source], cs)]["count"] += count
             charge_months[(*month, source_labels[source], cs)]["amount"] += _amount(total_amount)
@@ -504,7 +513,6 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     ]
 
     # ── Alertas operativas (calculadas desde datos ya cargados) ───────────
-    today = rejected_month.now_chile().date()  # hora Chile (punto unico monkeypatcheable)
     dashboard_alerts: list[dict[str, Any]] = []
 
     # 1 y 3. Rechazo por canal/mes y global (3 meses): UNICA definicion sobre cargos (charge_stats),
@@ -539,12 +547,15 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
             })
 
     # ── Nuevos KPIs (EPIC-B) ─────────────────────────────────────────────────
-    # Pendiente = estado EXPLICITAMENTE pendiente (pendiente/pending/procesando/processing, normalizado).
+    # Pendiente = estado EXPLICITAMENTE pendiente (pendiente/pending/procesando/processing, normalizado)
+    # y con fecha de cobro <= hoy (Chile).
     # Antes se contaba todo lo que no fuera pagado/rechazado, y entraban cancelados y expirados.
     pending_payments: int = db.scalar(
         select(func.count()).select_from(CCharge).where(
             CCharge.source.in_((*_VP_SRCS, "toku", "payku")),
             func.lower(func.trim(CCharge.status)).in_(tuple(PENDING_DASHBOARD_STATES)),
+            # Un cobro programado a futuro no es un pendiente por cobrar (VP-PAR-10).
+            func.substring(CCharge.charge_date, 1, 10) <= today.isoformat(),
         )
     ) or 0
 
@@ -1068,7 +1079,7 @@ def _vp_centralized_alerts(
     Recibe sets precomputados para evitar queries duplicadas con _vp_centralized_dashboard.
     """
     alerts: list[dict[str, Any]] = []
-    today = datetime.now(tz=timezone.utc).date()
+    today = rejected_month.now_chile().date()  # hora Chile; cobros futuros fuera (VP-PAR-10)
 
     # 1. Suscripciones activas sin cobro exitoso en los últimos 6 meses (sin queries extra)
     cobrable_active = recently_paid_ids & active_sub_ids
@@ -1098,11 +1109,17 @@ def _vp_centralized_alerts(
                     func.lower(CSub.status) == "activa",
                 ),
             )
-            .where(CCharge.source.in_(sources), CCharge.charge_date >= three_months_ago)
+            .where(
+                CCharge.source.in_(sources),
+                CCharge.charge_date >= three_months_ago,
+                func.substring(CCharge.charge_date, 1, 10) <= today.isoformat(),
+            )
             .order_by(CCharge.subscription_external_id, CCharge.charge_date.desc().nullslast())
         ).all()
         last_charges: defaultdict[str, list[str]] = defaultdict(list)
         for sub_id, status in streak_rows:
+            if charge_outcome(status) == "excluded":  # un cancelado/expirado/anulado no es un intento de cobro
+                continue
             if len(last_charges[sub_id]) < 3:
                 last_charges[sub_id].append(str(status or "").lower())
         streak_count = sum(
@@ -1168,6 +1185,7 @@ def _rejected_current_month(
 
 
 def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
+    today = rejected_month.now_chile().date()  # hora Chile; los cobros futuros no entran (VP-PAR-10)
     charges_monthly: dict[tuple[int, int], dict[str, dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {"count": 0.0, "amount": 0.0})
     )
@@ -1193,7 +1211,7 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
 
         if rtype == "charge":
             month = _month(payload.get("charge_date"))
-            if month:
+            if month and not is_future_charge(payload.get("charge_date"), today):
                 status = str(payload.get("status", "sin_estado")).upper()
                 charges_monthly[month][status]["count"] += 1
                 charges_monthly[month][status]["amount"] += _amount(payload.get("amount"))
