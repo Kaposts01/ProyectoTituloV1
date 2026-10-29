@@ -18,6 +18,10 @@ from app.models.billing import (  # noqa: F401
     VpCalendarMark,
     VpManagedCharge,
 )
+from app.models.cancellation import (  # noqa: F401
+    SubscriptionCancellationRequest,
+    SubscriptionCancellationRequestEvent,
+)
 from app.models.charge_recovery import ChargeRecovery  # noqa: F401
 from app.models.core import (  # noqa: F401
     CoreCharge,

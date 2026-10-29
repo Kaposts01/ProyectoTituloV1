@@ -61,3 +61,17 @@ Las rutas `DELETE /writes/virtualpos/payments/{id}`, `PUT /writes/toku/invoices/
 ## 4. Pruebas de esta tanda
 - `tests/test_writes_actor.py` (MGT-01), `tests/test_toku_delete_fail_closed.py` (MGT-05; se actualizaron también dos pruebas de `test_toku_write_guard.py` que fijaban el comportamiento fail-open), `tests/test_subscription_refresh.py` (MGT-06), `tests/test_virtualpos_cancel_subscription.py` (MGT-03/04). Todo con clientes falsos: ninguna llamada a proveedores ni escritura en `crm`/`crm_sandbox`.
 - Las rutas de prueba que usaban usuarios sintéticos ahora crean la fila real en `users` (el `write_runs.requested_by_user_id` es FK).
+
+## 5. Diseño unificado implementado (tanda 2: MGT-16, MGT-07 y siguientes)
+
+### 5.1 Modelo de solicitudes de baja (MGT-07): tabla nueva, no se extiende `billing_change_requests`
+Decisión (recomendada en el informe como «extender», **cambiada a tabla nueva** por riesgo): se creó `subscription_cancellation_requests` (+ `subscription_cancellation_request_events`, migración `20261029_0051`). Motivos:
+- `billing_change_requests` tiene `platform` limitado por CHECK a `virtualpos1/2`, `request_type` con CHECK de 4 tipos, columnas de monto/día/horizonte que no aplican a una baja, y **estados en español** que D38 deja sin renombrar ni migrar en esta tanda. Extenderla obligaba a relajar esos CHECK, a mezclar dos máquinas de estados (español e inglés) en una tabla y a tocar datos de la Opción A.
+- La Opción A queda **intacta** (modelo, estados, índice único, API, bandeja). Una tabla nueva se descarta con un `DROP` limpio si el diseño cambia; una extensión no.
+- Se reutiliza sin duplicar: el advisory lock por suscripción (`billing_apply.subscription_lock`), la política (`billing_policy`: autoaprobación, doble aprobación, expiración) y la función de base `billing_audit_immutable()` (creada en la 0038) para el trigger de eventos inmutables.
+- Máquina de estados (inglés): `pending → approved → applying → completed | failed | requires_reconciliation | pending_external` y `rejected | withdrawn | expired | not_executable`. Abiertos (ocupan el cupo): `pending, approved, applying, requires_reconciliation, pending_external`.
+- Campos: canal, suscripción, motivo obligatorio (`reason_code` fijo + `reason_comment` no vacío), solicitante, aprobador, `options` (cascada), `cascade_preview`, `steps` (resultado por paso), `requires_reconciliation`, expiración y `write_run_id`. Índice único parcial: una sola solicitud abierta por (canal, suscripción). CHECK de la baja de Payku: exige `options.confirm_irreversible = true`.
+- Un `write_runs.request_id` apunta por FK a `billing_change_requests`, así que las ejecuciones de baja guardan `cancellation_request_id` en su `request_payload` (el `write_run_id` de la solicitud apunta de vuelta).
+
+### 5.2 Permisos y roles (MGT-16)
+Permisos nuevos (migración `20261029_0050`, sembrados en `rbac.PERMISSIONS`): `subscriptions.cancellation.request`, `.approve` y `.view`. Matriz (D12): `admin` y `jefatura` solicitan y aprueban; `soporte`, `ejecutivo` y `coordinador` solo ven (y `jefatura`/`admin` también ven). Si un rol no existe en la base, la migración no falla ni lo crea. **`coordinador`** no tiene permisos definidos en el código (manda la base de datos); lo único garantizado hoy es la lectura de las solicitudes de baja: no solicita ni aprueba. Los permisos «fantasma» (D28) siguen sin sembrarse y el flujo nuevo no depende de ellos (un test lo vigila).
