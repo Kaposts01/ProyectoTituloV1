@@ -1249,3 +1249,41 @@
   /* Gráficos extendidos: 1 columna */
   .extended-charts { grid-template-columns: 1fr; }
 }
+
+/* ── KpiCard v2 ──────────────────────────────────────────────────── */
+/* Superficie normal; la destacada se rellena (max. 1-2 por pantalla). Sin borde lateral de color ni cards anidadas. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.kpi-card { display: flex; flex-direction: column; gap: 6px; }
+.kpi-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.kpi-head .metric-label { margin: 0; }
+.kpi-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.kpi-spark { flex: none; width: 80px; height: 24px; color: var(--series-1); }
+.kpi-chip {
+  display: inline-flex; flex: none; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 9999px;
+  font-size: 11px; font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+.kpi-chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.kpi-chip.met { color: var(--chip-ok-text); background: var(--chip-ok-bg); }
+.kpi-chip.off { color: var(--chip-off-text); background: var(--chip-off-bg); }
+.kpi-chip.none { color: var(--chip-none-text); background: var(--chip-none-bg); }
+.kpi-delta { font-size: 12px; font-weight: 600; color: var(--delta-flat); }
+.kpi-delta.good { color: var(--delta-up); }
+.kpi-delta.bad { color: var(--delta-down); }
+.kpi-delta.flat { color: var(--delta-flat); }
+.kpi-progress { height: 6px; border-radius: 9999px; background: var(--progress-track); overflow: hidden; }
+.kpi-progress-fill { display: block; height: 100%; border-radius: 9999px; background: var(--progress-fill); }
+.kpi-goal { color: var(--text-2); font-size: 12px; }
+
+.kpi-card--featured { background: var(--kpi-hero-bg); box-shadow: none; }
+.kpi-card.kpi-card--featured .metric-label,
+.kpi-card.kpi-card--featured strong,
+.kpi-card.kpi-card--featured .kpi-delta { color: var(--kpi-hero-text); }
+.kpi-card--featured .metric-amount,
+.kpi-card--featured .kpi-goal { color: var(--kpi-hero-muted); }
+.kpi-card--featured .kpi-progress { background: var(--kpi-hero-track); }
+.kpi-card--featured .kpi-progress-fill { background: var(--kpi-hero-fill); }
+.kpi-card--featured .kpi-spark { color: var(--kpi-hero-fill); }
