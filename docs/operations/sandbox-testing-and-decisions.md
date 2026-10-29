@@ -166,7 +166,7 @@ El decisor devuelve texto; no edita archivos. Si el informe es insuficiente para
 ## 5. Reglas de seguridad (heredadas)
 
 1. Jamás imprimir, copiar ni resumir valores del `.env`, llaves, firmas, tokens ni datos de tarjeta (PAN, CVV). Leer solo **nombres** de variables. Sin PII (RUT, nombres, correos, teléfonos) en informes, logs ni documentos.
-2. Solo sandbox. Un solo `.env`; con `APP_ENV=sandbox` rigen las variables `*_SANDBOX_*` y `SANDBOX_DATABASE_URL`. Nunca contra producción (puerto 8000, base `crm`).
+2. Solo sandbox. Un solo `.env`; con `APP_ENV=sandbox` rigen las variables `*_SANDBOX_*` y `SANDBOX_DATABASE_URL`. Nunca contra producción (puerto 8000, base `crm`). La base `crm` NO es sandbox: `APP_ENV=development` equivale a producción y el sandbox se activa solo con `$env:APP_ENV='sandbox'` en el proceso.
 3. Banderas de escritura (`VIRTUALPOS_SANDBOX_WRITES_ENABLED`, `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN`, `CONTRACT_WRITES`, `TOKU_SANDBOX_ALLOW_WRITES_ARMED`, `TOKU_SANDBOX_ALLOWED_IDS`, `TOKU_SANDBOX_MAX_WRITES`) **solo como variables de proceso**, nunca en `.env`. Para limpiarlas, `$env:VAR = $null` (no `Remove-Item`, handoff §9 #18).
 4. No dejar procesos ni túneles: al terminar, comprobar y apagar `uvicorn` de sandbox, Vite de sandbox y `cloudflared` (`Get-Process cloudflared`; los túneles son públicos y solo los protege el login).
 5. Una sola sesión de pytest a la vez (todas recrean `crm_test`).
@@ -177,6 +177,7 @@ El decisor devuelve texto; no edita archivos. Si el informe es insuficiente para
 10. No debilitar una guarda para que una prueba pase. Una guarda que falla en bloquear es un hallazgo crítico.
 11. CLAUDE.md §9 exige autorización explícita para pruebas con escrituras externas reales. La aprobación del usuario del 2026-10-28 es esa autorización explícita, **limitada a sandbox** y a los escenarios catalogados (sección 3). Nada de esto se extiende a producción: allí siempre con el usuario y con más cuidado.
 12. Regla de oro: producción siempre con el usuario. Ante la duda sobre el ambiente (Toku comparte host; `APP_ENV=development` equivale a producción), se trata como producción.
+13. **Los agentes nunca ejecutan la CLI de Alembic** (`upgrade`, `downgrade`, `stamp`, `current`) contra ninguna base; las migraciones solo se prueban por pytest (`crm_test`); aplicar migraciones a `crm` es siempre del usuario (a `crm_sandbox`, el orquestador avisando). Incidente del 2026-10-28 (handoff §9 #20); `alembic/env.py` además bloquea los `downgrade` sobre bases no seguras (OPS-10).
 
 ## 6. Qué ve el usuario después de cada ciclo
 

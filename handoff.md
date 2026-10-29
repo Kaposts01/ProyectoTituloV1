@@ -29,6 +29,7 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 7. **No inferir el comportamiento del proveedor de su documentación.** Medirlo en el sandbox con la suite de contrato (la documentación de VirtualPOS se equivocó en 6 puntos).
 8. Scripts temporales y respaldos van fuera del repositorio (carpeta de scratchpad de la sesión). No dejar copias de `.env` en el árbol.
 9. Los mensajes de commit terminan con la línea `Co-Authored-By` que indique la sesión. No se hace push ni se abren PR sin que el usuario lo pida.
+10. **Ningún agente ejecuta la CLI de Alembic contra ninguna base; las migraciones se prueban solo por pytest (`crm_test`). Aplicar migraciones a `crm` lo hace siempre el usuario; a `crm_sandbox` puede hacerlo el orquestador avisando.** Además, `alembic/env.py` bloquea todo `downgrade` sobre bases que no terminen en `_test` ni contengan `sandbox` o `qa`, salvo `ALEMBIC_ALLOW_DOWNGRADE=1` en el proceso.
 
 ## 3. Cómo levantar todo (local, Windows/PowerShell)
 
@@ -175,6 +176,7 @@ La línea transversal «E2E en sandbox por canal» (VirtualPOS, Toku, Payku, TCH
 | 17 | La opción A se diseñó con un job que crea cobros para todos los socios; el usuario aclaró que VirtualPOS crea los mensuales | Rediseño: solo cambios puntuales y chequeo de renovación de solo lectura; catálogo reescrito | Confirmar el alcance con el usuario antes de diseñar una pieza grande |
 | 18 | El validador de comandos de PowerShell se confundía con `Remove-Item` (rutas con `C:`) | Evitarlo (`$env:VAR = $null`) | No usar `Remove-Item` para limpiar variables de entorno |
 | 19 | Apareció un `.env copy` sin versionar en la raíz (el `.gitignore` no lo cubría por el espacio) | El usuario lo retiró | No dejar copias de `.env` en el árbol |
+| 20 | Un agente ejecutó downgrade/upgrade de Alembic sobre la base real `crm` (`settings` se leyó antes de fijar `DATABASE_URL`, y `alembic/env.py` usa `settings.database_url`; `.env` tiene `APP_ENV=development`, que equivale a producción) | Se reconstruyeron las filas faltantes de `core_charges` ejecutando el ETL de Core sobre `crm` con autorización del usuario (totales de nuevo iguales a `vp_charges`); se agregó la guarda de downgrade en `alembic/env.py` (`app/db/migration_guard.py`) y la regla 10 de la sección 2 | Ningún agente corre Alembic; las migraciones se prueban solo por pytest; fijar la base ANTES de importar `settings`; nunca confiar en que un script cambie `DATABASE_URL` a mitad de camino |
 
 ## 10. Archivos y documentos clave
 
