@@ -7,6 +7,8 @@ import { OperationalAlerts } from "../dashboard/OperationalAlerts";
 import { activationVsChurnChart, statusStackedChart, tchSourceNote } from "../dashboard/channelCharts";
 import { normalizeKpis } from "../shared/kpis";
 import { aggregateChurn, defaultYear } from "../shared/utils";
+import { ExportButton } from "../shared/ExportButton";
+import { tchExportTarget } from "../shared/exportMapping";
 import type { TchState } from "./useTch";
 
 /**
@@ -14,11 +16,12 @@ import type { TchState } from "./useTch";
  * (no como elemento) a propósito: así un fallo de render sigue propagándose a AppCore igual que
  * antes de la extracción (ver el hallazgo de la ficha de suscripción en docs/engineering/appcore-extraction.md).
  */
-export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport }: {
+export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport, can }: {
   tch: TchState;
   showTch: (view: "summary" | "clientes" | "suscripciones" | "transacciones") => void;
   showTchSuscripcion: (numeroFicha: number) => void;
   onReport: (scope: string) => void;
+  can?: (permission: string) => boolean;
 }) {
   const {
     tchView,
@@ -51,6 +54,19 @@ export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport }:
     showTchTransaccion,
     showTchCliente,
   } = tch;
+  const tchExportButton = (view: "clientes" | "suscripciones" | "transacciones", filters: { nombre?: string; estado?: string; periodo?: string }, page: number, pageSize: number) => {
+    const target = tchExportTarget(view, filters);
+    if (target.viewPermission && can && !can(target.viewPermission)) return null;
+    return (
+      <ExportButton
+        entity={target.entity}
+        canal={target.canal}
+        params={target.params}
+        window={{ offset: (page - 1) * pageSize, limit: pageSize }}
+        canPii={can?.("export.pii")}
+      />
+    );
+  };
   return tchView ? (
     tchLoading ? (
       <main className="app-shell"><p className="muted-copy">Cargando datos TCH...</p></main>
@@ -177,7 +193,7 @@ export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport }:
     ) : tchView === "clientes" ? (
       <main className="app-shell">
         <p className="eyebrow">TCH / CLIENTES</p>
-        <header className="channel-hero" style={{ alignItems: "flex-end" }}><div><h2>Clientes TCH</h2><p>Socios asociados a mandatos físicos.</p></div><div className="dashboard-controls"><input aria-label="Buscar cliente" placeholder="Buscar por nombre" value={tchClienteFiltro} onChange={(event) => { setTchClienteFiltro(event.target.value); setTchClientesPage(1); }} style={{ padding: "0.35rem 0.6rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }} /></div></header>
+        <header className="channel-hero" style={{ alignItems: "flex-end" }}><div><h2>Clientes TCH</h2><p>Socios asociados a mandatos físicos.</p></div><div className="dashboard-controls"><input aria-label="Buscar cliente" placeholder="Buscar por nombre" value={tchClienteFiltro} onChange={(event) => { setTchClienteFiltro(event.target.value); setTchClientesPage(1); }} style={{ padding: "0.35rem 0.6rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }} />{tchExportButton("clientes", { nombre: tchClienteFiltro }, tchClientesPage, 50)}</div></header>
         <section className="panel"><div className="table-wrap"><table><thead><tr><th>RUT</th><th>Nombre</th><th>Fecha nacimiento</th><th>Profesión</th><th>Tipo socio</th></tr></thead><tbody>{(tchClientes?.items ?? []).map((c) => <tr key={c.id}><td><button className="record-link" onClick={() => showTchCliente(c.rut)}>{c.rut}</button></td><td>{[c.nombre, c.apellido].filter(Boolean).join(" ") || "—"}</td><td>{c.fecha_nacimiento ?? "—"}</td><td>{c.profesion ?? "—"}</td><td>{c.tipo_socio ?? "—"}</td></tr>)}{(tchClientes?.items ?? []).length === 0 ? <tr><td colSpan={5}>Sin registros.</td></tr> : null}</tbody></table></div>{tchClientes && tchClientes.pages > 1 ? <div className="pagination" style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}><button disabled={tchClientesPage <= 1} onClick={() => setTchClientesPage((page) => page - 1)}>← Anterior</button><span style={{ padding: "0 0.5rem", lineHeight: "2" }}>{tchClientesPage} / {tchClientes.pages} ({tchClientes.total.toLocaleString("es-CL")} total)</span><button disabled={tchClientesPage >= tchClientes.pages} onClick={() => setTchClientesPage((page) => page + 1)}>Siguiente →</button></div> : null}</section>
       </main>
     ) : tchView === "suscripciones" ? (
@@ -191,6 +207,7 @@ export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport }:
               <option value="VIGENTE">Vigentes</option>
               <option value="ELIMINADA">Eliminadas</option>
             </select>
+            {tchExportButton("suscripciones", { estado: tchSusFiltroEstado }, tchSusPage, 50)}
           </div>
         </header>
         <section className="panel">
@@ -238,6 +255,7 @@ export function renderTchContent({ tch, showTch, showTchSuscripcion, onReport }:
           <div><h2>Transacciones TCH</h2><p>Historial de cargos aceptados y rechazados.</p></div>
           <div className="dashboard-controls">
             <input type="month" aria-label="Filtrar por período" value={tchTransFiltroPeriodo} onChange={(e) => { setTchTransFiltroPeriodo(e.target.value); setTchTransPage(1); }} style={{ padding: "0.35rem 0.6rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }} />
+            {tchExportButton("transacciones", { periodo: tchTransFiltroPeriodo }, tchTransPage, 100)}
           </div>
         </header>
         <section className="panel">

@@ -584,7 +584,7 @@ function AppCore() {
 
   const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} can={can} />;
 
-  const tchContent = renderTchContent({ tch, showTch, showTchSuscripcion, onReport: setReportScope });
+  const tchContent = renderTchContent({ tch, showTch, showTchSuscripcion, onReport: setReportScope, can });
 
   const content = detailLoading ? (
     <main className="app-shell">
