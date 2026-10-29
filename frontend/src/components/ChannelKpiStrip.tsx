@@ -5,7 +5,7 @@ export function ChannelKpiStrip({ kpis, ariaLabel = "KPIs del canal" }: { kpis: 
   const k = kpis;
   const clients = k?.activeClients;
   const rejectedAmount = k?.rejectedCharges.amount;
-  const r = k?.recaudoMensual;
+  const r = k?.monthlyCollection;
   return (
     <>
       {r ? <p className="eyebrow">Mandatos vigentes</p> : null}

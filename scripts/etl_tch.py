@@ -29,8 +29,8 @@ from sqlalchemy import and_, case, func, or_, select, true
 from app.db.session import SessionLocal, engine
 from app.models.etl_run import EtlRun
 from app.models.tch import (
-    ORIGEN_CARGO,
-    ORIGEN_HISTORIAL,
+    ORIGIN_CHARGE,
+    ORIGIN_HISTORY,
     TchBanco,
     TchCentroCosto,
     TchCliente,
@@ -71,8 +71,8 @@ def _norm_rut(val: Any) -> str | None:
     if "-" not in rut:
         rut = rut[:-1] + "-" + rut[-1]
     try:
-        numero, dv = rut.split("-", 1)
-        return f"{int(numero):,}".replace(",", ".") + f"-{dv}"
+        number_part, dv = rut.split("-", 1)
+        return f"{int(number_part):,}".replace(",", ".") + f"-{dv}"
     except Exception:
         return str(val).strip()[:20] or None
 
@@ -103,7 +103,7 @@ def _norm_str(val: Any, max_len: int = 255) -> str | None:
     return s[:max_len] if s else None
 
 
-def _norm_monto(val: Any) -> str | None:
+def _norm_amount(val: Any) -> str | None:
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
     try:
@@ -157,7 +157,7 @@ def _norm_personalidad(val: Any) -> str | None:
     return None
 
 
-def _norm_cuota(val: Any) -> str | None:
+def _norm_installment(val: Any) -> str | None:
     """Numero de cuota como texto entero: 12, 12.0, '12', '12.0' y '12,0' dan '12'.
 
     pandas entrega 12.0 cuando la columna tiene NaN y 12 cuando no; sin normalizar,
@@ -177,15 +177,15 @@ def _norm_cuota(val: Any) -> str | None:
     return text[:20]
 
 
-def _codigo_from_motivo(motivo: str | None) -> str | None:
+def _code_from_reason(reason_text: str | None) -> str | None:
     """Codigo de respuesta derivado del motivo de rechazo (el reporte no trae una columna de codigo).
 
     Si el motivo empieza con un codigo corto ("R02 - ...", "51: ...") se conserva; si no, se genera
     un identificador estable en mayusculas sin tildes ("Fondos insuficientes" -> FONDOS_INSUFICIENTES).
     """
-    if not motivo or not motivo.strip():
+    if not reason_text or not reason_text.strip():
         return None
-    text = unicodedata.normalize("NFKD", motivo).encode("ascii", "ignore").decode().upper().strip()
+    text = unicodedata.normalize("NFKD", reason_text).encode("ascii", "ignore").decode().upper().strip()
     prefix = re.match(r"([A-Z]{0,2}\d{1,3})\s*[-:.)]\s*\S", text)
     if prefix:
         return prefix.group(1)
@@ -196,11 +196,11 @@ def _codigo_from_motivo(motivo: str | None) -> str | None:
     return slug[:50] or None
 
 
-def _norm_periodo(val: Any) -> str | None:
+def _norm_period(val: Any) -> str | None:
     """Convierte 'AGOSTO 2026' o datetime a 'YYYY-MM'."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
-    meses = {
+    month_names = {
         "ENERO": "01", "ENE": "01", "FEBRERO": "02", "FEB": "02",
         "MARZO": "03", "MAR": "03", "ABRIL": "04", "ABR": "04",
         "MAYO": "05", "MAY": "05", "JUNIO": "06", "JUN": "06", "JULIO": "07", "JUL": "07",
@@ -212,8 +212,8 @@ def _norm_periodo(val: Any) -> str | None:
         if hasattr(val, "strftime"):
             return val.strftime("%Y-%m")
         s = str(val).strip().upper()
-        for mes, num in meses.items():
-            if mes in s:
+        for month_name, num in month_names.items():
+            if month_name in s:
                 years = re.findall(r"(?<!\d)\d{4}(?!\d)", s) or re.findall(r"(?<!\d)\d{2}(?!\d)", s)
                 if years:
                     year = int(years[-1])
@@ -293,14 +293,14 @@ def _col_val(row: pd.Series, col: Any, default: Any = None) -> Any:
 # Lectura Excel
 # ---------------------------------------------------------------------------
 
-SHEET_VIGENTES = "VIGENTES"
-SHEET_ELIMINADOS = "ELIMINADOS"
-SHEET_RECHAZADOS_MANDATOS = "RECHAZADOS"
-SHEET_ACEPTADOS = "CARGOS ACEPTADOS"
-SHEET_RECHAZADOS = "CARGOS RECHAZADOS"
-SHEET_TABLAS = "TABLAS"
-SHEET_HISTORICO_RECAUDACION_CAN = "HISTORICO RECAUDACION CAN"
-SHEET_HISTORICO_RECAUDACION_FLUJO = "HISTORICO RECAUDACION FLUJO"
+SHEET_ACTIVE = "VIGENTES"
+SHEET_DELETED = "ELIMINADOS"
+SHEET_REJECTED_MANDATES = "RECHAZADOS"
+SHEET_ACCEPTED_CHARGES = "CARGOS ACEPTADOS"
+SHEET_REJECTED_CHARGES = "CARGOS RECHAZADOS"
+SHEET_TABLES = "TABLAS"
+SHEET_COLLECTION_HISTORY_CAN = "HISTORICO RECAUDACION CAN"
+SHEET_COLLECTION_HISTORY_FLOW = "HISTORICO RECAUDACION FLUJO"
 
 
 def _read_sheet(filepath: Path, sheet: str) -> pd.DataFrame | None:
@@ -349,7 +349,7 @@ def _report_sort_key(filepath: Path) -> tuple[int, int, int, str]:
             return date.year, date.month, date.day, filepath.name
         except ValueError:
             pass
-    period = _norm_periodo(filepath.stem)
+    period = _norm_period(filepath.stem)
     if period:
         year, month = period.split("-", 1)
         return int(year), int(month), 0, filepath.name
@@ -373,7 +373,7 @@ def _historical_period_columns(df: pd.DataFrame) -> dict[int, str]:
     periods: dict[int, str] = {}
     for row_index in range(min(4, len(df))):
         for column_index, value in enumerate(df.iloc[row_index]):
-            period = _norm_periodo(value)
+            period = _norm_period(value)
             if period:
                 periods[column_index] = period
     return periods
@@ -392,16 +392,16 @@ def _historical_revenue_values(filepath: Path, sheet: str) -> dict[str, tuple[st
     accepted_row, rejected_row = total_rows
     values: dict[str, tuple[str, str]] = {}
     for column_index, period in _historical_period_columns(df).items():
-        accepted = _norm_monto(df.iat[accepted_row, column_index])
-        rejected = _norm_monto(df.iat[rejected_row, column_index])
+        accepted = _norm_amount(df.iat[accepted_row, column_index])
+        rejected = _norm_amount(df.iat[rejected_row, column_index])
         if accepted is not None and rejected is not None:
             values[period] = accepted, rejected
     return values
 
 
-def _transform_recaudacion_mensual(filepath: Path) -> list[dict]:
-    amounts = _historical_revenue_values(filepath, SHEET_HISTORICO_RECAUDACION_FLUJO)
-    counts = _historical_revenue_values(filepath, SHEET_HISTORICO_RECAUDACION_CAN)
+def _transform_monthly_collection(filepath: Path) -> list[dict]:
+    amounts = _historical_revenue_values(filepath, SHEET_COLLECTION_HISTORY_FLOW)
+    counts = _historical_revenue_values(filepath, SHEET_COLLECTION_HISTORY_CAN)
     periods = sorted(amounts.keys() & counts.keys())
     # Las hojas de control traen meses futuros en cero (hasta 2027-12). El corte es el ultimo mes
     # cerrado: el mes que nombra el reporte, sin pasar del ultimo mes con cobros en el propio control.
@@ -429,7 +429,7 @@ def _transform_recaudacion_mensual(filepath: Path) -> list[dict]:
 # Transformaciones — VIGENTES / ELIMINADOS
 # ---------------------------------------------------------------------------
 
-_ESTADOS_MANDATO = {
+_MANDATE_STATES = {
     "ACTIVO": "VIGENTE", "ACTIVA": "VIGENTE", "VIGENTE": "VIGENTE",
     "PENDIENTE": "PENDIENTE",
     "RECHAZADO": "RECHAZADA", "RECHAZADA": "RECHAZADA",
@@ -437,7 +437,7 @@ _ESTADOS_MANDATO = {
 }
 
 
-def _find_estado_col(df: pd.DataFrame) -> Any:
+def _find_status_col(df: pd.DataFrame) -> Any:
     """Columna ESTADO del mandato (grupo ANTECEDENTES Y ESTADO MANDATO).
 
     Los 12 bloques mensuales "N / Estado / Monto" repiten el rotulo "Estado" mas a la derecha;
@@ -450,14 +450,14 @@ def _find_estado_col(df: pd.DataFrame) -> Any:
     return None
 
 
-def _estado_mandato(valor: Any, por_hoja: str) -> str:
+def _mandate_status(raw_value: Any, sheet_default: str) -> str:
     """Estado de la ficha desde la columna ESTADO; si falta o no se reconoce, el de la hoja de origen."""
-    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
-        return por_hoja
-    return _ESTADOS_MANDATO.get(str(valor).strip().upper(), por_hoja)
+    if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+        return sheet_default
+    return _MANDATE_STATES.get(str(raw_value).strip().upper(), sheet_default)
 
 
-def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
+def _transform_subscriptions(df: pd.DataFrame, estado: str) -> list[dict]:
     """
     ``estado`` es el valor por defecto segun la hoja; manda la columna ESTADO del reporte.
 
@@ -473,82 +473,82 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
     rows = []
 
     # IDs de suscripción
-    c_ficha = _find_col(df, "ficha", "dues") or _find_col(df, "ficha")
-    c_mandato = _find_col(df, "mandato", "dues")
+    col_file_number = _find_col(df, "ficha", "dues") or _find_col(df, "ficha")
+    col_mandate = _find_col(df, "mandato", "dues")
 
     # Datos del socio
-    c_rut = _find_col(df, "socio", "rut") or _find_col(df, "rut")
-    c_nombre = _find_col(df, "socio", "nombre") or _find_col(df, "nombre")
-    c_apellido = _find_col(df, "socio", "apellido") or _find_col(df, "apellido")
-    c_fnac = _find_col(df, "nacimiento")
-    c_prof = _find_col(df, "profesi")
-    c_tipo_socio = _find_col(df, "tipo", "socio")
-    c_ley = _find_col(df, "socio", "ley") or _find_col(df, "ley")
-    c_reajuste = _find_col(df, "reajuste")
-    c_telefono = _find_contact_col(df, "telefono")
-    c_email = _find_contact_col(df, "email")
-    c_direccion = _find_contact_col(df, "direccion")
-    c_numero_direccion = _find_contact_col(df, "numero")
-    c_casa_depto = _find_contact_col(df, "casa") or _find_contact_col(df, "depto")
-    c_villa = _find_contact_col(df, "villa") or _find_contact_col(df, "pob")
-    c_comuna = _find_contact_col(df, "comuna")
-    c_ciudad = _find_contact_col(df, "ciudad")
+    col_rut = _find_col(df, "socio", "rut") or _find_col(df, "rut")
+    col_first_name = _find_col(df, "socio", "nombre") or _find_col(df, "nombre")
+    col_last_name = _find_col(df, "socio", "apellido") or _find_col(df, "apellido")
+    col_birth_date = _find_col(df, "nacimiento")
+    col_profession = _find_col(df, "profesi")
+    col_member_type = _find_col(df, "tipo", "socio")
+    col_law = _find_col(df, "socio", "ley") or _find_col(df, "ley")
+    col_adjustment = _find_col(df, "reajuste")
+    col_phone = _find_contact_col(df, "telefono")
+    col_email = _find_contact_col(df, "email")
+    col_address = _find_contact_col(df, "direccion")
+    col_street_number = _find_contact_col(df, "numero")
+    col_house_apartment = _find_contact_col(df, "casa") or _find_contact_col(df, "depto")
+    col_neighborhood = _find_contact_col(df, "villa") or _find_contact_col(df, "pob")
+    col_district = _find_contact_col(df, "comuna")
+    col_city = _find_contact_col(df, "ciudad")
 
     # Datos titular
-    c_rut_titular = _find_col(df, "titular", "rut")
+    col_holder_rut = _find_col(df, "titular", "rut")
 
     # Antecedentes mandato
-    c_firma = _find_col(df, "antecedentes", "firma") or _find_col(df, "firma")
-    c_tipo_mandato = _find_col(df, "antecedentes", "tipo", "mandato") or _find_col(df, "tipo", "mandato")
-    c_banco = _find_col(df, "banco") or _find_col(df, "institucion")
-    c_tipo_cuenta = _find_col(df, "tipo", "cuenta")
-    c_num_cuenta = _find_col(df, "numero", "cuenta")
+    col_signature = _find_col(df, "antecedentes", "firma") or _find_col(df, "firma")
+    col_mandate_type = _find_col(df, "antecedentes", "tipo", "mandato") or _find_col(df, "tipo", "mandato")
+    col_bank = _find_col(df, "banco") or _find_col(df, "institucion")
+    col_account_type = _find_col(df, "tipo", "cuenta")
+    col_account_number = _find_col(df, "numero", "cuenta")
     # "Ingreso" (grupo ANTECEDENTES) es una fecha; el monto del mandato es "Monto Vigente" (MANDATO ACTUAL).
-    c_monto = _find_col(df, "monto", "vigente")
-    c_moneda = _find_col(df, "moneda", "vigente")
-    c_equivalente_pesos = _find_col(df, "equivalente", "pesos")
-    c_factivacion = _find_col(df, "activac")
-    c_fentrega = _find_col(df, "entrega", "banco")
-    c_frechazo = _find_col(df, "fecha", "rechazo")
-    c_felim = _find_col(df, "fecha", "eliminado") or _find_col(df, "fecha", "eliminac") or _find_col(df, "fecha", "baja")
-    c_razon = _find_col(df, "motivo") or _find_col(df, "raz")
-    c_estado = _find_estado_col(df)
+    col_amount = _find_col(df, "monto", "vigente")
+    col_currency = _find_col(df, "moneda", "vigente")
+    col_peso_equivalent = _find_col(df, "equivalente", "pesos")
+    col_activation_date = _find_col(df, "activac")
+    col_bank_delivery_date = _find_col(df, "entrega", "banco")
+    col_rejection_date = _find_col(df, "fecha", "rechazo")
+    col_deletion_date = _find_col(df, "fecha", "eliminado") or _find_col(df, "fecha", "eliminac") or _find_col(df, "fecha", "baja")
+    col_reason = _find_col(df, "motivo") or _find_col(df, "raz")
+    col_status = _find_status_col(df)
 
     # TCH-PAR-09
-    c_estrategia = _find_col(df, "estrategia")
-    c_lugar = _find_col(df, "lugar")
-    c_folio = _find_col(df, "folio")
-    c_referencia = _find_col(df, "socio", "referencia")
-    c_personalidad = _find_col(df, "personalidad")
-    c_region = _find_leaf_col(df, "regi")
-    c_pc_fecha = _find_col(df, "actual", "primer", "fecha")
-    c_pc_monto = _find_col(df, "actual", "primer", "monto")
-    c_cobradas = _find_col(df, "actual", "cuotas cobradas")
-    c_monto_cobrado = _find_col(df, "actual", "monto cobrado")
-    c_ap_cuotas = _find_col(df, "aportes", "cuotas")
-    c_ap_monto = _find_col(df, "aportes", "monto")
-    c_promedio = _find_col(df, "promedio")
-    c_sin_aporte = _find_col(df, "sin aporte")
-    c_p_meses = _find_group_leaf(df, "permanencia", "meses")
-    c_p_anos = _find_group_leaf(df, "permanencia", "años", "anos")
-    c_nvo = _find_leaf_col(df, "nvo")
-    c_rech = _find_leaf_col(df, "rech", "mes")
-    c_eli = _find_leaf_col(df, "eli", "mes")
+    col_strategy = _find_col(df, "estrategia")
+    col_place = _find_col(df, "lugar")
+    col_folio = _find_col(df, "folio")
+    col_reference = _find_col(df, "socio", "referencia")
+    col_personality = _find_col(df, "personalidad")
+    col_region = _find_leaf_col(df, "regi")
+    col_first_charge_date = _find_col(df, "actual", "primer", "fecha")
+    col_first_charge_amount = _find_col(df, "actual", "primer", "monto")
+    col_installments_charged = _find_col(df, "actual", "cuotas cobradas")
+    col_amount_charged = _find_col(df, "actual", "monto cobrado")
+    col_contribution_installments = _find_col(df, "aportes", "cuotas")
+    col_contribution_amount = _find_col(df, "aportes", "monto")
+    col_average = _find_col(df, "promedio")
+    col_months_without_contribution = _find_col(df, "sin aporte")
+    col_tenure_months = _find_group_leaf(df, "permanencia", "meses")
+    col_tenure_years = _find_group_leaf(df, "permanencia", "años", "anos")
+    col_new_flag = _find_leaf_col(df, "nvo")
+    col_rejected_flag = _find_leaf_col(df, "rech", "mes")
+    col_deleted_flag = _find_leaf_col(df, "eli", "mes")
 
     # Captación
-    c_origen = _find_col(df, "origen")
-    c_centro = _find_col(df, "centro", "costo")
-    c_captador = _find_col(df, "captador")
+    col_origin = _find_col(df, "origen")
+    col_cost_center = _find_col(df, "centro", "costo")
+    col_recruiter = _find_col(df, "captador")
 
-    if c_ficha is None:
+    if col_file_number is None:
         log.warning("  No se encontró columna 'Ficha DUES' en el sheet")
         return rows
 
     for _, row in df.iterrows():
-        ficha = _norm_int(_col_val(row, c_ficha))
-        if ficha is None:
+        file_number = _norm_int(_col_val(row, col_file_number))
+        if file_number is None:
             continue
-        rut = _norm_rut(_col_val(row, c_rut))
+        rut = _norm_rut(_col_val(row, col_rut))
 
         # El titular de la cuenta puede ser un tercero: sus datos no se guardan ni en el payload.
         raw = sanitize_payload({
@@ -556,85 +556,85 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
             for k, v in row.items()
             if "titular" not in str(k).lower()
         })
-        moneda = normalize_tch_currency(_col_val(row, c_moneda))
+        moneda = normalize_tch_currency(_col_val(row, col_currency))
         raw["moneda_vigente"] = moneda  # tambien en el payload: filas cargadas antes de la columna `moneda`
 
-        personalidad = _norm_personalidad(_col_val(row, c_personalidad))
-        rut_titular = _norm_rut(_col_val(row, c_rut_titular)) if c_rut_titular else None
+        personalidad = _norm_personalidad(_col_val(row, col_personality))
+        rut_titular = _norm_rut(_col_val(row, col_holder_rut)) if col_holder_rut else None
         # Solo un indicador: el RUT y el nombre del titular (un tercero) no se guardan.
         titular_distinto = (rut_titular != rut) if (rut_titular and rut) else None
 
-        sus = {
-            "numero_ficha": ficha,
-            "numero_mandato": _norm_int(_col_val(row, c_mandato)),
+        subscription_row = {
+            "numero_ficha": file_number,
+            "numero_mandato": _norm_int(_col_val(row, col_mandate)),
             "cliente_rut": rut,
-            "banco_nombre": _norm_str(_col_val(row, c_banco), 100),
-            "tipo_mandato": _norm_str(_col_val(row, c_tipo_mandato), 20),
-            "tipo_cuenta": _norm_str(_col_val(row, c_tipo_cuenta), 50),
-            "numero_cuenta": _norm_str(_col_val(row, c_num_cuenta), 50),
-            "origen": _norm_str(_col_val(row, c_origen), 150),
-            "centro_costo": _norm_str(_col_val(row, c_centro), 150),
-            "captador": _norm_str(_col_val(row, c_captador), 150),
-            "ley": _norm_str(_col_val(row, c_ley), 50),
-            "reajuste": _norm_str(_col_val(row, c_reajuste), 10),
-            "firma": _norm_str(_col_val(row, c_firma), 10),
-            "monto": _norm_monto(_col_val(row, c_monto)),
+            "banco_nombre": _norm_str(_col_val(row, col_bank), 100),
+            "tipo_mandato": _norm_str(_col_val(row, col_mandate_type), 20),
+            "tipo_cuenta": _norm_str(_col_val(row, col_account_type), 50),
+            "numero_cuenta": _norm_str(_col_val(row, col_account_number), 50),
+            "origen": _norm_str(_col_val(row, col_origin), 150),
+            "centro_costo": _norm_str(_col_val(row, col_cost_center), 150),
+            "captador": _norm_str(_col_val(row, col_recruiter), 150),
+            "ley": _norm_str(_col_val(row, col_law), 50),
+            "reajuste": _norm_str(_col_val(row, col_adjustment), 10),
+            "firma": _norm_str(_col_val(row, col_signature), 10),
+            "monto": _norm_amount(_col_val(row, col_amount)),
             "moneda": moneda,
-            "equivalente_pesos": _norm_monto(_col_val(row, c_equivalente_pesos)),
-            "fecha_activacion": _norm_date(_col_val(row, c_factivacion)),
-            "fecha_entrega_banco": _norm_date(_col_val(row, c_fentrega)),
-            "fecha_rechazo": _norm_date(_col_val(row, c_frechazo)),
-            "fecha_eliminacion": _norm_date(_col_val(row, c_felim)),
-            "razon_baja": _norm_str(_col_val(row, c_razon), 500),
-            "estado": _estado_mandato(_col_val(row, c_estado), estado),
-            "estrategia": _norm_str(_col_val(row, c_estrategia), 150),
-            "lugar_captacion": _norm_str(_col_val(row, c_lugar), 150),
-            "folio": _norm_str(_col_val(row, c_folio), 50),
-            "referencia": _norm_str(_col_val(row, c_referencia), 30),
+            "equivalente_pesos": _norm_amount(_col_val(row, col_peso_equivalent)),
+            "fecha_activacion": _norm_date(_col_val(row, col_activation_date)),
+            "fecha_entrega_banco": _norm_date(_col_val(row, col_bank_delivery_date)),
+            "fecha_rechazo": _norm_date(_col_val(row, col_rejection_date)),
+            "fecha_eliminacion": _norm_date(_col_val(row, col_deletion_date)),
+            "razon_baja": _norm_str(_col_val(row, col_reason), 500),
+            "estado": _mandate_status(_col_val(row, col_status), estado),
+            "estrategia": _norm_str(_col_val(row, col_strategy), 150),
+            "lugar_captacion": _norm_str(_col_val(row, col_place), 150),
+            "folio": _norm_str(_col_val(row, col_folio), 50),
+            "referencia": _norm_str(_col_val(row, col_reference), 30),
             "personalidad": personalidad,
             "titular_distinto": titular_distinto,
-            "fecha_primer_cobro": _norm_date(_col_val(row, c_pc_fecha)),
-            "monto_primer_cobro": _norm_monto(_col_val(row, c_pc_monto)),
-            "cuotas_cobradas": _norm_count(_col_val(row, c_cobradas)),
-            "monto_cobrado": _norm_monto(_col_val(row, c_monto_cobrado)),
-            "aportes_cuotas": _norm_count(_col_val(row, c_ap_cuotas)),
-            "aportes_monto": _norm_monto(_col_val(row, c_ap_monto)),
-            "promedio_donacion": _norm_monto(_col_val(row, c_promedio)),
-            "meses_sin_aporte": _norm_count(_col_val(row, c_sin_aporte)),
-            "permanencia_meses": _norm_count(_col_val(row, c_p_meses)),
-            "permanencia_anos": _norm_count(_col_val(row, c_p_anos)),
-            "nvo_mes": _norm_bool(_col_val(row, c_nvo)),
-            "rech_mes": _norm_bool(_col_val(row, c_rech)),
-            "eli_mes": _norm_bool(_col_val(row, c_eli)),
+            "fecha_primer_cobro": _norm_date(_col_val(row, col_first_charge_date)),
+            "monto_primer_cobro": _norm_amount(_col_val(row, col_first_charge_amount)),
+            "cuotas_cobradas": _norm_count(_col_val(row, col_installments_charged)),
+            "monto_cobrado": _norm_amount(_col_val(row, col_amount_charged)),
+            "aportes_cuotas": _norm_count(_col_val(row, col_contribution_installments)),
+            "aportes_monto": _norm_amount(_col_val(row, col_contribution_amount)),
+            "promedio_donacion": _norm_amount(_col_val(row, col_average)),
+            "meses_sin_aporte": _norm_count(_col_val(row, col_months_without_contribution)),
+            "permanencia_meses": _norm_count(_col_val(row, col_tenure_months)),
+            "permanencia_anos": _norm_count(_col_val(row, col_tenure_years)),
+            "nvo_mes": _norm_bool(_col_val(row, col_new_flag)),
+            "rech_mes": _norm_bool(_col_val(row, col_rejected_flag)),
+            "eli_mes": _norm_bool(_col_val(row, col_deleted_flag)),
             "raw_payload": raw,
             "_cliente": {
                 "rut": rut,
-                "nombre": _norm_str(_col_val(row, c_nombre), 150),
-                "apellido": _norm_str(_col_val(row, c_apellido), 150),
-                "fecha_nacimiento": _norm_date(_col_val(row, c_fnac)),
-                "profesion": _norm_str(_col_val(row, c_prof), 100),
+                "nombre": _norm_str(_col_val(row, col_first_name), 150),
+                "apellido": _norm_str(_col_val(row, col_last_name), 150),
+                "fecha_nacimiento": _norm_date(_col_val(row, col_birth_date)),
+                "profesion": _norm_str(_col_val(row, col_profession), 100),
                 "tipo_persona": personalidad or "Natural",
-                "tipo_socio": _norm_str(_col_val(row, c_tipo_socio), 50),
-                "telefono": _norm_str(_col_val(row, c_telefono), 100),
-                "email": _norm_str(_col_val(row, c_email), 320),
+                "tipo_socio": _norm_str(_col_val(row, col_member_type), 50),
+                "telefono": _norm_str(_col_val(row, col_phone), 100),
+                "email": _norm_str(_col_val(row, col_email), 320),
                 "direccion": " ".join(
                     part
                     for part in (
-                        _norm_str(_col_val(row, c_direccion), 200),
-                        _norm_str(_col_val(row, c_numero_direccion), 50),
-                        _norm_str(_col_val(row, c_casa_depto), 100),
-                        _norm_str(_col_val(row, c_villa), 100),
+                        _norm_str(_col_val(row, col_address), 200),
+                        _norm_str(_col_val(row, col_street_number), 50),
+                        _norm_str(_col_val(row, col_house_apartment), 100),
+                        _norm_str(_col_val(row, col_neighborhood), 100),
                     )
                     if part
                 ) or None,
-                "comuna": _norm_str(_col_val(row, c_comuna), 150),
-                "ciudad": _norm_str(_col_val(row, c_ciudad), 150),
-                "region": _norm_str(_col_val(row, c_region), 100),
+                "comuna": _norm_str(_col_val(row, col_district), 150),
+                "ciudad": _norm_str(_col_val(row, col_city), 150),
+                "region": _norm_str(_col_val(row, col_region), 100),
             } if rut else None,
             "_cliente_titular": None,
         }
 
-        rows.append(sus)
+        rows.append(subscription_row)
     return rows
 
 
@@ -642,17 +642,17 @@ def _transform_suscripciones(df: pd.DataFrame, estado: str) -> list[dict]:
 # Transformaciones — CARGOS ACEPTADOS / RECHAZADOS
 # ---------------------------------------------------------------------------
 
-def _dedupe_key(ficha: int, periodo: str | None, cuota: str | None) -> str:
+def _dedupe_key(file_number: int, periodo: str | None, installment: str | None) -> str:
     """Clave estable de una cuota: ficha | periodo real | cuota (D13, TCH-PAR-03).
 
     NO lleva estado ni monto: en la fuente cada cuota tiene un estado final, de modo que un rechazo seguido de un pago
     (o un cambio de monto en un reporte posterior) actualiza la MISMA fila. La cuota se normaliza aqui tambien:
     '12', '12.0' y 12.0 dan la misma clave.
     """
-    return "|".join([str(ficha), periodo or "", _norm_cuota(cuota) or ""])
+    return "|".join([str(file_number), periodo or "", _norm_installment(installment) or ""])
 
 
-def _estado_cargo(estado: str) -> str:
+def _charge_status(estado: str) -> str:
     normalized = estado.strip().upper()
     if normalized in {"PAGADA", "PAGADO", "ACEPTADA", "ACEPTADO"}:
         return "ACEPTADA"
@@ -661,7 +661,7 @@ def _estado_cargo(estado: str) -> str:
     return normalized
 
 
-def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> list[dict]:
+def _transform_transactions(df: pd.DataFrame, estado: str, file_name: str) -> list[dict]:
     """
     Estructura real de CARGOS (header=[5,6]):
       ('Número Ficha', ...)              → numero_ficha
@@ -677,126 +677,126 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> lis
     """
     rows = []
 
-    c_ficha = _find_col(df, "ficha")
-    c_mandato = _find_col(df, "ndato")  # Número Mandato (sin tildes posibles)
-    c_entidad = _find_col(df, "entidad") or _find_col(df, "recaudadora")
-    c_tipo = _find_col(df, "transacci")
-    c_total_cuotas = _find_col(df, "pagos", "mandato")
+    col_file_number = _find_col(df, "ficha")
+    col_mandate = _find_col(df, "ndato")  # Número Mandato (sin tildes posibles)
+    col_collecting_entity = _find_col(df, "entidad") or _find_col(df, "recaudadora")
+    col_type = _find_col(df, "transacci")
+    col_total_installments = _find_col(df, "pagos", "mandato")
     # El periodo real es "Cuota Mes". Ni la columna numerica "Periodo" ni el nombre del archivo
     # (que puede llevar la fecha del dia siguiente al cierre o no llevar fecha) definen el mes.
-    c_cuota_mes = _find_leaf_col(df, "cuota", "mes")
+    col_installment_month = _find_leaf_col(df, "cuota", "mes")
     # 'N° Cuota' (excluye 'Cuota Mes' y 'Monto Cuota')
-    c_cuota = (
+    col_installment = (
         _find_leaf_col(df, "cuota", exclude=("mes", "monto"))
         or _find_col(df, "detalle", "cuota")
         or _find_col(df, "n", "cuota")
     )
-    c_monto = (
+    col_amount = (
         _find_col(df, "total", "carg")
         or _find_col(df, "total", "rechaz")
         or _find_col(df, "monto", "cuota")
         or _find_col(df, "monto")
     )
-    c_fecha = _find_col(df, "fecha", "cobro") or _find_col(df, "fecha", "intento") or _find_col(df, "fecha", "cargo")
+    col_date = _find_col(df, "fecha", "cobro") or _find_col(df, "fecha", "intento") or _find_col(df, "fecha", "cargo")
     # Codigo explicito si el reporte lo trae; si no se deriva de "Motivo" (solo en CARGOS RECHAZADOS).
-    c_codigo = _find_leaf_col(df, "codigo") or _find_leaf_col(df, "código") or _find_leaf_col(df, "respuesta")
+    col_code = _find_leaf_col(df, "codigo") or _find_leaf_col(df, "código") or _find_leaf_col(df, "respuesta")
     # Ojo: buscar "rechazo" en cualquier nivel caia en el grupo "DETALLE DEL RECHAZO" (columna Periodo).
-    c_razon = _find_leaf_col(df, "motivo") or _find_leaf_col(df, "raz")
+    col_reason = _find_leaf_col(df, "motivo") or _find_leaf_col(df, "raz")
 
-    if c_ficha is None:
+    if col_file_number is None:
         log.warning(f"  No se encontró columna 'Número Ficha' en transacciones ({estado})")
         return rows
-    if c_cuota_mes is None:
+    if col_installment_month is None:
         log.warning(f"  No se encontró columna 'Cuota Mes' en transacciones ({estado}); no se cargan cargos sin periodo real")
         return rows
 
-    sin_periodo = 0
+    without_period = 0
     for _, row in df.iterrows():
-        ficha_raw = _col_val(row, c_ficha)
-        if ficha_raw is None or (isinstance(ficha_raw, float) and pd.isna(ficha_raw)):
+        file_number_raw = _col_val(row, col_file_number)
+        if file_number_raw is None or (isinstance(file_number_raw, float) and pd.isna(file_number_raw)):
             continue
         try:
-            ficha = int(float(ficha_raw))
+            file_number = int(float(file_number_raw))
         except Exception:
             continue
-        if ficha <= 0:
+        if file_number <= 0:
             continue
 
-        periodo = _norm_periodo(_col_val(row, c_cuota_mes))
+        periodo = _norm_period(_col_val(row, col_installment_month))
         if periodo is None:
-            sin_periodo += 1
+            without_period += 1
             continue
         raw = sanitize_payload({str(k): (None if isinstance(v, float) and pd.isna(v) else str(v)) for k, v in row.items()})
 
-        cuota = _norm_cuota(_col_val(row, c_cuota)) if c_cuota else None
-        monto = _norm_monto(_col_val(row, c_monto))
-        razon = _norm_str(_col_val(row, c_razon), 500) if c_razon else None
-        codigo = (_norm_str(_col_val(row, c_codigo), 50) if c_codigo else None) or _codigo_from_motivo(razon)
+        installment = _norm_installment(_col_val(row, col_installment)) if col_installment else None
+        monto = _norm_amount(_col_val(row, col_amount))
+        reason = _norm_str(_col_val(row, col_reason), 500) if col_reason else None
+        codigo = (_norm_str(_col_val(row, col_code), 50) if col_code else None) or _code_from_reason(reason)
         rows.append({
-            "numero_ficha": ficha,
-            "numero_mandato": _norm_int(_col_val(row, c_mandato)),
+            "numero_ficha": file_number,
+            "numero_mandato": _norm_int(_col_val(row, col_mandate)),
             "periodo": periodo,
-            "numero_cuota": cuota,
-            "total_cuotas": _norm_cuota(_col_val(row, c_total_cuotas)) if c_total_cuotas else None,
+            "numero_cuota": installment,
+            "total_cuotas": _norm_installment(_col_val(row, col_total_installments)) if col_total_installments else None,
             "monto": monto,
-            "fecha_cargo": _norm_date(_col_val(row, c_fecha)),
-            "tipo_transaccion": _norm_str(_col_val(row, c_tipo), 50) if c_tipo else None,
+            "fecha_cargo": _norm_date(_col_val(row, col_date)),
+            "tipo_transaccion": _norm_str(_col_val(row, col_type), 50) if col_type else None,
             "estado": estado,
-            "entidad_recaudadora": _norm_str(_col_val(row, c_entidad), 100) if c_entidad else None,
+            "entidad_recaudadora": _norm_str(_col_val(row, col_collecting_entity), 100) if col_collecting_entity else None,
             "codigo_respuesta": codigo,
-            "razon_rechazo": razon,
-            "archivo_origen": archivo,
-            "dedupe_key": _dedupe_key(ficha, periodo, cuota),
-            "origen": ORIGEN_CARGO,
+            "razon_rechazo": reason,
+            "archivo_origen": file_name,
+            "dedupe_key": _dedupe_key(file_number, periodo, installment),
+            "origen": ORIGIN_CHARGE,
             "reporte_periodo": None,
             "rechazo_previo": None,
             "rechazo_previo_motivo": None,
             "rechazo_previo_en": None,
             "raw_payload": raw,
         })
-    if sin_periodo:
-        log.warning(f"  {sin_periodo} cargos ({estado}) omitidos: 'Cuota Mes' vacio o ilegible")
+    if without_period:
+        log.warning(f"  {without_period} cargos ({estado}) omitidos: 'Cuota Mes' vacio o ilegible")
     return rows
 
 
-def _transform_historial_cargos(df: pd.DataFrame, archivo: str) -> list[dict]:
+def _transform_charge_history(df: pd.DataFrame, file_name: str) -> list[dict]:
     """Desnormaliza BK:CT: cada mes contiene N°, Estado y Monto.
 
     TCH-PAR-04: es el ESTADO MENSUAL de un mandato, sin fecha de cobro. Un mandato RECHAZADO (nunca cobro) repite
     "Rechazada" cada mes: es estado de mandato, no un cobro rechazado, y se omite. Los cobros reales vienen solo de
     las hojas CARGOS; estas filas (origen 'historial') solo completan los meses que ningun CARGOS detalla.
     """
-    c_ficha = _find_col(df, "ficha", "dues") or _find_col(df, "ficha")
-    c_mandato = _find_col(df, "mandato", "dues")
-    c_estado_mandato = _find_estado_col(df)
-    if c_ficha is None:
+    col_file_number = _find_col(df, "ficha", "dues") or _find_col(df, "ficha")
+    col_mandate = _find_col(df, "mandato", "dues")
+    col_mandate_status = _find_status_col(df)
+    if col_file_number is None:
         return []
 
     rows = []
     for _, row in df.iterrows():
-        ficha = _norm_int(_col_val(row, c_ficha))
-        if ficha is None:
+        file_number = _norm_int(_col_val(row, col_file_number))
+        if file_number is None:
             continue
-        if c_estado_mandato is not None and _estado_mandato(_col_val(row, c_estado_mandato), "") == "RECHAZADA":
+        if col_mandate_status is not None and _mandate_status(_col_val(row, col_mandate_status), "") == "RECHAZADA":
             continue
-        mandato = _norm_int(_col_val(row, c_mandato))
+        mandate = _norm_int(_col_val(row, col_mandate))
         for start in range(62, min(98, len(df.columns)), 3):
-            period = _norm_periodo(df.columns[start][0] if isinstance(df.columns[start], tuple) else df.columns[start])
+            period = _norm_period(df.columns[start][0] if isinstance(df.columns[start], tuple) else df.columns[start])
             if not period:
                 continue
-            cuota = _norm_cuota(_col_val(row, df.columns[start]))
+            installment = _norm_installment(_col_val(row, df.columns[start]))
             estado = _norm_str(_col_val(row, df.columns[start + 1]), 20)
-            monto = _norm_monto(_col_val(row, df.columns[start + 2]))
+            monto = _norm_amount(_col_val(row, df.columns[start + 2]))
             if not estado:
                 continue
-            estado_original = estado.upper()
-            estado = _estado_cargo(estado)
+            original_status = estado.upper()
+            estado = _charge_status(estado)
             rows.append(
                 {
-                    "numero_ficha": ficha,
-                    "numero_mandato": mandato,
+                    "numero_ficha": file_number,
+                    "numero_mandato": mandate,
                     "periodo": period,
-                    "numero_cuota": cuota,
+                    "numero_cuota": installment,
                     "total_cuotas": None,
                     "monto": monto,
                     "fecha_cargo": None,
@@ -805,14 +805,14 @@ def _transform_historial_cargos(df: pd.DataFrame, archivo: str) -> list[dict]:
                     "entidad_recaudadora": None,
                     "codigo_respuesta": None,
                     "razon_rechazo": None,
-                    "archivo_origen": archivo,
-                    "dedupe_key": _dedupe_key(ficha, period, cuota),
-                    "origen": ORIGEN_HISTORIAL,
+                    "archivo_origen": file_name,
+                    "dedupe_key": _dedupe_key(file_number, period, installment),
+                    "origen": ORIGIN_HISTORY,
                     "reporte_periodo": None,
                     "rechazo_previo": None,
                     "rechazo_previo_motivo": None,
                     "rechazo_previo_en": None,
-                    "raw_payload": {"periodo": period, "numero_cuota": cuota, "estado_original": estado_original, "monto": monto},
+                    "raw_payload": {"periodo": period, "numero_cuota": installment, "estado_original": original_status, "monto": monto},
                 }
             )
     return rows
@@ -822,10 +822,10 @@ def _transform_historial_cargos(df: pd.DataFrame, archivo: str) -> list[dict]:
 # Transformaciones — TABLAS (catálogo de bancos)
 # ---------------------------------------------------------------------------
 
-def _transform_bancos_from_tablas(filepath: Path) -> list[dict]:
+def _transform_banks_from_tables(filepath: Path) -> list[dict]:
     """Lee la hoja TABLAS y extrae el catálogo de instituciones."""
     try:
-        df = pd.read_excel(filepath, sheet_name=SHEET_TABLAS, header=None)
+        df = pd.read_excel(filepath, sheet_name=SHEET_TABLES, header=None)
     except Exception:
         return []
 
@@ -840,25 +840,25 @@ def _transform_bancos_from_tablas(filepath: Path) -> list[dict]:
     if header_row is None:
         return []
 
-    df_bancos = pd.read_excel(filepath, sheet_name=SHEET_TABLAS, header=header_row)
-    df_bancos = df_bancos.dropna(how="all")
+    df_banks = pd.read_excel(filepath, sheet_name=SHEET_TABLES, header=header_row)
+    df_banks = df_banks.dropna(how="all")
 
-    c_nombre = _find_col(df_bancos, "nombre")
-    c_cod_int = _find_col(df_bancos, "interno") or _find_col(df_bancos, "int")
-    c_cod_grp = _find_col(df_bancos, "grupo") or _find_col(df_bancos, "grp")
+    col_first_name = _find_col(df_banks, "nombre")
+    col_internal_code = _find_col(df_banks, "interno") or _find_col(df_banks, "int")
+    col_group_code = _find_col(df_banks, "grupo") or _find_col(df_banks, "grp")
 
-    if c_nombre is None:
+    if col_first_name is None:
         return []
 
     rows = []
-    for _, row in df_bancos.iterrows():
-        nombre = _norm_str(_col_val(row, c_nombre), 100)
+    for _, row in df_banks.iterrows():
+        nombre = _norm_str(_col_val(row, col_first_name), 100)
         if not nombre or nombre.upper() in ("NOMBRE", "NAN"):
             continue
         rows.append({
             "nombre": nombre,
-            "codigo_interno": _norm_int(_col_val(row, c_cod_int)) if c_cod_int else None,
-            "codigo_grupo": _norm_int(_col_val(row, c_cod_grp)) if c_cod_grp else None,
+            "codigo_interno": _norm_int(_col_val(row, col_internal_code)) if col_internal_code else None,
+            "codigo_grupo": _norm_int(_col_val(row, col_group_code)) if col_group_code else None,
             "activo": True,
         })
     return rows
@@ -868,7 +868,7 @@ def _transform_bancos_from_tablas(filepath: Path) -> list[dict]:
 # Carga a BD
 # ---------------------------------------------------------------------------
 
-_CLIENTE_DEFAULTS: dict = {
+_CLIENT_DEFAULTS: dict = {
     "rut": None,
     "nombre": None,
     "apellido": None,
@@ -886,13 +886,13 @@ _CLIENTE_DEFAULTS: dict = {
 }
 
 
-def _bulk_upsert_clientes(db, clientes: list[dict]) -> int:
+def _bulk_upsert_clients(db, clients: list[dict]) -> int:
     """Inserta/actualiza clientes en batch usando ON CONFLICT DO UPDATE."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     # Deduplicar por RUT (último registro gana si hay diferencias de datos)
     seen: dict[str, dict] = {}
-    for c in clientes:
+    for c in clients:
         if c and c.get("rut"):
             seen[c["rut"]] = c
 
@@ -901,7 +901,7 @@ def _bulk_upsert_clientes(db, clientes: list[dict]) -> int:
 
     # Normalizar todas las filas al mismo conjunto de columnas para que
     # SQLAlchemy pueda hacer un multi-row INSERT (requiere keys idénticos)
-    rows = [{"id": uuid.uuid4(), **{**_CLIENTE_DEFAULTS, **c}} for c in seen.values()]
+    rows = [{"id": uuid.uuid4(), **{**_CLIENT_DEFAULTS, **c}} for c in seen.values()]
 
     # Mantenerse bajo los 65535 parámetros de PostgreSQL al incluir contacto.
     CHUNK = 4000
@@ -955,7 +955,7 @@ def _bulk_upsert_catalogs(db, rows: list[dict]) -> None:
     _pg_upsert_catalog(db, TchTipoMandato, "codigo", {r.get("tipo_mandato") for r in rows})
 
 
-def _load_bancos_catalogo(db, rows: list[dict]) -> int:
+def _load_bank_catalog(db, rows: list[dict]) -> int:
     """Carga el catálogo de bancos desde la hoja TABLAS usando ON CONFLICT DO NOTHING."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -974,42 +974,42 @@ def _load_bancos_catalogo(db, rows: list[dict]) -> int:
     return len(to_insert)
 
 
-def _load_suscripciones(db, rows: list[dict]) -> tuple[int, int, int]:
+def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
     # 1. Pre-cargar catálogos en batch (ON CONFLICT DO NOTHING)
     _bulk_upsert_catalogs(db, rows)
 
     # 2. Pre-cargar todos los clientes en batch (ON CONFLICT DO UPDATE)
-    all_clientes = []
+    all_clients = []
     for r in rows:
         if r.get("_cliente"):
-            all_clientes.append(r["_cliente"])
+            all_clients.append(r["_cliente"])
         if r.get("_cliente_titular"):
-            all_clientes.append(r["_cliente_titular"])
-    _bulk_upsert_clientes(db, all_clientes)
+            all_clients.append(r["_cliente_titular"])
+    _bulk_upsert_clients(db, all_clients)
 
     # 3. Upsert suscripciones en batch
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    sus_clean = []
+    clean_subscriptions = []
     for r in rows:
         r.pop("_cliente", None)
         r.pop("_cliente_titular", None)
         if r.get("numero_ficha"):
-            sus_clean.append({"id": uuid.uuid4(), **r})
+            clean_subscriptions.append({"id": uuid.uuid4(), **r})
 
-    if not sus_clean:
+    if not clean_subscriptions:
         return 0, 0, 0
 
     # Deduplicar por numero_ficha (último estado gana)
-    seen_sus: dict[int, dict] = {}
-    for r in sus_clean:
-        seen_sus[r["numero_ficha"]] = r
-    unique_sus = list(seen_sus.values())
+    seen_subscriptions: dict[int, dict] = {}
+    for r in clean_subscriptions:
+        seen_subscriptions[r["numero_ficha"]] = r
+    unique_subscriptions = list(seen_subscriptions.values())
 
     # Chunk para no superar los 65535 parámetros de PostgreSQL (24 cols x 2700 filas ~= 64800)
-    CHUNK_SUS = 2500
-    for i in range(0, len(unique_sus), CHUNK_SUS):
-        chunk = unique_sus[i : i + CHUNK_SUS]
+    CHUNK_SUBSCRIPTIONS = 2500
+    for i in range(0, len(unique_subscriptions), CHUNK_SUBSCRIPTIONS):
+        chunk = unique_subscriptions[i : i + CHUNK_SUBSCRIPTIONS]
         stmt = pg_insert(TchSuscripcion).values(chunk).on_conflict_do_update(
             index_elements=["numero_ficha"],
             set_={
@@ -1050,18 +1050,18 @@ def _load_suscripciones(db, rows: list[dict]) -> tuple[int, int, int]:
         db.execute(stmt)
     db.flush()
 
-    return len(unique_sus), 0, 0
+    return len(unique_subscriptions), 0, 0
 
 
 _TX_OPTIONAL = {
     "numero_mandato": None, "periodo": None, "numero_cuota": None, "total_cuotas": None, "monto": None,
     "fecha_cargo": None, "tipo_transaccion": None, "entidad_recaudadora": None, "codigo_respuesta": None,
-    "razon_rechazo": None, "archivo_origen": None, "origen": ORIGEN_CARGO, "reporte_periodo": None,
+    "razon_rechazo": None, "archivo_origen": None, "origen": ORIGIN_CHARGE, "reporte_periodo": None,
     "rechazo_previo": None, "rechazo_previo_motivo": None, "rechazo_previo_en": None, "raw_payload": None,
 }
 
 
-def _transaccion_upsert_set(stmt, table) -> dict:
+def _transaction_upsert_set(stmt, table) -> dict:
     """SET del ON CONFLICT: UN estado final por cuota, "el ultimo reporte gana" y cargo > historial (D13).
 
     - ``newer``: el reporte entrante no es anterior al que trajo la fila (empate = el ultimo cargado gana).
@@ -1073,8 +1073,8 @@ def _transaccion_upsert_set(stmt, table) -> dict:
     """
     e, t = stmt.excluded, table.c
     newer = or_(e.reporte_periodo.is_(None), t.reporte_periodo.is_(None), e.reporte_periodo >= t.reporte_periodo)
-    e_cargo = e.origen == ORIGEN_CARGO
-    t_cargo = func.coalesce(t.origen, "") == ORIGEN_CARGO
+    e_cargo = e.origen == ORIGIN_CHARGE
+    t_cargo = func.coalesce(t.origen, "") == ORIGIN_CHARGE
     take = or_(and_(e_cargo, or_(~t_cargo, newer)), and_(~e_cargo, ~t_cargo, newer))
     final = case((newer, e.estado), else_=t.estado)
     rej_from_old = and_(newer, t.estado == "RECHAZADA", e.estado == "ACEPTADA")
@@ -1087,7 +1087,7 @@ def _transaccion_upsert_set(stmt, table) -> dict:
         "estado": final,
         "monto": case((newer, func.coalesce(e.monto, t.monto)), else_=t.monto),
         "reporte_periodo": case((newer, func.coalesce(e.reporte_periodo, t.reporte_periodo)), else_=t.reporte_periodo),
-        "origen": case((or_(e_cargo, t_cargo), ORIGEN_CARGO), else_=func.coalesce(e.origen, t.origen)),
+        "origen": case((or_(e_cargo, t_cargo), ORIGIN_CHARGE), else_=func.coalesce(e.origen, t.origen)),
         "numero_mandato": func.coalesce(t.numero_mandato, e.numero_mandato),
         "total_cuotas": detail("total_cuotas"),
         "fecha_cargo": detail("fecha_cargo"),
@@ -1114,7 +1114,7 @@ def _transaccion_upsert_set(stmt, table) -> dict:
     }
 
 
-def _load_transacciones(db, rows: list[dict], archivo: str | None = None) -> int:
+def _load_transactions(db, rows: list[dict], file_name: str | None = None) -> int:
     """Upsert por ``dedupe_key`` (ficha|periodo|cuota). Devuelve cuantas cuotas distintas trae el lote.
 
     Si una misma cuota aparece varias veces en el lote (p. ej. rechazada y luego aceptada en el mismo reporte), las
@@ -1142,7 +1142,7 @@ def _load_transacciones(db, rows: list[dict], archivo: str | None = None) -> int
             stmt = pg_insert(TchTransaccion).values(layer[i : i + CHUNK])
             db.execute(
                 stmt.on_conflict_do_update(
-                    constraint="uq_tch_transaccion_dedupe_key", set_=_transaccion_upsert_set(stmt, table)
+                    constraint="uq_tch_transaccion_dedupe_key", set_=_transaction_upsert_set(stmt, table)
                 )
             )
     return len(occurrences)
@@ -1156,7 +1156,7 @@ def _has_legacy_dedupe_keys(db) -> bool:
     return db.scalar(select(TchTransaccion.id).where(TchTransaccion.dedupe_key.like("%|%|%|%|%")).limit(1)) is not None
 
 
-def _load_recaudacion_mensual(db, rows: list[dict]) -> int:
+def _load_monthly_collection(db, rows: list[dict]) -> int:
     if not rows:
         return 0
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -1179,39 +1179,39 @@ def _load_recaudacion_mensual(db, rows: list[dict]) -> int:
     return len(rows)
 
 
-_RAZON_BAJA_IMPLICITA = "Baja implicita: ficha ausente del ultimo reporte"
+_IMPLICIT_CANCELLATION_REASON = "Baja implicita: ficha ausente del ultimo reporte"
 
 
-def _apply_implicit_bajas(db, fichas_ultimo_reporte: set[int]) -> int:
+def _apply_implicit_cancellations(db, file_numbers_latest_report: set[int]) -> int:
     """Marca ELIMINADA toda ficha VIGENTE/PENDIENTE que no aparece en el ultimo reporte.
 
     Sin esto, una ficha que figuro como vigente en un cierre viejo y luego desaparecio de
     todas las hojas (387 casos en la carga actual) queda VIGENTE para siempre. Con un
     reporte sin cartera (conjunto vacio) no se hace nada.
     """
-    if not fichas_ultimo_reporte:
+    if not file_numbers_latest_report:
         return 0
     stale = (
         TchSuscripcion.estado.in_(("VIGENTE", "PENDIENTE")),
-        TchSuscripcion.numero_ficha.notin_(fichas_ultimo_reporte),
+        TchSuscripcion.numero_ficha.notin_(file_numbers_latest_report),
     )
     result = db.execute(
         TchSuscripcion.__table__.update()
         .where(*stale)
         .values(
             estado="ELIMINADA",
-            razon_baja=func.coalesce(TchSuscripcion.razon_baja, _RAZON_BAJA_IMPLICITA),
+            razon_baja=func.coalesce(TchSuscripcion.razon_baja, _IMPLICIT_CANCELLATION_REASON),
         )
     )
     db.flush()
     return result.rowcount or 0
 
 
-def _is_latest_report(ultimo_periodo_cargado: str | None, periodo_reporte: str | None) -> bool:
+def _is_latest_report(latest_loaded_period: str | None, report_period: str | None) -> bool:
     """Un reporte solo puede dar de baja fichas si no es anterior a lo ya cargado."""
-    if not periodo_reporte:
+    if not report_period:
         return False
-    return ultimo_periodo_cargado is None or periodo_reporte >= ultimo_periodo_cargado
+    return latest_loaded_period is None or report_period >= latest_loaded_period
 
 
 def _last_closed_period(db) -> str | None:
@@ -1226,14 +1226,14 @@ def _last_closed_period(db) -> str | None:
 def _report_period(filepath: Path) -> str | None:
     """Mes del reporte segun su nombre: prefiere el texto del mes ("DICIEMBRE 2025") a la fecha del archivo,
     que en los cierres es la del dia siguiente (20260101)."""
-    named = _norm_periodo(filepath.stem)
+    named = _norm_period(filepath.stem)
     if named and 2015 <= int(named[:4]) <= 2035:
         return named
     year, month, _, _ = _report_sort_key(filepath)
     return f"{year:04d}-{month:02d}" if year else None
 
 
-def _purge_future_recaudacion(db) -> int:
+def _purge_future_collection(db) -> int:
     """Borra del control mensual los meses posteriores al ultimo mes cerrado (filas en cero)."""
     last_closed = _last_closed_period(db)
     if last_closed is None:
@@ -1294,89 +1294,89 @@ def _process_file(filepath: Path, db) -> dict:
     nombre = filepath.name
     log.info(f"Procesando: {nombre}")
 
-    totales = {"archivo": nombre, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
-    fichas: set[int] = set()  # fichas presentes en el reporte (VIGENTES + ELIMINADOS + RECHAZADOS)
-    tiene_cartera = False
-    totales["fichas"] = fichas
+    file_totals = {"archivo": nombre, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
+    file_numbers: set[int] = set()  # fichas presentes en el reporte (VIGENTES + ELIMINADOS + RECHAZADOS)
+    has_portfolio = False
+    file_totals["fichas"] = file_numbers
 
     # --- Catálogo de bancos desde hoja TABLAS ---
-    bancos_rows = _transform_bancos_from_tablas(filepath)
-    n_bancos = _load_bancos_catalogo(db, bancos_rows)
-    if n_bancos:
-        log.info(f"  Bancos nuevos: {n_bancos}")
+    bank_rows = _transform_banks_from_tables(filepath)
+    n_banks = _load_bank_catalog(db, bank_rows)
+    if n_banks:
+        log.info(f"  Bancos nuevos: {n_banks}")
 
-    controles = _load_recaudacion_mensual(db, _transform_recaudacion_mensual(filepath))
-    totales["controles"] = controles
-    if controles:
-        log.info(f"  Controles mensuales: {controles}")
+    control_rows = _load_monthly_collection(db, _transform_monthly_collection(filepath))
+    file_totals["controles"] = control_rows
+    if control_rows:
+        log.info(f"  Controles mensuales: {control_rows}")
 
     # --- VIGENTES ---
-    df_vig = _read_sheet(filepath, SHEET_VIGENTES)
-    if df_vig is not None:
-        rows_vig = _transform_suscripciones(df_vig, "VIGENTE")
-        trans_rows = _transform_historial_cargos(df_vig, nombre)
-        tiene_cartera = bool(rows_vig)
-        fichas.update(r["numero_ficha"] for r in rows_vig)
-        i, u, e = _load_suscripciones(db, rows_vig)
-        totales["sus_ins"] += i
-        totales["sus_upd"] += u
-        totales["err"] += e
+    df_active = _read_sheet(filepath, SHEET_ACTIVE)
+    if df_active is not None:
+        rows_active = _transform_subscriptions(df_active, "VIGENTE")
+        transaction_rows = _transform_charge_history(df_active, nombre)
+        has_portfolio = bool(rows_active)
+        file_numbers.update(r["numero_ficha"] for r in rows_active)
+        i, u, e = _load_subscriptions(db, rows_active)
+        file_totals["sus_ins"] += i
+        file_totals["sus_upd"] += u
+        file_totals["err"] += e
         log.info(f"  VIGENTES: {i} nuevas, {u} actualizadas, {e} errores")
 
     else:
-        trans_rows = []
+        transaction_rows = []
 
     # --- ELIMINADOS ---
-    df_elim = _read_sheet(filepath, SHEET_ELIMINADOS)
-    if df_elim is not None:
-        rows_elim = _transform_suscripciones(df_elim, "ELIMINADA")
-        trans_rows += _transform_historial_cargos(df_elim, nombre)
-        fichas.update(r["numero_ficha"] for r in rows_elim)
-        i, u, e = _load_suscripciones(db, rows_elim)
-        totales["sus_ins"] += i
-        totales["sus_upd"] += u
-        totales["err"] += e
+    df_deleted = _read_sheet(filepath, SHEET_DELETED)
+    if df_deleted is not None:
+        rows_deleted = _transform_subscriptions(df_deleted, "ELIMINADA")
+        transaction_rows += _transform_charge_history(df_deleted, nombre)
+        file_numbers.update(r["numero_ficha"] for r in rows_deleted)
+        i, u, e = _load_subscriptions(db, rows_deleted)
+        file_totals["sus_ins"] += i
+        file_totals["sus_upd"] += u
+        file_totals["err"] += e
         log.info(f"  ELIMINADOS: {i} nuevas, {u} actualizadas, {e} errores")
 
     # --- RECHAZADOS (mandatos) ---
-    df_mandatos_rech = _read_sheet(filepath, SHEET_RECHAZADOS_MANDATOS)
-    if df_mandatos_rech is not None:
-        rows_mandatos_rech = _transform_suscripciones(df_mandatos_rech, "RECHAZADA")
+    df_rejected_mandates = _read_sheet(filepath, SHEET_REJECTED_MANDATES)
+    if df_rejected_mandates is not None:
+        rows_rejected_mandates = _transform_subscriptions(df_rejected_mandates, "RECHAZADA")
         # Sin historial: los mandatos de esta hoja nunca cobraron (TCH-PAR-04).
-        fichas.update(r["numero_ficha"] for r in rows_mandatos_rech)
-        i, u, e = _load_suscripciones(db, rows_mandatos_rech)
-        totales["sus_ins"] += i
-        totales["sus_upd"] += u
-        totales["err"] += e
+        file_numbers.update(r["numero_ficha"] for r in rows_rejected_mandates)
+        i, u, e = _load_subscriptions(db, rows_rejected_mandates)
+        file_totals["sus_ins"] += i
+        file_totals["sus_upd"] += u
+        file_totals["err"] += e
         log.info(f"  RECHAZADOS: {i} nuevas, {u} actualizadas, {e} errores")
 
-    if not tiene_cartera:
-        fichas.clear()  # sin hoja VIGENTES legible (p. ej. dic-2023) no se infieren bajas
+    if not has_portfolio:
+        file_numbers.clear()  # sin hoja VIGENTES legible (p. ej. dic-2023) no se infieren bajas
 
     # --- CARGOS --- (primero los rechazados: si la misma cuota figura tambien aceptada en el reporte, la aceptada
     # se aplica despues, es el estado final, y el rechazo queda como atributo `rechazo_previo*`).
-    df_rech = _read_sheet(filepath, SHEET_RECHAZADOS)
-    if df_rech is not None:
-        trans_rows += _transform_transacciones(df_rech, "RECHAZADA", nombre)
+    df_rejected = _read_sheet(filepath, SHEET_REJECTED_CHARGES)
+    if df_rejected is not None:
+        transaction_rows += _transform_transactions(df_rejected, "RECHAZADA", nombre)
 
-    df_acep = _read_sheet(filepath, SHEET_ACEPTADOS)
-    if df_acep is not None:
-        trans_rows += _transform_transacciones(df_acep, "ACEPTADA", nombre)
+    df_accepted = _read_sheet(filepath, SHEET_ACCEPTED_CHARGES)
+    if df_accepted is not None:
+        transaction_rows += _transform_transactions(df_accepted, "ACEPTADA", nombre)
 
     # "El ultimo reporte gana": cada fila lleva el mes del reporte que la trajo. Se procesan TODAS las ventanas de
     # historial de cada reporte (un reporte posterior puede reexpresar el estado de un mes ya cargado).
     reporte_periodo = _report_period(filepath)
-    for row in trans_rows:
+    for row in transaction_rows:
         row["reporte_periodo"] = reporte_periodo
-    n_trans = _load_transacciones(db, trans_rows, nombre)
-    totales["trans"] = n_trans
-    log.info(f"  Transacciones: {n_trans}")
+    n_transactions = _load_transactions(db, transaction_rows, nombre)
+    file_totals["trans"] = n_transactions
+    log.info(f"  Transacciones: {n_transactions}")
 
-    futuros = _purge_future_recaudacion(db)
-    if futuros:
-        log.info(f"  Meses futuros en cero eliminados del control mensual: {futuros}")
+    future_months = _purge_future_collection(db)
+    if future_months:
+        log.info(f"  Meses futuros en cero eliminados del control mensual: {future_months}")
 
-    return totales
+    return file_totals
 
 
 # ---------------------------------------------------------------------------
@@ -1390,10 +1390,10 @@ DEFAULT_TOLERANCE_TOTAL = 0.001  # 0,1 % sobre el total
 @dataclass
 class MonthReconciliation:
     periodo: str
-    db_aceptadas: int
-    db_rechazadas: int
-    control_aceptadas: int
-    control_rechazadas: int
+    db_accepted: int
+    db_rejected: int
+    control_accepted: int
+    control_rejected: int
     excluded: bool = False
     ok: bool = True
 
@@ -1439,8 +1439,8 @@ def reconcile(
         if months is None or row.periodo in months
     }
     counts: dict[tuple[str, str], int] = {
-        (periodo, estado): cantidad
-        for periodo, estado, cantidad in db.execute(
+        (periodo, estado): quantity
+        for periodo, estado, quantity in db.execute(
             select(TchTransaccion.periodo, TchTransaccion.estado, func.count())
             .where(TchTransaccion.estado.in_(("ACEPTADA", "RECHAZADA")), TchTransaccion.periodo.in_(list(controls)))
             .group_by(TchTransaccion.periodo, TchTransaccion.estado)
@@ -1451,19 +1451,19 @@ def reconcile(
     for periodo, control in controls.items():
         item = MonthReconciliation(
             periodo=periodo,
-            db_aceptadas=counts.get((periodo, "ACEPTADA"), 0),
-            db_rechazadas=counts.get((periodo, "RECHAZADA"), 0),
-            control_aceptadas=control.aceptadas_cantidad,
-            control_rechazadas=control.rechazadas_cantidad,
+            db_accepted=counts.get((periodo, "ACEPTADA"), 0),
+            db_rejected=counts.get((periodo, "RECHAZADA"), 0),
+            control_accepted=control.aceptadas_cantidad,
+            control_rejected=control.rechazadas_cantidad,
             excluded=periodo in excluded,
         )
         if not item.excluded:
             item.ok = (
-                _relative_gap(item.db_aceptadas, item.control_aceptadas) <= tolerance_month
-                and _relative_gap(item.db_rechazadas, item.control_rechazadas) <= tolerance_month
+                _relative_gap(item.db_accepted, item.control_accepted) <= tolerance_month
+                and _relative_gap(item.db_rejected, item.control_rejected) <= tolerance_month
             )
-            result.total_db += item.db_aceptadas + item.db_rechazadas
-            result.total_control += item.control_aceptadas + item.control_rechazadas
+            result.total_db += item.db_accepted + item.db_rejected
+            result.total_control += item.control_accepted + item.control_rejected
         result.months.append(item)
     result.total_ok = _relative_gap(result.total_db, result.total_control) <= tolerance_total
     return result
@@ -1475,7 +1475,7 @@ def format_reconciliation(result: Reconciliation) -> str:
     for m in result.months:
         estado = "excluido" if m.excluded else ("ok" if m.ok else "FALLA")
         lines.append(
-            f"{m.periodo:<8} {m.db_aceptadas:>9} {m.control_aceptadas:>9} {m.db_rechazadas:>9} {m.control_rechazadas:>9}  {estado}"
+            f"{m.periodo:<8} {m.db_accepted:>9} {m.control_accepted:>9} {m.db_rejected:>9} {m.control_rejected:>9}  {estado}"
         )
     gap = _relative_gap(result.total_db, result.total_control) * 100
     lines.append(
@@ -1493,13 +1493,13 @@ class ReloadOutcome:
     committed: bool
     reconciliation: Reconciliation
     total: int
-    fichas_vigentes: int = 0
-    archivos: int = 0
+    active_file_numbers: int = 0
+    report_files: int = 0
 
 
 def reload_full(
     db,
-    archivos: list[Path],
+    report_files: list[Path],
     *,
     apply: bool,
     tolerance_month: float = DEFAULT_TOLERANCE_MONTH,
@@ -1513,19 +1513,19 @@ def reload_full(
     Cualquier excepcion se propaga despues de revertir.
     """
     total = 0
-    ultimo: dict = {}
+    latest: dict = {}
     try:
         _clear_tch_data(db)
-        for archivo in archivos:
-            sha = report_registry.file_sha256(archivo)
-            t = _process_file(archivo, db)
-            report_registry.register(db, sha, archivo.name, archivo.stat().st_size)
-            ultimo = t
+        for file_name in report_files:
+            sha = report_registry.file_sha256(file_name)
+            t = _process_file(file_name, db)
+            report_registry.register(db, sha, file_name.name, file_name.stat().st_size)
+            latest = t
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
-            log.info(f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
-        if ultimo:
-            bajas = _apply_implicit_bajas(db, ultimo["fichas"])
-            log.info(f"Bajas implicitas (ausentes de {ultimo['archivo']}): {bajas}")
+            log.info(f"  [{file_name.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
+        if latest:
+            cancellations = _apply_implicit_cancellations(db, latest["fichas"])
+            log.info(f"Bajas implicitas (ausentes de {latest['archivo']}): {cancellations}")
         result = reconcile(db, tolerance_month, tolerance_total, exclude_months=exclude_months)
         vigentes = db.scalar(select(func.count()).select_from(TchSuscripcion).where(TchSuscripcion.estado == "VIGENTE")) or 0
         committed = apply and result.ok
@@ -1533,7 +1533,7 @@ def reload_full(
             db.commit()
         else:
             db.rollback()
-        return ReloadOutcome(committed, result, total, fichas_vigentes=vigentes, archivos=len(archivos))
+        return ReloadOutcome(committed, result, total, active_file_numbers=vigentes, report_files=len(report_files))
     except Exception:
         db.rollback()
         raise
@@ -1595,13 +1595,13 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
             raise ReportAlreadyLoadedError("Este reporte ya fue cargado (mismo contenido, sha256 registrado).")
         if _has_legacy_dedupe_keys(db):
             raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
-        ultimo_cargado = _last_closed_period(db)
+        latest_loaded = _last_closed_period(db)
         totals = _process_file(filepath, db)
         report_registry.register(db, sha, filepath.name, filepath.stat().st_size)
         total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
-        if _is_latest_report(ultimo_cargado, _report_period(filepath)):
-            bajas = _apply_implicit_bajas(db, totals["fichas"])
-            log.info(f"  Bajas implicitas (ausentes del reporte): {bajas}")
+        if _is_latest_report(latest_loaded, _report_period(filepath)):
+            cancellations = _apply_implicit_cancellations(db, totals["fichas"])
+            log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")
         _finish_run(db, run, total)
         _close_cancellations_from_report(db)
         return total
@@ -1663,20 +1663,20 @@ def main(argv: list[str] | None = None) -> None:
         if not folder.is_dir():
             log.error(f"Carpeta no encontrada: {folder}")
             sys.exit(1)
-        archivos = _list_reports(folder)
-        if not archivos:
+        report_files = _list_reports(folder)
+        if not report_files:
             log.error(f"No se encontraron archivos .xlsx en {folder}")
             sys.exit(1)
-        archivos, duplicados = _unique_reports_by_sha256(archivos)
-        for duplicado in duplicados:
-            log.warning(f"Archivo omitido por contenido duplicado (sha256): {duplicado.name}")
-        log.info(f"Modo full: {len(archivos)} archivos a procesar")
+        report_files, duplicates = _unique_reports_by_sha256(report_files)
+        for duplicate in duplicates:
+            log.warning(f"Archivo omitido por contenido duplicado (sha256): {duplicate.name}")
+        log.info(f"Modo full: {len(report_files)} archivos a procesar")
     else:
         f = Path(args.file)
         if not f.exists():
             log.error(f"Archivo no encontrado: {f}")
             sys.exit(1)
-        archivos = [f]
+        report_files = [f]
         log.info(f"Modo incremental: {f.name}")
 
     db = SessionLocal()
@@ -1696,7 +1696,7 @@ def main(argv: list[str] | None = None) -> None:
             log.info("Recarga completa de la base '%s' (%s)", database_name, "APPLY" if args.apply else "dry-run: se hara ROLLBACK")
             outcome = reload_full(
                 db,
-                archivos,
+                report_files,
                 apply=args.apply,
                 tolerance_month=args.tolerance_month,
                 tolerance_total=args.tolerance_total,
@@ -1704,7 +1704,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             total = outcome.total
             print(format_reconciliation(outcome.reconciliation))
-            print(f"Fichas VIGENTES resultantes: {outcome.fichas_vigentes}")
+            print(f"Fichas VIGENTES resultantes: {outcome.active_file_numbers}")
             run = db.get(EtlRun, run_id)
             if outcome.committed:
                 _finish_run(db, run, total, phase="tch_full_reload")
@@ -1719,20 +1719,20 @@ def main(argv: list[str] | None = None) -> None:
                 sys.exit(3)
             return
 
-        for archivo in archivos:
-            sha = report_registry.file_sha256(archivo)
-            ultimo_cargado = _last_closed_period(db)
+        for file_name in report_files:
+            sha = report_registry.file_sha256(file_name)
+            latest_loaded = _last_closed_period(db)
             if report_registry.is_registered(db, sha):
                 raise ReportAlreadyLoadedError("Este reporte ya fue cargado (mismo contenido, sha256 registrado).")
             if _has_legacy_dedupe_keys(db):
                 raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
-            t = _process_file(archivo, db)
-            report_registry.register(db, sha, archivo.name, archivo.stat().st_size)
-            if _is_latest_report(ultimo_cargado, _report_period(archivo)):
-                bajas = _apply_implicit_bajas(db, t["fichas"])
-                log.info(f"  Bajas implicitas (ausentes del reporte): {bajas}")
+            t = _process_file(file_name, db)
+            report_registry.register(db, sha, file_name.name, file_name.stat().st_size)
+            if _is_latest_report(latest_loaded, _report_period(file_name)):
+                cancellations = _apply_implicit_cancellations(db, t["fichas"])
+                log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
-            log.info(f"  [{archivo.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
+            log.info(f"  [{file_name.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
         _finish_run(db, db.get(EtlRun, run_id), total)
         _close_cancellations_from_report(db)
         log.info(f"ETL completado. Total procesados: {total}")

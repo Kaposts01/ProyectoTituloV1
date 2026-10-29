@@ -65,17 +65,17 @@ def normalize_tch_currency(value: object) -> str | None:
     return None
 
 
-def _resolve_currency(suscripcion: TchSuscripcion) -> str:
+def _resolve_currency(subscription: TchSuscripcion) -> str:
     """Moneda del mandato desde "Moneda Vigente" (TCH-PAR-05); CLP si el reporte no la trae.
 
     El campo ``reajuste`` ("SI" o vacio) indica reajuste del monto, no la moneda.
     Se lee la columna ``moneda`` (migracion 0047); en filas cargadas antes de ella, del payload, donde el ETL deja
     la clave ``moneda_vigente`` y, en filas aun mas antiguas, el rotulo crudo de la columna.
     """
-    from_column = normalize_tch_currency(getattr(suscripcion, "moneda", None))
+    from_column = normalize_tch_currency(getattr(subscription, "moneda", None))
     if from_column:
         return from_column
-    payload = getattr(suscripcion, "raw_payload", None) or {}
+    payload = getattr(subscription, "raw_payload", None) or {}
     value = payload.get("moneda_vigente")
     if value is None:
         for key, raw in payload.items():
@@ -89,7 +89,7 @@ def _resolve_currency(suscripcion: TchSuscripcion) -> str:
 
 def _materialize_client_attributes(db: Session) -> int:
     """Upsert observable PII attributes for each TCH client."""
-    clientes = db.scalars(select(TchCliente)).all()
+    clients = db.scalars(select(TchCliente)).all()
 
     identity_index: dict[str, uuid.UUID | None] = {}
     for row in db.execute(
@@ -101,15 +101,15 @@ def _materialize_client_attributes(db: Session) -> int:
         identity_index[row.external_id] = row.client_id
 
     rows: list[dict] = []
-    for c in clientes:
+    for c in clients:
         if not c.rut:
             continue
         client_id = identity_index.get(c.rut)
         observed = c.updated_at or c.created_at
 
-        nombre_completo = " ".join(filter(None, [c.nombre, c.apellido])).strip() or None
+        full_name = " ".join(filter(None, [c.nombre, c.apellido])).strip() or None
         for attr_type, attr_val in [
-            ("name", nombre_completo),
+            ("name", full_name),
             ("rut", c.rut),
             ("email", c.email),
             ("phone", c.telefono),
@@ -155,15 +155,15 @@ def _materialize_subscriptions(db: Session) -> int:
         .where(TchTransaccion.numero_ficha.isnot(None))
     ):
         prev = _tx_latest.get(row.numero_ficha)
-        fecha = row.fecha_cargo or ""
-        if prev is None or fecha > prev[0]:
-            _tx_latest[row.numero_ficha] = (fecha, row.estado)
+        charge_day = row.fecha_cargo or ""
+        if prev is None or charge_day > prev[0]:
+            _tx_latest[row.numero_ficha] = (charge_day, row.estado)
     last_tx_status: dict[int, str] = {k: v[1] for k, v in _tx_latest.items()}
 
-    suscripciones = db.scalars(select(TchSuscripcion)).all()
+    subscriptions = db.scalars(select(TchSuscripcion)).all()
 
     rows = []
-    for s in suscripciones:
+    for s in subscriptions:
         client_id = identity_index.get(s.cliente_rut) if s.cliente_rut else None
         rows.append({
             "id": uuid.uuid4(),

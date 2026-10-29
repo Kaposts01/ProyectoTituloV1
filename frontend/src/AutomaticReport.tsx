@@ -246,7 +246,7 @@ export function AutomaticReport() {
             <tbody>
               {CHANNELS.map((ch) => {
                 const s = p.channels[ch];
-                const saldo = s.new_subscriptions - s.cancellations;
+                const balance = s.new_subscriptions - s.cancellations;
                 const isGlobal = ch === "global";
                 return (
                   <tr key={ch} style={isGlobal ? { fontWeight: 700 } : undefined}>
@@ -259,8 +259,8 @@ export function AutomaticReport() {
                       {s.cancellations > 0 ? `-${s.cancellations.toLocaleString("es-CL")}` : "0"}
                     </td>
                     <td>{s.active_end.toLocaleString("es-CL")}</td>
-                    <td style={{ color: saldo >= 0 ? "var(--green, #2db87a)" : "var(--red, #e84040)", fontWeight: 600 }}>
-                      {saldo >= 0 ? "+" : ""}{saldo.toLocaleString("es-CL")}
+                    <td style={{ color: balance >= 0 ? "var(--green, #2db87a)" : "var(--red, #e84040)", fontWeight: 600 }}>
+                      {balance >= 0 ? "+" : ""}{balance.toLocaleString("es-CL")}
                     </td>
                     <td><ChurnBadge rate={s.churn_rate} /></td>
                   </tr>

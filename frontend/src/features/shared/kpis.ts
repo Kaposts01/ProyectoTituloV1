@@ -1,6 +1,6 @@
 export type Channel = "virtualpos" | "toku" | "payku" | "tch";
 
-export type RecaudoMensual = {
+export type MonthlyCollection = {
   period: string | null;
   mrr: number | null;
   /** Transacciones aceptadas (no clientes distintos). */
@@ -22,7 +22,7 @@ export type ChannelKpis = {
   rejectedCharges: { count: number | null; amount: number | null };
   note?: string;
   /** Solo TCH: recaudo aceptado del último período (reportes Excel oficiales). */
-  recaudoMensual?: RecaudoMensual;
+  monthlyCollection?: MonthlyCollection;
 };
 
 export const PAYKU_COVERAGE_NOTE = "Cobertura histórica no certificada";
@@ -59,7 +59,7 @@ function label(value: unknown): string | null {
 export function normalizeKpis(channel: Channel, raw: unknown, fallbackChurnLabel?: unknown): ChannelKpis {
   const k = rec(raw);
   const rejected = rec(k.rejected_charges);
-  const recaudo = k.recaudo_mensual !== null && typeof k.recaudo_mensual === "object" ? rec(k.recaudo_mensual) : null;
+  const collection = k.recaudo_mensual !== null && typeof k.recaudo_mensual === "object" ? rec(k.recaudo_mensual) : null;
   return {
     mrr: num(k.mrr),
     arpu: num(k.arpu),
@@ -70,15 +70,15 @@ export function normalizeKpis(channel: Channel, raw: unknown, fallbackChurnLabel
     churnWindowLabel: label(k.churn_window_label) ?? label(fallbackChurnLabel),
     rejectedCharges: { count: num(rejected.count), amount: num(rejected.amount) },
     note: CHANNEL_KPI_NOTES[channel],
-    ...(recaudo
+    ...(collection
       ? {
-          recaudoMensual: {
-            period: typeof recaudo.period === "string" ? recaudo.period : null,
-            mrr: num(recaudo.mrr),
-            acceptedTransactions: num(recaudo.accepted_transactions) ?? num(recaudo.active_clients),
-            arpu: num(recaudo.arpu),
-            rejectedCount: num(recaudo.rejected_count),
-            rejectedAmount: num(recaudo.rejected_amount),
+          monthlyCollection: {
+            period: typeof collection.period === "string" ? collection.period : null,
+            mrr: num(collection.mrr),
+            acceptedTransactions: num(collection.accepted_transactions) ?? num(collection.active_clients),
+            arpu: num(collection.arpu),
+            rejectedCount: num(collection.rejected_count),
+            rejectedAmount: num(collection.rejected_amount),
           },
         }
       : {}),

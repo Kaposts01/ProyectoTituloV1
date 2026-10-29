@@ -41,13 +41,13 @@ describe("normalizeKpis", () => {
       ...full,
       recaudo_mensual: { period: "2026-09", mrr: 46687623, accepted_transactions: 5644, active_clients: 1, arpu: 8272, rejected_count: 10, rejected_amount: 90000 },
     });
-    expect(k.recaudoMensual).toEqual({
+    expect(k.monthlyCollection).toEqual({
       period: "2026-09", mrr: 46687623, acceptedTransactions: 5644, arpu: 8272, rejectedCount: 10, rejectedAmount: 90000,
     });
     const legacy = normalizeKpis("tch", { recaudo_mensual: { active_clients: 7 } });
-    expect(legacy.recaudoMensual?.acceptedTransactions).toBe(7);
-    expect(normalizeKpis("tch", full).recaudoMensual).toBeUndefined();
-    expect(normalizeKpis("tch", { recaudo_mensual: null }).recaudoMensual).toBeUndefined();
+    expect(legacy.monthlyCollection?.acceptedTransactions).toBe(7);
+    expect(normalizeKpis("tch", full).monthlyCollection).toBeUndefined();
+    expect(normalizeKpis("tch", { recaudo_mensual: null }).monthlyCollection).toBeUndefined();
   });
 });
 

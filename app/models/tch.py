@@ -9,8 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.session import Base
 
 # Origen de una fila de tch_transacciones (TCH-PAR-04).
-ORIGEN_CARGO = "cargo"  # hojas CARGOS ACEPTADOS / CARGOS RECHAZADOS: intento real, con fecha de cobro
-ORIGEN_HISTORIAL = "historial"  # bloques de 12 meses de las hojas de mandatos: estado mensual, sin fecha de cobro
+ORIGIN_CHARGE = "cargo"  # hojas CARGOS ACEPTADOS / CARGOS RECHAZADOS: intento real, con fecha de cobro
+ORIGIN_HISTORY = "historial"  # bloques de 12 meses de las hojas de mandatos: estado mensual, sin fecha de cobro
 
 
 class TchBanco(Base):

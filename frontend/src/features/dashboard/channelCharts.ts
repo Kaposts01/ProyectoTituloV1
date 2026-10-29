@@ -110,8 +110,8 @@ export function coverageGapAnnotations(
 }
 
 /** Nota de fuente de las transacciones de TCH. */
-export function tchSourceNote(fuente: string | null | undefined): string | null {
-  if (fuente === "recaudacion_mensual") return TCH_SOURCE_NOTE;
-  if (fuente === "transacciones") return "Fuente: respaldo desde transacciones individuales (sin reporte mensual oficial)";
+export function tchSourceNote(source: string | null | undefined): string | null {
+  if (source === "recaudacion_mensual") return TCH_SOURCE_NOTE;
+  if (source === "transacciones") return "Fuente: respaldo desde transacciones individuales (sin reporte mensual oficial)";
   return null;
 }

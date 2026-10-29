@@ -29,14 +29,14 @@ const vpPlatformLabel = (rec: StagingRecord) =>
 export function virtualPosColumns(resource: string): TableColumn[] {
   const clientRut = (rec: StagingRecord) =>
     text(nested(rec.payload, "client", "social_id") ?? rec.payload.social_id);
-  const plataforma: TableColumn = { key: "Plataforma", label: "Plataforma", value: vpPlatformLabel };
+  const platformColumn: TableColumn = { key: "Plataforma", label: "Plataforma", value: vpPlatformLabel };
   if (resource === "client")
     return [
       { key: "RUT", label: "RUT", value: (rec) => text(rec.payload.social_id) },
       { key: "Nombre", label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || "Sin dato" },
       { key: "Email", label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
       { key: "Telefono", label: "Teléfono", value: (rec) => text(rec.payload.phone_number) },
-      plataforma,
+      platformColumn,
       { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { key: "Acciones", label: "Acciones", value: () => "Editar" },
     ];
@@ -50,7 +50,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
       { key: "Renovacion", label: "Renovación", value: (rec) => active(rec.payload.automatic_renewal) },
       { key: "Estado", label: "Estado", value: (rec) => active(rec.payload.is_active) },
       { key: "Activo en POS", label: "Activo en POS", value: (rec) => active(rec.payload.show_in_terminal) },
-      plataforma,
+      platformColumn,
     ];
   if (resource === "subscription")
     return [
@@ -61,7 +61,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
       { key: "F. Inicio", label: "F. Inicio", value: (rec) => text(rec.payload.suscription_date) },
       { key: "F. Cancelacion", label: "F. Cancelación", value: (rec) => text(rec.payload.canceled_at) },
       { key: "Último cobro", label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
-      plataforma,
+      platformColumn,
       { key: "Acciones", label: "Acciones", value: () => "Cancelar" },
     ];
   if (resource === "charge")
@@ -72,7 +72,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
       { key: "Fecha de cargo", label: "Fecha de cargo", value: (rec) => text(rec.payload.charge_date) },
       { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
-      plataforma,
+      platformColumn,
       { key: "Acciones", label: "Acciones", value: () => "Eliminar" },
     ];
   return [
@@ -81,7 +81,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
     { key: "F. Pago", label: "F. Pago", value: (rec) => text(nested(rec.payload, "order", "authorized_at")) },
     { key: "Monto", label: "Monto", value: (rec) => clp(nested(rec.payload, "order", "amount")) },
     { key: "Estado", label: "Estado", value: (rec) => label("status", nested(rec.payload, "order", "status")) },
-    plataforma,
+    platformColumn,
     { key: "Acciones", label: "Acciones", value: () => "Eliminar" },
   ];
 }

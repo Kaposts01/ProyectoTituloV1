@@ -1,6 +1,6 @@
 # Textos en español del frontend (i18n)
 
-Regla del usuario: TODO lo que ve el usuario va en español: títulos, descripciones, rótulos, mensajes y también los VALORES que llegan de la API o del proveedor (`Paid` se ve «Pagado», `FAILED` «Fallido», `ACTIVE` «Activa», `True` «Sí»). Origen del trabajo: auditoría `audit_i18n_frontend.md` (pasos 0 a 12 de texto; los pasos 13 a 19, que renombran identificadores, esperan las decisiones D32 a D36 del usuario y no están hechos).
+Regla del usuario: TODO lo que ve el usuario va en español: títulos, descripciones, rótulos, mensajes y también los VALORES que llegan de la API o del proveedor (`Paid` se ve «Pagado», `FAILED` «Fallido», `ACTIVE` «Activa», `True` «Sí»). Origen del trabajo: auditoría `audit_i18n_frontend.md` (pasos 0 a 12 de texto y pasos 13 a 19, que renombran identificadores; todos hechos, ver los balances de las secciones 5 y 6).
 
 ## 1. Catálogo y función `label`
 
@@ -44,7 +44,7 @@ Fuera de `label`: nombres propios y datos libres (nombre de rol, de plan, de cli
 
 ## 5. Balance (pasos de texto 0 a 12)
 
-Hechos los 13 pasos (0, 1, 10, 4, 5, 6, 8, 7, 9, 2, 3, 11, 12), un commit cada uno. Pendientes: pasos 13 a 19 (renombrar identificadores), en espera de las decisiones D32 a D36 del usuario; no se tocó ningún identificador.
+Hechos los 13 pasos (0, 1, 10, 4, 5, 6, 8, 7, 9, 2, 3, 11, 12), un commit cada uno. Los pasos 13 a 19 (identificadores) están en la sección 6.
 
 ### Valores crudos que no se pudieron mapear sin conocer su significado (el usuario los define)
 
@@ -56,3 +56,33 @@ Hechos los 13 pasos (0, 1, 10, 4, 5, 6, 8, 7, 9, 2, 3, 11, 12), un commit cada u
 - Expresiones cron sin traducción en el programador se muestran tal cual.
 - `detail` del backend que no está en el catálogo se muestra tal cual (paso 11).
 - `error_message` de una corrida recibe el mismo trato que `msg` (rótulo «Texto del proveedor»).
+
+## 6. Identificadores en inglés (pasos 13 a 19)
+
+Decisiones del usuario: D33 = las claves JSON de la API se quedan en español (el backend no las renombra), así que los ADAPTADORES son la capa que las convierte a inglés; D34 = solo los NOMBRES (funciones, variables, constantes, tipos, componentes, hooks, archivos) van en inglés, los comentarios en español se quedan; D36 = adaptador de TCH en el frontend; D37 = `rut` se conserva. Un commit por paso; en los pasos 13 a 15 y 18 ningún snapshot cambió (si cambiara sería una regresión).
+
+| Paso | Contenido | Estado |
+|---|---|---|
+| 13 | Componentes de `MonthlyStatusChart.tsx`: `ActivacionCaidaChart` a `ActivationsVsChurnChart`, `CrecimientoMensualChart` a `MonthlyGrowthChart`, `ChurnMensualChart` a `MonthlyChurnChart`, `TransaccionesSuscripcionesChart` a `TransactionsVsSubscriptionsChart`, `IngresosMensualesChart` a `MonthlyRevenueChart`; props y claves internas de datos (`activaciones`, `caidas`, `transacciones`…). | hecho |
+| 14 | Variables y constantes locales: `ALTAS_COLOR`/`BAJAS_COLOR` a `ACTIVATIONS_COLOR`/`CANCELLATIONS_COLOR`, `altasBajas`, `cobrableSubs`, `cobrableByKey`, `showVigente` a `showCurrentAmount`, `transFilter` a `transactionFilter`. El filtro de cobros usa los valores internos `all`/`paid`/`rejected` y `applyChargeFilter` los traduce al `charge_status` del backend. | hecho |
+| 15 | Hook y estado de TCH (`useTch`, `TchContent`, `AppCore`): `tchSuscripciones` a `tchSubscriptions`, filtros, páginas, detalles y setters; `showTchSuscripcion`/`showTchTransaccion`/`showTchCliente` a `showTchSubscription`/`showTchTransaction`/`showTchClient`; vistas de detalle `client-detail`, `subscription-detail`, `transaction-detail`. | hecho |
+| 16 | `features/tch/tchAdapter.ts` + `tchTypes.ts`: convierte las claves en español del backend (suscripciones 22, transacciones 12, clientes 13 y el resumen) a `TchSubscription`, `TchTransaction`, `TchClient`, `TchSummary`. Un texto ausente queda `null`, el estado ausente `""`, la ficha ausente `0`, las listas ausentes `[]` (nunca se inventa un dato). Los detalles provisionales ya no usan `as`. Se eliminan `normalizeTchSummary` y los tipos `Tch*` en español de `shared/types.ts`. La caché `tch:summary` guarda ahora la respuesta cruda. 81 pruebas (una por clave, ausentes, detalles, páginas y resumen). Las 14 pruebas de caracterización de TCH siguen verdes con sus snapshots intactos (los fixtures siguen en el formato del backend). | hecho |
+| 17 | `dashboard/alertAdapter.ts` (`sev`, `tipo`, `canal`, `detalle`, `periodo` a `severity`, `kind`, `channel`, `detail`, `period`; detalle: `ultimo_cobro`, `ultimo_estado`, `intentos`, `suscription_date` a `lastCharge`, `lastChargeStatus`, `attempts`, `subscriptionDate`), `dashboard/generalClientAdapter.ts` (`id_cliente`, `id_subscription`, `id_cargo`, `id_transaccion` a `internalId`) y `recovery/recoveryAdapter.ts` (`monto`, `monto_vigente` a `requestedAmount`, `currentAmount`). | hecho |
+| 18 | Rutas internas: vistas de TCH `clients`/`subscriptions`/`transactions`, administración `users`/`sync`, `numeroFicha` a `fileNumber`. Las URLs, los permisos `tch.*` (`tchPermissionSegment`) y el contrato de exportación no cambian. Prueba de ida y vuelta URL y ruta. | hecho |
+| 19 | Guardián de identificadores `i18n/identifiers.guard.test.ts` (analizador de TypeScript: solo identificadores, no textos ni comentarios) con lista de palabras españolas y excepciones por archivo con motivo; además se renombraron los últimos nombres que detectó (`recaudoMensual` a `monthlyCollection`, `plataforma`, `fuente`, `saldo`). La regla `id-denylist` de ESLint no se activó: el proyecto usa oxlint, que no la ofrece; el guardián la reemplaza. | hecho |
+
+### Excepciones de identificadores (documentadas en el guardián)
+
+- Adaptadores (`*Adapter.ts`) y `summaryFixtures.ts`: son la única capa que conoce las claves en español de la API.
+- `i18n/es.ts`: las claves del catálogo son los valores crudos de la API o del proveedor.
+- `rut` en cualquier identificador (D37).
+- Contrato de exportación: entidades `clientes`, `suscripciones`, `cobros`, `pagos` y el parámetro `canal` (propiedad `canal` de `ExportTarget`/`ExportButton`, que se envía tal cual).
+- Segmentos de URL como claves de tabla en `routes.ts`, y permisos `tch.clientes.view`…
+- Valores del backend usados como clave de tabla (estados de billing, severidad `alta`/`baja`, estados secundarios del recuperador).
+- Claves de la API que todavía se usan directo (`cobrable_subs_monthly`, `cobrable_subscription_count`, `recaudo_mensual`).
+- Fuera de alcance por la regla D34: textos visibles, comentarios y clases CSS (`dashboard-alert-tipo`…).
+
+### Pendiente después del paso 19
+
+- `ChannelDashboard`, `GeneralDashboard` y las filas del recuperador siguen usando directo sus claves del backend en inglés (`active_subs_monthly`…): no tienen claves en español salvo las ya listadas, así que no se les creó adaptador.
+- Si el backend renombra algún día las claves en español, solo cambian los adaptadores y sus pruebas.

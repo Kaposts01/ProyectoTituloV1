@@ -139,11 +139,11 @@ export const stagingFilters: Record<string, Record<string, FilterOption[]>> = {
 
 /** Campo de filtro y de orden de cada columna de VirtualPOS, por la CLAVE estable de la columna (`TableColumn.key`). */
 const vpColumnFields: Record<string, Record<string, string>> = {
-  client: { RUT: "social_id", Nombre: "name", Email: "email", Telefono: "phone_number", Estado: "status" },
-  plan: { Nombre: "name", Monto: "amount", Renovacion: "automatic_renewal", Estado: "is_active", "Activo en POS": "show_in_terminal" },
-  subscription: { "RUT cliente": "social_id", Estado: "status", "Estado sec.": "secondary_status", Monto: "amount", "F. Inicio": "suscription_date", "F. Cancelacion": "canceled_at" },
-  charge: { "ID subscripción": "subscription_id", "Fecha de cargo": "charge_date", Estado: "status", Monto: "amount" },
-  payment: { "RUT cliente": "social_id", "F. Pago": "authorized_at", Monto: "amount", Estado: "status" },
+  client: { "RUT": "social_id", "Nombre": "name", "Email": "email", "Telefono": "phone_number", "Estado": "status" },
+  plan: { "Nombre": "name", "Monto": "amount", "Renovacion": "automatic_renewal", "Estado": "is_active", "Activo en POS": "show_in_terminal" },
+  subscription: { "RUT cliente": "social_id", "Estado": "status", "Estado sec.": "secondary_status", "Monto": "amount", "F. Inicio": "suscription_date", "F. Cancelacion": "canceled_at" },
+  charge: { "ID subscripción": "subscription_id", "Fecha de cargo": "charge_date", "Estado": "status", "Monto": "amount" },
+  payment: { "RUT cliente": "social_id", "F. Pago": "authorized_at", "Monto": "amount", "Estado": "status" },
 };
 
 export function virtualPosFieldForColumn(resource: string, columnKey: string): string | null {
