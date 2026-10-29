@@ -14,6 +14,7 @@ import argparse
 import logging
 import re
 import sys
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,6 +138,25 @@ def _norm_cuota(val: Any) -> str | None:
     if number.is_integer():
         return str(int(number))
     return text[:20]
+
+
+def _codigo_from_motivo(motivo: str | None) -> str | None:
+    """Codigo de respuesta derivado del motivo de rechazo (el reporte no trae una columna de codigo).
+
+    Si el motivo empieza con un codigo corto ("R02 - ...", "51: ...") se conserva; si no, se genera
+    un identificador estable en mayusculas sin tildes ("Fondos insuficientes" -> FONDOS_INSUFICIENTES).
+    """
+    if not motivo or not motivo.strip():
+        return None
+    text = unicodedata.normalize("NFKD", motivo).encode("ascii", "ignore").decode().upper().strip()
+    prefix = re.match(r"([A-Z]{0,2}\d{1,3})\s*[-:.)]\s*\S", text)
+    if prefix:
+        return prefix.group(1)
+    prefix = re.fullmatch(r"([A-Z]{0,2}\d{1,3})", text)
+    if prefix:
+        return prefix.group(1)
+    slug = re.sub(r"[^A-Z0-9]+", "_", text).strip("_")
+    return slug[:50] or None
 
 
 def _norm_periodo(val: Any) -> str | None:
@@ -583,8 +603,10 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> lis
         or _find_col(df, "monto")
     )
     c_fecha = _find_col(df, "fecha", "cobro") or _find_col(df, "fecha", "intento") or _find_col(df, "fecha", "cargo")
-    c_codigo = _find_col(df, "codigo") or _find_col(df, "c", "digo")
-    c_razon = _find_col(df, "raz") or _find_col(df, "rechazo")
+    # Codigo explicito si el reporte lo trae; si no se deriva de "Motivo" (solo en CARGOS RECHAZADOS).
+    c_codigo = _find_leaf_col(df, "codigo") or _find_leaf_col(df, "código") or _find_leaf_col(df, "respuesta")
+    # Ojo: buscar "rechazo" en cualquier nivel caia en el grupo "DETALLE DEL RECHAZO" (columna Periodo).
+    c_razon = _find_leaf_col(df, "motivo") or _find_leaf_col(df, "raz")
 
     if c_ficha is None:
         log.warning(f"  No se encontró columna 'Número Ficha' en transacciones ({estado})")
@@ -613,6 +635,8 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> lis
 
         cuota = _norm_cuota(_col_val(row, c_cuota)) if c_cuota else None
         monto = _norm_monto(_col_val(row, c_monto))
+        razon = _norm_str(_col_val(row, c_razon), 500) if c_razon else None
+        codigo = (_norm_str(_col_val(row, c_codigo), 50) if c_codigo else None) or _codigo_from_motivo(razon)
         rows.append({
             "numero_ficha": ficha,
             "numero_mandato": _norm_int(_col_val(row, c_mandato)),
@@ -624,8 +648,8 @@ def _transform_transacciones(df: pd.DataFrame, estado: str, archivo: str) -> lis
             "tipo_transaccion": _norm_str(_col_val(row, c_tipo), 50) if c_tipo else None,
             "estado": estado,
             "entidad_recaudadora": _norm_str(_col_val(row, c_entidad), 100) if c_entidad else None,
-            "codigo_respuesta": _norm_str(_col_val(row, c_codigo), 50) if c_codigo else None,
-            "razon_rechazo": _norm_str(_col_val(row, c_razon), 500) if c_razon else None,
+            "codigo_respuesta": codigo,
+            "razon_rechazo": razon,
             "archivo_origen": archivo,
             "dedupe_key": _dedupe_key(ficha, periodo, cuota, estado, monto),
             "raw_payload": raw,

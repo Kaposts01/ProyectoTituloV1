@@ -580,3 +580,72 @@ def test_unique_reports_by_sha256_skips_exact_duplicates(tmp_path) -> None:
     unicos, omitidos = etl_tch._unique_reports_by_sha256([uno, dos, otro])
     assert unicos == [uno, otro]
     assert omitidos == [dos]
+
+
+# --- TCH-PAR-18: codigo_respuesta y razon_rechazo desde el "Motivo" del reporte ---
+
+def _rechazados_frame(motivos: list) -> pd.DataFrame:
+    n = len(motivos)
+    return pd.DataFrame({
+        "Numero Ficha": list(range(1, n + 1)),
+        "Periodo": [3] * n,  # correlativo; antes se leia como razon_rechazo por el rotulo "DETALLE DEL RECHAZO"
+        "N Cuota": [1] * n,
+        "Cuota Mes": ["SEPT 26"] * n,
+        "Monto Cuota": [10000] * n,
+        "TOTAL RECHAZADO": [10000] * n,
+        "Motivo": motivos,
+    })
+
+
+def test_rejected_charges_take_razon_and_codigo_from_motivo() -> None:
+    rows = etl_tch._transform_transacciones(_rechazados_frame(["Fondos insuficientes", "Cuenta cerrada"]), "RECHAZADA", "x.xlsx")
+    assert [r["razon_rechazo"] for r in rows] == ["Fondos insuficientes", "Cuenta cerrada"]
+    assert [r["codigo_respuesta"] for r in rows] == ["FONDOS_INSUFICIENTES", "CUENTA_CERRADA"]
+
+
+def test_codigo_respuesta_keeps_a_numeric_code_prefix_of_the_motivo() -> None:
+    rows = etl_tch._transform_transacciones(_rechazados_frame(["R02 - Cuenta cerrada", "51: Fondos insuficientes"]), "RECHAZADA", "x.xlsx")
+    assert [r["codigo_respuesta"] for r in rows] == ["R02", "51"]
+    assert rows[0]["razon_rechazo"] == "R02 - Cuenta cerrada"
+
+
+def test_motivo_codigo_is_accent_insensitive_and_bounded() -> None:
+    assert etl_tch._codigo_from_motivo("Cuenta Inexistente / Cancelada") == "CUENTA_INEXISTENTE_CANCELADA"
+    assert etl_tch._codigo_from_motivo("Mandato sin autorización") == "MANDATO_SIN_AUTORIZACION"
+    assert len(etl_tch._codigo_from_motivo("x" * 200) or "") <= 50
+    assert etl_tch._codigo_from_motivo(None) is None
+    assert etl_tch._codigo_from_motivo("   ") is None
+
+
+def test_an_explicit_codigo_column_wins_over_the_derived_one() -> None:
+    frame = _rechazados_frame(["Fondos insuficientes"])
+    frame["Codigo Respuesta"] = ["R01"]
+    assert etl_tch._transform_transacciones(frame, "RECHAZADA", "x.xlsx")[0]["codigo_respuesta"] == "R01"
+
+
+def test_accepted_charges_have_no_razon_nor_codigo() -> None:
+    frame = _rechazados_frame([None]).drop(columns=["Motivo", "TOTAL RECHAZADO"])
+    row = etl_tch._transform_transacciones(frame, "ACEPTADA", "x.xlsx")[0]
+    assert row["razon_rechazo"] is None
+    assert row["codigo_respuesta"] is None
+
+
+def test_razon_rechazo_is_not_the_numeric_periodo_column() -> None:
+    row = etl_tch._transform_transacciones(_rechazados_frame([None]), "RECHAZADA", "x.xlsx")[0]
+    assert row["razon_rechazo"] is None
+
+
+def test_razon_rechazo_ignores_the_detalle_del_rechazo_group_label() -> None:
+    # En la hoja real el grupo se llama "DETALLE DEL RECHAZO": buscar "rechazo" caia en la columna Periodo.
+    columnas = pd.MultiIndex.from_tuples([
+        ("Numero Ficha", "Numero Ficha"),
+        ("DETALLE DEL RECHAZO", "Periodo"),
+        ("Unnamed: 2_level_0", "N Cuota"),
+        ("Unnamed: 3_level_0", "Cuota Mes"),
+        ("Unnamed: 4_level_0", "TOTAL RECHAZADO"),
+        ("Unnamed: 5_level_0", "Motivo"),
+    ])
+    frame = pd.DataFrame([[101, 7, 3, "SEPT 26", 10000, "Fondos insuficientes"]], columns=columnas)
+    row = etl_tch._transform_transacciones(frame, "RECHAZADA", "x.xlsx")[0]
+    assert row["razon_rechazo"] == "Fondos insuficientes"
+    assert row["periodo"] == "2026-09"
