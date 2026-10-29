@@ -13,7 +13,7 @@ from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
-from app.services import core_etl_mark
+from app.services import core_etl_mark, sync_metrics
 from app.services import tch_report_registry as tch_registry
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_recovery import reconcile_charge_recoveries
@@ -137,6 +137,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     channels_failed: list[str] = []
     config_failed: list[str] = []
     metrics = RunMetrics(run_id)
+    metrics_token = sync_metrics.activate(metrics)
     vp_synced: dict[str, uuid.UUID] = {}  # cuenta VP -> id de su SyncRun (para reconciliar tras la consolidacion final)
 
     try:
@@ -151,7 +152,10 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             db = SessionLocal()
             try:
                 # SYNC-O-04: no consolida aqui; la consolidacion de VP corre una sola vez, mas abajo.
-                sync_run = await sync_virtualpos(db, platform, _make_progress_callback(run_id, phase), consolidate=False)
+                with metrics.timed("sync", platform):
+                    sync_run = await sync_virtualpos(
+                        db, platform, _make_progress_callback(run_id, phase), consolidate=False
+                    )
                 n = sync_run.records_processed or 0
                 total_records += n
                 channels_done.append(platform)
@@ -175,7 +179,8 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             logger.info("Iniciando %s", phase)
             db = SessionLocal()
             try:
-                sync_run = await sync_toku(db, _make_progress_callback(run_id, phase))
+                with metrics.timed("sync", "toku"):
+                    sync_run = await sync_toku(db, _make_progress_callback(run_id, phase))
                 n = sync_run.records_processed or 0
                 total_records += n
                 channels_done.append("toku")
@@ -198,7 +203,8 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             logger.info("Iniciando %s", phase)
             db = SessionLocal()
             try:
-                sync_run = await sync_payku(db, _make_progress_callback(run_id, phase))
+                with metrics.timed("sync", "payku"):
+                    sync_run = await sync_payku(db, _make_progress_callback(run_id, phase))
                 n = sync_run.records_processed or 0
                 total_records += n
                 channels_done.append("payku")
@@ -264,7 +270,14 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         consolidation_error = False
         db = SessionLocal()
         try:
-            consolidated = consolidate_to_centralized(db, consolidate_sources, failures=consolidation_failures)
+            consolidation_timings: list[dict] = []
+            with metrics.timed("consolidate_total") as consolidate_info:
+                consolidated = consolidate_to_centralized(
+                    db, consolidate_sources, failures=consolidation_failures, timings=consolidation_timings
+                )
+                consolidate_info["records"] = consolidated
+            for item in consolidation_timings:
+                metrics.add("consolidate", f"{item['source']}.{item['fn']}", item["seconds"], records=item["records"])
             total_records += consolidated
             if "tch" in consolidate_sources and tch_snapshot is not None and not any(
                 f.startswith("tch.") for f in consolidation_failures
@@ -396,4 +409,5 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         event_bus.emit(run_id, {"type": "error", "phase": "fatal", "msg": str(exc)[:500]})
 
     finally:
+        sync_metrics.deactivate(metrics_token)
         event_bus.close_bus(run_id)

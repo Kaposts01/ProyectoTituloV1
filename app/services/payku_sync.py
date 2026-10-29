@@ -17,6 +17,7 @@ from app.models.sync_run import SyncRun
 from app.services.channel_store import store_payku_resources
 from app.services.payload_sanitization import sanitize_payload
 from app.services.read_only_provider_sync import safe_error_message, store_records
+from app.services.sync_metrics import resource_timer
 from app.services.sync_progress import ProgressCallback
 
 SOURCE = "payku"
@@ -65,41 +66,53 @@ async def sync_payku(
 
             # ── Clientes ────────────────────────────────────────────────
             page, total = 1, 0
+            client_timer = resource_timer(SOURCE, "client")
             while True:
                 if page > _MAX_PAGES:
                     raise RuntimeError("Payku client pagination exceeded the safety limit")
-                resp = await client.list_clients(page=page, per_page=_PER_PAGE)
+                with client_timer.api():
+                    resp = await client.list_clients(page=page, per_page=_PER_PAGE)
                 recs = _records_from(resp)
                 sanitized = [sanitize_payload(r) for r in recs]
                 total += len(sanitized)
-                processed += store_records(db, SOURCE, "client", sanitized)
-                store_payku_resources(db, "client", sanitized)
+                with client_timer.upsert(len(sanitized)):
+                    processed += store_records(db, SOURCE, "client", sanitized)
+                    store_payku_resources(db, "client", sanitized)
                 if progress_callback:
                     progress_callback("client", page, total, None, None)
                 if not _has_more(recs, _PER_PAGE):
                     break
                 page += 1
+            client_timer.finish()
 
             # ── Planes (no paginados) ────────────────────────────────────
-            resp = await client.list_plans()
+            plan_timer = resource_timer(SOURCE, "plan")
+            with plan_timer.api():
+                resp = await client.list_plans()
             recs = _records_from(resp)
             sanitized = [sanitize_payload(r) for r in recs]
-            processed += store_records(db, SOURCE, "plan", sanitized)
-            store_payku_resources(db, "plan", sanitized)
+            with plan_timer.upsert(len(sanitized)):
+                processed += store_records(db, SOURCE, "plan", sanitized)
+                store_payku_resources(db, "plan", sanitized)
+            plan_timer.finish()
             if progress_callback:
                 progress_callback("plan", 1, len(sanitized), len(sanitized), 1)
 
             # ── Suscripciones + transacciones embebidas ──────────────────
             page, sub_total, tx_total = 1, 0, 0
+            sub_timer = resource_timer(SOURCE, "subscription")
+            tx_timer = resource_timer(SOURCE, "transaction")  # embebidas en cada suscripcion
             while True:
                 if page > _MAX_PAGES:
                     raise RuntimeError("Payku subscription pagination exceeded the safety limit")
-                resp = await client.list_subscriptions(page=page, per_page=_PER_PAGE)
+                with sub_timer.api():
+                    resp = await client.list_subscriptions(page=page, per_page=_PER_PAGE)
                 subs = _records_from(resp)
                 sanitized_subs = [sanitize_payload(s) for s in subs]
                 sub_total += len(sanitized_subs)
-                processed += store_records(db, SOURCE, "subscription", sanitized_subs)
-                store_payku_resources(db, "subscription", sanitized_subs)
+                with sub_timer.upsert(len(sanitized_subs)):
+                    processed += store_records(db, SOURCE, "subscription", sanitized_subs)
+                    store_payku_resources(db, "subscription", sanitized_subs)
 
                 # Extraer transacciones embebidas en cada suscripción
                 for sub in sanitized_subs:
@@ -113,8 +126,9 @@ async def sync_payku(
                         if isinstance(t, dict)
                     ]
                     sanitized_txs = [sanitize_payload(t) for t in tx_batch]
-                    processed += store_records(db, SOURCE, "transaction", sanitized_txs)
-                    store_payku_resources(db, "transaction", sanitized_txs)
+                    with tx_timer.upsert(len(sanitized_txs)):
+                        processed += store_records(db, SOURCE, "transaction", sanitized_txs)
+                        store_payku_resources(db, "transaction", sanitized_txs)
                     tx_total += len(sanitized_txs)
 
                 if progress_callback:
@@ -124,6 +138,8 @@ async def sync_payku(
                 if not _has_more(subs, _PER_PAGE):
                     break
                 page += 1
+            sub_timer.finish()
+            tx_timer.finish()
 
         run.status = "completed"
         run.records_processed = processed

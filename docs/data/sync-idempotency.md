@@ -88,3 +88,31 @@ La segunda pasada de vinculación usa `COALESCE` y no borra vínculos existentes
 **Limitación pendiente:** en `virtualpos_sync.py` la consolidación sigue condicionada a `if materialize_ids`.
 
 **Acción pendiente:** decidir el borrado definitivo de `crm_materialization.py` tras verificar que su desactivación no afecta a ningún flujo. Ver `docs/decisions/` y Technical Debt.
+
+## Orquestación de la sincronización (Sprint 5, SYNC-O-xx)
+
+Resumen de cómo corre hoy `sync_all_channels` (job nocturno 02:00, reintento 04:00, botón de `/scheduler`):
+
+1. **Un solo ejecutor.** `app/scheduler/run_lock.py` crea la fila `etl_runs` en `running` bajo `pg_advisory_xact_lock`; con otra corrida activa (nocturna, reintento, `/etl/full-sync`, `/etl/core/*` o importación TCH) responde 409 o se omite. Un `running` con más de `SYNC_RUN_STALE_HOURS` (6 por defecto) se marca `failed` (abandonado) y deja de bloquear. La limpieza de zombis del arranque de la API sigue existiendo (con varios workers puede marcar una corrida ajena: se resuelve con el worker separado, D11).
+2. **VirtualPOS se consolida una vez.** `sync_virtualpos(consolidate=False)` solo carga staging; la consolidación `virtualpos` (ambas cuentas) corre una vez al final y `reconcile_charge_recoveries` después, solo para las cuentas con sync exitoso. Si la consolidación de VP falla, las cuentas quedan `failed` y en `channels_failed` (el reintento las toma).
+3. **TCH solo tras una carga.** La importación de Excel escribe únicamente en `tch_*`; `clients`/`subscriptions`/`charges` de TCH los alimenta solo la consolidación. La corrida nocturna la omite si el registro de reportes (`tch_report_registry`) no tiene un reporte nuevo desde la última consolidación TCH exitosa (marca en `source_records`, `resource_type='consolidation_mark'`, foto del registro tomada antes de consolidar). Un pedido explícito del canal `tch` siempre consolida. `SYNC_TCH_CONSOLIDATE_ONLY_AFTER_LOAD=false` restaura la pasada diaria. Cualquier cambio manual a `tch_*` que no pase por la importación (p. ej. `backfill_tch_contact_data.py`) debe cerrarse con una corrida explícita del canal `tch`.
+4. **ETL Core dentro del sync.** Tras consolidar, corren `run_vp_core_etl`, `run_toku_core_etl` y `run_payku_core_etl` solo para los canales que sincronizaron y consolidaron sin error. Un fallo deja el run `partial` ("ETL Core con error: canal"). Cada ETL Core exitoso (también los manuales `/etl/core/*`) deja una marca (`source_records`, `source='core_etl'`); `GET /sync-runs/health` marca `degraded` y expone `core_lag_hours` si el ETL Core va más de 24 h detrás del último sync exitoso del canal. `SYNC_CORE_ETL_ENABLED=false` lo apaga.
+
+### Instrumentación por fase y recurso (SYNC-O-01, sin migración)
+
+`etl_runs` y `sync_runs` no tienen columnas JSON, así que cada corrida de `sync_all_channels` deja, además de sus filas:
+
+- una línea de log estructurada (`logger sync.metrics`, `sync_metrics {json}`), y
+- una fila en `source_records` con `source='sync_metrics'`, `resource_type='run'`, `external_id=<id del etl_run>` y este payload:
+
+```json
+{"run_id": "…", "notes": {"tch_consolidation": "omitida: …"},
+ "phases": [
+  {"phase": "sync", "resource": "toku", "seconds": 5821.4},
+  {"phase": "sync_resource", "resource": "toku.transaction", "api_seconds": 4700.2, "upsert_seconds": 31.0, "pages": 505, "records": 50505},
+  {"phase": "consolidate", "resource": "virtualpos.vp_charges", "seconds": 61.2, "records": 238000},
+  {"phase": "consolidate_total", "resource": null, "seconds": 1650.0, "records": 1900000},
+  {"phase": "core_etl", "resource": "toku", "seconds": 40.1, "records": 6503}]}
+```
+
+Consulta de ejemplo: `SELECT payload FROM source_records WHERE source='sync_metrics' AND resource_type='run' ORDER BY last_seen_at DESC LIMIT 5;`. Solo hay nombres de fase/recurso, duraciones y conteos (nada personal ni del proveedor). Un fallo al guardar las métricas nunca interrumpe la corrida. Si en el futuro se agrega una columna JSON a `etl_runs`, `RunMetrics.payload()` ya entrega el objeto listo.

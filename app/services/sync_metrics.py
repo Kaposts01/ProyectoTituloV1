@@ -15,6 +15,7 @@ import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert
@@ -82,3 +83,64 @@ class RunMetrics:
             db.flush()
         except Exception as exc:  # noqa: BLE001 - las metricas nunca rompen la corrida
             logger.warning("No se pudieron persistir las metricas del run %s (%s).", self.run_id, type(exc).__name__)
+
+
+# --- colector activo (evita cambiar la firma de los sync_*) -------------------------------------------------
+
+_current: ContextVar[RunMetrics | None] = ContextVar("sync_metrics_current", default=None)
+
+
+def activate(metrics: RunMetrics) -> Token:
+    """Activa `metrics` para el contexto actual: los sync_* lo encuentran con `resource_timer`."""
+    return _current.set(metrics)
+
+
+def deactivate(token: Token) -> None:
+    _current.reset(token)
+
+
+class ResourceTimer:
+    """Acumula, para un recurso de un canal, el tiempo de extraccion (API) y el de upsert (staging/canal)."""
+
+    def __init__(self, metrics: RunMetrics | None, channel: str, resource: str) -> None:
+        self._metrics = metrics
+        self.channel = channel
+        self.resource = resource
+        self.api_seconds = 0.0
+        self.upsert_seconds = 0.0
+        self.pages = 0
+        self.records = 0
+
+    @contextmanager
+    def api(self) -> Iterator[None]:
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.api_seconds += time.perf_counter() - started
+            self.pages += 1
+
+    @contextmanager
+    def upsert(self, records: int = 0) -> Iterator[None]:
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.upsert_seconds += time.perf_counter() - started
+            self.records += records
+
+    def finish(self) -> None:
+        if self._metrics is not None:
+            self._metrics.add(
+                "sync_resource",
+                f"{self.channel}.{self.resource}",
+                api_seconds=round(self.api_seconds, 3),
+                upsert_seconds=round(self.upsert_seconds, 3),
+                pages=self.pages,
+                records=self.records,
+            )
+
+
+def resource_timer(channel: str, resource: str) -> ResourceTimer:
+    """Cronometro del recurso; sin colector activo no registra nada (los sync_* corren igual)."""
+    return ResourceTimer(_current.get(), channel, resource)

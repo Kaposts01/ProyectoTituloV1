@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services.payload_sanitization import sanitize_payload
+from app.services.sync_metrics import resource_timer
 from app.services.sync_progress import ProgressCallback, pagination_totals
 
 logger = logging.getLogger(__name__)
@@ -129,13 +130,16 @@ async def sync_read_only_provider(
             for resource_type, page_size, paginated, read_page in resources:
                 page = 1
                 resource_records = 0
+                timer = resource_timer(source, resource_type)
                 while page <= _MAX_PAGES:
-                    response = await read_page(client, page)
+                    with timer.api():
+                        response = await read_page(client, page)
                     records = records_from_response(response)
                     resource_records += len(records)
-                    processed += store_records(db, source, resource_type, records)
-                    if channel_store_fn and records:
-                        channel_store_fn(db, resource_type, records)
+                    with timer.upsert(len(records)):
+                        processed += store_records(db, source, resource_type, records)
+                        if channel_store_fn and records:
+                            channel_store_fn(db, resource_type, records)
                     if progress_callback:
                         total_records, total_pages = pagination_totals(response)
                         progress_callback(resource_type, page, resource_records, total_records, total_pages)
@@ -146,6 +150,7 @@ async def sync_read_only_provider(
                         await asyncio.sleep(1)
                 else:
                     logger.warning("%s/%s: se alcanzó el límite de %d páginas, abortando paginación", source, resource_type, _MAX_PAGES)
+                timer.finish()
         run.status = "completed"
         run.records_processed = processed
         run.finished_at = datetime.now(UTC)

@@ -9,6 +9,7 @@ de sync ni en la API) mientras se completa la transición.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from collections.abc import Iterable
 from typing import Any
@@ -634,6 +635,7 @@ def consolidate_to_centralized(
     sources: list[str] | None = None,
     raise_on_error: bool = False,
     failures: list[str] | None = None,
+    timings: list[dict[str, Any]] | None = None,
 ) -> int:
     """Lee de tablas canal y upserta en tablas centralizadas.
 
@@ -647,6 +649,7 @@ def consolidate_to_centralized(
                  nombres fallidos (``source.fn``). Por defecto solo se loguea.
         failures: lista opcional que se llena con los nombres fallidos, para
                  callers que mantienen el comportamiento no-raise.
+        timings: lista opcional que se llena con ``{source, fn, seconds, records}`` por funcion (SYNC-O-01).
     Returns:
         Total de registros procesados.
     """
@@ -656,17 +659,32 @@ def consolidate_to_centralized(
     for source in targets:
         fns = _SOURCE_FNS.get(source, [])
         for fn in fns:
+            started = time.perf_counter()
             try:
                 with db.begin_nested():
                     count = fn(db)
                 logger.info("Consolidado %s.%s: %d registros", source, fn.__name__, count)
                 total += count
+                if timings is not None:
+                    timings.append({
+                        "source": source,
+                        "fn": fn.__name__.removeprefix("_consolidate_"),
+                        "seconds": round(time.perf_counter() - started, 3),
+                        "records": count,
+                    })
             except Exception:
                 logger.exception("Error consolidando %s.%s", source, fn.__name__)
                 failed.append(f"{source}.{fn.__name__.removeprefix('_consolidate_')}")
+    started = time.perf_counter()
     try:
         with db.begin_nested():
-            total += materialize_core_clients(db, targets)
+            core_clients = materialize_core_clients(db, targets)
+            total += core_clients
+        if timings is not None:
+            timings.append({
+                "source": "core", "fn": "materialize_core_clients",
+                "seconds": round(time.perf_counter() - started, 3), "records": core_clients,
+            })
     except Exception:
         logger.exception("Error en materialize_core_clients")
         failed.append("materialize_core_clients")
