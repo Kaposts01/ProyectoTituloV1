@@ -5,8 +5,10 @@ Idempotent: safe to re-run.
 
 tk_invoices  → CoreCharge  (linked to CoreSubscription)
 tk_payments  → CorePayment (linked to CoreCharge, subscription via charge)
-tk_transactions are not materialized as entities; the FAILED ones only feed
-core_charges.latest_rejection_* (see toku_rejection_projection.py).
+tk_transactions are not materialized as entities by default; the FAILED ones feed
+core_charges.latest_rejection_* (see toku_rejection_projection.py) and, only with
+TOKU_MATERIALIZE_FAILED_PAYMENTS=true (RJ-15), also become core_payments with
+source_status='FAILED' (see toku_failed_payments.py).
 """
 
 import logging
@@ -18,6 +20,7 @@ from sqlalchemy import distinct, exists, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.core import (
     CoreCharge,
     CoreClientAttribute,
@@ -32,6 +35,7 @@ from app.models.toku_channel import (
     TokuSubscription,
 )
 from app.services.core_materialization import materialize_core_clients
+from app.services.toku_failed_payments import materialize_failed_toku_payments
 from app.services.toku_rejection_projection import project_toku_rejections
 
 log = logging.getLogger(__name__)
@@ -379,8 +383,18 @@ def run_toku_core_etl(db: Session) -> dict[str, int]:
     rejections = project_toku_rejections(db)
     log.info("Toku Core ETL — cargos con rechazo proyectado: %d", rejections["charges_updated"])
 
+    failed_written: int | None = None
+    if settings.toku_materialize_failed_payments:  # RJ-15 (D4): apagada por defecto; ver toku_failed_payments.py
+        log.info("Toku Core ETL — materializando intentos FAILED como pagos")
+        try:
+            with db.begin_nested():
+                failed_written = materialize_failed_toku_payments(db)["written"]
+        except Exception:
+            log.exception("Toku Core ETL — no se pudieron materializar los intentos FAILED")
+            failed_written = 0
+
     db.commit()
-    return {
+    result = {
         "clients_created": clients_created,
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
@@ -389,3 +403,6 @@ def run_toku_core_etl(db: Session) -> dict[str, int]:
         "payments_inserted_or_linked": payments,
         "charges_rejection_projected": rejections["charges_updated"],
     }
+    if failed_written is not None:
+        result["failed_payments_materialized"] = failed_written
+    return result
