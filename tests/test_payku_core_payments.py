@@ -134,3 +134,35 @@ def test_fallback_reason_has_a_readable_label() -> None:
     assert format_rejection_reason("payku", None, "maximum attempt limit") == "Se agotaron los reintentos de cobro"
     assert format_rejection_reason("payku", None, "First Payment  Rejected") == "Falló el primer cobro"
     assert format_rejection_reason("payku", None, "canceled by customer") == "canceled by customer"
+
+
+# -- PK-PAR-07: taxonomia comun y monto de register ---------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("raw", "common"),
+    [
+        ("register", "pending_enrollment"), ("active", "active"), ("ACTIVE ", "active"),
+        ("suspended_awaits_change_plan", "active"), ("suspended", "suspended"), ("cancel", "cancelled"),
+        ("delete", "cancelled"), ("finish", "cancelled"), ("otro", "unknown"), (None, "unknown"),
+    ],
+)
+def test_payku_status_maps_to_the_common_taxonomy(raw, common) -> None:
+    assert core_payku_etl.normalize_payku_status(raw) == common
+
+
+def test_register_without_amount_takes_the_plan_amount(db_session: Session) -> None:
+    from app.models.core import CoreSubscription
+    from app.models.payku_channel import PaykuPlan
+
+    plan = f"plan-{uuid.uuid4().hex[:8]}"
+    db_session.add(PaykuPlan(external_id=plan, amount="15000"))
+    register = _sub(db_session, status="register", plan_id=plan)
+    active = _sub(db_session, status="active", plan_id=plan)          # solo register se completa
+    own = _sub(db_session, status="register", plan_id=plan, amount="9000")
+    core_payku_etl._materialize_subscriptions(db_session)
+    amounts = dict(db_session.execute(
+        select(CoreSubscription.external_id, CoreSubscription.amount).where(CoreSubscription.source == "payku")
+    ).all())
+    assert amounts[register] == 15000 and amounts[active] is None and amounts[own] == 9000
+    # el estado crudo se conserva
+    assert db_session.scalar(select(CoreSubscription.status).where(CoreSubscription.external_id == register)) == "register"
