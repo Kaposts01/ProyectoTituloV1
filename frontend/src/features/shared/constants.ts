@@ -12,7 +12,7 @@ export const virtualPosMetrics = [
 export const tokuMetrics = [
   { resource: "customer", label: "Clientes", tone: "blue" },
   { resource: "subscription", label: "Suscripciones activas", tone: "violet", amount: true },
-  { resource: "payment_method", label: "Métodos de pago cobrables", tone: "gold" },
+  { resource: "payment_method", label: "Métodos cobrables", tone: "gold" },
   { resource: "invoice", label: "Deudas pagadas", tone: "orange", amount: true },
   { resource: "transaction", label: "Transacciones pagadas", tone: "green", amount: true },
 ];

@@ -71,7 +71,7 @@ describe("estados vacíos accionables", () => {
 
 describe("tildes en etiquetas", () => {
   it("'Métodos de pago' con tilde en métricas, recursos y navegación", () => {
-    expect(tokuMetrics.find((m) => m.resource === "payment_method")?.label).toBe("Métodos de pago cobrables");
+    expect(tokuMetrics.find((m) => m.resource === "payment_method")?.label).toBe("Métodos cobrables");
     expect(statusResourceLabels.payment_method).toBe("Métodos de pago");
     const toku = providerGroups.find((g) => g.sections[0].source === "toku")!;
     expect(toku.sections.find((s) => s.resource === "payment_method")?.label).toBe("Métodos de pago");
