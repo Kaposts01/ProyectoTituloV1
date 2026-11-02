@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeBillingError } from "./billingErrors";
+import { EMPTY_FORM, oneOffMaxIso, todayIso, validateChangeForm } from "./billingForm";
 import { eventNotes, eventTechnical, expiryText, formatDateTime, technicalCode } from "./billingLabels";
 import { buildPlanRows, manualReviewReason, planIssueText } from "./billingPlan";
 import { applyOutcome } from "./billingResult";
@@ -19,6 +20,29 @@ describe("zona horaria (America/Santiago)", () => {
     expect(formatDateTime("2026-03-05")).toBe("2026-03-05");
     expect(formatDateTime(null)).toBe("—");
     expect(formatDateTime("no-es-fecha")).toBe("no-es-fecha");
+  });
+});
+
+describe("BILL-21: fecha del formulario en hora de Chile y tope del cobro puntual", () => {
+  it("hoy se calcula en America/Santiago, no en la zona del navegador", () => {
+    expect(todayIso(new Date("2026-03-11T02:30:00Z"))).toBe("2026-03-10"); // 23:30 del 10 en Chile (UTC-3)
+    expect(todayIso(new Date("2026-07-11T03:30:00Z"))).toBe("2026-07-10"); // 23:30 del 10 en Chile (UTC-4)
+    expect(todayIso(new Date("2026-03-11T04:00:00Z"))).toBe("2026-03-11");
+  });
+  it("por defecto usa la hora del servidor", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T12:00:00Z"));
+    noteServerDate("Tue, 10 Mar 2026 15:00:00 GMT");
+    expect(todayIso()).toBe("2026-03-10");
+  });
+  it("el cobro puntual admite hasta 5 años desde hoy (como el backend)", () => {
+    const now = new Date("2026-03-10T15:00:00Z");
+    const base = { ...EMPTY_FORM, requestType: "one_off_charge" as const, subscription: "S1", amount: "1000" };
+    expect(oneOffMaxIso(now)).toBe("2031-03-10");
+    expect(oneOffMaxIso(new Date("2028-02-29T15:00:00Z"))).toBe("2033-02-28");
+    expect(validateChangeForm({ ...base, chargeDate: "2031-03-10" }, now).body?.new_charge_date).toBe("2031-03-10");
+    expect(validateChangeForm({ ...base, chargeDate: "2031-03-11" }, now).errors.chargeDate).toMatch(/5 años/);
+    expect(validateChangeForm({ ...base, chargeDate: "2099-01-01" }, now).body).toBeNull();
   });
 });
 
