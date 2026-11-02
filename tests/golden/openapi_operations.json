@@ -272,6 +272,27 @@
   "query:rejection_code",
   "query:secondary_status"
  ],
+ "GET /api/v1/recovery/payku/cancelled": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/recovery/payku/rejected": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/recovery/payku/suspended": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
  "GET /api/v1/recovery/rejected": [
   "cookie:crm_access_token",
   "query:account",
