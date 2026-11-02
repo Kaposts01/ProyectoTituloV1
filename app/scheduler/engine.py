@@ -108,6 +108,25 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
         )
         logger.info("Job '%s' registrado (cada 15 min: :05/:20/:35/:50).", JOB_BILLING_SWEEP)
 
+    # BILL-10: controles de consistencia de la Opcion A (03:30, despues del chequeo de renovacion). Detras de
+    # BILLING_CONSISTENCY_CHECK_ENABLED (apagada por defecto): con la bandera apagada el job no hace nada.
+    from app.scheduler.jobs.billing_jobs import (
+        JOB_BILLING_CONSISTENCY,
+        billing_consistency_check,
+    )
+
+    if not scheduler.get_job(JOB_BILLING_CONSISTENCY):
+        scheduler.add_job(
+            billing_consistency_check,
+            trigger="cron",
+            hour=3,
+            minute=30,
+            id=JOB_BILLING_CONSISTENCY,
+            name="Controles de consistencia de cambios de cobro",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (03:30; detras de BILLING_CONSISTENCY_CHECK_ENABLED).", JOB_BILLING_CONSISTENCY)
+
     # Bajas de suscripcion (MGT-07..10): expiracion de solicitudes `pending` (cada hora, :25) y barredor de `applying`
     # atascadas (cada 15 min, :08/:23/:38/:53; no chocan con los de la Opcion A en :05/:10/:20/:35/:50). Filas en
     # `sync_runs` con el prefijo `cancellation_`, excluido de los KPI de canales.

@@ -222,3 +222,6 @@ html[data-theme="dark"] {
 
 /* BILL-15: acciones de una fila de renovaciones (solicitar / rechazar). */
 .bx-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* BILL-10: sección «Conciliación» (cola de reconciliación y controles de consistencia). */
+.bx-section-title { margin: 20px 0 6px; font-size: 16px; }

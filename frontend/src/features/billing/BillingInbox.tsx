@@ -7,6 +7,7 @@ import {
 } from "./billingLabels";
 import { EMPTY_FILTERS, lastPageOffset, validateFilters, type InboxFilters, type InboxTab } from "./billingQuery";
 import { CreateRequestDialog, type RenewalPrefill } from "./CreateRequestDialog";
+import { ReconciliationView } from "./ReconciliationView";
 import { RenewalTasksView } from "./RenewalTasksView";
 import { RequestDetail } from "./RequestDetail";
 import { PERM_REQUEST, type BillingList, type BillingRequestDetail, type Platform, type RenewalTask, type Requester, type RequestStatus, type RequestType } from "./types";
@@ -14,8 +15,9 @@ import { Cell, FiltersPanel, Notice, StatusBadge } from "./ui";
 import "./billing.css";
 
 const PAGE_SIZE = 25;
-type View = InboxTab | "renewals";
-const TAB_LABELS: Record<View, string> = { pending: "Pendientes", history: "Historial", renewals: "Renovaciones" };
+type View = InboxTab | "reconciliation" | "renewals";
+// «Renovaciones» sigue al final (las flechas del teclado dan la vuelta hasta ella desde «Pendientes»).
+const TAB_LABELS: Record<View, string> = { pending: "Pendientes", history: "Historial", reconciliation: "Conciliación", renewals: "Renovaciones" };
 
 type Props = {
   can: (permission: string) => boolean;
@@ -28,7 +30,7 @@ type Props = {
 
 export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
   const [tab, setTab] = useState<View>("pending");
-  const listTab: InboxTab = tab === "renewals" ? "pending" : tab;
+  const listTab: InboxTab = tab === "renewals" || tab === "reconciliation" ? "pending" : tab;
   const [draft, setDraft] = useState<InboxFilters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<InboxFilters>(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
@@ -215,6 +217,8 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
       <div role="tabpanel" id="bx-tabpanel" aria-labelledby={`bx-tab-${tab}`}>
       {tab === "renewals" ? (
         <RenewalTasksView can={can} refreshKey={renewalKey} onViewRequest={selectRequest} onRequestRenewal={requestRenewal} />
+      ) : tab === "reconciliation" ? (
+        <ReconciliationView can={can} onViewRequest={selectRequest} />
       ) : (
         <>
       <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de solicitudes">

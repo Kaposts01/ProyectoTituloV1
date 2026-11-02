@@ -39,8 +39,12 @@ from app.models.billing import (
     EVENT_APPROVED,
     EVENT_AUTO_APPROVED,
     EVENT_EXPIRED,
+    EVENT_NEEDS_RECONCILIATION,
     EVENT_REJECTED,
     EVENT_WITHDRAWN,
+    MANAGED_CANCELLED,
+    MANAGED_CREATED,
+    MANAGED_NEEDS_RECONCILIATION,
     PLATFORMS,
     REQUEST_TYPES,
     STATUS_APPLYING,
@@ -56,8 +60,10 @@ from app.models.billing import (
     BillingPolicy,
     BillingPolicyAudit,
     VpCalendarMark,
+    VpManagedCharge,
 )
 from app.services import billing_apply as ba
+from app.services import billing_consistency as bc
 from app.services.billing_apply import (
     ApplyResult,
     InvalidRequestStateError,
@@ -199,6 +205,16 @@ class PolicyValidationError(BillingRequestError):
     def __init__(self, code: str, message: str) -> None:
         self.policy_code = code
         super().__init__(message)
+
+
+class DoublePendingBlockedError(BillingRequestError):
+    """GB-CS-03 (BILL-10): un mes con dos pendientes (datos de la ultima sync) bloquea nuevos cambios hasta resolverlo."""
+
+    code = "subscription_double_pending"
+
+    def __init__(self) -> None:
+        super().__init__("La suscripción tiene un mes con dos cobros pendientes (posible doble cobro, GB-CS-03); "
+                         "resuélvalo en VirtualPOS antes de pedir cambios.")
 
 
 class NotInPilotAllowlistError(BillingRequestError):
@@ -554,6 +570,8 @@ async def prepare_request(db: Session, params: RequestParams, *, now: datetime |
         raise SubscriptionNotActiveError(state[0])
     if ba.is_subscription_blocked(db, p.platform, p.subscription_external_id):
         raise SubscriptionBlockedError("La suscripción tiene cobros en conciliación pendiente; resuélvalo antes de pedir cambios.")
+    if bc.has_double_pending(db, p.platform, p.subscription_external_id, today):  # GB-CS-03 (BILL-10)
+        raise DoublePendingBlockedError()
 
     policy = get_policy(db)
     amount = p.new_amount
@@ -901,6 +919,81 @@ async def apply_request(
     return await ba.apply_change_request(db, request_id, actor_user_id=actor.id, now=now, accept_drift=accept_drift)
 
 
+# ----------------------------- cola de reconciliacion (BILL-10, GB-CS-09) -----------------------------
+
+# Resolucion manual de un cobro del CRM en `requiere_conciliacion`, tras verificarlo a mano en VirtualPOS (8.6 del doc):
+# `vigente` = el cobro existe y debe quedar (vuelve a `creado`); `cancelado` = ya no existe / se cancelo en el panel.
+MANAGED_RESOLUTIONS = {"vigente": MANAGED_CREATED, "cancelado": MANAGED_CANCELLED}
+# Solo con la solicitud ya cerrada o en conciliacion: nunca mientras se decide o se aplica (no interfiere con apply).
+RESOLVABLE_REQUEST_STATUSES = (STATUS_NEEDS_RECONCILIATION, STATUS_FAILED, "ejecutada", "no_ejecutable")
+
+
+class ManagedChargeNotFoundError(BillingRequestError):
+    code = "managed_charge_not_found"
+
+    def __init__(self) -> None:
+        super().__init__("Cobro del CRM no encontrado.")
+
+
+class ManagedChargeStateError(BillingRequestError):
+    code = "managed_charge_not_in_reconciliation"
+
+    def __init__(self, current: str, message: str | None = None) -> None:
+        self.current_status = current
+        super().__init__(message or f"El cobro está en estado {current!r}; solo se resuelve uno en conciliación.")
+
+
+def resolve_managed_charge(
+    db: Session, managed_id: uuid.UUID, actor: User, resolution: str, comment: str | None, *, now: datetime | None = None,
+) -> VpManagedCharge:
+    """CS-09: un aprobador vigente marca como resuelto un cobro del CRM en `requiere_conciliacion` (comentario obligatorio).
+
+    NO llama al proveedor: solo registra lo verificado a mano. Toma el lock de la suscripcion (el mismo de `apply`, sin
+    cambiarlo) para no cruzarse con una aplicacion en curso. Traza: evento `requiere_conciliacion` en la solicitud de
+    origen con `detail.action = "conciliada"` (el CHECK de `event_type` no admite otro tipo; no se usa `reintentada`
+    porque reinicia la ronda de aprobaciones)."""
+    text = _clean_comment(comment, required=True)
+    if resolution not in MANAGED_RESOLUTIONS:
+        raise InvalidRequestFieldsError(f"resolution debe ser una de: {', '.join(MANAGED_RESOLUTIONS)}.")
+    row = db.get(VpManagedCharge, managed_id)
+    if row is None:
+        raise ManagedChargeNotFoundError()
+    _require_approver(db, actor, managed_id, "resolve_managed_charge")
+    platform, sub = row.platform, row.subscription_external_id
+    db.rollback()
+    with ba.subscription_lock(db, platform, sub):
+        locked = db.scalar(select(VpManagedCharge).where(VpManagedCharge.id == managed_id)
+                           .with_for_update().execution_options(populate_existing=True))
+        if locked is None:
+            db.rollback()
+            raise ManagedChargeNotFoundError()
+        if locked.status != MANAGED_NEEDS_RECONCILIATION:
+            status = locked.status
+            db.rollback()
+            raise ManagedChargeStateError(status)
+        origin = db.get(BillingChangeRequest, locked.request_id) if locked.request_id else None
+        if origin is None:
+            db.rollback()
+            raise ManagedChargeStateError(locked.status, "El cobro no tiene solicitud de origen: resuélvalo con soporte "
+                                                         "(control GB-CS-14).")
+        if origin.status not in RESOLVABLE_REQUEST_STATUSES:
+            status = origin.status
+            db.rollback()
+            raise ManagedChargeStateError(status, f"La solicitud de origen está en estado {status!r}; espere a que "
+                                                  "termine o quede en conciliación antes de resolver el cobro.")
+        previous = locked.status
+        locked.status = MANAGED_RESOLUTIONS[resolution]
+        if resolution == "cancelado":
+            locked.cancelled_at = _utc(now)
+        _event(db, origin.id, EVENT_NEEDS_RECONCILIATION, actor.id, {
+            "action": "conciliada", "charge_id": locked.charge_id, "month": locked.month, "from_status": previous,
+            "to_status": locked.status, "resolution": resolution, "comment": text})
+        db.commit()
+    log.info("billing: cobro %s conciliado (%s) por usuario %s", managed_id, resolution, actor.id)
+    db.refresh(locked)
+    return locked
+
+
 # ----------------------------- consulta -----------------------------
 
 
@@ -976,9 +1069,12 @@ __all__ = [
     "PERM_VIEW",
     "BillingRequestError",
     "CommentRequiredError",
+    "DoublePendingBlockedError",
     "DuplicateApproverError",
     "InvalidRequestFieldsError",
     "InvalidRequestStateError",
+    "ManagedChargeNotFoundError",
+    "ManagedChargeStateError",
     "NoChangesError",
     "NotAllowedError",
     "NotApproverError",
@@ -1019,6 +1115,7 @@ __all__ = [
     "reject",
     "reopen",
     "required_approvals",
+    "resolve_managed_charge",
     "update_policy",
     "usernames",
     "withdraw",
