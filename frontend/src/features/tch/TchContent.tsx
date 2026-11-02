@@ -12,6 +12,7 @@ import { ExportButton } from "../shared/ExportButton";
 import { tchExportTarget } from "../shared/exportMapping";
 import type { TchRouteView } from "../../routes";
 import type { TchState } from "./useTch";
+import { TchFileLoadsPanel } from "./TchFileLoadsPanel";
 
 /**
  * Contenido de las vistas TCH (resumen, listas y fichas). Es un componente: un fallo de render
@@ -172,6 +173,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
             </article>
           ) : null}
         </section>
+        {can?.("sync_runs.view") ? <TchFileLoadsPanel /> : null}
         <OperationalAlerts alerts={tchSummary.alerts ?? []} />
       </main>
     ) : tchView === "client-detail" && tchClientDetail ? (

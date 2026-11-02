@@ -44,7 +44,7 @@ const cliente = (n: number) => ({
 
 describe("TCH: resumen (/tch/resumen)", () => {
   it("pide el resumen y muestra encabezado, KPIs, tarjetas, gráficos y accesos a las vistas", async () => {
-    const app = mountApp("/tch/resumen", [["GET", "/api/v1/tch/summary", summary]]);
+    const app = mountApp("/tch/resumen", [["GET", "/api/v1/tch/summary", summary], ["GET", "/api/v1/tch/archivos", { items: [], limit: 50 }]]);
     await appReady();
     expect(await screen.findByText("TCH / CANAL")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /Resumen operativo/ })).toBeTruthy();
@@ -64,6 +64,7 @@ describe("TCH: resumen (/tch/resumen)", () => {
     expect(screen.getByText("Vistas disponibles")).toBeTruthy();
     expect((screen.getByLabelText("Año TCH") as HTMLSelectElement).value).toBe("2025");
     expect(app.find("GET", "/api/v1/tch/summary")).toHaveLength(1);
+    expect(await screen.findByText("Aún no hay reportes registrados.")).toBeTruthy(); // TCH-PAR-11: archivos cargados
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
   });

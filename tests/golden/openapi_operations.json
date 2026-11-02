@@ -575,6 +575,10 @@
  "GET /api/v1/system/environment/switch": [
   "cookie:crm_access_token"
  ],
+ "GET /api/v1/tch/archivos": [
+  "cookie:crm_access_token",
+  "query:limit"
+ ],
  "GET /api/v1/tch/clientes": [
   "cookie:crm_access_token",
   "query:limit",

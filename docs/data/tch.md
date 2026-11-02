@@ -153,8 +153,31 @@ Archivos Excel TCH (histórico dic-2017 a sep-2026; 30 archivos, 29 únicos)
 2. Si no se recarga: backfill de `source_records` (`--backfill-source-records`, primero en dry-run).
 3. ETL Core de TCH (crea `core_charges` y liga los pagos) y consolidación de TCH.
 4. Desde ahí, cada reporte mensual por la carga desde administración (rechaza contenido repetido por sha256).
-5. Pendientes: TCH-PAR-08 (cartera dic-2023), TCH-PAR-11 (registro de archivos y conciliación en la UI), TCH-PAR-13
+5. Pendientes: TCH-PAR-08 (cartera dic-2023), conciliación por archivo en la UI (resto de TCH-PAR-11), TCH-PAR-13
    (consolidación incremental), correr la carga fuera del proceso API (resto de TCH-PAR-16).
+
+## Tablas de control adicionales (TCH-PAR-10)
+
+Migración `20261102_0059`. Solo agregados del reporte, sin datos personales; se llenan al cargar o recargar.
+
+| Tabla | Hoja | Clave ("el último reporte gana") |
+|---|---|---|
+| `tch_flujo_mandatos` | FLUJO MANDATOS CANT (`cantidad`) y MONTO (`monto`) | `(periodo, entidad, concepto)`; `tipo` = vigentes, altas, bajas u otro |
+| `tch_rechazos_motivo` | RECHAZOS y ENT RECHAZOS | `(reporte_periodo, hoja, entidad, motivo)`; `entidad` vacía si la hoja no abre por entidad |
+| `tch_kpi_reporte` | KPI | `(reporte_periodo, indicador)` |
+
+Los lectores buscan rótulos (meses en el encabezado, «Motivo», «Cantidad», «Monto») y no posiciones fijas. Si una
+hoja no tiene esa forma se omite con un aviso y la carga sigue. **Validados solo con Excel sintético**: falta
+revisar el resultado con un reporte real (lo hace el usuario). El mes del reporte sale del nombre del archivo o,
+si no lo trae, del último «Cuota Mes» de CARGOS.
+
+## Registro de archivos cargados (TCH-PAR-11)
+
+`tch_file_loads` (SYNC-O-08) guarda por archivo: sha256, nombre original de la subida, mes del reporte, filas,
+tamaño, fecha, corrida ETL y resultado (`cargado` o `fallido`; `consolidado` se deriva de `consolidated_at`). Un
+intento fallido queda registrado con un texto genérico (el detalle está en `etl_runs`) y no bloquea reintentar el
+mismo archivo. `GET /api/v1/tch/archivos` (permiso `sync_runs.view`) lo expone y el resumen TCH lo muestra en la
+sección «Archivos cargados».
 
 ## Brechas y limitaciones conocidas
 

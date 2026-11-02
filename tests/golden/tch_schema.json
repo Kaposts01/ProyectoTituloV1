@@ -275,6 +275,22 @@
     "type": "TIMESTAMP WITH TIME ZONE",
     "unique": false
    },
+   "error_message": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(500)",
+    "unique": false
+   },
+   "etl_run_id": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
    "file_name": {
     "index": false,
     "nullable": false,
@@ -299,6 +315,22 @@
     "type": "TIMESTAMP WITH TIME ZONE",
     "unique": false
    },
+   "report_period": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(7)",
+    "unique": false
+   },
+   "result": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "cargado",
+    "type": "VARCHAR(12)",
+    "unique": false
+   },
    "rows_loaded": {
     "index": false,
     "nullable": true,
@@ -319,6 +351,189 @@
   "foreign_keys": [],
   "indexes": [],
   "unique_constraints": []
+ },
+ "tch_flujo_mandatos": {
+  "columns": {
+   "archivo_origen": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": false
+   },
+   "cantidad": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "concepto": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "entidad": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "monto": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "periodo": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(7)",
+    "unique": false
+   },
+   "tipo": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(10)",
+    "unique": false
+   },
+   "updated_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [
+   [
+    "ix_tch_flujo_mandatos_periodo",
+    [
+     "periodo"
+    ],
+    false
+   ]
+  ],
+  "unique_constraints": [
+   [
+    "uq_tch_flujo_mandatos_clave",
+    [
+     "periodo",
+     "entidad",
+     "concepto"
+    ]
+   ]
+  ]
+ },
+ "tch_kpi_reporte": {
+  "columns": {
+   "archivo_origen": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "indicador": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": false
+   },
+   "reporte_periodo": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(7)",
+    "unique": false
+   },
+   "updated_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "valor": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(30)",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [
+   [
+    "ix_tch_kpi_reporte_reporte_periodo",
+    [
+     "reporte_periodo"
+    ],
+    false
+   ]
+  ],
+  "unique_constraints": [
+   [
+    "uq_tch_kpi_reporte_clave",
+    [
+     "reporte_periodo",
+     "indicador"
+    ]
+   ]
+  ]
  },
  "tch_origenes": {
   "columns": {
@@ -448,6 +663,111 @@
     "uq_tch_recaudacion_mensual_periodo",
     [
      "periodo"
+    ]
+   ]
+  ]
+ },
+ "tch_rechazos_motivo": {
+  "columns": {
+   "archivo_origen": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": false
+   },
+   "cantidad": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "INTEGER",
+    "unique": false
+   },
+   "created_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "entidad": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "",
+    "type": "VARCHAR(150)",
+    "unique": false
+   },
+   "hoja": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "id": {
+    "index": false,
+    "nullable": false,
+    "primary_key": true,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
+   "monto": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(20)",
+    "unique": false
+   },
+   "motivo": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(255)",
+    "unique": false
+   },
+   "reporte_periodo": {
+    "index": true,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(7)",
+    "unique": false
+   },
+   "updated_at": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "now()",
+    "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   }
+  },
+  "foreign_keys": [],
+  "indexes": [
+   [
+    "ix_tch_rechazos_motivo_reporte_periodo",
+    [
+     "reporte_periodo"
+    ],
+    false
+   ]
+  ],
+  "unique_constraints": [
+   [
+    "uq_tch_rechazos_motivo_clave",
+    [
+     "reporte_periodo",
+     "hoja",
+     "entidad",
+     "motivo"
     ]
    ]
   ]
