@@ -27,6 +27,7 @@ from app.services.charge_stats import (
     parse_charge_date,
 )
 from app.services.status_history import CANCELLATION_STATES
+from app.services.toku_active import EffectiveActive
 
 CHANNELS = ("virtualpos", "toku", "payku", "tch")
 SERIES_MONTHS = 12
@@ -287,7 +288,6 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
     """{canal: (mrr, clientes_activos)} con las MISMAS definiciones que los dashboards de canal (solo mes en curso)."""
     # Import perezoso: reutiliza helpers de los dashboards de canal sin acoplar el modulo al router en la carga.
     from app.api.v1.routes import staging
-    from app.models.crm import PaymentMethod as CPaymentMethod
     from app.models.payku_channel import PaykuTransaction as PkTx
     from app.services.vp_current_amount import load_current_amount
 
@@ -309,26 +309,13 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
         if subs:
             out["virtualpos"] = (round(mrr, 0), len(ruts) or len(subs))
     if "toku" in channels:
-        chargeable = {
-            sub_id
-            for method in db.scalars(
-                select(CPaymentMethod).where(
-                    CPaymentMethod.source == "toku", func.lower(CPaymentMethod.status) == "chargeable"
-                )
-            )
-            for sub_id in staging._toku_subscription_ids(method)
-        }
-        active = [
-            (amount, client)
-            for ext, amount, client in db.execute(
-                select(CSub.external_id, CSub.amount, CSub.client_external_id)
-                .where(CSub.source == "toku", func.lower(CSub.status) == "active")
-            )
-            if ext in chargeable
-        ]
-        clients = {client for _, client in active if client}
+        # TK-13: «suscripcion activa efectiva» (DEC-18), la misma regla que el dashboard de Toku.
+        active = EffectiveActive(db).filter(db.execute(
+            select(CSub.external_id, CSub.status, CSub.amount, CSub.client_external_id).where(CSub.source == "toku")
+        ).all())
+        clients = {row.client_external_id for row in active if row.client_external_id}
         if active:
-            out["toku"] = (round(sum(staging._amount(a) for a, _ in active), 0), len(clients) or len(active))
+            out["toku"] = (round(sum(staging._amount(row.amount) for row in active), 0), len(clients) or len(active))
     if "payku" in channels:
         active_rows = db.execute(
             select(CSub.external_id, CSub.client_social_id)

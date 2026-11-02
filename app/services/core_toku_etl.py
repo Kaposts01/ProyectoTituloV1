@@ -9,6 +9,9 @@ tk_transactions are not materialized as entities by default; the FAILED ones fee
 core_charges.latest_rejection_* (see toku_rejection_projection.py) and, only with
 TOKU_MATERIALIZE_FAILED_PAYMENTS=true (RJ-15), also become core_payments with
 source_status='FAILED' (see toku_failed_payments.py).
+
+Las senales del reporte (`compute_report_signals`, TK-20) alimentan la «suscripcion activa efectiva» de los KPIs de Toku
+(MRR, ARPU y activas; TK-13, DEC-18): ver toku_active.py. Con TOKU_REPORT_SIGNALS_ENABLED apagada manda la API.
 """
 
 import logging

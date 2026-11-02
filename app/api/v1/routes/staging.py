@@ -40,6 +40,7 @@ from app.services.charge_stats import (
 from app.services.payku_sync import sync_payku
 from app.services.rbac import permission_codes, source_permission
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
+from app.services.toku_active import EffectiveActive
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
 from app.services.vp_current_amount import load_current_amount
@@ -222,15 +223,10 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     subscription_period = func.substring(CSub.suscription_date, 1, 7)
     tch_subscription_period = func.substring(TchSubscription.activation_date, 1, 7)
 
-    chargeable_subscription_ids = {
-        subscription_id
-        for method in db.scalars(
-            select(CPaymentMethod).where(
-                CPaymentMethod.source == "toku", func.lower(CPaymentMethod.status) == "chargeable"
-            )
-        )
-        for subscription_id in _toku_subscription_ids(method)
-    }
+    # TK-13: Toku cuenta solo suscripciones «activas efectivas» (DEC-18; ver app/services/toku_active.py).
+    toku_effective = EffectiveActive(db).filter(
+        db.execute(select(CSub.external_id, CSub.status, CSub.amount).where(CSub.source == "toku")).all()
+    )
 
     active_subscriptions = {
         "virtualpos": db.scalar(
@@ -238,17 +234,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
                 CSub.source.in_(_VP_SRCS), func.lower(CSub.status) == "activa"
             )
         ) or 0,
-        "toku": (
-            db.scalar(
-                select(func.count()).select_from(CSub).where(
-                    CSub.source == "toku",
-                    func.lower(CSub.status) == "active",
-                    CSub.external_id.in_(chargeable_subscription_ids),
-                )
-            )
-            if chargeable_subscription_ids
-            else 0
-        ) or 0,
+        "toku": len(toku_effective),
         "payku": db.scalar(
             select(func.count()).select_from(CSub).where(
                 CSub.source == "payku", func.lower(CSub.status) == "active"
@@ -268,12 +254,7 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
             .select_from(CSub)
             .where(CSub.source.in_(_VP_SRCS), func.lower(CSub.status) == "activa")
         ) or 0),
-        "toku": (float(db.scalar(
-            select(func.coalesce(func.sum(subscription_amount), 0))
-            .select_from(CSub)
-            .where(CSub.source == "toku", func.lower(CSub.status) == "active",
-                   CSub.external_id.in_(chargeable_subscription_ids))
-        ) or 0) if chargeable_subscription_ids else 0.0),
+        "toku": float(sum(_amount(row.amount) for row in toku_effective)),
         "payku": float(db.scalar(
             select(func.coalesce(func.sum(subscription_amount), 0))
             .select_from(CSub)
@@ -2730,23 +2711,11 @@ def _month_coverage_gaps(entries: list[dict[str, Any]]) -> list[dict[str, int]]:
 
 
 def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
-    chargeable_subscription_ids = {
-        subscription_id
-        for method in db.scalars(
-            select(CPaymentMethod).where(
-                CPaymentMethod.source == "toku",
-                func.lower(CPaymentMethod.status) == "chargeable",
-            )
-        )
-        for subscription_id in _toku_subscription_ids(method)
-    }
-    active_subscriptions = [
-        subscription
-        for subscription in db.scalars(
-            select(CSub).where(CSub.source == "toku", func.lower(CSub.status) == "active")
-        )
-        if subscription.external_id in chargeable_subscription_ids
-    ]
+    # TK-13: MRR, ARPU y activas sobre «suscripcion activa efectiva» (DEC-18; app/services/toku_active.py).
+    effective = EffectiveActive(db)
+    all_toku_subscriptions = list(db.scalars(select(CSub).where(CSub.source == "toku")))
+    active_subscriptions = effective.filter(all_toku_subscriptions)
+    active_ids = {subscription.external_id for subscription in active_subscriptions}
     resource_counts = {
         rtype: db.scalar(select(func.count()).select_from(model).where(model.source == "toku")) or 0
         for rtype, model in _TOKU_MODEL.items()
@@ -2826,12 +2795,12 @@ def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
             self.payload = payload
 
     records: list[Any] = []
-    for subscription in db.scalars(select(CSub).where(CSub.source == "toku")):
-        # Mismo criterio 'chargeable' que el MRR: una suscripcion activa sin medio
-        # de pago cobrable no cuenta ni como activa ni en el denominador del churn.
+    for subscription in all_toku_subscriptions:
+        # Mismo criterio que el MRR: una suscripcion 'active' que no es activa efectiva
+        # no cuenta ni como activa ni en el denominador del churn.
         if (
             str(subscription.status or "").lower() == "active"
-            and subscription.external_id not in chargeable_subscription_ids
+            and subscription.external_id not in active_ids
         ):
             continue
         records.append(_Record("subscription", {

@@ -143,7 +143,8 @@ personales. Idempotente. Corre dentro de `run_toku_core_etl` y se puede invocar 
 
 ### Señales de suscripción (TK-PAR-06 y TK-20)
 `app/services/toku_report_signals.py` llena `core_subscription_signals` (una fila por suscripción core con fila en Productos)
-cuando `TOKU_REPORT_SIGNALS_ENABLED=true` (**apagada por defecto**; el recuperador todavía no las lee, REC-04).
+cuando `TOKU_REPORT_SIGNALS_ENABLED=true` (**apagada por defecto**; el recuperador todavía no las lee, REC-04; los KPIs de
+Toku sí, desde TK-13, ver más abajo).
 
 | Señal | Regla |
 |---|---|
@@ -157,6 +158,41 @@ cuando `TOKU_REPORT_SIGNALS_ENABLED=true` (**apagada por defecto**; el recuperad
 | `is_recoverable` / `recoverable_reason` | suscripción `active` y (bloqueada → `blocked_card`, vencida → `expired_card`, racha ≥ 3 → `streak`; prioridad en ese orden). Un medio con falla temporal sin racha no es recuperable (DEC-25) |
 | `last_response_code`, `last_response_severity`, `last_attempt_at` | del último intento fallido / último intento |
 | `report_generated_at`, `computed_at` | fecha de generación del reporte y del cálculo |
+
+### KPIs de Toku: «suscripción activa efectiva» (TK-13, DEC-18)
+MRR, ARPU, suscriptores activos y clientes activos de Toku usan una sola regla, `app/services/toku_active.py`, en los tres
+lugares que los calculan: dashboard de Toku (`staging._toku_centralized_dashboard`), dashboard general de canales
+(`staging._compute_general_dashboard`, columna Toku de `channels` y `subscriptions`) y resumen de la jefatura
+(`dashboard_general._mrr_by_channel`).
+
+1. Si la suscripción tiene fila en `core_subscription_signals` **y** `TOKU_REPORT_SIGNALS_ENABLED=true`, manda
+   `is_effectively_active` (el reporte gana para estado y medio de pago, DEC-23). Con la bandera apagada no se leen señales
+   viejas.
+2. Si no: **no eliminada** (estado distinto de `cancelled`, `canceled`, `cancelada`, `deleted`, `ended` y
+   `deleted_at_source`; `PAUSED` y el estado vacío de la API **sí** cuentan) **y** con un medio de pago `chargeable` de la
+   API que la liste en `subscription_ids`.
+
+Antes se exigía `status = 'active'` y medio `chargeable` de la API, sin mirar el reporte. Cifras con los datos sintéticos de
+`tests/test_toku_effective_active.py` (siete suscripciones, una por caso; montos en CLP):
+
+| Caso | Estado API | Medio API | Señal del reporte | Antes | Después |
+|---|---|---|---|---|---|
+| a | `ACTIVE` | chargeable | — | cuenta | cuenta |
+| b | `PAUSED` | chargeable | — | no | cuenta |
+| c | vacío | chargeable | — | no | cuenta |
+| d | `ACTIVE` | inactive | — | no | no |
+| e | `CANCELLED` | chargeable | — | no | no |
+| f | `ACTIVE` | chargeable | no efectiva (eliminada en el reporte) | cuenta | no |
+| g | `ACTIVE` | inactive | efectiva (cobrable en el reporte) | no | cuenta |
+
+| KPI | Antes | Después |
+|---|---|---|
+| Suscripciones activas | 2 | 4 |
+| MRR | 17.000 | 27.000 |
+| ARPU (un cliente por suscripción) | 8.500 | 6.750 |
+
+En los datos reales la diferencia depende de cuántas `PAUSED` o sin estado tienen medio cobrable y de cuántas el reporte
+marca como eliminadas o con otro medio; no se midió contra `crm` ni `crm_sandbox` en este lote.
 
 Los códigos 1051, 2043 y 2044 vienen del catálogo oficial de Toku (DEC-24) y no están entre los 24 de la hoja de los reportes.
 El corte de «hace N días» es la fecha de generación más reciente de los reportes cargados. Deudas e Intentos deben estar
