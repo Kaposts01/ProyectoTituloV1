@@ -18,9 +18,11 @@ const PAGE_SIZE = 50;
 type Props = {
   channel: RecoveryChannelId;
   can: (permission: string) => boolean;
+  /** Dentro del recuperador general: sin `<main>` ni título propios (los pone la página). */
+  embedded?: boolean;
 };
 
-export function RecoveryPanel({ channel, can }: Props) {
+export function RecoveryPanel({ channel, can, embedded = false }: Props) {
   const config = RECOVERY_CHANNELS[channel];
   const { enabled: enabledChannels } = useEnabledChannels();
   const accounts = enabledAccounts(config.accounts, enabledChannels);
@@ -135,14 +137,8 @@ export function RecoveryPanel({ channel, can }: Props) {
   const dateLabelTo = tab === "cancelled" && group === "inactiva" ? "Canceladas hasta" : tab === "cancelled" ? "Inicio hasta" : "Hasta";
   const showRejectionFilters = tab === "retry" || tab === "card";
 
-  return (
-    <main className="app-shell recovery-page">
-      <div className="topbar">
-        <div>
-          <p className="eyebrow">{config.label}</p>
-          <h1>{config.title}</h1>
-        </div>
-      </div>
+  const body = (
+    <>
       <div className="recovery-tabs" role="tablist" aria-label="Vistas de recuperación">
         {(Object.keys(TAB_LABELS) as RecoveryTab[]).map((key) => (
           <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "active" : ""} onClick={() => { setTab(key); resetResults(); }}>
@@ -167,18 +163,18 @@ export function RecoveryPanel({ channel, can }: Props) {
         {tabAcceptsFilters(tab) ? <>
           <label>Cuenta
             <select value={filters.account} onChange={(event) => setFilter("account", event.target.value)}>
-              <option value="">Todas</option>
+              <option value="">Todas las cuentas</option>
               {accounts.map((account) => <option key={account.value} value={account.value}>{account.label}</option>)}
             </select>
           </label>
-          <label>Monto mínimo<input className="mono" type="number" min="0" inputMode="numeric" value={filters.minAmount} onChange={(event) => setFilter("minAmount", event.target.value)} /></label>
-          <label>Monto máximo<input className="mono" type="number" min="0" inputMode="numeric" value={filters.maxAmount} onChange={(event) => setFilter("maxAmount", event.target.value)} /></label>
+          <label>Monto mínimo<input className="mono" type="number" min="0" inputMode="numeric" placeholder="Sin mínimo" value={filters.minAmount} onChange={(event) => setFilter("minAmount", event.target.value)} /></label>
+          <label>Monto máximo<input className="mono" type="number" min="0" inputMode="numeric" placeholder="Sin máximo" value={filters.maxAmount} onChange={(event) => setFilter("maxAmount", event.target.value)} /></label>
         </> : null}
         {showRejectionFilters ? <>
-          <label>Código de rechazo<input className="mono" type="text" maxLength={100} value={filters.rejectionCode} onChange={(event) => setFilter("rejectionCode", event.target.value)} /></label>
+          <label>Código de rechazo<input className="mono" type="text" maxLength={100} placeholder="Ej.: -8" value={filters.rejectionCode} onChange={(event) => setFilter("rejectionCode", event.target.value)} /></label>
           <label>Estado secundario
             <select value={filters.secondaryStatus} onChange={(event) => setFilter("secondaryStatus", event.target.value)}>
-              <option value="">Todos</option>
+              <option value="">Todos los estados</option>
               {Object.entries(SECONDARY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
@@ -210,7 +206,20 @@ export function RecoveryPanel({ channel, can }: Props) {
           <span className="mono">{rows.total ? `${offset + 1}-${Math.min(offset + rows.limit, rows.total)} de ${rows.total}` : "0 registros"}</span>
           <button className="secondary-button" disabled={offset + rows.limit >= rows.total || loading} onClick={() => void load(offset + rows.limit, applied)}>Siguiente</button>
         </div>
-      </> : !loading ? <p className="muted-copy">Selecciona una pestaña y consulta los registros disponibles.</p> : null}
+      </> : !loading ? <p className="muted-copy">Elige la vista y los filtros (opcionales) y pulsa «Buscar» para ver los registros.</p> : null}
+    </>
+  );
+
+  if (embedded) return <section aria-label={`Recuperador ${config.label}`}>{body}</section>;
+  return (
+    <main className="app-shell recovery-page">
+      <div className="topbar">
+        <div>
+          <p className="eyebrow">{config.label}</p>
+          <h1>{config.title}</h1>
+        </div>
+      </div>
+      {body}
     </main>
   );
 }
