@@ -61,6 +61,27 @@ PERMISSIONS: dict[str, str] = {
     "subscriptions.cancellation.request": "Solicitar la baja de suscripciones (todos los canales)",
     "subscriptions.cancellation.approve": "Aprobar, rechazar, aplicar y reabrir solicitudes de baja de suscripciones",
     "subscriptions.cancellation.view": "Ver solicitudes de baja de suscripciones y su historial",
+    "general.recovery.view": "Ver el Recuperador general (Operación)",
+    "general.recovery.toku.view": "Ver la pestaña Toku del Recuperador general",
+    "general.recovery.tch.view": "Ver la pestaña TCH del Recuperador general (solo lectura)",
+    "general.billing_changes.view": "Ver Cambios de cobro en Operación",
+}
+
+# --- Operación general (UX-12, REC-04, REC-06) ----------------------------------------------------------------------
+# El Recuperador vive en /general/recuperador con una pestaña por canal; cada pestaña tiene su propio permiso y su API
+# exige ese permiso. La pestaña VirtualPOS sigue usando `virtualpos.recovery.view` (API sin cambios).
+GENERAL_RECOVERY_VIEW = "general.recovery.view"
+RECOVERY_TOKU_VIEW = "general.recovery.toku.view"
+RECOVERY_TCH_VIEW = "general.recovery.tch.view"
+GENERAL_BILLING_VIEW = "general.billing_changes.view"
+
+# Regla de la migracion 20261102_0052 (por datos, sin nombres de rol): cada permiso nuevo se otorga a los roles que
+# ya tienen TODOS los permisos de la tupla. Asi nadie pierde ni gana acceso a datos que no veia.
+GENERAL_GRANT_RULES: dict[str, tuple[str, ...]] = {
+    GENERAL_RECOVERY_VIEW: ("virtualpos.recovery.view",),
+    GENERAL_BILLING_VIEW: ("virtualpos.billing_changes.view",),
+    RECOVERY_TOKU_VIEW: ("virtualpos.recovery.view", "toku.subscriptions.view"),
+    RECOVERY_TCH_VIEW: ("virtualpos.recovery.view", "tch.suscripciones.view"),
 }
 
 # --- Baja de suscripciones multicanal (MGT-16) ---------------------------------------------------------------------
@@ -173,14 +194,32 @@ def ensure_cancellation_grants(db: Session) -> dict[str, int]:
     return added
 
 
+def ensure_general_grants(db: Session) -> dict[str, int]:
+    """Equivale a la migracion 20261102_0052: otorga cada permiso `general.*` a los roles existentes que ya tienen todos
+    los permisos de su regla (`GENERAL_GRANT_RULES`). Nunca crea roles ni quita permisos. Idempotente.
+    Devuelve {rol: permisos_agregados} solo de los roles que recibieron alguno."""
+    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(GENERAL_GRANT_RULES))).all()}
+    added: dict[str, int] = {}
+    for role in db.scalars(select(Role)).all():
+        present = {p.code for p in role.permissions}
+        for code, required in GENERAL_GRANT_RULES.items():
+            if code in by_code and code not in present and set(required) <= present:
+                role.permissions.append(by_code[code])
+                added[role.name] = added.get(role.name, 0) + 1
+    db.flush()
+    return added
+
+
 def seed_default_roles(db: Session) -> dict[str, int]:
     """Crea los roles `soporte` y `ejecutivo` o les agrega los permisos faltantes (nunca quita). Idempotente.
 
     No modifica admin/coordinador/jefatura, salvo por agregarles los permisos de BAJA de suscripciones si el rol ya
-    existe (`ensure_cancellation_grants`). Devuelve {nombre_de_rol: cantidad_de_permisos} de soporte y ejecutivo.
+    existe (`ensure_cancellation_grants`) y los `general.*` de Operación a quien ya ve lo equivalente
+    (`ensure_general_grants`). Devuelve {nombre_de_rol: cantidad_de_permisos} de soporte y ejecutivo.
     """
     seed_permissions(db)
     ensure_cancellation_grants(db)
+    ensure_general_grants(db)
     return {
         SUPPORT_ROLE_NAME: _ensure_role(db, SUPPORT_ROLE_NAME, SUPPORT_ROLE_DESCRIPTION, support_permission_codes()),
         EXECUTIVE_ROLE_NAME: _ensure_role(

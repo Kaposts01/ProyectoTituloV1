@@ -244,6 +244,7 @@ def test_no_app_module_reads_core_payments_outside_the_reviewed_allowlist() -> N
         "app/services/toku_rejection_projection.py",
         "app/services/vp_rejection_capture.py",
         "app/services/vp_report_import.py",  # revisado: solo UPDATE de charge_id (vinculo pago->cobro de VirtualPOS)
+        "app/services/recovery_tch.py",  # revisado (REC-06): solo lee source='tch'; nunca ve las filas FAILED de Toku
     }
     found = {
         path.relative_to(ROOT).as_posix()

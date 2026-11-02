@@ -35,7 +35,9 @@ describe("ruta cambios de cobro", () => {
     expect(legacyRedirectPath("/virtualpos/cambios-de-cobro")).toBe("/general/cambios-de-cobro");
     expect(legacyRedirectPath("/virtualpos/cambios-de-cobro/")).toBe("/general/cambios-de-cobro");
     expect(legacyRedirectPath("/general/cambios-de-cobro")).toBeNull();
-    expect(legacyRedirectPath("/virtualpos/recuperador-socios")).toBeNull();
+    // Cambio deliberado (UX-12): el recuperador también se mudó a Operación y su URL antigua redirige.
+    expect(legacyRedirectPath("/virtualpos/recuperador-socios")).toBe("/general/recuperador");
+    expect(legacyRedirectPath("/general/recuperador")).toBeNull();
   });
 });
 

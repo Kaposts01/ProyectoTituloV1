@@ -104,6 +104,17 @@ export const es = {
     incobrable: "Incobrable",
     chargeable: "Cobrable",
     "sin estado": "Sin estado",
+    /** Baja detectada en el reporte o por ausencia en la API de Toku (`deleted_at_source`). */
+    "deleted at source": "Eliminada en el canal",
+    "temporary failed": "Falla temporal",
+    "permanent failed": "Falla permanente",
+    "permanently deleted": "Eliminado definitivamente",
+  },
+  /** Motivo por el que una suscripción de Toku es recuperable (señales TK-20, DEC-25). */
+  recoverableReason: {
+    "blocked card": "Tarjeta bloqueada",
+    "expired card": "Tarjeta vencida",
+    streak: "Racha de cuotas impagas",
   },
   /** Estados propios de TCH (suscripciones y transacciones de los reportes Excel). */
   tchStatus: {

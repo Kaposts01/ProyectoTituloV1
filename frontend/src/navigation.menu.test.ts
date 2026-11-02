@@ -54,7 +54,7 @@ describe("agrupación del menú de un solo nivel (D29)", () => {
     expect(path("summary")).toBe("/central/resumen");
     expect(path("clients")).toBe("/central/clientes");
     expect(path("subscriptions")).toBe("/central/suscripciones");
-    expect(path("recovery")).toBe("/virtualpos/recuperador-socios");
+    expect(path("recovery")).toBe("/general/recuperador"); // UX-12: cambio deliberado (la URL antigua redirige)
     expect(path("billing")).toBe("/general/cambios-de-cobro");
     expect(path("cancellations")).toBe("/general/bajas");
     expect(path("sync")).toBe("/admin/sincronizaciones");
@@ -150,7 +150,7 @@ describe("redirecciones de rutas viejas", () => {
   });
 
   it("una barra final resuelve a la misma pantalla del menú y del detalle (sin redirección)", () => {
-    for (const path of ["/central/resumen", "/central/clientes", "/central/suscripciones", "/central/reporte-automatico", "/virtualpos/recuperador-socios", "/admin/usuarios", "/admin/sincronizaciones", "/toku/deudas", "/tch/transacciones", "/payku/planes"]) {
+    for (const path of ["/central/resumen", "/central/clientes", "/central/suscripciones", "/central/reporte-automatico", "/general/recuperador", "/admin/usuarios", "/admin/sincronizaciones", "/toku/deudas", "/tch/transacciones", "/payku/planes"]) {
       expect(parseRoute(`${path}/`), path).toEqual(parseRoute(path));
       expect(legacyRedirectPath(`${path}/`), path).toBeNull();
       expect(legacyRedirectPath(path), path).toBeNull();

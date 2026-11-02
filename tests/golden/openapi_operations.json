@@ -307,6 +307,40 @@
   "query:limit",
   "query:offset"
  ],
+ "GET /api/v1/recovery/tch/deleted": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/recovery/tch/rejected": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/recovery/toku/cancelled": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
+ "GET /api/v1/recovery/toku/recoverable": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:offset",
+  "query:reason"
+ ],
+ "GET /api/v1/recovery/toku/rejected": [
+  "cookie:crm_access_token",
+  "query:date_from",
+  "query:date_to",
+  "query:limit",
+  "query:offset"
+ ],
  "GET /api/v1/reports/automatic": [
   "cookie:crm_access_token"
  ],

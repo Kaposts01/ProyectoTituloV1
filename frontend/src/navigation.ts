@@ -1,6 +1,8 @@
 /** Grupos de proveedor, secciones y helpers de permisos de navegación. */
 
+import { PERM_VIEW as PERM_BILLING_VIEW } from "./features/billing/types";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
+import { canOpenRecovery } from "./features/recovery/recoveryChannels";
 import type { ProviderSection, ProviderSource, TchRouteView } from "./routes";
 
 export type { ProviderSection, ProviderSource };
@@ -68,6 +70,11 @@ export type MenuGroup = { id: string; label: string | null; items: MenuItem[] };
 
 const canDashboard: MenuItem["allowed"] = (can) => can("dashboard.view");
 
+/** Permiso general de Cambios de cobro (UX-12). El permiso VirtualPOS sigue valiendo (la API acepta ambos). */
+export const PERM_GENERAL_BILLING_VIEW = "general.billing_changes.view";
+export const canOpenBilling = (can: Can): boolean => can(PERM_GENERAL_BILLING_VIEW) || can(PERM_BILLING_VIEW);
+export { canOpenRecovery };
+
 export const menuGroups: MenuGroup[] = [
   { id: "resumen", label: null, items: [{ id: "summary", label: "Resumen", action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
   {
@@ -82,8 +89,8 @@ export const menuGroups: MenuGroup[] = [
     id: "operacion",
     label: "Operación",
     items: [
-      { id: "recovery", label: "Recuperador", action: { kind: "recovery" }, allowed: (can) => can("virtualpos.recovery.view") },
-      { id: "billing", label: "Cambios de cobro", action: { kind: "billing" }, allowed: (can) => can("virtualpos.billing_changes.view") },
+      { id: "recovery", label: "Recuperador", action: { kind: "recovery" }, allowed: canOpenRecovery },
+      { id: "billing", label: "Cambios de cobro", action: { kind: "billing" }, allowed: canOpenBilling },
       { id: "cancellations", label: "Bajas", action: { kind: "cancellations" }, allowed: (can) => can(PERM_CANCELLATION_VIEW) },
     ],
   },

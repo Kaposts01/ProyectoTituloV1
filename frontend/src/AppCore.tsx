@@ -3,7 +3,7 @@ import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson } from "./api";
 import { useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
-import { providerGroups, resourcePermission } from "./navigation";
+import { canOpenBilling, canOpenRecovery, providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
 import "./App.css";
 import "./Staging.css";
@@ -14,7 +14,7 @@ import type { ChannelDashboard, AuthSession } from "./features/shared/types";
 import { stagingFilters } from "./features/virtualpos/constants";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
-import { RecoveryPanel } from "./features/recovery/RecoveryPanel";
+import { GeneralRecoveryPage } from "./features/recovery/GeneralRecoveryPage";
 import { BillingInbox } from "./features/billing/BillingInbox";
 import { CancellationsInbox } from "./features/cancellations/CancellationsInbox";
 import { DirectCancelContext } from "./features/cancellations/directCancel";
@@ -178,8 +178,8 @@ function AppCore() {
     if (route.kind === "channel") {
       return providerGroups.find((group) => group.sections[0].source === route.source)?.sections.some((section) => can(resourcePermission(section.source, section.resource))) ?? false;
     }
-    if (route.kind === "recovery") return can("virtualpos.recovery.view");
-    if (route.kind === "billingChanges") return can("virtualpos.billing_changes.view");
+    if (route.kind === "recovery") return canOpenRecovery(can);
+    if (route.kind === "billingChanges") return canOpenBilling(can);
     if (route.kind === "cancellations") return can(PERM_CANCELLATION_VIEW);
     if (route.kind === "tchSubscription") return can("tch.suscripciones.view");
     if (route.kind === "tch") return route.view === "summary"
@@ -460,6 +460,8 @@ function AppCore() {
       } else navigate(fallbackRoute(), true);
     } else if (route.kind === "recovery") {
       showRecovery(false);
+      // UX-12: /virtualpos/recuperador-socios -> /general/recuperador (reemplaza el historial).
+      if (legacyRedirectPath(location.pathname)) navigate(route, true);
     } else if (route.kind === "billingChanges") {
       showBillingChanges(false);
       if (legacyRedirectPath(location.pathname)) navigate(route, true);
@@ -590,7 +592,7 @@ function AppCore() {
       onDeleteRecord={(record, source, resourceType) => { setProviderDeleteError(null); setDeletingRecord({ record, source, resourceType }); }}
     />
   ) : null;
-  const recoveryView = recoveryOpen ? <RecoveryPanel channel="virtualpos" can={can} /> : null;
+  const recoveryView = recoveryOpen ? <GeneralRecoveryPage can={can} /> : null;
   const billingView = billingOpen ? <BillingInbox can={can} currentUserId={session?.user.id} isAdmin={session?.user.roles.some((role) => role.name === "admin") ?? false} /> : null;
 
   const cancellationsView = cancellationsOpen ? (
