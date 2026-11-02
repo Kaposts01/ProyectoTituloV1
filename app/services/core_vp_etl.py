@@ -186,6 +186,47 @@ def _materialize_subscriptions(
     return after - before
 
 
+def _api_last4(raw_payload: object) -> str | None:
+    payment_method = raw_payload.get("payment_method") if isinstance(raw_payload, dict) else None
+    value = payment_method.get("last4CardDigit") if isinstance(payment_method, dict) else None
+    text_value = str(value).strip() if value is not None else ""
+    return text_value if len(text_value) == 4 and text_value.isdigit() else None
+
+
+def project_subscription_report_fields(db: Session) -> dict[tuple[str, str], dict[str, str | None]]:
+    """Motivo de rechazo y ultimos 4 de cada suscripcion VP, completando la API con `SuscriptoresPAT` (VP-PAR-09).
+
+    - `rejection_reason`: «Motivo de rechazo» del reporte (la API no lo expone).
+    - `card_last4` / `card_last4_source`: la tarjeta vigente de la API (`payment_method.last4CardDigit`) manda; si
+      falta (suscripcion fallida, cancelada o sin tarjeta vigente) se usa la del reporte.
+    Solo filas del reporte con plataforma `resolved`. Solo lectura: `core_subscriptions` aun no tiene columnas para
+    estos campos (requiere migracion), asi que el ETL solo los cuenta. Si las tablas del reporte no existen, `{}`.
+    """
+    from app.services.vp_report_import import subscription_report_fields
+
+    try:
+        with db.begin_nested():
+            report = subscription_report_fields(db)
+    except SQLAlchemyError as exc:
+        log.warning("VP Core ETL: vp_report_subscriptions no disponible (%s); se omite", type(exc).__name__)
+        return {}
+    out: dict[tuple[str, str], dict[str, str | None]] = {}
+    for platform, external_id, raw_payload in db.execute(
+        select(VpSubscription.platform, VpSubscription.external_id, VpSubscription.raw_payload).where(
+            VpSubscription.platform.in_(_VP_SOURCES)
+        )
+    ):
+        rep = report.get((platform, external_id), {})
+        api_last4 = _api_last4(raw_payload)
+        last4 = api_last4 or rep.get("card_last4")
+        out[(platform, external_id)] = {
+            "rejection_reason": rep.get("rejection_reason"),
+            "card_last4": last4,
+            "card_last4_source": ("api" if api_last4 else "report") if last4 else None,
+        }
+    return out
+
+
 # ── Paso 3: cargos ────────────────────────────────────────────────────────────
 
 def _materialize_charges(db: Session) -> int:
@@ -579,9 +620,17 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
     rejections = _enrich_charges_with_rejections(db)
     log.info("VP Core ETL — pagos con rechazo: %d; cobros con rechazo enriquecido: %d", payment_rejections, rejections)
 
+    report_fields = project_subscription_report_fields(db)
+    subs_with_reason = sum(1 for v in report_fields.values() if v["rejection_reason"])
+    last4_from_report = sum(1 for v in report_fields.values() if v["card_last4_source"] == "report")
+    log.info("VP Core ETL — suscripciones con motivo del reporte: %d; últimos 4 completados desde el reporte: %d",
+             subs_with_reason, last4_from_report)
+
     db.commit()
     return {
         "clients_created": clients_created,
+        "subscriptions_report_reason": subs_with_reason,
+        "subscriptions_last4_from_report": last4_from_report,
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
         "charges_upserted": charges,
