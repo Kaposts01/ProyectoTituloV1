@@ -9,6 +9,7 @@ from app.api.v1.routes import (
     crm,
     dashboard,
     etl,
+    events,
     export,
     identity,
     imports,
@@ -18,6 +19,7 @@ from app.api.v1.routes import (
     staging,
     sync_runs,
     tch,
+    webhooks_admin,
     writes,
 )
 from app.core.security import get_current_user
@@ -41,3 +43,5 @@ api_router.include_router(cancellations.router, prefix="/cancellations")
 api_router.include_router(imports.router, prefix="/imports")
 api_router.include_router(changes.router, prefix="/changes", tags=["Changes"])
 api_router.include_router(dashboard.router, prefix="/dashboard")
+api_router.include_router(events.router, prefix="/events")
+api_router.include_router(webhooks_admin.router, prefix="/admin/webhooks")

@@ -182,6 +182,33 @@ def _retry_or_fail(db: Session, events: list[EventSnapshot], code: str, now: dat
         summary.count_code(code)
 
 
+REQUEUEABLE_STATUSES = ("failed", "ignored")
+
+
+def requeue_events(db: Session, ids: list[uuid.UUID] | None = None, *, source: str | None = None,
+                   now: datetime | None = None) -> int:
+    """Reproceso manual (RT-14): `failed`/`ignored` -> `pending` con `attempts` a 0 y vencimiento inmediato.
+
+    Con `ids` reencola esos eventos; sin `ids`, todos los `failed` (opcionalmente de un `source`). Los `ignored` solo se
+    reencolan por id (fueron descartados a proposito). No toca `pending`/`processing`/`done`. Seguro: el procesador
+    siempre relee al proveedor, asi que reprocesar un evento no aplica datos viejos. Hace commit; devuelve cuantos.
+    """
+    now = now or datetime.now(UTC)
+    stmt = update(WebhookEvent)
+    if ids is not None:
+        if not ids:
+            return 0
+        stmt = stmt.where(WebhookEvent.id.in_(ids), WebhookEvent.status.in_(REQUEUEABLE_STATUSES))
+    else:
+        stmt = stmt.where(WebhookEvent.status == "failed")
+        if source:
+            stmt = stmt.where(WebhookEvent.source == source)
+    n = db.execute(stmt.values(status="pending", attempts=0, next_attempt_at=now, locked_at=None,
+                               last_error_code=None, processed_at=None)).rowcount or 0
+    db.commit()
+    return n
+
+
 # ----------------------------- reglas por evento -----------------------------
 
 

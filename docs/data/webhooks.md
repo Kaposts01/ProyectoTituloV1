@@ -67,7 +67,33 @@ Códigos fijos: `NO_RESOURCE`, `UNKNOWN_EVENT`, `BULK_EVENT`, `IGNORED_KIND`, `U
 Backoff exponencial `base × 2^(intentos−1)` con base `WEBHOOK_BACKOFF_BASE_SECONDS` (30 s) y tope 1 h: 30 s, 1, 2, 4 min y, al quinto intento fallido
 (`WEBHOOK_MAX_ATTEMPTS`=5), `failed` con el código del último error. Un evento `processing` abandonado (proceso caído, `WEBHOOK_PROCESSING_STALE_MINUTES`=10)
 vuelve a `pending`, o a `failed` (`STALE_PROCESSING`) si ya agotó los intentos. Un evento con varios objetivos queda `done` solo si todos salieron bien.
-No hay reproceso manual ni panel todavía (RT-14).
+Reproceso manual y panel (RT-14): ver «Panel de salud y reproceso» más abajo.
+
+## Panel de salud y reproceso (RT-14)
+
+En **Administración → Sincronización** (sección «Salud de webhooks», ancla `#webhooks`), solo para el permiso **`webhooks.manage`** (de administración: soporte y ejecutivo
+no lo heredan; sin migración, lo crea `seed_permissions` al correr `scripts/bootstrap_admin.py` o `scripts/maintenance/seed_roles.py`, y queda en el rol `admin`).
+
+- `GET /api/v1/admin/webhooks/health`: por canal, conteos por estado, demora del pendiente más antiguo (`pending_lag_minutes`), último recibido, procesados en 24 h y su demora media/máxima; códigos de error de 24 h; si el procesador está encendido.
+- `GET /api/v1/admin/webhooks/events?status=failed&source=&limit=`: lista sin payload ni ids de recurso (id interno, canal, tipo, estado, intentos, código, fechas).
+- `POST /api/v1/admin/webhooks/requeue` (CSRF): `{"ids": [...]}` reencola `failed`/`ignored` por id; `{"all_failed": true, "source": "toku"}` reencola todos los `failed` (los `ignored` solo por id).
+  El evento vuelve a `pending` con `attempts=0`. Es seguro: el procesador siempre relee al proveedor (`app/services/webhook_processor.requeue_events`).
+
+## Alertas de webhooks (RT-13)
+
+Sobre el chequeo de alertas de SYNC-D-08 (`app/services/alerts.py`, ver `docs/data/alerts.md`), **apagadas** mientras no estén `ALERTS_ENABLED`, `ALERT_EMAIL_TO` y `ALERT_SMTP_HOST`:
+
+- `webhook_failed`: eventos `failed` en 24 h (ya existía).
+- `webhook_lag`: con `WEBHOOK_PROCESSOR_ENABLED=true`, un pendiente más viejo que `ALERT_WEBHOOK_LAG_MINUTES` (60).
+- `webhook_silence:<canal>`: con `ALERT_WEBHOOK_SILENCE_HOURS` > 0 (0 por defecto = apagada), un canal que ya recibió webhooks lleva ese plazo sin recibir.
+
+Solo conteos, canales y horas (nunca ids, payload ni texto del proveedor). Pendiente por decisión de negocio: alertar `subscription.deleted` o un cobro rechazado de un «socio importante» (falta definir quién lo es, el canal y los destinatarios).
+Otros módulos agregan condiciones con `alerts.register_condition_provider(kind, evaluate, describe)`.
+
+## Del webhook al navegador (D9, RT-11/RT-12)
+
+Cadena completa: proveedor → webhook → `webhook_events` → procesador (`refresh_subscription`) → `status_change_events` → SSE → navegador. La sync diaria y la reconciliación dirigida alimentan la misma tabla,
+así que el navegador se entera igual aunque el cambio no venga por webhook. Detalle en `docs/architecture/data-flow.md` («Tiempo real hacia la interfaz»).
 
 ## Reconciliación dirigida (RT-06, sin webhooks)
 
@@ -132,4 +158,5 @@ Nada de esto lo hizo ni lo hará un agente sin confirmación en el chat.
 - **Pagos de VirtualPOS**: el webhook `payment` solo resuelve si el pago/cobro ya existe localmente; un pago de una inscripción nueva queda `ignored` (`NO_RESOURCE`) hasta la siguiente sync o el callback `subscription`.
 - **Cache del dashboard**: antes la invalidaba el receptor al llegar el aviso (antes de tener el dato nuevo); ahora la invalida el procesador al terminar un evento `done`.
 - **Baja de Toku**: si Toku no responde 404 tras `subscription.deleted` (p. ej. devuelve la suscripción con otro estado), el estado sale del propio refresh; si responde 404 se marca `deleted`. Falta confirmar con un evento real el comportamiento exacto (DEC-26 p. 5).
-- **Tareas relacionadas pendientes**: RT-11 (SSE hacia el navegador, no implementado), RT-13 (alertas), RT-14 (panel de salud/reproceso) y el hosting definitivo (DEC-11).
+- **Tareas relacionadas**: RT-11/RT-12 (SSE y avisos en el navegador), RT-13 (alertas) y RT-14 (panel y reproceso) quedaron hechas en código (lote L2-RT). Siguen pendientes el hosting definitivo (DEC-11) y las alertas de «socio importante» (decisión de negocio).
+- **Runbook** de operación (rotar secretos, recrear el endpoint de Toku, ventana perdida, reproceso): `docs/operations/webhooks-runbook.md`.

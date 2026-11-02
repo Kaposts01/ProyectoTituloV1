@@ -3,11 +3,18 @@
 Cada run activo tiene un RunBus con:
 - historial completo de eventos (para replay al conectarse tarde)
 - una asyncio.Queue por suscriptor SSE activo
+
+Cambios de estado (RT-11): el SSE de `status_change_events` (`app/api/v1/routes/events.py`) NO depende de este bus
+en memoria: relee la tabla, asi que funciona con varios workers. Aqui solo vive un contador de proceso
+(`notify_status_changes`) que adelanta esa relectura cuando el cambio se registro en el mismo proceso. Es seguro
+llamarlo desde cualquier hilo (los jobs y endpoints sincronos corren fuera del event loop).
 """
 
 from __future__ import annotations
 
 import asyncio
+import itertools
+import threading
 from dataclasses import dataclass, field
 
 
@@ -19,6 +26,22 @@ class RunBus:
 
 
 _buses: dict[str, RunBus] = {}
+
+_status_lock = threading.Lock()
+_status_counter = itertools.count(1)
+_status_seq = 0
+
+
+def notify_status_changes() -> None:
+    """Avisa (dentro del proceso) que hay filas nuevas en `status_change_events`. Nunca lanza."""
+    global _status_seq
+    with _status_lock:
+        _status_seq = next(_status_counter)
+
+
+def status_change_seq() -> int:
+    """Numero que cambia cada vez que se llama a `notify_status_changes`."""
+    return _status_seq
 
 
 def create_bus(run_id: str) -> RunBus:

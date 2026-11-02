@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.crm import Charge, Payment, Subscription
 from app.models.status_change import RejectionReasonCatalog, StatusChangeEvent
+from app.scheduler.event_bus import notify_status_changes
 
 logger = logging.getLogger(__name__)
 
@@ -266,6 +267,8 @@ def emit_status_events(
                 )
                 inserted += len(result.all())
         ctx.emitted += inserted
+        if inserted:
+            notify_status_changes()  # RT-11: adelanta la relectura del SSE de cambios en este proceso
         return inserted
     except Exception as exc:  # noqa: BLE001 - el historial nunca debe tumbar la consolidacion
         logger.warning("status_events: no se registraron eventos de %s (%s); la consolidacion continua",
@@ -313,6 +316,8 @@ def emit_reason_events(db: Session, entries: list[dict]) -> int:
                 )
                 inserted = len(result.all())
         ctx.emitted += inserted
+        if inserted:
+            notify_status_changes()
         return len(events)
     except Exception as exc:  # noqa: BLE001 - el historial nunca debe tumbar la captura
         logger.warning("status_events: no se registraron glosas nuevas (%s); la captura continua", type(exc).__name__)

@@ -464,3 +464,74 @@ def test_job_registered_every_15_minutes_and_idempotent():
     n_jobs = len(sched.get_jobs())
     sched_engine.register_jobs(sched)
     assert len(sched.get_jobs()) == n_jobs
+
+
+# ----------------------------- RT-13: cola de webhooks (demora y silencio) -----------------------------
+
+
+def _pending(db, minutes_ago, source="toku"):
+    db.add(WebhookEvent(source=source, event_type="subscription.updated", resource_type="subscription",
+                        resource_external_id=PII_RUT, subscription_external_id=PII_RUT, payload_masked={"email": PII_MAIL},
+                        dedupe_key=uuid.uuid4().hex + uuid.uuid4().hex, status="pending",
+                        received_at=NOW - timedelta(minutes=minutes_ago), next_attempt_at=NOW))
+    db.flush()
+
+
+def test_webhook_lag_alerts_only_with_processor_on_and_without_pii(db_session, smtp, monkeypatch):
+    db_session.execute(delete(WebhookEvent))  # filas confirmadas por otras pruebas (receptores) no cuentan aqui
+    monkeypatch.setattr(settings, "alert_webhook_lag_minutes", 60)
+    _pending(db_session, 90)
+    monkeypatch.setattr(settings, "webhook_processor_enabled", False)
+    assert "webhook_lag" not in {c.key for c in alerts.evaluate_conditions(db_session, NOW)}
+    monkeypatch.setattr(settings, "webhook_processor_enabled", True)
+    assert _check(db_session).sent == 1
+    msg = smtp.messages[0]
+    body = _text(msg)
+    assert "atrasada" in msg["Subject"] and "90 min" in body and "Toku" in body
+    assert PII_RUT not in body and PII_MAIL not in body and "http" not in body
+
+
+def test_webhook_lag_under_threshold_does_not_alert(db_session, smtp, monkeypatch):
+    db_session.execute(delete(WebhookEvent))
+    monkeypatch.setattr(settings, "webhook_processor_enabled", True)
+    monkeypatch.setattr(settings, "alert_webhook_lag_minutes", 60)
+    _pending(db_session, 30)
+    assert "webhook_lag" not in {c.key for c in alerts.evaluate_conditions(db_session, NOW)}
+
+
+def test_webhook_silence_is_off_by_default_and_only_for_channels_that_received(db_session, smtp, monkeypatch):
+    db_session.execute(delete(WebhookEvent))
+    _webhook(db_session, "done", 30, source="payku")
+    keys = {c.key for c in alerts.evaluate_conditions(db_session, NOW)}
+    assert not any(k.startswith("webhook_silence") for k in keys)  # ALERT_WEBHOOK_SILENCE_HOURS=0 por defecto
+    monkeypatch.setattr(settings, "alert_webhook_silence_hours", 24)
+    keys = {c.key for c in alerts.evaluate_conditions(db_session, NOW)}
+    assert "webhook_silence:payku" in keys
+    assert "webhook_silence:toku" not in keys and "webhook_silence:virtualpos" not in keys  # nunca recibieron
+    assert alerts._describe_key("webhook_silence:payku") == ("Payku", "sin webhooks de Payku")
+
+
+def test_webhook_alerts_stay_off_without_alert_variables(db_session, smtp, monkeypatch):
+    monkeypatch.setattr(settings, "alerts_enabled", False)
+    monkeypatch.setattr(settings, "webhook_processor_enabled", True)
+    monkeypatch.setattr(settings, "alert_webhook_silence_hours", 1)
+    _pending(db_session, 600)
+    result = _check(db_session)
+    assert (result.sent, result.skipped) == (0, "disabled") and smtp.messages == []
+
+
+def test_condition_registry_is_reusable_and_feeds_the_check(db_session, smtp):
+    def evaluate(_db, _now):
+        return [alerts.Condition(key="demo_kind:x", channel="Demo", title="condición de prueba", text="Algo pasó.")]
+
+    alerts.register_condition_provider("demo_kind", evaluate, lambda detail: ("Demo", f"demo {detail}"))
+    try:
+        assert "demo_kind" in alerts.registered_kinds()
+        assert _check(db_session).sent == 1
+        assert "condición de prueba" in smtp.messages[0]["Subject"]
+        assert alerts._describe_key("demo_kind:x") == ("Demo", "demo x")
+        with pytest.raises(ValueError):
+            alerts.register_condition_provider("bad:kind", evaluate, lambda d: ("", ""))
+    finally:
+        alerts._PROVIDERS.pop("demo_kind", None)
+    assert alerts._describe_key("unknown:zz") == ("unknown:zz", "unknown:zz")

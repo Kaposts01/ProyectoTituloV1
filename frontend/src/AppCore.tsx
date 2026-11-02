@@ -3,6 +3,7 @@ import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson } from "./api";
 import { useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
+import { ChangeToasts } from "./components/ChangeToasts";
 import { canOpenBilling, canOpenRecovery, providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
 import "./App.css";
@@ -758,6 +759,7 @@ function AppCore() {
           <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>{content}</Suspense>
         </ContentErrorBoundary>
       )}
+      {can("dashboard.view") ? <ChangeToasts /> : null}
       <VirtualPosWriteDialogs writes={vpWrites} vp2Enabled={vp2Enabled} />
       <ProviderWriteDialogs writes={providerWrites} />
       {reportScope ? <ReportDialog scope={reportScope} onClose={() => setReportScope(null)} /> : null}

@@ -544,3 +544,90 @@ def test_processor_job_is_registered_every_minute() -> None:
     job = sched.jobs[JOB_WEBHOOK_PROCESSOR]
     assert job["trigger"] == "interval" and job["minutes"] == 1
     assert job["func"].__name__ == "process_webhook_queue"
+
+
+# ----------------------------- RT-16: desorden -----------------------------
+
+
+def test_out_of_order_events_in_one_batch_share_one_refresh(db_session) -> None:
+    """`deleted` recibido antes que un `updated` mas viejo (o al reves): un solo refresh; el orden no importa."""
+    late_old = _add(db_session, "toku", "subscription.updated", resource="sub_ooo", sub="sub_ooo",
+                    received_at=NOW - timedelta(seconds=5))
+    early_new = _add(db_session, "toku", "subscription.deleted", resource="sub_ooo", sub="sub_ooo",
+                     received_at=NOW - timedelta(seconds=20))
+    rec = Recorder()
+    summary = _run(db_session, rec)
+    assert [(c[0], c[1]) for c in rec.calls] == [("toku", "sub_ooo")]
+    assert {_reload(db_session, late_old).status, _reload(db_session, early_new).status} == {"done"}
+    assert (summary.claimed, summary.done, summary.refreshes) == (2, 2, 1)
+
+
+def test_older_update_after_confirmed_deletion_does_not_resurrect(db_session) -> None:
+    """Llega `deleted` (confirmado con 404) y despues un `updated` atrasado: la baja se mantiene."""
+    _seed_toku_sub(db_session, "sub_res")
+    _add(db_session, "toku", "subscription.deleted", resource="sub_res", sub="sub_res")
+    gone = Recorder(fail={("toku", "sub_res"): _refresh_error_from_404()})
+    _run(db_session, gone)
+    late = _add(db_session, "toku", "subscription.updated", resource="sub_res", sub="sub_res",
+                payload={"subscription": {"id": "sub_res", "status": "ACTIVE"}})  # el contenido nunca se aplica
+    _run(db_session, gone)
+    assert _reload(db_session, late).status == "pending"  # reintento con backoff; no es una baja ni una reactivacion
+    db_session.expire_all()
+    assert db_session.scalar(select(Subscription.status).where(Subscription.external_id == "sub_res")) == "deleted"
+    assert len(_status_events(db_session, "sub_res")) == 1
+
+
+def test_stale_event_after_newer_state_leaves_current_provider_state(db_session, monkeypatch) -> None:
+    """Con el refresh real: un `created` atrasado despues de la cancelacion no revierte nada (se relee al proveedor)."""
+    monkeypatch.setattr(sr, "TokuClient", _FakeTokuClient)
+    _seed_toku_sub(db_session, "sub_late")
+    db_session.commit()
+    STATE["sub"] = {"subscription": {"id": "sub_late", "status": "CANCELLED", "amount": 5000}}
+    STATE["invoices"] = []
+    _add(db_session, "toku", "subscription.updated", resource="sub_late", sub="sub_late")
+    asyncio.run(wp.process_pending(db_session, now=NOW))
+    before = len(_status_events(db_session, "sub_late"))
+    late = _add(db_session, "toku", "subscription.created", resource="sub_late", sub="sub_late",
+                payload={"subscription": {"id": "sub_late", "status": "ACTIVE"}})
+    asyncio.run(wp.process_pending(db_session, now=NOW))
+    assert _reload(db_session, late).status == "done"
+    db_session.expire_all()
+    assert db_session.scalar(select(Subscription.status).where(Subscription.external_id == "sub_late")) == "CANCELLED"
+    assert len(_status_events(db_session, "sub_late")) == before
+
+
+# ----------------------------- RT-16: replay (reproceso) -----------------------------
+
+
+def test_replay_of_done_event_via_requeue_is_idempotent(db_session, monkeypatch) -> None:
+    """Reprocesar a mano un evento ya hecho (RT-14) relee y no duplica eventos de cambio."""
+    monkeypatch.setattr(sr, "TokuClient", _FakeTokuClient)
+    _seed_toku_sub(db_session, "sub_rp")
+    db_session.commit()
+    STATE["sub"] = {"subscription": {"id": "sub_rp", "status": "CANCELLED", "amount": 5000}}
+    STATE["invoices"] = []
+    ev = _add(db_session, "toku", "subscription.updated", resource="sub_rp", sub="sub_rp",
+              status="failed", attempts=settings.webhook_max_attempts, last_error_code="UNEXPECTED")
+    assert asyncio.run(wp.process_pending(db_session, now=NOW)).claimed == 0  # `failed` no se toma solo
+    assert wp.requeue_events(db_session, [ev.id], now=NOW) == 1
+    got = _reload(db_session, ev)
+    assert (got.status, got.attempts, got.last_error_code) == ("pending", 0, None)
+    asyncio.run(wp.process_pending(db_session, now=NOW))
+    assert _reload(db_session, ev).status == "done"
+    n = len(_status_events(db_session, "sub_rp"))
+    assert n >= 1
+    # Replay del mismo evento ya `done`: no se reencola (solo failed/ignored) y nada cambia.
+    assert wp.requeue_events(db_session, [ev.id], now=NOW) == 0
+    # Replay forzado (otro aviso identico del proveedor): relee el mismo estado, sin eventos nuevos.
+    _add(db_session, "toku", "subscription.updated", resource="sub_rp", sub="sub_rp")
+    asyncio.run(wp.process_pending(db_session, now=NOW))
+    assert len(_status_events(db_session, "sub_rp")) == n
+
+
+def test_requeue_all_failed_respects_source_and_skips_ignored(db_session) -> None:
+    a = _add(db_session, "toku", "subscription.updated", resource="s1", sub="s1", status="failed", attempts=5)
+    b = _add(db_session, "payku", "subscription", resource="s2", sub="s2", status="failed", attempts=5)
+    c = _add(db_session, "toku", "subscription.updated", resource="s3", sub="s3", status="ignored")
+    assert wp.requeue_events(db_session, None, source="toku", now=NOW) == 1
+    assert (_reload(db_session, a).status, _reload(db_session, b).status, _reload(db_session, c).status) == (
+        "pending", "failed", "ignored")
