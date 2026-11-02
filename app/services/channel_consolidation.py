@@ -47,7 +47,10 @@ from app.services.status_events import (
     pop_reason_hints,
 )
 from app.services.tch_rut import identity_rut
-from app.services.toku_rejection_projection import load_report_attempt_codes, toku_transaction_rejection
+from app.services.toku_rejection_projection import (
+    load_report_attempt_codes,
+    toku_transaction_rejection,
+)
 from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
 from app.services.vp_current_amount import load_current_amount
 
