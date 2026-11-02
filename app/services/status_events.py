@@ -322,3 +322,50 @@ def emit_reason_events(db: Session, entries: list[dict]) -> int:
     except Exception as exc:  # noqa: BLE001 - el historial nunca debe tumbar la captura
         logger.warning("status_events: no se registraron glosas nuevas (%s); la captura continua", type(exc).__name__)
         return 0
+
+
+def emit_removed_events(
+    db: Session, source: str, removed: list[tuple[str, str | None]], *, run_id: uuid.UUID | None = None,
+) -> int:
+    """SYNC-D-13: un evento `removed` por suscripcion que desaparecio del proveedor tras una sync completa.
+
+    `removed`: [(external_id, ultimo estado conocido)]. `source` es el de la entidad central (`virtualpos1`, `toku`...).
+    Idempotente por `dedupe_key` (incluye la corrida). A diferencia de `emit_status_events`, SI lanza: quien llama
+    (`channel_removals`) marca la baja en el mismo SAVEPOINT y no debe dejar una baja sin su evento.
+    Respeta `STATUS_EVENTS_ENABLED` (apagado: no inserta nada y devuelve 0).
+    """
+    if not removed or not settings.status_events_enabled:
+        return 0
+    now = datetime.now(UTC)
+    run_key = str(run_id) if run_id is not None else f"token:{uuid.uuid4().hex}"
+    events = []
+    for external_id, status in removed:
+        old = _norm_text(status)
+        events.append({
+            "id": uuid.uuid4(),
+            "entity_type": "subscription",
+            "source": source,
+            "external_id": external_id,
+            "subscription_external_id": external_id,
+            "event_kind": "removed",
+            "field": "record",
+            "from_value": _clip(old),
+            "to_value": None,
+            "amount": None,
+            "detected_at": now,
+            "run_id": run_id,
+            "is_baseline": False,
+            "dedupe_key": _dedupe_key("subscription", source, external_id, "removed", "record", old, None, run_key),
+        })
+    inserted = 0
+    for i in range(0, len(events), _EVENT_CHUNK):
+        result = db.execute(
+            insert(StatusChangeEvent)
+            .values(events[i : i + _EVENT_CHUNK])
+            .on_conflict_do_nothing(index_elements=["dedupe_key"])
+            .returning(StatusChangeEvent.id)
+        )
+        inserted += len(result.all())
+    if inserted:
+        notify_status_changes()
+    return inserted

@@ -61,10 +61,28 @@ Vigilado: `charges` (estado y monto), `subscriptions` (estado y monto), `payment
   (`core_charges.latest_rejection_*`).
 - **Fallo del historial:** si la tabla de eventos falla (p. ej. migración sin aplicar) se registra un aviso y la consolidación continúa igual. Interruptor:
   `STATUS_EVENTS_ENABLED=false`.
-- **`removed`:** el tipo existe en el esquema, pero todavía no se emite (requiere marcar «visto en la corrida» para detectar desapariciones; SYNC-D-07).
+- **`removed`:** lo emite la detección de bajas por desaparición (SYNC-D-13, sección siguiente), solo para suscripciones.
 - **Costo medido** (volumen sintético de 20.000 cobros, base local de pruebas): consolidar sin cambios pasa de 4,1 s a 5,1 s (+24 %); un lote donde todo es nuevo
   o cambia de estado pasa de 4 s a 10 s (por insertar 20.000 eventos). En la noche normal cambia una fracción mínima de filas, así que el costo esperado es el del diff.
   Sobre 1,7 M de filas, el diff añade del orden de 1,5 minutos a una corrida de 2 horas.
+
+## Bajas por desaparición (SYNC-D-13)
+
+Detrás de `SYNC_REMOVAL_DETECTION_ENABLED` (**apagada** por defecto). Requiere la migración `20261102_0062` (columnas nulas `last_seen_at` y `removed_at` en
+`vp_subscriptions`, `tk_subscriptions` y `p_subscriptions`).
+
+- **Visto:** `channel_store.upsert_channel` pone `last_seen_at` en cada fila de suscripción que llega del proveedor (siempre, aunque el payload no cambie) y limpia
+  `removed_at` si la fila reaparece. Una suscripción VirtualPOS omitida por duplicado activo también cuenta como vista (solo se toca `last_seen_at`). Es el único cambio
+  en `channel_store.py` (archivo compartido; no se tocaron los extractores).
+- **Cuándo se evalúa:** `app/services/channel_removals.detect_removals`, al final de una sync **completa y exitosa** del canal (VirtualPOS por cuenta, Toku y Payku),
+  justo antes de cerrar la corrida como `completed`. Una lectura por ventana, cortada por el tope de páginas o una sync fallida nunca marca bajas (`partial`).
+- **Umbral:** si las suscripciones vivas no vistas desde el inicio de la lectura superan `SYNC_REMOVAL_MAX_RATIO` (0,05) de las conocidas **o** `SYNC_REMOVAL_MAX_COUNT`
+  (100), se **aborta sin marcar nada** (probable error del proveedor: página vacía, filtro roto). Queda una marca en `source_records` (`source='removal_guard'`,
+  solo conteos) que el chequeo de alertas convierte en `removal_aborted:<canal>`; la marca se borra en la siguiente corrida que no aborta.
+- **Bajo el umbral:** en un SAVEPOINT se pone `removed_at` y se emite un evento `removed` por suscripción (`field='record'`, `from_value` = último estado conocido).
+  Idempotente: una fila ya marcada no vuelve a contar ni a emitir. Un fallo se registra en el log y no tumba la sync.
+- **Qué no hace (decisión de negocio pendiente):** no cambia `status` del canal ni de `subscriptions`; la desaparición queda como marca y evento para revisión.
+  Tampoco emite un evento al reaparecer. Los umbrales por defecto son una propuesta; los valida el negocio antes de encender la bandera.
 
 ## Línea base (SYNC-D-03)
 
@@ -130,6 +148,6 @@ El catálogo de glosas no necesita purga.
 ## Pendientes relacionados
 
 - SYNC-D-05: captura de glosa de VirtualPOS hecha en código (RJ-06, `docs/data/rejection-details.md`); emite `reason_changed` y alimenta el catálogo; detrás de `VP_REJECTION_CAPTURE_ENABLED` (apagada).
-- SYNC-D-07: consolidación incremental y detección de desapariciones (`removed`).
+- SYNC-D-07: consolidación incremental (la detección de desapariciones quedó en SYNC-D-13).
 - Frontend: tarjeta «Qué cambió ayer» sobre este contrato (lo hace otro frente).
 - Tabla `daily_change_summary` y job de las 06:00: opcional, solo si el `GROUP BY` sobre eventos se vuelve lento.

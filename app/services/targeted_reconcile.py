@@ -11,6 +11,11 @@ Prioridad: rechazo, luego cobro reciente, luego pendiente; empate por cobro mas 
 respeto del lock: si hay una sincronizacion/ETL en curso (`find_active_run`) no hace nada. No escribe en `sync_runs`
 (un source nuevo apareceria como canal en los KPI); el resultado va al log y los cambios de estado a `status_change_events`.
 Detras de `TARGETED_RECONCILE_ENABLED` (apagada por defecto).
+
+SYNC-O-15: antes de la ventana de riesgo se reclaman las ordenes vencidas de `refresh_queue` (p. ej. suscripciones de un
+webhook que agoto sus intentos) y se refrescan PRIMERO, dentro del mismo tope; la ventana de riesgo usa el cupo restante
+y no repite esas suscripciones. Cada orden queda `done`, vuelve a `pending` con backoff o queda `failed`; si la pasada se
+corta (sync activa, proveedor caido) las ordenes no alcanzadas vuelven a `pending` sin gastar intento.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.crm import Charge, Subscription
 from app.scheduler.run_lock import find_active_run
+from app.services import refresh_queue
 from app.services.billing_plan import PENDING_STATES
 from app.services.rejected_month import now_chile
 from app.services.subscription_refresh import RefreshError, refresh_subscription
@@ -50,6 +56,7 @@ SleepFn = Callable[[float], Awaitable[None]]
 @dataclass
 class ReconcileSummary:
     selected: int = 0
+    queued: int = 0  # de `selected`, cuantas vinieron de `refresh_queue`
     refreshed: int = 0
     failed: int = 0
     skipped_reason: str | None = None
@@ -106,31 +113,49 @@ async def run_targeted_reconcile(
     if find_active_run(db) is not None:
         summary.skipped_reason = "sync_active"
         return summary
-    targets = select_risk_subscriptions(db, cap, today)
+    queued = refresh_queue.claim_due(db, cap)
+    queued_keys = {(item.source, item.subscription_external_id) for item in queued}
+    remaining = max(cap - len(queued), 0)
+    risk: list[tuple[str, str]] = []
+    if remaining:
+        # Se pide de mas por si alguna de la ventana ya vino de la cola (no se refresca dos veces en la pasada).
+        risk = [t for t in select_risk_subscriptions(db, remaining + len(queued_keys), today)
+                if t not in queued_keys][:remaining]
+    targets: list[tuple[str, str, refresh_queue.QueueItem | None]] = [
+        (item.source, item.subscription_external_id, item) for item in queued] + [(s, x, None) for s, x in risk]
     summary.selected = len(targets)
+    summary.queued = len(queued)
 
     consecutive = 0
-    for i, (source, sub_id) in enumerate(targets):
+    done_items: set[uuid.UUID] = set()
+    for i, (source, sub_id, item) in enumerate(targets):
         if i and i % LOCK_RECHECK_EVERY == 0 and find_active_run(db) is not None:
             summary.skipped_reason = "sync_active"
             break
         if i and pause > 0:
             await sleep(pause)
+        code: str | None = None
         try:
             await refresh_fn(db, source, sub_id, run_id=uuid.uuid4())
             summary.refreshed += 1
             consecutive = 0
         except RefreshError as exc:
+            code = exc.code
             summary.failed += 1
             summary.codes[exc.code] = summary.codes.get(exc.code, 0) + 1
             consecutive += 1
         except Exception as exc:  # noqa: BLE001 - un fallo no debe cortar la pasada; el codigo es fijo
             db.rollback()
+            code = "UNEXPECTED"
             summary.failed += 1
             summary.codes["UNEXPECTED"] = summary.codes.get("UNEXPECTED", 0) + 1
             logger.warning("targeted_reconcile: fallo inesperado en %s (%s)", source, type(exc).__name__)
             consecutive += 1
+        if item is not None:
+            refresh_queue.finish(db, item, code)
+            done_items.add(item.id)
         if consecutive >= MAX_CONSECUTIVE_FAILURES:
             summary.skipped_reason = "provider_failing"
             break
+    refresh_queue.release(db, [item for item in queued if item.id not in done_items])
     return summary

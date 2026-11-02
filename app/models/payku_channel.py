@@ -60,6 +60,10 @@ class PaykuSubscription(Base):
     amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # SYNC-D-13: ultima vez que una lectura del proveedor trajo la fila (lo pone `channel_store.upsert_channel`) y marca de
+    # baja por desaparicion (la pone `channel_removals` tras una sync completa; se limpia si la fila reaparece).
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

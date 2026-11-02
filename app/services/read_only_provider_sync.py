@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.sync_run import SyncRun
 from app.services import sync_cursors
+from app.services.channel_removals import detect_removals
 from app.services.payload_sanitization import sanitize_payload
 from app.services.source_record_store import StoreResult, upsert_source_records
 from app.services.sync_metrics import ResourceTimer, current_run_id, resource_timer
@@ -143,6 +144,8 @@ async def sync_read_only_provider(
         async with client_factory() as client:
             processed = 0
             stats: dict[str, dict[str, Any]] = {}
+            truncated: set[str] = set()  # recursos cortados por el tope de paginas (lectura parcial)
+            subscriptions_read: tuple[datetime, bool] | None = None  # SYNC-D-13: (inicio, lectura completa)
 
             async def read_resource(
                 resource_type: str, page_size: int, paginated: bool, read_page: PageReader, timer: ResourceTimer,
@@ -171,6 +174,7 @@ async def sync_read_only_provider(
                     if source == "toku" and resource_type == "transaction":
                         await asyncio.sleep(1)
                 else:
+                    truncated.add(resource_type)
                     logger.warning("%s/%s: se alcanzó el límite de %d páginas, abortando paginación", source, resource_type, _MAX_PAGES)
                 return resource_records
 
@@ -198,10 +202,16 @@ async def sync_read_only_provider(
                     seen = await read_resource(resource_type, page_size, paginated, read_page, timer, None, ())
                 summary = timer.finish()
                 stats[resource_type] = summary
+                if resource_type == "subscription":
+                    full = timer.mode == sync_cursors.MODE_FULL and resource_type not in truncated
+                    subscriptions_read = (read_started, full)
                 sync_cursors.record_success(
                     db, source, resource_type, timer.mode, started_at=read_started, records_seen=seen,
                     requests_made=timer.pages,
                 )
+            if subscriptions_read is not None:
+                # SYNC-D-13: bajas por desaparicion solo si todas las paginas de suscripciones se leyeron sin ventana.
+                detect_removals(db, source, seen_since=subscriptions_read[0], complete=subscriptions_read[1], run_id=run.id)
         run.status = "completed"
         run.records_processed = processed
         run.resource_stats = stats

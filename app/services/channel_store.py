@@ -9,8 +9,10 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import and_, or_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -40,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 # Las dos cuentas VirtualPOS soportadas; cualquier otro platform se rechaza.
 _VP_PLATFORMS = {"virtualpos1", "virtualpos2"}
+
+# SYNC-D-13: tablas con `last_seen_at`/`removed_at`. Cada upsert marca la fila como vista ahora y limpia una baja por
+# desaparicion previa (la fila reaparecio). Las bajas las decide `channel_removals`, nunca este modulo.
+_SEEN_TRACKED_MODELS = {VpSubscription, TokuSubscription, PaykuSubscription}
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 
@@ -104,6 +110,7 @@ def upsert_channel(
     su external_id a `skipped`. Con `skipped=None` el error se propaga como antes.
     """
     identity_fields = ("platform", "external_id") if model in {VpClient, VpPlan, VpSubscription, VpCharge, VpPayment} else ("external_id",)
+    seen_at = datetime.now(UTC) if model in _SEEN_TRACKED_MODELS else None
     rows = []
     for record in records:
         sanitized = sanitize_payload(record)
@@ -113,6 +120,9 @@ def upsert_channel(
         values.setdefault("id", uuid.uuid4())
         sanitized.pop("__external_id", None)
         values["raw_payload"] = sanitized
+        if seen_at is not None:
+            values["last_seen_at"] = seen_at
+            values["removed_at"] = None
         rows.append(values)
     if not rows:
         return 0
@@ -151,10 +161,23 @@ def upsert_channel(
                 stored += 1
             except IntegrityError:
                 skipped.append(str(row["external_id"]))
+        if seen_at is not None:
+            _touch_skipped_seen(db, model, identity_fields, [r for r in ordered if str(r["external_id"]) in skipped], seen_at)
         db.commit()
         return stored
     db.commit()
     return len(rows)
+
+
+def _touch_skipped_seen(db: Session, model: type, identity_fields: tuple[str, ...], rows: list[dict], seen_at: datetime) -> None:
+    """SYNC-D-13: una fila omitida por otra restriccion unica SI vino del proveedor; si ya existe, queda vista.
+
+    Solo toca `last_seen_at` (no el resto de columnas): sin esto, la deteccion de bajas la tomaria por desaparecida.
+    """
+    if not rows:
+        return
+    keys = [and_(*(getattr(model, f) == row[f] for f in identity_fields)) for row in rows]
+    db.execute(update(model).where(or_(*keys)).values(last_seen_at=seen_at))
 
 
 # ── Extractores VirtualPOS ────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.integrations.payku.client import PaykuClient
 from app.models.sync_run import SyncRun
+from app.services.channel_removals import detect_removals
 from app.services.channel_store import store_payku_resources
 from app.services.payload_sanitization import sanitize_payload
 from app.services.read_only_provider_sync import safe_error_message, store_records
@@ -100,6 +101,7 @@ async def sync_payku(
 
             # ── Suscripciones + transacciones embebidas ──────────────────
             page, sub_total, tx_total = 1, 0, 0
+            subs_started = datetime.now(UTC)
             sub_timer = resource_timer(SOURCE, "subscription")
             tx_timer = resource_timer(SOURCE, "transaction")  # embebidas en cada suscripcion
             while True:
@@ -141,6 +143,8 @@ async def sync_payku(
             sub_timer.finish()
             tx_timer.finish()
 
+        # SYNC-D-13: sin ventana y sin corte (el tope de paginas lanza): llegar aqui = lectura completa.
+        detect_removals(db, SOURCE, seen_since=subs_started, complete=True, run_id=run.id)
         run.status = "completed"
         run.records_processed = processed
         run.finished_at = datetime.now(UTC)
