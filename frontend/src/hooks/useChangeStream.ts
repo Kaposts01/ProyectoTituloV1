@@ -86,7 +86,8 @@ export function parseChange(id: string, raw: string): StreamChange | null {
 }
 
 export function useChangeStream({ enabled, onChange, onRefresh, fallbackMs = DEFAULT_FALLBACK_MS }: ChangeStreamOptions): ChangeStreamMode {
-  const [mode, setMode] = useState<ChangeStreamMode>("off");
+  // Sin EventSource (navegador antiguo, jsdom) el modo es «polling» desde el inicio: no hay re-render tras montar.
+  const [mode, setMode] = useState<ChangeStreamMode>(() => (typeof EventSource === "undefined" ? "polling" : "off"));
   const handlers = useRef<Handlers>({ onChange, onRefresh });
   useEffect(() => {
     handlers.current = { onChange, onRefresh };
@@ -111,7 +112,7 @@ export function useChangeStream({ enabled, onChange, onRefresh, fallbackMs = DEF
     };
 
     const startPolling = () => {
-      setMode("polling");
+      setMode((current) => (current === "polling" ? current : "polling"));
       if (timer !== null) return;
       timer = setInterval(() => {
         refresh();
@@ -151,18 +152,20 @@ export function useChangeStream({ enabled, onChange, onRefresh, fallbackMs = DEF
       };
     }
 
-    const start = setTimeout(() => {
-      if (typeof EventSource === "undefined") startPolling();
-      else open();
-    }, 0);
+    let start: ReturnType<typeof setTimeout> | null = null;
+    if (typeof EventSource === "undefined") {
+      // Solo el intervalo: el estado ya nace en «polling», así que no hay actualización tras montar.
+      timer = setInterval(refresh, fallbackMs);
+    } else {
+      start = setTimeout(open, 0);
+    }
 
     return () => {
       disposed = true;
-      clearTimeout(start);
+      if (start !== null) clearTimeout(start);
       stopPolling();
       source?.close();
       source = null;
-      setMode("off");
     };
   }, [enabled, fallbackMs]);
 
