@@ -10,10 +10,17 @@ Uso (desde la raiz del repo):
     $env:PYTHONPATH='.'; .venv/Scripts/python.exe scripts/diagnostics/parity_check.py --channel payku --from 2025-01
     $env:PYTHONPATH='.'; .venv/Scripts/python.exe scripts/diagnostics/parity_check.py --channel virtualpos --format csv
 
-Usa la base del ambiente activo (APP_ENV / DATABASE_URL); con APP_ENV=development eso es la base real `crm`. Al ser de
-solo lectura es seguro, pero ejecutarlo contra `crm` lo decide el usuario. Por defecto no cuenta cobros con fecha
+Usa la base del ambiente activo (APP_ENV / DATABASE_URL). GUARDA: si el nombre de la base no termina en `_test` el
+script aborta, salvo que se pase explicitamente `--read-only` (entonces solo ejecuta SELECT en una transaccion READ ONLY;
+ver `readonly_guard.py`). Ejecutarlo contra `crm` lo decide el usuario. Por defecto no cuenta cobros con fecha
 posterior a hoy en hora de Chile (VP-PAR-10: son cobros programados / cancelados a futuro, no hechos); `--include-future`
 los incluye.
+
+TK-PAR-10, `--channel toku --vs-report`: compara por mes (hora de Chile) y estado los intentos del reporte de Toku ya
+importado (`tk_report_attempts`, fecha de transaccion) contra las transacciones de la API (`tk_transactions`,
+`created_at_api` en UTC llevado a America/Santiago), solo hasta el ultimo intento que trae el reporte.
+VP-PAR-11, `--channel virtualpos --vs-report`: paridad reportes PAT vs `vp_charges` (`app/services/vp_parity.py`).
+Con `--vs-report` el codigo de salida es 1 si hay diferencias.
 """
 
 from __future__ import annotations
@@ -28,15 +35,17 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sqlalchemy import Numeric, case, cast, func, select, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import DateTime, Numeric, case, cast, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.session import SessionLocal
 from app.models.crm import Charge, Payment
 from app.models.tch import TchMonthlyCollection, TchTransaction
+from app.models.toku_channel import TokuTransaction
+from app.models.toku_report import TkReportAttempt
+from app.services import vp_parity
 from app.services.charge_stats import chile_today
+from scripts.diagnostics import readonly_guard
 
 CHANNELS = ("virtualpos", "toku", "payku", "tch")
 _SOURCES = {"virtualpos": ("virtualpos1", "virtualpos2"), "toku": ("toku",), "payku": ("payku",)}
@@ -147,10 +156,77 @@ def format_csv(rows: list[dict[str, Any]]) -> str:
 
 
 def open_readonly_session() -> Session:
-    """Sesion cuya transaccion es READ ONLY: PostgreSQL rechaza cualquier escritura."""
-    db = SessionLocal()
-    db.execute(text("SET TRANSACTION READ ONLY"))
-    return db
+    """Sesion cuya transaccion es READ ONLY y que solo admite SELECT (PostgreSQL rechaza cualquier escritura)."""
+    return readonly_guard.open_readonly_session()
+
+
+# --------------------------------------------------------------------------------------------------------------- #
+# TK-PAR-10: paridad Toku, reporte de intentos vs transacciones de la API (por mes en hora de Chile)               #
+# --------------------------------------------------------------------------------------------------------------- #
+
+CHILE_TZ_NAME = "America/Santiago"
+# Estado del reporte (Intentos de pago) y de la API llevados a un vocabulario comun. EN PROCESO del reporte aparece
+# como FAILED en la API (parity_toku.md, seccion 4), por eso se cuenta como fallido.
+_TOKU_STATUS = {
+    "autorizado": "autorizado", "authorized": "autorizado", "success": "autorizado", "paid": "autorizado",
+    "fallido": "fallido", "failed": "fallido", "en proceso": "fallido",
+}
+_TOKU_PARITY_COLUMNS = (("month", "mes"), ("status", "estado"), ("report", "reporte"), ("base", "base"), ("diff", "diferencia"))
+
+
+def _toku_status(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    return _TOKU_STATUS.get(key, key or "(sin estado)")
+
+
+def _chile_month(ts: Any) -> Any:
+    return func.to_char(func.timezone(literal(CHILE_TZ_NAME), ts), "YYYY-MM")
+
+
+def toku_report_parity(db: Session, *, from_month: str | None = None, to_month: str | None = None) -> list[dict[str, Any]]:
+    """Filas {month, status, report, base, diff} (diff = base - reporte). Vacio si no hay reporte importado."""
+    cutoff = db.scalar(select(func.max(TkReportAttempt.attempted_at)))
+    if cutoff is None:
+        return []
+    report_month = _chile_month(TkReportAttempt.attempted_at)
+    report_q = (
+        select(report_month, TkReportAttempt.status, func.count())
+        .where(TkReportAttempt.attempted_at.is_not(None), *_in_range(report_month, from_month, to_month))
+        .group_by(report_month, TkReportAttempt.status)
+    )
+    api_ts = cast(TokuTransaction.created_at_api, DateTime(timezone=True))
+    base_month = _chile_month(api_ts)
+    base_q = (
+        select(base_month, TokuTransaction.status, func.count())
+        .where(
+            TokuTransaction.created_at_api.op("~")(r"^\d{4}-\d{2}-\d{2}"),
+            api_ts <= cutoff,
+            *_in_range(base_month, from_month, to_month),
+        )
+        .group_by(base_month, TokuTransaction.status)
+    )
+    buckets: dict[tuple[str, str], dict[str, int]] = {}
+    for side, query in (("report", report_q), ("base", base_q)):
+        for month, status, count in db.execute(query):
+            cell = buckets.setdefault((month, _toku_status(status)), {"report": 0, "base": 0})
+            cell[side] += int(count)
+    return [
+        {"month": m, "status": st, "report": c["report"], "base": c["base"], "diff": c["base"] - c["report"]}
+        for (m, st), c in sorted(buckets.items())
+    ]
+
+
+def format_toku_parity(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "Sin reporte de intentos de Toku importado (tk_report_attempts vacio): no hay contra que comparar.\n"
+    headers = [label for _, label in _TOKU_PARITY_COLUMNS]
+    cells = [[str(r[key]) for key, _ in _TOKU_PARITY_COLUMNS] for r in rows]
+    widths = [max(len(headers[i]), *(len(row[i]) for row in cells)) for i in range(len(headers))]
+    out = ["  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)).rstrip(), "  ".join("-" * w for w in widths)]
+    out += ["  ".join(v.rjust(widths[i]) if i >= 2 else v.ljust(widths[i]) for i, v in enumerate(row)).rstrip() for row in cells]
+    differing = sum(1 for r in rows if r["diff"])
+    out.append("Paridad OK" if not differing else f"Paridad con diferencias en {differing} fila(s) mes/estado")
+    return "\n".join(out) + "\n"
 
 
 def _month_arg(value: str) -> str:
@@ -166,15 +242,40 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--to", dest="to_month", type=_month_arg, help="Ultimo mes (AAAA-MM).")
     parser.add_argument("--include-future", action="store_true", help="Incluye cobros con fecha posterior a hoy (Chile).")
     parser.add_argument("--format", choices=("table", "csv"), default="table", help="Formato de salida.")
+    parser.add_argument(
+        "--vs-report", action="store_true",
+        help="Compara contra el reporte importado del proveedor (toku: TK-PAR-10; virtualpos: VP-PAR-11).",
+    )
+    readonly_guard.add_read_only_argument(parser)
     return parser.parse_args(argv)
+
+
+def _main_vs_report(db: Session, channels: tuple[str, ...], args: argparse.Namespace) -> int:
+    differences = False
+    for channel in channels:
+        print(f"== {channel} vs reporte ==")
+        if channel == "toku":
+            rows = toku_report_parity(db, from_month=args.from_month, to_month=args.to_month)
+            print(format_toku_parity(rows))
+            differences |= any(r["diff"] for r in rows)
+        elif channel == "virtualpos":
+            result = vp_parity.compute_vp_parity(db, from_month=args.from_month, to_month=args.to_month)
+            print(vp_parity.format_result(result))
+            differences |= bool(result.differences)
+        else:
+            print("(sin reporte importado para este canal)\n")
+    return 1 if differences else 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    db_name = readonly_guard.enforce_database_guard(args.read_only)
     channels = CHANNELS if args.channel == "all" else (args.channel,)
     db = open_readonly_session()
     try:
-        print(f"Base: {make_url(settings.database_url).database} | ambiente: {settings.env_mode} | solo lectura", file=sys.stderr)
+        print(f"Base: {db_name} | ambiente: {settings.env_mode} | solo lectura", file=sys.stderr)
+        if args.vs_report:
+            return _main_vs_report(db, channels, args)
         for channel in channels:
             rows = collect(db, channel, from_month=args.from_month, to_month=args.to_month, include_future=args.include_future)
             if args.format == "table":

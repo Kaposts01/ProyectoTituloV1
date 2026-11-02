@@ -140,9 +140,13 @@ def test_open_readonly_session_sets_a_read_only_transaction() -> None:
     from sqlalchemy import text
     from sqlalchemy.exc import DBAPIError
 
+    from scripts.diagnostics.readonly_guard import ReadOnlyViolation
+
     db = parity_check.open_readonly_session()
     try:
-        with pytest.raises(DBAPIError):
+        # Doble barrera: la transaccion es READ ONLY en PostgreSQL y, antes, el filtro solo deja pasar SELECT.
+        assert db.execute(text("SELECT current_setting('transaction_read_only')")).scalar() == "on"
+        with pytest.raises((DBAPIError, ReadOnlyViolation)):
             db.execute(text("CREATE TABLE parity_check_should_fail (x int)"))
     finally:
         db.rollback()
