@@ -10,15 +10,33 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSAPIError, VirtualPOSClient
 from app.models.sync_run import SyncRun
+from app.services import sync_cursors
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.channel_store import _VP_PLATFORMS, store_vp_resources
 from app.services.charge_recovery import reconcile_charge_recoveries
 from app.services.payload_sanitization import sanitize_payload
 from app.services.source_record_store import StoreResult, upsert_source_records
-from app.services.sync_metrics import resource_timer
+from app.services.sync_metrics import ResourceTimer, current_run_id, resource_timer
 from app.services.sync_progress import ProgressCallback, pagination_totals
+from app.services.sync_window import (
+    ReadWindow,
+    WindowFilterIgnored,
+    check_page,
+    plan_window,
+)
 
 SOURCE = "virtualpos1"
+
+# SYNC-O-05: filtros de fecha por recurso (desde, hasta) y las fechas del registro que la guarda compara. Pagos: una
+# pasada por fecha de creacion y otra por fecha de autorizacion (un pago creado antes y autorizado dentro de la
+# ventana). Suscripciones y planes se leen siempre completos (la API no filtra suscripciones por fecha).
+_WINDOW_PASSES: dict[str, tuple[tuple[tuple[str, str], tuple[str, ...]], ...]] = {
+    "client": ((("created_from", "created_to"), ("created", "created_at")),),
+    "payment": (
+        (("created_from", "created_to"), ("order.created_at", "created_at")),
+        (("authorization_from", "authorization_to"), ("order.authorized_at", "authorized_at")),
+    ),
+}
 SENSITIVE_PAYMENT_FIELDS = {"card_number", "card_pan", "pan", "cvv", "cvc", "security_code"}
 
 
@@ -133,7 +151,7 @@ async def sync_virtualpos(
     """
     if platform not in _VP_PLATFORMS:
         raise ValueError(f"Plataforma VirtualPOS desconocida: {platform!r}")
-    run = SyncRun(source=platform, status="running")
+    run = SyncRun(source=platform, status="running", etl_run_id=current_run_id())
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -144,21 +162,30 @@ async def sync_virtualpos(
             processed = 0
             skipped_subscriptions: list[str] = []
             limit = 100
-            for resource_type, read_page in (
-                ("client", client.list_clients),
-                ("payment", client.list_payments),
-            ):
+            stats: dict[str, dict[str, Any]] = {}
+            cursor_marks: list[tuple[str, str, datetime, int, int]] = []
+
+            async def read_resource(
+                resource_type: str,
+                read_page: Any,
+                timer: ResourceTimer,
+                filters: dict[str, str],
+                window: ReadWindow | None,
+                date_fields: tuple[str, ...],
+            ) -> int:
+                nonlocal processed
                 page = 1
                 resource_records = 0
-                timer = resource_timer(platform, resource_type)
                 while True:
                     with timer.api():
-                        response = await read_page(page=page, limit=limit)
+                        response = await read_page(page=page, limit=limit, **filters)
                     records = _records_from_response(response)
+                    if window is not None:
+                        check_page(response, records, window, date_fields, label=f"{platform}/{resource_type}")
                     resource_records += len(records)
                     sanitized = [_sanitize_record(record) for record in records]
                     with timer.upsert(len(records)):
-                        processed += _store_records(db, platform, resource_type, sanitized)
+                        processed += _store_records(db, platform, resource_type, sanitized, result=timer.store)
                         store_vp_resources(db, resource_type, sanitized, platform=platform)
                     if progress_callback:
                         total_records, total_pages = pagination_totals(response)
@@ -166,22 +193,49 @@ async def sync_virtualpos(
                     if not _has_next_page(response, records, page, limit):
                         break
                     page += 1
-                timer.finish()
+                return resource_records
+
+            for resource_type, read_page in (
+                ("client", client.list_clients),
+                ("payment", client.list_payments),
+            ):
+                timer = resource_timer(platform, resource_type)
+                read_started = datetime.now(UTC)
+                window = plan_window(db, platform, resource_type, read_started)
+                seen: int | None = None
+                if window is not None:
+                    # SYNC-O-05: una pasada por filtro de fecha; si alguna delata un filtro ignorado, lectura completa.
+                    timer.mode = sync_cursors.MODE_WINDOW
+                    try:
+                        seen = 0
+                        for (from_key, to_key), date_fields in _WINDOW_PASSES[resource_type]:
+                            filters = {from_key: window.start_date, to_key: window.end_date}
+                            seen += await read_resource(resource_type, read_page, timer, filters, window, date_fields)
+                    except WindowFilterIgnored:
+                        timer.mode = sync_cursors.MODE_FULL  # respaldo completo (lo ya escrito es idempotente)
+                        seen = None
+                if seen is None:
+                    seen = await read_resource(resource_type, read_page, timer, {}, None, ())
+                stats[resource_type] = timer.finish()
+                cursor_marks.append((resource_type, timer.mode, read_started, seen, timer.pages))
 
             plan_timer = resource_timer(platform, "plan")
+            plan_started = datetime.now(UTC)
             with plan_timer.api():
                 plan_response = await client.list_plans()
             plans = [_sanitize_record(record) for record in _records_from_response(plan_response)]
             with plan_timer.upsert(len(plans)):
-                processed += _store_records(db, platform, "plan", plans)
+                processed += _store_records(db, platform, "plan", plans, result=plan_timer.store)
                 store_vp_resources(db, "plan", plans, platform=platform)
-            plan_timer.finish()
+            stats["plan"] = plan_timer.finish()
+            cursor_marks.append(("plan", sync_cursors.MODE_FULL, plan_started, len(plans), plan_timer.pages))
             if progress_callback:
                 progress_callback("plan", 1, len(plans), None, None)
 
             page = 1
             subscription_records = 0
             sub_timer = resource_timer(platform, "subscription")
+            subs_started = datetime.now(UTC)
             charge_timer = resource_timer(platform, "charge")  # los cobros vienen embebidos en cada suscripcion
             while True:
                 with sub_timer.api():
@@ -190,7 +244,7 @@ async def sync_virtualpos(
                 subscription_records += len(subscriptions)
                 sanitized_subs = [_sanitize_record(s) for s in subscriptions]
                 with sub_timer.upsert(len(sanitized_subs)):
-                    processed += _store_records(db, platform, "subscription", sanitized_subs)
+                    processed += _store_records(db, platform, "subscription", sanitized_subs, result=sub_timer.store)
                     store_vp_resources(
                         db, "subscription", sanitized_subs, platform=platform, skipped_subscriptions=skipped_subscriptions
                     )
@@ -224,22 +278,34 @@ async def sync_virtualpos(
                         )
                 with charge_timer.upsert(0):
                     # SYNC-O-10: los cobros de todas las suscripciones de la pagina van a source_records en un lote.
-                    processed += _store_records(db, platform, "charge", page_charges, contexts=page_contexts)
+                    processed += _store_records(
+                        db, platform, "charge", page_charges, contexts=page_contexts, result=charge_timer.store
+                    )
                 if progress_callback:
                     total_records, total_pages = pagination_totals(response)
                     progress_callback("subscription", page, subscription_records, total_records, total_pages)
                 if not _has_next_page(response, subscriptions, page, limit):
                     break
                 page += 1
-            sub_timer.finish()
-            charge_timer.finish()
+            stats["subscription"] = sub_timer.finish()
+            stats["charge"] = charge_timer.finish()
+            cursor_marks.append(
+                ("subscription", sync_cursors.MODE_FULL, subs_started, subscription_records, sub_timer.pages)
+            )
 
             # crm_materialization (legacy) desactivado: se consolida desde las tablas canal.
             if consolidate:
                 consolidate_to_centralized(db, ["virtualpos"], raise_on_error=True)
                 reconcile_charge_recoveries(db, platform)
 
+            # SYNC-O-08: las marcas avanzan solo si la corrida completa termina bien (misma transaccion).
+            for resource_type, mode, started_at, seen_count, requests in cursor_marks:
+                sync_cursors.record_success(
+                    db, platform, resource_type, mode, started_at=started_at, records_seen=seen_count,
+                    requests_made=requests,
+                )
             run.status = "completed"
+            run.resource_stats = stats
             if skipped_subscriptions:
                 run.error_message = f"{len(skipped_subscriptions)} suscripciones omitidas por duplicado activo"
         run.records_processed = processed

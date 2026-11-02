@@ -4,16 +4,24 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.models.sync_run import SyncRun
+from app.services import sync_cursors
 from app.services.payload_sanitization import sanitize_payload
 from app.services.source_record_store import StoreResult, upsert_source_records
-from app.services.sync_metrics import resource_timer
+from app.services.sync_metrics import ResourceTimer, current_run_id, resource_timer
 from app.services.sync_progress import ProgressCallback, pagination_totals
+from app.services.sync_window import (
+    ReadWindow,
+    WindowFilterIgnored,
+    check_page,
+    plan_window,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +114,15 @@ def safe_error_message(exc: Exception, secrets: Iterable[str]) -> str:
 ChannelStoreFn = Callable[["Session", str, list], int]
 
 
+@dataclass(frozen=True)
+class WindowedRead:
+    """SYNC-O-02: lectura por ventana de un recurso. `read_page(client, page, window)`; `date_fields` = fechas del
+    registro que la guarda compara con la ventana (rutas con punto para campos anidados)."""
+
+    read_page: Callable[[Any, int, ReadWindow], Awaitable[Any]]
+    date_fields: tuple[str, ...]
+
+
 async def sync_read_only_provider(
     db: Session,
     *,
@@ -115,8 +132,9 @@ async def sync_read_only_provider(
     secrets: Iterable[str],
     channel_store_fn: ChannelStoreFn | None = None,
     progress_callback: ProgressCallback | None = None,
+    windowed: dict[str, WindowedRead] | None = None,
 ) -> SyncRun:
-    run = SyncRun(source=source, status="running")
+    run = SyncRun(source=source, status="running", etl_run_id=current_run_id())
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -124,17 +142,24 @@ async def sync_read_only_provider(
     try:
         async with client_factory() as client:
             processed = 0
-            for resource_type, page_size, paginated, read_page in resources:
+            stats: dict[str, dict[str, Any]] = {}
+
+            async def read_resource(
+                resource_type: str, page_size: int, paginated: bool, read_page: PageReader, timer: ResourceTimer,
+                window: ReadWindow | None, date_fields: tuple[str, ...],
+            ) -> int:
+                nonlocal processed
                 page = 1
                 resource_records = 0
-                timer = resource_timer(source, resource_type)
                 while page <= _MAX_PAGES:
                     with timer.api():
                         response = await read_page(client, page)
                     records = records_from_response(response)
+                    if window is not None:
+                        check_page(response, records, window, date_fields, label=f"{source}/{resource_type}")
                     resource_records += len(records)
                     with timer.upsert(len(records)):
-                        processed += store_records(db, source, resource_type, records)
+                        processed += store_records(db, source, resource_type, records, result=timer.store)
                         if channel_store_fn and records:
                             channel_store_fn(db, resource_type, records)
                     if progress_callback:
@@ -147,9 +172,39 @@ async def sync_read_only_provider(
                         await asyncio.sleep(1)
                 else:
                     logger.warning("%s/%s: se alcanzó el límite de %d páginas, abortando paginación", source, resource_type, _MAX_PAGES)
-                timer.finish()
+                return resource_records
+
+            for resource_type, page_size, paginated, read_page in resources:
+                timer = resource_timer(source, resource_type)
+                read_started = datetime.now(UTC)
+                spec = (windowed or {}).get(resource_type)
+                window = plan_window(db, source, resource_type, read_started) if spec is not None else None
+                seen: int | None = None
+                if window is not None and spec is not None:
+                    timer.mode = sync_cursors.MODE_WINDOW
+                    windowed_reader = spec.read_page
+
+                    async def read_window_page(c: Any, p: int, _w=window, _r=windowed_reader) -> Any:
+                        return await _r(c, p, _w)
+
+                    try:
+                        seen = await read_resource(
+                            resource_type, page_size, paginated, read_window_page, timer, window, spec.date_fields
+                        )
+                    except WindowFilterIgnored:
+                        timer.mode = sync_cursors.MODE_FULL  # respaldo: lectura completa (lo ya escrito es idempotente)
+                        seen = None
+                if seen is None:
+                    seen = await read_resource(resource_type, page_size, paginated, read_page, timer, None, ())
+                summary = timer.finish()
+                stats[resource_type] = summary
+                sync_cursors.record_success(
+                    db, source, resource_type, timer.mode, started_at=read_started, records_seen=seen,
+                    requests_made=timer.pages,
+                )
         run.status = "completed"
         run.records_processed = processed
+        run.resource_stats = stats
         run.finished_at = datetime.now(UTC)
         db.commit()
     except Exception as exc:
