@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, or_, update
+from sqlalchemy import and_, func, or_, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -37,6 +37,7 @@ from app.services.payku_status import (
     normalize_payku_status,
 )
 from app.services.payload_sanitization import sanitize_payload
+from app.services.upsert_guard import distinct_where
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,17 @@ def _card_summaries(cards: Any) -> list[dict] | None:
     return result or None
 
 
+def _stamped(model: type, updatable: dict[str, Any]) -> dict[str, Any]:
+    """SET del upsert con `updated_at = now()` (SYNC-O-07).
+
+    El upsert solo actualiza las filas que cambiaron (guarda `IS DISTINCT FROM`), asi que `updated_at` pasa a ser el
+    instante del ultimo cambio real del registro: es la marca que usa la consolidacion diferencial.
+    """
+    if "updated_at" in model.__table__.c and "updated_at" not in updatable:
+        return {**updatable, "updated_at": func.now()}
+    return updatable
+
+
 def upsert_channel(
     db: Session,
     model: type,
@@ -137,23 +149,32 @@ def upsert_channel(
     rows = deduped
     stmt = insert(model).values(rows)
     updatable = {key: stmt.excluded[key] for key in rows[0] if key not in (*identity_fields, "id", "created_at")}
-    stmt = stmt.on_conflict_do_update(index_elements=list(identity_fields), set_=updatable)
+    # `last_seen_at` cambia en cada lectura: no cuenta como cambio para la guarda (SYNC-O-07); se marca aparte.
+    guarded = {key: value for key, value in updatable.items() if key != "last_seen_at"}
+    stmt = stmt.on_conflict_do_update(
+        index_elements=list(identity_fields), set_=_stamped(model, updatable),
+        where=distinct_where(model.__table__, guarded),
+    )
     if skipped is None:
         db.execute(stmt)
+        _touch_seen(db, model, identity_fields, rows, seen_at)
         db.commit()
         return len(rows)
     try:
         with db.begin_nested():
             db.execute(stmt)
+            _touch_seen(db, model, identity_fields, rows, seen_at)
     except IntegrityError:
         # Desempate: se conserva la mas reciente por suscription_date; en empate, el mayor external_id.
         ordered = sorted(rows, key=lambda r: (r.get("suscription_date") or "", r["external_id"]), reverse=True)
         stored = 0
         for row in ordered:
             single = insert(model).values([row])
+            single_set = {key: single.excluded[key] for key in row if key not in (*identity_fields, "id", "created_at")}
             single = single.on_conflict_do_update(
                 index_elements=list(identity_fields),
-                set_={key: single.excluded[key] for key in row if key not in (*identity_fields, "id", "created_at")},
+                set_=_stamped(model, single_set),
+                where=distinct_where(model.__table__, single_set),
             )
             try:
                 with db.begin_nested():
@@ -167,6 +188,23 @@ def upsert_channel(
         return stored
     db.commit()
     return len(rows)
+
+
+def _touch_seen(db: Session, model: type, identity_fields: tuple[str, ...], rows: list[dict], seen_at: datetime | None) -> None:
+    """SYNC-D-13 + SYNC-O-07: marca como vistas todas las filas del lote, cambien o no.
+
+    La guarda `IS DISTINCT FROM` no reescribe las filas sin cambios, asi que `last_seen_at` se actualiza aparte
+    (sin mover `updated_at`); si no, la deteccion de bajas tomaria por desaparecida una fila que no cambio.
+    """
+    if seen_at is None or not rows:
+        return
+    keys = [tuple(row[f] for f in identity_fields) for row in rows]
+    db.execute(
+        update(model)
+        .where(tuple_(*(getattr(model, f) for f in identity_fields)).in_(keys))
+        .values(last_seen_at=seen_at)
+        .execution_options(synchronize_session=False)
+    )
 
 
 def _touch_skipped_seen(db: Session, model: type, identity_fields: tuple[str, ...], rows: list[dict], seen_at: datetime) -> None:

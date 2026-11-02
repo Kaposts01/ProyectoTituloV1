@@ -218,3 +218,37 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
         )
         logger.info("Job '%s' registrado (06:40; detras de VP_PARITY_CHECK_ENABLED).", JOB_VP_PARITY)
+
+    # SYNC-O-09: niveles caliente y frio (D10). La tibia es `sync_all_channels` de las 02:00. Detras de SYNC_TIERS_ENABLED
+    # (apagada por defecto): con la bandera apagada los dos jobs no hacen nada. La caliente exige ademas las ventanas.
+    from app.scheduler.jobs.sync_tiers import (
+        HOT_HOURS,
+        JOB_SYNC_COLD,
+        JOB_SYNC_HOT,
+        sync_cold,
+        sync_hot,
+    )
+
+    if not scheduler.get_job(JOB_SYNC_HOT):
+        scheduler.add_job(
+            sync_hot,
+            trigger="cron",
+            hour=HOT_HOURS,
+            minute=30,
+            id=JOB_SYNC_HOT,
+            name="Sincronización caliente (por ventana)",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (%s h, minuto 30; detras de SYNC_TIERS_ENABLED).", JOB_SYNC_HOT, HOT_HOURS)
+    if not scheduler.get_job(JOB_SYNC_COLD):
+        scheduler.add_job(
+            sync_cold,
+            trigger="cron",
+            day_of_week="sun",
+            hour=1,
+            minute=0,
+            id=JOB_SYNC_COLD,
+            name="Sincronización fría (lectura completa)",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (domingo 01:00; detras de SYNC_TIERS_ENABLED).", JOB_SYNC_COLD)

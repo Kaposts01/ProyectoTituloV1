@@ -132,8 +132,12 @@ personales). Se registran en cada carga; para lo ya cargado: `scripts/etl_tch.py
 
 ### Procesamiento en chunks
 
-`_consolidate_tch_transactions` usa paginación de 2000 filas (OFFSET) sobre ~1,47 M filas antes de la recarga; hacerla
-incremental es TCH-PAR-13. El resto de las funciones TCH cargan todo en memoria.
+`_consolidate_tch_transactions` es incremental (TCH-PAR-13): un `LEFT JOIN` contra `charges` por la clave de la cuota
+detecta en SQL las cuotas nuevas o cuyas columnas consolidadas difieren (ficha, cliente de la ficha, monto, estado, fecha,
+payload, vínculo a `source_records`), y solo esas llegan a Python, en lotes de 2000 por id (paginación por clave, no
+OFFSET). Una consolidación sin cargas nuevas lee y escribe 0 cuotas. Los lotes ya no hacen commit intermedio: antes, con
+más de un lote, el segundo fallaba por el SAVEPOINT de la consolidación. El resto de las funciones TCH cargan todo en
+memoria (la guarda `IS DISTINCT FROM` evita reescribir lo que no cambió, SYNC-O-07).
 
 ## Flujo de sincronización
 
@@ -153,8 +157,8 @@ Archivos Excel TCH (histórico dic-2017 a sep-2026; 30 archivos, 29 únicos)
 2. Si no se recarga: backfill de `source_records` (`--backfill-source-records`, primero en dry-run).
 3. ETL Core de TCH (crea `core_charges` y liga los pagos) y consolidación de TCH.
 4. Desde ahí, cada reporte mensual por la carga desde administración (rechaza contenido repetido por sha256).
-5. Pendientes: TCH-PAR-08 (cartera dic-2023), conciliación por archivo en la UI (resto de TCH-PAR-11), TCH-PAR-13
-   (consolidación incremental), correr la carga fuera del proceso API (resto de TCH-PAR-16).
+5. Pendientes: TCH-PAR-08 (cartera dic-2023), conciliación por archivo en la UI (resto de TCH-PAR-11), correr la carga
+   fuera del proceso API (resto de TCH-PAR-16). TCH-PAR-13 (consolidación incremental) quedó hecha.
 
 ## Tablas de control adicionales (TCH-PAR-10)
 

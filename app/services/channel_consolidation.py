@@ -11,13 +11,28 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import (
+    String,
+    and_,
+    cast,
+    delete,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscription
 from app.models.payku_channel import (
     PaykuClient,
@@ -35,6 +50,7 @@ from app.models.toku_channel import (
     TokuTransaction,
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
+from app.services import sync_cursors
 from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
 from app.services.core_tch_etl import _resolve_currency as _resolve_tch_currency
@@ -52,6 +68,7 @@ from app.services.toku_rejection_projection import (
     toku_transaction_rejection,
 )
 from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
+from app.services.upsert_guard import distinct_where
 from app.services.vp_current_amount import load_current_amount
 
 logger = logging.getLogger(__name__)
@@ -167,7 +184,14 @@ def _upsert_centralized(
     model: type,
     constraint: str,
     rows: list[dict],
+    *,
+    commit: bool = True,
 ) -> int:
+    """Upsert por trozos con eventos de cambio y guarda IS DISTINCT FROM.
+
+    `commit=False` deja el commit al llamador: necesario si el llamador sigue usando la sesion dentro del SAVEPOINT de
+    `_consolidate` (un commit intermedio cierra ese contexto y la siguiente consulta falla).
+    """
     if not rows:
         return 0
     # Asegurar que todas las filas tienen id
@@ -191,11 +215,50 @@ def _upsert_centralized(
             updatable["source_record_id"] = func.coalesce(
                 stmt.excluded.source_record_id, model.__table__.c.source_record_id
             )
-        stmt = stmt.on_conflict_do_update(constraint=constraint, set_=updatable)
-        db.execute(stmt)
+        # SYNC-O-07: solo reescribe la fila si alguna columna cambia de valor (IS DISTINCT FROM); una consolidacion
+        # repetida sin cambios escribe 0 filas. Los eventos ya se calcularon arriba contra los valores previos.
+        stmt = stmt.on_conflict_do_update(
+            constraint=constraint, set_=updatable, where=distinct_where(model.__table__, updatable)
+        )
+        # RETURNING solo devuelve las filas insertadas o realmente actualizadas (las omitidas por la guarda no): es el
+        # conteo fiable de escrituras (el `rowcount` del driver no lo es para INSERT ... ON CONFLICT multi-fila).
+        result = db.execute(stmt.returning(model.__table__.c.id))
+        _count_written(len(result.all()))
         processed += len(chunk)
-    db.commit()
+    if commit:
+        db.commit()
     return processed
+
+
+# SYNC-O-07: filas realmente escritas (insertadas o cambiadas) por las llamadas a `_upsert_centralized` del bloque.
+_WRITTEN: ContextVar[list[int] | None] = ContextVar("consolidation_written", default=None)
+
+
+def _count_written(rowcount: int | None) -> None:
+    counter = _WRITTEN.get()
+    if counter is not None and rowcount is not None and rowcount >= 0:
+        counter[0] += rowcount
+
+
+@contextmanager
+def _written_counter() -> Iterator[list[int]]:
+    counter = [0]
+    token = _WRITTEN.set(counter)
+    try:
+        yield counter
+    finally:
+        _WRITTEN.reset(token)
+
+
+# SYNC-O-07: lectura diferencial. Con un instante fijado, los consolidadores que lo soportan leen solo las filas del
+# canal cambiadas desde entonces (`updated_at`, que `upsert_channel` solo mueve si la fila cambio). None = todo.
+_SINCE: ContextVar[datetime | None] = ContextVar("consolidation_since", default=None)
+
+
+def _changed_since(model: type) -> tuple:
+    """Criterio `model.updated_at >= desde` si la consolidacion es diferencial; () si se lee completo."""
+    since = _SINCE.get()
+    return (model.updated_at >= since,) if since is not None else ()
 
 
 # ── Helpers de conversión ─────────────────────────────────────────────────────
@@ -224,7 +287,7 @@ def _vp_records(db: Session, model: type, *criteria: Any) -> list:
 
 def _consolidate_vp_clients(db: Session) -> int:
     rows = []
-    for vp in _vp_records(db, VpClient):
+    for vp in _vp_records(db, VpClient, *_changed_since(VpClient)):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
@@ -246,7 +309,7 @@ def _consolidate_vp_clients(db: Session) -> int:
 
 def _consolidate_vp_plans(db: Session) -> int:
     rows = []
-    for vp in _vp_records(db, VpPlan):
+    for vp in _vp_records(db, VpPlan, *_changed_since(VpPlan)):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
@@ -271,6 +334,15 @@ def _consolidate_vp_subscriptions(db: Session, scope: Scope | None = None) -> in
         sources=[scope[0]] if scope else None, subscription_ids=[scope[1]] if scope else None,
     )
     criteria = (VpSubscription.platform == scope[0], VpSubscription.external_id == scope[1]) if scope else ()
+    since = _SINCE.get()
+    if not scope and since is not None:
+        # Diferencial: la suscripcion cambio o cambio alguno de sus cobros (el monto vigente sale de los cobros).
+        criteria = (or_(
+            VpSubscription.updated_at >= since,
+            tuple_(VpSubscription.platform, VpSubscription.external_id).in_(
+                select(VpCharge.platform, VpCharge.subscription_external_id).where(VpCharge.updated_at >= since)
+            ),
+        ),)
     rows = []
     for vp in _vp_records(db, VpSubscription, *criteria):
         current_amount = current_amounts.get((vp.platform, vp.external_id))
@@ -293,7 +365,7 @@ def _consolidate_vp_subscriptions(db: Session, scope: Scope | None = None) -> in
 
 
 def _consolidate_vp_charges(db: Session, scope: Scope | None = None) -> int:
-    criteria = (VpCharge.platform == scope[0], VpCharge.subscription_external_id == scope[1]) if scope else ()
+    criteria = (VpCharge.platform == scope[0], VpCharge.subscription_external_id == scope[1]) if scope else _changed_since(VpCharge)
     rows = []
     for vp in _vp_records(db, VpCharge, *criteria):
         rows.append({
@@ -312,7 +384,7 @@ def _consolidate_vp_charges(db: Session, scope: Scope | None = None) -> int:
 
 def _consolidate_vp_payments(db: Session) -> int:
     rows = []
-    for vp in _vp_records(db, VpPayment):
+    for vp in _vp_records(db, VpPayment, *_changed_since(VpPayment)):
         rows.append({
             "source": vp.platform,
             "external_id": vp.external_id,
@@ -331,7 +403,7 @@ def _consolidate_vp_payments(db: Session) -> int:
 
 def _consolidate_toku_clients(db: Session) -> int:
     rows = []
-    for t in db.scalars(select(TokuCustomer)).all():
+    for t in db.scalars(select(TokuCustomer).where(*_changed_since(TokuCustomer))).all():
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
@@ -380,7 +452,7 @@ def _consolidate_toku_subscriptions(db: Session, scope: Scope | None = None) -> 
 
 
 def _consolidate_toku_invoices(db: Session, scope: Scope | None = None) -> int:
-    criteria = (TokuInvoice.subscription_id == scope[1],) if scope else ()
+    criteria = (TokuInvoice.subscription_id == scope[1],) if scope else _changed_since(TokuInvoice)
     rows = []
     for t in db.scalars(select(TokuInvoice).where(*criteria)).all():
         payload = t.raw_payload or {}
@@ -427,7 +499,7 @@ def _consolidate_toku_transactions(db: Session) -> int:
 
 def _consolidate_toku_payment_methods(db: Session) -> int:
     rows = []
-    for t in db.scalars(select(TokuPaymentMethod)).all():
+    for t in db.scalars(select(TokuPaymentMethod).where(*_changed_since(TokuPaymentMethod))).all():
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
@@ -442,7 +514,7 @@ def _consolidate_toku_payment_methods(db: Session) -> int:
 
 def _consolidate_payku_clients(db: Session) -> int:
     rows = []
-    for p in db.scalars(select(PaykuClient)).all():
+    for p in db.scalars(select(PaykuClient).where(*_changed_since(PaykuClient))).all():
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
@@ -464,7 +536,7 @@ def _consolidate_payku_clients(db: Session) -> int:
 
 def _consolidate_payku_plans(db: Session) -> int:
     rows = []
-    for p in db.scalars(select(PaykuPlan)).all():
+    for p in db.scalars(select(PaykuPlan).where(*_changed_since(PaykuPlan))).all():
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
@@ -508,6 +580,15 @@ def _consolidate_payku_subscriptions(db: Session, scope: Scope | None = None) ->
             latest_successful_amounts[transaction.subscription_id] = (timestamp, transaction.amount)
 
     sub_criteria = (PaykuSubscription.external_id == scope[1],) if scope else ()
+    since = _SINCE.get()
+    if not scope and since is not None:
+        # Diferencial: la suscripcion cambio o cambio alguna de sus transacciones (monto de respaldo).
+        sub_criteria = (or_(
+            PaykuSubscription.updated_at >= since,
+            PaykuSubscription.external_id.in_(
+                select(PaykuTransaction.subscription_id).where(PaykuTransaction.updated_at >= since)
+            ),
+        ),)
     rows = []
     for p in db.scalars(select(PaykuSubscription).where(*sub_criteria)).all():
         payload = p.raw_payload or {}
@@ -540,7 +621,7 @@ def _consolidate_payku_subscriptions(db: Session, scope: Scope | None = None) ->
 
 
 def _consolidate_payku_transactions(db: Session, scope: Scope | None = None) -> int:
-    criteria = (PaykuTransaction.subscription_id == scope[1],) if scope else ()
+    criteria = (PaykuTransaction.subscription_id == scope[1],) if scope else _changed_since(PaykuTransaction)
     rows = []
     for p in db.scalars(select(PaykuTransaction).where(*criteria)).all():
         rows.append({
@@ -603,43 +684,93 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
+def _tch_changed_transactions(after_id: uuid.UUID | None) -> Any:
+    """TCH-PAR-13: cuotas de `tch_transacciones` cuya fila de `charges` falta o difiere de lo que se consolidaria.
+
+    La comparacion se hace en SQL (un LEFT JOIN contra `charges` por la clave de la cuota): a Python solo llegan las
+    cuotas nuevas o cambiadas, en lotes por id (paginacion por clave, no por OFFSET). Las columnas comparadas son
+    exactamente las que arma `_consolidate_tch_transactions`, asi que el resultado es el mismo que releer todo.
+    """
+    external_id = func.coalesce(TchTransaction.dedupe_key, cast(TchTransaction.id, String))
+    has_source_record = exists(
+        select(SourceRecord.id).where(
+            SourceRecord.source == "tch",
+            SourceRecord.resource_type == "transaction",
+            SourceRecord.external_id == external_id,
+        )
+    )
+    changed = or_(
+        Charge.id.is_(None),
+        Charge.subscription_external_id.is_distinct_from(cast(TchTransaction.file_number, String)),
+        Charge.client_external_id.is_distinct_from(TchSubscription.client_rut),
+        Charge.amount.is_distinct_from(TchTransaction.amount),
+        Charge.currency.is_distinct_from(literal(_TCH_CURRENCY)),
+        Charge.status.is_distinct_from(TchTransaction.status),
+        Charge.charge_date.is_distinct_from(TchTransaction.charge_date),
+        Charge.raw_payload.is_distinct_from(TchTransaction.raw_payload),
+        and_(Charge.source_record_id.is_(None), has_source_record),
+    )
+    stmt = (
+        select(
+            TchTransaction.id, TchTransaction.dedupe_key, TchTransaction.file_number, TchTransaction.amount,
+            TchTransaction.status, TchTransaction.charge_date, TchTransaction.raw_payload,
+            TchTransaction.response_code, TchTransaction.rejection_reason, TchSubscription.client_rut,
+        )
+        .outerjoin(TchSubscription, TchSubscription.file_number == TchTransaction.file_number)
+        .outerjoin(Charge, and_(Charge.source == "tch", Charge.external_id == external_id))
+        .where(changed)
+        .order_by(TchTransaction.id)
+        .limit(_CHUNK)
+    )
+    return stmt.where(TchTransaction.id > after_id) if after_id is not None else stmt
+
+
+_TCH_CURRENCY = "CLP"
+
+
 def _consolidate_tch_transactions(db: Session) -> int:
-    """tch_transacciones → charges (procesadas en chunks por volumen ~150k)."""
+    """tch_transacciones → charges, solo las cuotas nuevas o cambiadas (TCH-PAR-13; ~1,47 M filas en total).
+
+    Devuelve las cuotas leidas (nuevas o cambiadas): una segunda consolidacion sin cargas nuevas lee y escribe 0.
+    """
     # D13: la clave de la cuota es ficha|periodo|cuota; los cobros con la clave antigua que ya no estan en
     # tch_transacciones quedarian duplicados tras la recarga completa.
     pruned = db.execute(delete(Charge).where(legacy_key_filter(Charge, Charge.external_id))).rowcount or 0
     if pruned:
         logger.info("TCH: %d cobros con clave antigua eliminados de charges", pruned)
-        db.commit()
-    # TCH-PAR-12: client_external_id = llave del cliente de la ficha (antes NULL en el 100 % de los cobros TCH).
-    client_by_file = dict(db.execute(select(TchSubscription.file_number, TchSubscription.client_rut)).all())
     total = 0
-    offset = 0
+    last_id: uuid.UUID | None = None
     while True:
-        batch = db.scalars(
-            select(TchTransaction).order_by(TchTransaction.id).offset(offset).limit(_CHUNK)
-        ).all()
+        batch = db.execute(_tch_changed_transactions(last_id)).all()
         if not batch:
             break
         rows = []
-        for t in batch:
+        for t in batch:  # filas de columnas (no entidades ORM): no se acumulan en el mapa de identidad
             rows.append({
                 "source": "tch",
                 "external_id": t.dedupe_key or _s(t.id),
                 "subscription_external_id": _s(t.file_number),
-                "client_external_id": client_by_file.get(t.file_number),
+                # TCH-PAR-12: llave del cliente de la ficha (antes NULL en el 100 % de los cobros TCH).
+                "client_external_id": t.client_rut,
                 "amount": t.amount,
-                "currency": "CLP",
+                "currency": _TCH_CURRENCY,
                 "status": t.status,
                 "charge_date": t.charge_date,
                 "raw_payload": t.raw_payload,
                 REASON_CODE_KEY: t.response_code,  # glosa para el catalogo (SYNC-D-02); no es columna
                 REASON_TEXT_KEY: t.rejection_reason,
             })
-        total += _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "transaction"))
-        offset += _CHUNK
+        last_id = batch[-1].id
+        # Sin commit entre lotes: un commit intermedio cierra el SAVEPOINT de `_consolidate` y el lote siguiente fallaba
+        # ("closed transaction inside context manager") en cuanto habia mas de un lote. Un solo commit al final.
+        total += _upsert_centralized(
+            db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "transaction"), commit=False
+        )
         if len(batch) < _CHUNK:
             break
+    db.commit()
+    if total:
+        logger.info("TCH: %d cuotas nuevas o cambiadas consolidadas", total)
     return total
 
 
@@ -690,6 +821,7 @@ def consolidate_to_centralized(
     timings: list[dict[str, Any]] | None = None,
     run_id: uuid.UUID | None = None,
     baseline: bool | None = None,
+    differential: bool | None = None,
 ) -> int:
     """Lee de tablas canal y upserta en tablas centralizadas.
 
@@ -708,11 +840,16 @@ def consolidate_to_centralized(
                  token propio de esta llamada.
         baseline: True marca los eventos de esta corrida como linea base (SYNC-D-03: no cuentan como novedad).
                  None = ``settings.status_events_baseline``.
+        differential: True lee solo lo cambiado desde la ultima consolidacion exitosa de cada funcion (SYNC-O-07);
+                 None = ``settings.consolidation_differential_enabled``. Una linea base (``baseline=True``) siempre
+                 lee completo. Con o sin lectura diferencial, una fila sin cambios nunca se reescribe.
     Returns:
-        Total de registros procesados.
+        Total de registros procesados. Cada item de ``timings`` lleva ademas ``written`` (filas escritas de verdad).
     """
+    is_baseline = settings.status_events_baseline if baseline is None else baseline
+    use_differential = settings.consolidation_differential_enabled if differential is None else differential
     with event_context(run_id=run_id, baseline=baseline):
-        return _consolidate(db, sources, raise_on_error, failures, timings)
+        return _consolidate(db, sources, raise_on_error, failures, timings, use_differential and not is_baseline)
 
 
 _SCOPED_FNS: dict[str, list[Any]] = {
@@ -756,12 +893,40 @@ def consolidate_subscription(
     return total
 
 
+# SYNC-O-07: consolidadores cuya fila canonica depende solo de filas de canal con `updated_at` fiable (o que filtran
+# tambien por sus dependencias). Los demas leen completo siempre: Toku suscripciones y transacciones dependen de los
+# reportes importados (fechas de alta/baja, codigos de rechazo) y TCH usa su propia deteccion de cambios (TCH-PAR-13).
+_DIFFERENTIAL_FNS = frozenset({
+    _consolidate_vp_clients, _consolidate_vp_plans, _consolidate_vp_subscriptions, _consolidate_vp_charges,
+    _consolidate_vp_payments,
+    _consolidate_toku_clients, _consolidate_toku_invoices, _consolidate_toku_payment_methods,
+    _consolidate_payku_clients, _consolidate_payku_plans, _consolidate_payku_subscriptions,
+    _consolidate_payku_transactions,
+})
+# Marca de agua en `sync_cursors`: source fijo (no aparece en la salud por canal), recurso = "<familia>.<funcion>".
+CURSOR_SOURCE = "consolidation"
+CURSOR_MODE = "consolidate"
+
+
+def _cursor_resource(source: str, fn: Any) -> str:
+    return f"{source}.{fn.__name__.removeprefix('_consolidate_')}"
+
+
+def _differential_since(db: Session, source: str, fn: Any) -> datetime | None:
+    """Desde cuando leer: ultima consolidacion exitosa de la funcion menos el solape; None = lectura completa."""
+    last = sync_cursors.last_success(db, CURSOR_SOURCE, _cursor_resource(source, fn), CURSOR_MODE)
+    if last is None:
+        return None
+    return last - timedelta(minutes=max(0.0, float(settings.consolidation_differential_overlap_minutes)))
+
+
 def _consolidate(
     db: Session,
     sources: list[str] | None,
     raise_on_error: bool,
     failures: list[str] | None,
     timings: list[dict[str, Any]] | None,
+    differential: bool = False,
 ) -> int:
     targets = sources or list(_SOURCE_FNS.keys())
     total = 0
@@ -770,10 +935,24 @@ def _consolidate(
         fns = _SOURCE_FNS.get(source, [])
         for fn in fns:
             started = time.perf_counter()
+            tracked = differential and fn in _DIFFERENTIAL_FNS
+            # now() de la BD (inicio de la transaccion): nunca posterior a una escritura que esta lectura no vea.
+            started_db = db.scalar(select(func.now())) if tracked else None
+            since = _differential_since(db, source, fn) if tracked else None
+            since_token = _SINCE.set(since)
             try:
-                with db.begin_nested():
+                with _written_counter() as written, db.begin_nested():
                     count = fn(db)
-                logger.info("Consolidado %s.%s: %d registros", source, fn.__name__, count)
+                if tracked and started_db is not None:
+                    sync_cursors.record_success(
+                        db, CURSOR_SOURCE, _cursor_resource(source, fn), CURSOR_MODE,
+                        started_at=started_db, records_seen=count,
+                    )
+                    db.commit()
+                logger.info(
+                    "Consolidado %s.%s: %d registros leidos, %d escritos%s", source, fn.__name__, count, written[0],
+                    " (diferencial)" if since is not None else "",
+                )
                 total += count
                 if timings is not None:
                     timings.append({
@@ -781,10 +960,13 @@ def _consolidate(
                         "fn": fn.__name__.removeprefix("_consolidate_"),
                         "seconds": round(time.perf_counter() - started, 3),
                         "records": count,
+                        "written": written[0],
                     })
             except Exception:
                 logger.exception("Error consolidando %s.%s", source, fn.__name__)
                 failed.append(f"{source}.{fn.__name__.removeprefix('_consolidate_')}")
+            finally:
+                _SINCE.reset(since_token)
     started = time.perf_counter()
     try:
         with db.begin_nested():
@@ -794,6 +976,7 @@ def _consolidate(
             timings.append({
                 "source": "core", "fn": "materialize_core_clients",
                 "seconds": round(time.perf_counter() - started, 3), "records": core_clients,
+                "written": core_clients,  # solo crea identidades nuevas: lo creado es lo escrito
             })
     except Exception:
         logger.exception("Error en materialize_core_clients")

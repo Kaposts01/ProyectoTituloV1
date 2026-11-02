@@ -77,6 +77,15 @@ class Settings(BaseSettings):
     sync_windowed_reads_enabled: bool = False
     sync_window_overlap_hours: float = 48
     sync_window_full_refresh_days: int = 7
+    # SYNC-O-07: consolidacion diferencial. Una fila canonica sin cambios nunca se reescribe (guarda IS DISTINCT FROM,
+    # siempre activa). Con la bandera, ademas, cada consolidador lee del canal solo lo cambiado desde su ultima
+    # consolidacion exitosa (marca en `sync_cursors`) menos el solape. APAGADA por defecto (SYNC-D-07: lo acepta el usuario).
+    consolidation_differential_enabled: bool = False
+    consolidation_differential_overlap_minutes: float = 60
+    # SYNC-O-09: corredor por niveles (D10). Caliente cada 3 h de 07:00 a 22:00 (canales API por ventana, sin TCH) y fria
+    # el domingo de madrugada (lectura completa forzada y consolidacion TCH). La tibia es la corrida diaria de las 02:00.
+    # APAGADA por defecto: con la bandera apagada los jobs caliente y fria no hacen nada.
+    sync_tiers_enabled: bool = False
     # SYNC-D-02/03: historial de cambios de estado/monto en la consolidacion. `baseline` marca los eventos de la corrida
     # como linea base (no cuentan como novedad); usar en la primera consolidacion de un canal vacio o de una carga historica.
     status_events_enabled: bool = True

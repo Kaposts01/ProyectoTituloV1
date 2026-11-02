@@ -2,7 +2,8 @@
 
 Una fila con `window_start` NULL es la marca de agua de un modo (p. ej. `full` o `window`): `last_success_at` es el
 instante en que EMPEZO la ultima lectura exitosa de ese recurso, asi que todo lo que cambio despues cae en la
-siguiente ventana. Las filas con `window_start` son ventanas de una carga historica (SYNC-O-13, todavia sin uso).
+siguiente ventana. Las filas con `window_start` son ventanas de una carga historica (SYNC-O-13: `mode='history'`,
+`app/services/sync_history.py` y `scripts/sync_history.py`).
 La clave unica trata NULL como igual (`NULLS NOT DISTINCT`, PostgreSQL 15+): hay una sola marca por modo.
 """
 
