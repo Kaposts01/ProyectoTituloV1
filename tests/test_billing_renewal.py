@@ -5,6 +5,7 @@ Escenarios del doc docs/designs/facturacion-gestionada-escenarios.md: JB-19/20, 
 """
 
 import asyncio
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -499,3 +500,105 @@ def test_endpoint_does_not_expose_member_pii(db_session):
 def test_openapi_lists_renewal_tasks_route():
     paths = TestClient(app).get("/openapi.json").json()["paths"]
     assert set(paths["/api/v1/billing/renewal-tasks"]) == {"get"}
+    assert set(paths["/api/v1/billing/renewal-tasks/{task_id}/reject"]) == {"post"}  # BILL-15
+
+
+# ----------------------------- rechazo con comentario (JB-32, BILL-15) -----------------------------
+
+
+def _admin(db):
+    return make_user(db, roles_kit(db)["admin"])
+
+
+def test_reject_closes_task_with_comment_and_does_not_reopen_same_horizon(world):
+    """JB-32: rechazar cierra la tarea con el comentario; el chequeo no reabre ese horizonte mientras la marca siga
+    activa (protege los cobros del CRM aun pendientes) y la desactiva al terminar el horizonte."""
+    m = mark(world, 20)
+    check(world)
+    [t] = tasks(world)
+    admin = _admin(world)
+    out = rn.reject_renewal_task(world, t.id, admin, "  El socio pidió volver al monto original.  ", now=NOW)
+    assert out.status == "no_aplica" and out.closed_at is not None
+    assert out.close_reason == f"Rechazada por {admin.username}: El socio pidió volver al monto original."
+    world.refresh(m)
+    assert m.is_active is True  # el horizonte aun no termina
+
+    res = check(world, NOW + timedelta(days=5))
+    assert res.opened == 0 and res.rejected_skipped == 1 and len(tasks(world)) == 1
+    res = check(world, NOW + timedelta(days=21))  # paso el fin del horizonte
+    assert res.opened == 0 and res.rejected_retired == 1
+    world.refresh(m)
+    assert m.is_active is False and len(tasks(world)) == 1
+    assert check(world, NOW + timedelta(days=22)).examined == 0  # ya no es "calendario modificado"
+
+
+def test_reject_overdue_task_retires_mark_immediately(world):
+    """JB-32: una tarea vencida (horizonte ya terminado) rechazada desactiva la marca en el acto."""
+    m = mark(world, -3)
+    check(world)
+    [t] = tasks(world)
+    assert t.status == "vencida"
+    rn.reject_renewal_task(world, t.id, _admin(world), "No se renueva.", now=NOW)
+    world.refresh(m)
+    assert m.is_active is False
+
+
+def test_rejected_horizon_extended_later_alerts_again(world):
+    """JB-32: si despues se aplica un cambio y la marca se extiende, el horizonte nuevo vuelve a generar tarea."""
+    m = mark(world, 20)
+    check(world)
+    rn.reject_renewal_task(world, tasks(world)[0].id, _admin(world), "No por ahora.", now=NOW)
+    m.last_scheduled_date = TODAY + timedelta(days=40)
+    world.commit()
+    assert check(world).opened == 1
+    assert sorted(t.status for t in tasks(world)) == ["abierta", "no_aplica"]
+
+
+def test_reject_requires_comment_open_status_approver_and_no_open_request(world):
+    """JB-32: comentario obligatorio, solo aprobadores vigentes, no con una solicitud de renovacion abierta, solo
+    tareas abiertas o vencidas."""
+    m = mark(world, 20)
+    check(world)
+    [t] = tasks(world)
+    admin = _admin(world)
+    requester = make_user(world, roles_kit(world)["solicitante"])
+    world.commit()  # los rechazos fallidos hacen rollback
+    with pytest.raises(br.CommentRequiredError):
+        rn.reject_renewal_task(world, t.id, admin, "   ", now=NOW)
+    with pytest.raises(br.NotApproverError):
+        rn.reject_renewal_task(world, t.id, requester, "x", now=NOW)
+    req = make_req(world, admin)
+    with pytest.raises(rn.RenewalTaskHasOpenRequestError) as info:
+        rn.reject_renewal_task(world, t.id, admin, "x", now=NOW)
+    assert info.value.request_id == req.id
+    req.status = "rechazada"
+    req.decision_comment = "no"
+    world.commit()
+    rn.reject_renewal_task(world, t.id, admin, "Cerrada a mano.", now=NOW)
+    with pytest.raises(rn.RenewalTaskStateError):
+        rn.reject_renewal_task(world, t.id, admin, "otra vez", now=NOW)
+    with pytest.raises(rn.RenewalTaskNotFoundError):
+        rn.reject_renewal_task(world, uuid.uuid4(), admin, "x", now=NOW)
+    world.refresh(m)
+    assert m.is_active is True
+
+
+def test_reject_endpoint(world):
+    """POST /renewal-tasks/{id}/reject: 403 sin permiso de aprobar; 422 sin comentario o largo; 200 con la tarea
+    cerrada; 409 si ya no esta abierta; 404 si no existe."""
+    mark(world, 20)
+    check(world)
+    [t] = tasks(world)
+    url = f"{BASE}/renewal-tasks/{t.id}/reject"
+    viewer, vh = client_for(world, make_user(world, roles_kit(world)["solicitante"]))
+    assert viewer.post(url, json={"comment": "x"}, headers=vh).status_code == 403
+    client, headers = client_for(world, _admin(world))
+    assert client.post(url, json={"comment": "  "}, headers=headers).status_code == 422
+    assert client.post(url, json={"comment": "x" * 500}, headers=headers).status_code == 422
+    r = client.post(url, json={"comment": "Socio no quiere renovar."}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["status"] == "no_aplica" and r.json()["close_reason"].endswith(": Socio no quiere renovar.")
+    r = client.post(url, json={"comment": "x"}, headers=headers)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "renewal_task_not_open"
+    r = client.post(f"{BASE}/renewal-tasks/{uuid.uuid4()}/reject", json={"comment": "x"}, headers=headers)
+    assert r.status_code == 404 and r.json()["detail"]["code"] == "renewal_task_not_found"

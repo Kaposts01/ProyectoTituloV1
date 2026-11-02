@@ -213,3 +213,6 @@ html[data-theme="dark"] {
 @media (max-width: 720px) and (prefers-reduced-motion: reduce) {
   .bx-filters-toggle::after { transition: none; }
 }
+
+/* BILL-15: acciones de una fila de renovaciones (solicitar / rechazar). */
+.bx-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }

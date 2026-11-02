@@ -3,12 +3,13 @@ import * as api from "./billingApi";
 import { describeBillingError } from "./billingErrors";
 import { formatClp, formatDateTime, PLATFORM_LABELS, platformLabel } from "./billingLabels";
 import {
-  closeReasonLabel, daysText, EMPTY_RENEWAL_FILTERS, isOpenRenewal, renewalPriorityLabel, renewalPriorityTone, renewalStatusLabel,
+  closeReasonLabel, daysText, EMPTY_RENEWAL_FILTERS, isOpenRenewal, RENEWAL_REJECT_COMMENT_MAX, renewalPriorityLabel, renewalPriorityTone,
+  renewalStatusLabel,
   renewalStatusTone, type RenewalFilters, type RenewalStatusFilter,
 } from "./billingRenewal";
 import { lastPageOffset } from "./billingQuery";
-import { PERM_REQUEST, type Platform, type RenewalPriority, type RenewalTask, type RenewalTaskList } from "./types";
-import { Badge, Cell, FiltersPanel, Notice } from "./ui";
+import { PERM_APPROVE, PERM_REQUEST, type Platform, type RenewalPriority, type RenewalTask, type RenewalTaskList } from "./types";
+import { Badge, Cell, Dialog, FiltersPanel, Notice } from "./ui";
 
 const PAGE_SIZE = 25;
 const STATUS_OPTIONS: Array<[RenewalStatusFilter, string]> = [
@@ -33,6 +34,12 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
+  const [rejecting, setRejecting] = useState<RenewalTask | null>(null);
+  const [comment, setComment] = useState("");
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async (filters: RenewalFilters, nextOffset: number) => {
     const mine = ++seq.current;
@@ -75,6 +82,40 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
   const total = data?.total ?? 0;
   const items = data?.items ?? [];
   const canRequest = can(PERM_REQUEST);
+  const canReject = can(PERM_APPROVE);
+
+  function openReject(task: RenewalTask) {
+    setRejecting(task);
+    setComment("");
+    setCommentError(null);
+    setRejectError(null);
+    setNotice(null);
+  }
+  function closeReject() {
+    if (!busy) setRejecting(null);
+  }
+  async function submitReject() {
+    if (!rejecting || busy) return;
+    const text = comment.trim();
+    if (!text) {
+      setCommentError("El comentario es obligatorio.");
+      return;
+    }
+    setBusy(true);
+    setRejectError(null);
+    try {
+      await api.rejectRenewalTask(rejecting.id, text);
+      setNotice(`Tarea de la suscripción ${rejecting.subscription_external_id} rechazada. No se volverá a alertar por este horizonte.`);
+      setRejecting(null);
+      void load(applied, offset);
+    } catch (err) {
+      const info = describeBillingError(err, "No se pudo rechazar la tarea. Reintente.");
+      setRejectError(info.message);
+      if (info.status === 409 || info.status === 404) void load(applied, offset);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section aria-label="Renovaciones de calendario">
@@ -106,6 +147,7 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
         </FiltersPanel>
       </form>
 
+      <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
       {error ? (
         <Notice tone="error">
           {error}{" "}
@@ -164,9 +206,17 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
                     <Cell label="Último monto programado" className="mono num bx-c-amount bx-lbl">{formatClp(t.scheduled_amount)}</Cell>
                     <Cell label="Acción" className="bx-c-action">
                       {open ? (
-                        viewRequest ?? (canRequest ? (
-                          <button className="bx-btn bx-btn-primary" onClick={() => onRequestRenewal(t)}
-                            aria-label={`Solicitar renovación de la suscripción ${t.subscription_external_id}`}>Solicitar renovación</button>
+                        viewRequest ?? (canRequest || canReject ? (
+                          <div className="bx-row-actions">
+                            {canRequest ? (
+                              <button className="bx-btn bx-btn-primary" onClick={() => onRequestRenewal(t)}
+                                aria-label={`Solicitar renovación de la suscripción ${t.subscription_external_id}`}>Solicitar renovación</button>
+                            ) : null}
+                            {canReject ? (
+                              <button className="bx-btn bx-btn-ghost" onClick={() => openReject(t)}
+                                aria-label={`Rechazar la tarea de la suscripción ${t.subscription_external_id}`}>Rechazar</button>
+                            ) : null}
+                          </div>
                         ) : <span className="bx-sub">—</span>)
                       ) : (
                         <div>
@@ -189,6 +239,30 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
           <span className="mono">{offset + 1}-{Math.min(offset + PAGE_SIZE, total)} de {total}</span>
           <button className="bx-btn bx-btn-ghost" disabled={offset + PAGE_SIZE >= total || loading} onClick={() => setOffset(offset + PAGE_SIZE)}>Siguiente</button>
         </div>
+      ) : null}
+
+      {rejecting ? (
+        <Dialog title="Rechazar tarea de renovación" onClose={closeReject} busy={busy} dirty={Boolean(comment.trim())}>
+          <p>
+            Suscripción <span className="mono">{rejecting.subscription_external_id}</span>. La tarea se cierra con su comentario y no se
+            vuelve a alertar por este horizonte. Al terminar el horizonte la suscripción deja de estar «calendario modificado» y
+            VirtualPOS sigue cobrando el monto automático. No se escribe nada en VirtualPOS.
+          </p>
+          <label className="bx-form" style={{ display: "grid", gap: 5 }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Comentario (obligatorio)</span>
+            <textarea
+              value={comment} maxLength={RENEWAL_REJECT_COMMENT_MAX} disabled={busy} aria-required
+              aria-invalid={commentError ? true : undefined} aria-describedby={commentError ? "bx-renewal-reject-error" : undefined}
+              onChange={(e) => { setComment(e.target.value); setCommentError(null); }}
+            />
+            {commentError ? <span id="bx-renewal-reject-error" className="bx-field-error" role="alert">{commentError}</span> : null}
+          </label>
+          {rejectError ? <Notice tone="error">{rejectError}</Notice> : null}
+          <div className="bx-dialog-actions">
+            <button className="bx-btn bx-btn-ghost" onClick={closeReject} disabled={busy}>Cancelar</button>
+            <button className="bx-btn bx-btn-danger" onClick={() => void submitReject()} disabled={busy}>{busy ? "Rechazando…" : "Rechazar tarea"}</button>
+          </div>
+        </Dialog>
       ) : null}
     </section>
   );

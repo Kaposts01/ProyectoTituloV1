@@ -240,3 +240,39 @@ describe("renovaciones: acciones", () => {
     expect((await within(dialog).findByRole("alert")).textContent).toContain("Ya existe una solicitud abierta");
   });
 });
+
+describe("renovaciones: rechazo con comentario (BILL-15, JB-32)", () => {
+  it("un aprobador rechaza con comentario obligatorio y la lista se recarga", async () => {
+    mocks.postJson.mockResolvedValue(task({ status: "no_aplica", close_reason: "Rechazada por ana: Socio no renueva." }));
+    const table = await openRenewals(ADMIN);
+    fireEvent.click(within(table).getByRole("button", { name: /Rechazar la tarea de la suscripción SUB-777/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechazar tarea de renovación" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rechazar tarea" }));
+    expect(await within(dialog).findByText("El comentario es obligatorio.")).toBeTruthy();
+    expect(mocks.postJson).not.toHaveBeenCalled();
+    const before = renewalCalls().length;
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "  Socio no renueva.  " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rechazar tarea" }));
+    await waitFor(() => expect(mocks.postJson).toHaveBeenCalledWith("/api/v1/billing/renewal-tasks/t1/reject", { comment: "Socio no renueva." }));
+    expect(await screen.findByText(/rechazada\. No se volverá a alertar/)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(renewalCalls().length).toBeGreaterThan(before));
+  });
+
+  it("sin permiso de aprobar no aparece «Rechazar»; una tarea rechazada muestra el comentario", async () => {
+    tasks = [task(), task({ id: "t2", subscription_external_id: "SUB-888", status: "no_aplica", close_reason: "Rechazada por ana: El socio pidió volver al monto original." })];
+    const table = await openRenewals(READONLY);
+    expect(within(table).queryByRole("button", { name: /Rechazar/ })).toBeNull();
+    expect(within(table).getByText("Rechazada por ana: El socio pidió volver al monto original.")).toBeTruthy();
+  });
+
+  it("409 de tarea ya cerrada muestra el mensaje local", async () => {
+    mocks.postJson.mockRejectedValue(apiError(409, { code: "renewal_task_not_open", message: "x" }));
+    const table = await openRenewals(ADMIN);
+    fireEvent.click(within(table).getByRole("button", { name: /Rechazar la tarea/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "x" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rechazar tarea" }));
+    expect(await within(dialog).findByText(/ya no está abierta/)).toBeTruthy();
+  });
+});

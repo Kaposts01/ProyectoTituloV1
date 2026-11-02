@@ -47,6 +47,8 @@ export function daysText(daysRemaining: number | null | undefined): string | nul
 }
 
 export const CLOSE_REASON_GENERIC = "Cerrada por el sistema (motivo no reconocido).";
+/** Largo máximo del comentario de rechazo (cabe en `close_reason` junto al usuario; ver billing_renewal.REJECT_COMMENT_MAX). */
+export const RENEWAL_REJECT_COMMENT_MAX = 404;
 
 /**
  * `close_reason` es texto en español que emite el chequeo (app/services/billing_renewal.py), no un código.
@@ -60,6 +62,9 @@ export function closeReasonLabel(reason: string | null | undefined): string {
   if (r.startsWith("Renovación ejecutada")) return "Renovación ejecutada: el calendario se extendió.";
   if (r.startsWith("El calendario se extendió")) return "El calendario se extendió (sin solicitud de renovación asociada).";
   if (r.startsWith("La suscripción ya no tiene un calendario modificado activo")) return "La suscripción ya no tiene un calendario modificado activo.";
+  // JB-32: rechazo de un aprobador. El comentario lo escribió una persona del CRM (no el proveedor): se muestra.
+  const rejected = /^Rechazada por ([^:]{1,80}): ([\s\S]{1,500})$/.exec(r);
+  if (rejected) return `Rechazada por ${rejected[1]}: ${rejected[2]}`;
   return CLOSE_REASON_GENERIC;
 }
 

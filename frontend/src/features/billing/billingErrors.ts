@@ -49,6 +49,9 @@ const CODE_MESSAGES: Record<string, string> = {
   stale_session: "Sesión desactualizada: recargue la página.",
   unparseable_charges: "VirtualPOS devolvió cobros que no se pueden interpretar; no se calculó ni escribió nada.",
   provider_error: "VirtualPOS no respondió correctamente y no se escribió nada. Reintente más tarde.",
+  renewal_task_not_open: "La tarea de renovación ya no está abierta. Actualice la lista.",
+  renewal_task_not_found: "No se encontró la tarea de renovación. Actualice la lista.",
+  renewal_task_has_open_request: "La tarea tiene una solicitud de renovación abierta: decida esa solicitud en lugar de rechazar la tarea.",
   reapproval_required: "La variación del cambio pasó a una categoría que exige más aprobaciones desde que se aprobó. No se escribió nada: la solicitud volvió a «pendiente» y necesita una nueva aprobación.",
 };
 

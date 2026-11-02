@@ -3,7 +3,7 @@ import { refreshCsrfToken } from "../shared/utils";
 import { renewalAlertPath, renewalPath, type RenewalFilters } from "./billingRenewal";
 import { listPath, type InboxFilters, type InboxTab } from "./billingQuery";
 import type {
-  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, Policy, PolicyAuditList, PolicyPatch, PreviewResponse, RenewalTaskList, RequesterList,
+  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, Policy, PolicyAuditList, PolicyPatch, PreviewResponse, RenewalTask, RenewalTaskList, RequesterList,
 } from "./types";
 
 const BASE = "/api/v1/billing";
@@ -69,3 +69,6 @@ export const fetchPolicyAudit = (limit = 20, offset = 0) => getJson<PolicyAuditL
 export const fetchRenewalTasks = (filters: RenewalFilters, offset: number, limit: number) =>
   getJson<RenewalTaskList>(renewalPath(filters, offset, limit));
 export const fetchRenewalAlertCount = () => getJson<RenewalTaskList>(renewalAlertPath());
+/** Rechaza una tarea de renovación abierta o vencida con comentario obligatorio (JB-32). */
+export const rejectRenewalTask = (id: string, comment: string) =>
+  mutate(() => postJson<RenewalTask>(`${BASE}/renewal-tasks/${enc(id)}/reject`, { comment }));
