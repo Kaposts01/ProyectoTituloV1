@@ -35,9 +35,11 @@ CurrentAmountMap = dict[tuple[str, str], Decimal]
 
 
 def parse_amount(value: object) -> Decimal | None:
-    """Parsea un monto guardado como texto; None si vacio o no numerico."""
+    """Parsea un monto guardado como texto (o ya numerico, `vp_*` desde VP-PAR-13); None si vacio o no numerico."""
     if value is None:
         return None
+    if isinstance(value, Decimal):
+        return value if value.is_finite() else None
     text = str(value).strip()
     if not text:
         return None
@@ -104,15 +106,22 @@ def load_current_amount(
     result: CurrentAmountMap = {}
 
     # 1) Ultimo cargo cobrado por suscripcion (una sola consulta, DISTINCT ON).
-    day = func.substr(charge_m.charge_date, 1, 10)
+    if family == "vp":
+        # VP-PAR-13: `vp_charges.charge_date` es `date` y `amount` `numeric` (migracion 0061). Mismo criterio que el
+        # texto: dia <= hoy y monto numerico no negativo.
+        day_ok = charge_m.charge_date <= (today or now_chile().date())
+        amount_ok = charge_m.amount >= 0
+    else:
+        day_ok = func.substr(charge_m.charge_date, 1, 10) <= cutoff
+        amount_ok = charge_m.amount.op("~")(r"^\s*\d+(\.\d+)?\s*$")
     charge_q = (
         select(charge_src, charge_m.subscription_external_id, charge_m.amount)
         .where(
             charge_m.subscription_external_id.isnot(None),
             charge_m.charge_date.isnot(None),
             func.lower(func.trim(charge_m.status)).in_(CURRENT_CHARGE_STATUSES),
-            day <= cutoff,
-            charge_m.amount.op("~")(r"^\s*\d+(\.\d+)?\s*$"),
+            day_ok,
+            amount_ok,
         )
         .distinct(charge_src, charge_m.subscription_external_id)
         .order_by(

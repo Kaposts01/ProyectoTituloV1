@@ -4,6 +4,7 @@ tablas del canal y la consolidacion centralizada SOLO de ese registro. Idempoten
 
 import asyncio
 import uuid
+from datetime import datetime
 from typing import ClassVar
 
 import pytest
@@ -134,7 +135,8 @@ def test_vp_refresh_updates_channel_and_centralized_only_that_subscription(db_se
     assert {c[0] for c in CALLS} == {"get_subscription", "list_charges"}  # solo GET
 
     vp = db_session.scalar(select(VpSubscription).where(VpSubscription.external_id == "sub-r1"))
-    assert vp.status == "CANCELADA" and vp.canceled_at == "2026-10-29"
+    # VP-PAR-13: `vp_subscriptions.canceled_at` es timestamp; `subscriptions` (crm) sigue en texto canonico.
+    assert vp.status == "CANCELADA" and vp.canceled_at == datetime(2026, 10, 29)  # noqa: DTZ001
     central = db_session.scalar(select(Subscription).where(Subscription.external_id == "sub-r1"))
     assert central.status == "CANCELADA" and central.canceled_at == "2026-10-29"
     charges = {c.external_id: c.status for c in db_session.scalars(

@@ -24,8 +24,6 @@ from sqlalchemy.orm import Session
 from app.models.vp import VpCharge
 from app.models.vp_report import VpReportPayment
 
-_DATE_RE = r"^\d{4}-\d{2}-\d{2}"
-
 
 @dataclass
 class MonthParity:
@@ -79,11 +77,11 @@ def compute_vp_parity(db: Session, *, from_month: str | None = None, to_month: s
     if start is None or end is None:
         return result
 
-    start_iso, end_iso = start.isoformat(), end.isoformat()
-    base_day = func.substring(VpCharge.charge_date, 1, 10)
-    base_in_window = and_(VpCharge.charge_date.op("~")(_DATE_RE), base_day >= start_iso, base_day <= end_iso)
+    # VP-PAR-13: `vp_charges.charge_date` es `date` (migracion 0061); los valores que no eran fecha quedaron NULL, que
+    # es lo que antes excluia la expresion regular sobre el texto.
+    base_in_window = and_(VpCharge.charge_date.is_not(None), VpCharge.charge_date >= start, VpCharge.charge_date <= end)
     report_month = func.to_char(VpReportPayment.scheduled_date, "YYYY-MM")
-    base_month = func.substring(VpCharge.charge_date, 1, 7)
+    base_month = func.to_char(VpCharge.charge_date, "YYYY-MM")
     report_in_window = VpReportPayment.scheduled_date.is_not(None)
 
     def month_filter(expr: Any) -> list[Any]:

@@ -68,3 +68,31 @@ def test_projection_prefers_api_card_and_fills_missing_last4_from_report(db_sess
     assert out[(P1, sub_id(2))] == {"rejection_reason": "Rechazo del emisor", "card_last4": "2222",
                                     "card_last4_source": "report"}
     assert out[(P2, sub_id(3))] == {"rejection_reason": None, "card_last4": None, "card_last4_source": None}
+
+
+def test_persist_writes_core_subscriptions_and_is_idempotent(db_session, tmp_path):
+    """VP-PAR-09 (resto): la proyeccion queda guardada en `core_subscriptions` (migracion 0060)."""
+    from app.models.core import CoreSubscription
+
+    _sub(db_session, 1, last4="1111")
+    _sub(db_session, 2, status="FALLIDA")
+    db_session.add(VpSubscription(platform=P1, external_id=sub_id(3), status="CANCELADA", card_last4="3333", raw_payload={}))
+    for n in (1, 2, 3):
+        db_session.add(CoreSubscription(source=P1, external_id=sub_id(n), status="ACTIVA",
+                                        card_last4="0000" if n == 3 else None,
+                                        card_last4_source="report" if n == 3 else None))
+    db_session.flush()
+    _load(db_session, tmp_path, [
+        subscription_row(1, **{"Últimos 4 dígitos pan": "9999"}),
+        subscription_row(2, **{"Estado de suscripción": "FALLIDA", "Motivo de rechazo": "Rechazo del emisor",
+                               "Últimos 4 dígitos pan": "2222"}),
+    ])
+    fields = core_vp_etl.project_subscription_report_fields(db_session)
+    assert core_vp_etl.persist_subscription_report_fields(db_session, fields) == 3
+    db_session.expire_all()
+    rows = {s.external_id: (s.card_last4, s.card_last4_source, s.rejection_reason)
+            for s in db_session.query(CoreSubscription).filter(CoreSubscription.source == P1)}
+    assert rows[sub_id(1)] == ("1111", "api", None)
+    assert rows[sub_id(2)] == ("2222", "report", "Rechazo del emisor")
+    assert rows[sub_id(3)] == ("3333", "api", None)  # la columna promovida de la API manda sobre lo guardado
+    assert core_vp_etl.persist_subscription_report_fields(db_session, fields) == 0
