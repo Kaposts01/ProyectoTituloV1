@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, Integer, String, Text, func, or_
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -26,6 +27,10 @@ class SyncRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     records_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+    # SYNC-D-17: estadisticas por recurso ({recurso: {mode, seconds, pages, records, inserted, updated, unchanged, ...}})
+    # y la corrida global (`etl_runs.id`) a la que pertenece. Solo nombres, conteos y duraciones: nada personal.
+    resource_stats: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    etl_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
 
     @classmethod
     def is_channel_source(cls):

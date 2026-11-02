@@ -1,4 +1,5 @@
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
@@ -25,11 +26,19 @@ def get_db():
 
 
 @router.get("", dependencies=[Depends(require_permissions("sync_runs.view"))])
-def list_sync_runs(db: Session = Depends(get_db)) -> list[dict[str, object]]:  # noqa: B008
-    # Solo corridas de canales: las de los jobs de facturacion (`billing_*`) se ven en /scheduler/jobs.
-    runs = db.scalars(
-        select(SyncRun).where(SyncRun.is_channel_source()).order_by(SyncRun.started_at.desc()).limit(50)
-    ).all()
+def list_sync_runs(
+    etl_run_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),  # noqa: B008
+) -> list[dict[str, object]]:
+    """Corridas de canales (las de facturacion/bajas se ven en /scheduler/jobs).
+
+    SYNC-D-17: `etl_run_id` filtra las corridas de canal de una corrida global; cada fila trae `resource_stats`
+    (por recurso: modo, duracion, nuevas/actualizadas/sin cambio) y `duration_seconds`.
+    """
+    query = select(SyncRun).where(SyncRun.is_channel_source())
+    if etl_run_id is not None:
+        query = query.where(SyncRun.etl_run_id == etl_run_id)
+    runs = db.scalars(query.order_by(SyncRun.started_at.desc()).limit(50)).all()
     return [
         {
             "id": str(run.id),
@@ -37,11 +46,20 @@ def list_sync_runs(db: Session = Depends(get_db)) -> list[dict[str, object]]:  #
             "status": run.status,
             "started_at": run.started_at,
             "finished_at": run.finished_at,
+            "duration_seconds": _duration_seconds(run.started_at, run.finished_at),
             "records_processed": run.records_processed,
             "error_message": run.error_message,
+            "etl_run_id": str(run.etl_run_id) if run.etl_run_id else None,
+            "resource_stats": run.resource_stats,
         }
         for run in runs
     ]
+
+
+def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> float | None:
+    if started_at is None or finished_at is None:
+        return None
+    return round((finished_at - started_at).total_seconds(), 1)
 
 
 _WARN_AFTER = timedelta(hours=24)
