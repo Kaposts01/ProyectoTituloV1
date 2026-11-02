@@ -371,8 +371,8 @@ def link_payments_from_reports(db: Session) -> dict[str, int]:
     """UPDATE explicito e idempotente del vinculo pago -> cobro desde el cruce exacto UUID -> Id cargo del reporte.
 
     Solo donde el vinculo esta NULL (`vp_payments.charge_external_id`, `core_payments.charge_id`). Nunca por RUT ni
-    por inferencia. Nota: el sync nocturno reescribe `vp_payments.charge_external_id` a NULL; para los rechazados el
-    ETL Core rehace el vinculo desde `payment_rejection_details`, y este paso puede repetirse cuando se quiera.
+    por inferencia. Desde VP-PAR-06 el sync ya no reescribe `vp_payments.charge_external_id` a NULL, y el ETL Core
+    (`core_vp_etl._link_payments_to_charges`) repite este paso en cada corrida para los pagos que llegan despues.
     """
     vp = db.execute(text(_LINK_VP_SQL)).rowcount or 0
     core = db.execute(text(_LINK_CORE_SQL)).rowcount or 0

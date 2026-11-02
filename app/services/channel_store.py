@@ -216,10 +216,18 @@ def extract_vp_charge(p: dict, subscription_external_id: str | None = None) -> d
 
 
 def extract_vp_payment(p: dict) -> dict:
+    """Columnas de `vp_payments` desde un pago de `GET /payments`.
+
+    Sin `charge_external_id` (VP-PAR-06): el listado de pagos no trae referencia al cobro (verificado en la
+    auditoria del 2026-10-29), y escribir la columna en el upsert la reescribia a NULL en cada sync, borrando el
+    vinculo pago -> cobro que dejan el reporte PAT (`vp_report_import.link_payments_from_reports`) y la captura de
+    rechazos (`vp_rejection_capture.link_payments_to_charges`). Al no estar en el lote, el `ON CONFLICT DO UPDATE`
+    no toca la columna y el vinculo sobrevive a la siguiente sync. La clave se omite siempre (y no solo cuando
+    viene vacia) porque un lote multi-fila exige las mismas claves en todas las filas.
+    """
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid", "order.uuid"),
-        "charge_external_id": _str(p, "charge_id", "charge_uuid"),
         "client_external_id": _str(p, "client_uuid", "client_id"),
         "amount": _str(p, "amount") or _str(order, "amount"),
         "currency": _str(p, "currency") or _str(order, "currency"),

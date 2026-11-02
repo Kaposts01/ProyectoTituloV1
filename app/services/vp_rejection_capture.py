@@ -17,7 +17,8 @@ Que hace una corrida (`capture_vp_rejections`)
 3. Guarda en `payment_rejection_details` (upsert idempotente por fuente/cobro/pago/codigo), con `checked_at`.
 4. Registra las glosas nuevas en `rejection_reason_catalog` y emite `reason_changed` (`status_events`).
 5. Rehace el vinculo `vp_payments.charge_external_id` y `core_payments.charge_id` con UPDATE explicito idempotente
-   (el sync nocturno reescribe `vp_payments.charge_external_id` a NULL; por eso el vinculo se rehace desde los detalles).
+   (desde VP-PAR-06 el sync ya no reescribe `vp_payments.charge_external_id` a NULL; el vinculo se rehace igual en cada
+   corrida y en el ETL Core para los pagos que llegan despues).
 
 El ETL Core (`core_vp_etl`) lee `payment_rejection_details` para llenar `core_charges.latest_rejection_*` y
 `core_payments.rejection_*`. Sin datos personales: solo ids externos, codigos, glosa y montos.
@@ -199,7 +200,7 @@ def _upsert_detail(db: Session, platform: str, subscription_id: str, parsed: dic
 def link_payments_to_charges(db: Session, platform: str | None = None) -> dict[str, int]:
     """UPDATE explicito e idempotente del vinculo pago -> cobro desde `payment_rejection_details`.
 
-    - `vp_payments.charge_external_id` (solo donde esta NULL: el sync nocturno lo reescribe a NULL).
+    - `vp_payments.charge_external_id` (solo donde esta NULL; desde VP-PAR-06 el sync ya no lo borra).
     - `core_payments.charge_id` (solo donde esta NULL y el cobro existe en `core_charges`).
     Un pago enlazado a varios cobros usa el rechazo mas reciente. Devuelve las filas actualizadas.
     """
