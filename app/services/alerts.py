@@ -444,3 +444,7 @@ def run_alert_check(db: Session, now: datetime | None = None) -> AlertCheckResul
         db.rollback()
         logger.warning("Alertas: chequeo interrumpido (%s).", type(exc).__name__)
     return result
+
+
+# BILL-22: fuentes de otros modulos que se registran al importar (al final: dependen de lo definido arriba).
+from app.services import billing_alerts  # noqa: E402,F401

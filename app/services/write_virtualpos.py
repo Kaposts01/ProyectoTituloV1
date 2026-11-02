@@ -6,7 +6,7 @@ import logging
 import re
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -80,6 +80,11 @@ class RetryBlockedError(Exception):
 class RetryInProgressError(RetryBlockedError):
     """BILL-14 (GB-RZ-30): otro `/retry` del mismo cargo ya esta en curso (doble clic o dos usuarios a la vez).
     Hereda de `RetryBlockedError` para que las rutas existentes respondan 409 sin llamar a VirtualPOS."""
+
+
+class RetrySubscriptionBusyError(RetryBlockedError):
+    """RA-27: la suscripcion del cargo tiene tomado el lock por suscripcion (se aplica un cambio de cobro aprobado, una
+    baja o una reasignacion). Hereda de `RetryBlockedError`: las rutas responden 409 sin llamar a VirtualPOS."""
 
 
 # Códigos de rechazo VirtualPOS → decisión (ver docs/integrations/virtualpos/workflows/reintento-cobro-rechazado.md)
@@ -1751,7 +1756,12 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None, *
     """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry.
 
     BILL-14: un solo reintento por cargo a la vez (lock por cargo); el segundo recibe `RetryInProgressError` (409)
-    sin crear `write_run` ni llamar a VirtualPOS."""
+    sin crear `write_run` ni llamar a VirtualPOS.
+
+    RA-27: ademas comparte el lock por suscripcion de `billing_apply` (el mismo de aplicar un cambio, de las bajas y de
+    la reasignacion): si otra operacion lo tiene, falla al instante con `RetrySubscriptionBusyError` (409), sin
+    `write_run` ni llamada a VirtualPOS; mientras el reintento lo retiene, esas operaciones reciben
+    `SubscriptionBusyError`. Orden: lock por cargo y luego por suscripcion (ambos sin espera: no hay interbloqueo)."""
     query = select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
     if source is not None:
         query = query.where(Charge.source == source)
@@ -1762,8 +1772,29 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None, *
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
-    with charge_retry_lock(db, charge.source, charge_id):
+    with charge_retry_lock(db, charge.source, charge_id), _retry_subscription_lock(db, charge):
         return await _retry_charge_locked(db, charge, charge_id, requested_by_user_id)
+
+
+@contextmanager
+def _retry_subscription_lock(db: Session, charge: Charge) -> Iterator[None]:
+    """RA-27: el lock por suscripcion de `billing_apply`, traducido a `RetrySubscriptionBusyError` si esta tomado."""
+    from app.services.billing_apply import (  # import local: billing_apply importa este modulo
+        SubscriptionBusyError,
+        subscription_lock,
+    )
+
+    if not charge.subscription_external_id:  # cargo sin suscripcion conocida: no hay cambio de cobro con el que chocar
+        yield
+        return
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(subscription_lock(db, charge.source, charge.subscription_external_id))
+        except SubscriptionBusyError:
+            raise RetrySubscriptionBusyError(
+                f"Cargo {charge.external_id}: la suscripción se está modificando (cambio de cobro o baja en curso); "
+                "reintenta cuando termine.") from None
+        yield
 
 
 async def _retry_charge_locked(db: Session, charge: Charge, charge_id: str, requested_by_user_id: uuid.UUID | None) -> Charge:

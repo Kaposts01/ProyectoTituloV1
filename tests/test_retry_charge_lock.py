@@ -118,3 +118,61 @@ def test_lock_is_released_after_retry(db_session, provider) -> None:
 def test_lock_is_per_charge(db_session) -> None:
     with svc.charge_retry_lock(db_session, "virtualpos1", CID), svc.charge_retry_lock(db_session, "virtualpos1", "otro"):
         pass
+
+
+# ----------------------------- RA-27: lock por suscripcion compartido con la Opcion A -----------------------------
+
+
+def test_retry_while_a_change_holds_the_subscription_lock_is_rejected_without_write_run(db_session, provider) -> None:
+    from app.services.billing_apply import subscription_lock
+
+    _seed(db_session)
+    with subscription_lock(db_session, "virtualpos1", SUB), pytest.raises(svc.RetrySubscriptionBusyError) as exc:
+        asyncio.run(svc.retry_charge(db_session, CID))
+    assert isinstance(exc.value, svc.RetryBlockedError)  # las rutas lo traducen a 409
+    assert provider.requests == []
+    assert _runs(db_session) == []
+
+
+def test_concurrent_retry_and_change_share_the_subscription_lock(db_session, provider) -> None:
+    """Un cambio aprobado que intenta tomar el lock mientras el reintento esta en curso recibe SubscriptionBusyError;
+    al terminar el reintento el lock queda libre y el cambio puede tomarlo."""
+    from app.services.billing_apply import SubscriptionBusyError, subscription_lock
+
+    _seed(db_session)
+    outcome: list[str] = []
+
+    async def change_during_retry() -> None:
+        while not any(p.endswith("/retry") for _m, p in provider.requests):  # el reintento ya tiene ambos locks
+            await asyncio.sleep(0.005)
+        try:
+            with subscription_lock(db_session, "virtualpos1", SUB):
+                outcome.append("change_applied")
+        except SubscriptionBusyError:
+            outcome.append("change_busy")
+
+    async def both():
+        return await asyncio.gather(svc.retry_charge(db_session, CID), change_during_retry())
+
+    charge, _ = asyncio.run(both())
+    assert charge.status == "procesando"
+    assert outcome == ["change_busy"]
+    assert provider.retries() == 1
+    assert [r.status for r in _runs(db_session)] == ["completed"]
+    with subscription_lock(db_session, "virtualpos1", SUB):  # liberado tras el reintento
+        pass
+
+
+def test_subscription_lock_is_released_when_the_retry_fails(db_session, provider, monkeypatch) -> None:
+    from app.services.billing_apply import subscription_lock
+
+    _seed(db_session)
+
+    async def boom(_request):
+        raise httpx.ConnectError("caido")
+
+    monkeypatch.setattr(provider, "handler", boom)
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(svc.retry_charge(db_session, CID))
+    with subscription_lock(db_session, "virtualpos1", SUB), svc.charge_retry_lock(db_session, "virtualpos1", CID):
+        pass

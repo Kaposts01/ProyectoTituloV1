@@ -1,6 +1,6 @@
 # Alertas por correo de sincronización (SYNC-D-08)
 
-> Código: `app/services/alerts.py`, `app/scheduler/jobs/alert_jobs.py` (job `alerts_check`). Pruebas: `tests/test_alerts.py`.
+> Código: `app/services/alerts.py`, `app/services/billing_alerts.py` (BILL-22), `app/scheduler/jobs/alert_jobs.py` (job `alerts_check`). Pruebas: `tests/test_alerts.py`, `tests/test_billing_alerts.py`.
 > **Estado: listo y probado con un servidor SMTP falso en memoria. Apagado por defecto (`ALERTS_ENABLED=false`). Nunca se envió un correo real.**
 > Decisión D15: las alertas van por correo; el destinatario se define SOLO por variable de entorno, nunca en el código ni en documentos.
 
@@ -15,6 +15,9 @@ El job corre cada 15 minutos (minutos :02, :17, :32 y :47, hora de Chile) y eval
 | `webhook_failed` | Eventos de webhook en `failed` | Al menos uno recibido o procesado en las últimas 24 h |
 | `cancellation_stuck` | Solicitudes de baja atascadas | `requires_reconciliation`, o `applying` sin actividad por más de 30 min |
 | `billing_stuck` | Solicitudes de cambio de cobro atascadas | `requiere_conciliacion`, o `aplicando` sin actividad por más de 30 min |
+| `billing_reconciliation:queue` | Cobros del CRM o `write_runs` en conciliación fuera de una solicitud en conciliación (BILL-22) | Al menos uno (cola de BILL-10); bloquean su suscripción |
+| `billing_reconciliation:stale` | Cola de conciliación abierta demasiado tiempo (BILL-22, PI-05) | Algún elemento (solicitud, cobro o `write_run`) abierto hace más de 24 h |
+| `billing_reconciliation:swept` | Solicitudes barridas por `billing_sweep_applying` (BILL-22) | Al menos una pasada de `aplicando` a `requiere_conciliacion` por el barrido en las últimas 24 h |
 
 ## Deduplicación y recuperación
 

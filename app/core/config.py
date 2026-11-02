@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     # BILL-10: controles diarios de consistencia de la Opcion A (GB-CS-02..14), SOLO LECTURA, resultado al log.
     # APAGADA por defecto.
     billing_consistency_check_enabled: bool = False
+    # BILL-22: el barrido `billing_sweep_applying` deja en el tablero del scheduler su ultima corrida aunque no barra
+    # nada (una sola fila «latido»: las corridas vacias anteriores se borran). APAGADA por defecto: sin ella, las
+    # corridas programadas vacias no dejan fila.
+    billing_sweep_heartbeat_enabled: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""
