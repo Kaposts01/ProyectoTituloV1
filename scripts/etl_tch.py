@@ -375,6 +375,10 @@ class ReportBook:
         self._cells[sheet] = data
         return data
 
+    def cells(self, sheet: str) -> list[list[Any]]:
+        """Celdas crudas de la hoja (solo lectura; se recorre la hoja una vez y queda en memoria hasta ``release``)."""
+        return self._sheet_cells(sheet)
+
     def has_sheet(self, sheet: str) -> bool:
         return sheet in self._book.sheetnames
 
@@ -421,6 +425,31 @@ def _as_book(source: "Path | ReportBook") -> tuple["ReportBook", bool]:
     return ReportBook(Path(source)), True
 
 
+_STANDARD_HEADER = [5, 6]  # filas 6 y 7 del Excel: rotulos de grupo y de columna; datos desde la fila 8
+
+
+def _detect_header_rows(cells: list[list[Any]], scan_rows: int = 20, scan_cols: int = 15) -> list[int] | None:
+    """Filas del encabezado (grupo, columna) segun donde empiezan los datos: las dos filas sobre el primer numero de
+    ficha. Busca el rotulo "Ficha" en las primeras filas/columnas y, bajo el, la primera celda numerica positiva.
+    None si la hoja no tiene ese rotulo (p. ej. VIGENTES de dic-2023, tabla numerica sin cartera)."""
+    label = None
+    for i, row in enumerate(cells[:scan_rows]):
+        for j, value in enumerate(row[:scan_cols]):
+            if isinstance(value, str) and "FICHA" in value.upper():
+                label = (i, j)
+                break
+        if label:
+            break
+    if label is None:
+        return None
+    label_row, column = label
+    for i in range(label_row + 1, min(len(cells), label_row + 6)):
+        value = cells[i][column] if column < len(cells[i]) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and value > 0:
+            return [i - 2, i - 1] if i >= 2 else None
+    return None
+
+
 def _read_sheet(source: "Path | ReportBook", sheet: str) -> pd.DataFrame | None:
     """
     Lee una hoja TCH con headers multinivel.
@@ -434,7 +463,14 @@ def _read_sheet(source: "Path | ReportBook", sheet: str) -> pd.DataFrame | None:
             log.warning(f"  No se pudo leer hoja '{sheet}': no existe en el reporte")
             return None
         try:
-            df = book.frame(sheet, header=[5, 6])
+            header = _STANDARD_HEADER
+            detected = _detect_header_rows(book.cells(sheet))
+            if detected and detected != _STANDARD_HEADER:
+                # Layout B (cierre dic-2022): el bloque de encabezado viene una fila mas abajo. Con [5, 6] la fila de
+                # rotulos de columna quedaba como primer dato y no se encontraban el RUT ni los bloques mensuales.
+                header = detected
+                log.info(f"  Encabezado de '{sheet}' detectado en filas {detected[0]}-{detected[1]} (layout desplazado)")
+            df = book.frame(sheet, header=header)
             df = df.dropna(how="all")
             cols_str = " ".join(str(c).lower() for c in df.columns)
             if "ficha" in cols_str or "mandato" in cols_str:
