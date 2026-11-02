@@ -5,6 +5,9 @@ Un chequeo (`run_alert_check`, lo llama el job cada 15 min) evalua condiciones y
 - `sync_fail:<canal>`: canal con 2 o mas corridas fallidas seguidas, o 2 o mas dias sin una sincronizacion exitosa.
 - `core_lag:<canal>`: el ETL Core va mas de 24 h detras del ultimo sync exitoso (`core_lag_hours`).
 - `webhook_failed`: eventos de webhook en `failed` en las ultimas 24 h.
+- `webhook_lag`: con el procesador encendido, un evento pendiente lleva mas de `ALERT_WEBHOOK_LAG_MINUTES` (RT-13).
+- `webhook_silence:<canal>`: con `ALERT_WEBHOOK_SILENCE_HOURS` > 0, un canal que ya recibio webhooks lleva ese plazo sin
+  recibir ninguno (salud del canal; RT-13). Apagada por defecto.
 - `cancellation_stuck`: solicitudes de baja en `requires_reconciliation`, o en `applying` mas de 30 min.
 - `billing_stuck`: solicitudes de cambio de cobro en `requiere_conciliacion`, o en `aplicando` mas de 30 min.
 
@@ -16,6 +19,11 @@ suscripcion ni textos libres); el envio nunca lanza hacia quien llama (un SMTP c
 nombre de la clase de la excepcion); con `ALERTS_ENABLED` apagada, o sin `ALERT_EMAIL_TO` / `ALERT_SMTP_HOST`, no se envia
 nada y no se guarda estado. Una sola ronda de envio por condicion y chequeo: sin reintentos internos (el siguiente
 chequeo reintenta lo que no salio).
+
+API reutilizable (para otros modulos, p. ej. BILL-22): `register_condition_provider(kind, evaluate, describe)` agrega una
+fuente de condiciones sin tocar el chequeo ni el envio. `evaluate(db, now) -> list[Condition]` debe ser de solo lectura,
+sin datos personales, y sus claves deben empezar por `kind` (`kind` o `kind:<detalle>`); `describe(detalle)` devuelve
+(canal/area, sujeto) para el aviso de recuperacion, que se arma solo con la clave guardada.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from __future__ import annotations
 import logging
 import smtplib
 import ssl
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
@@ -42,6 +51,7 @@ from app.models.billing import (
 from app.models.cancellation import SubscriptionCancellationRequest
 from app.models.source_record import SourceRecord
 from app.models.webhook_event import WebhookEvent
+from app.services.webhook_health import queue_health
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +69,7 @@ SMTPS_PORT = 465
 SYNC_LINK = "/admin/sincronizaciones"
 BILLING_LINK = "/general/cambios-de-cobro"
 CANCELLATION_LINK = "/api/v1/cancellations?status=requires_reconciliation"
+WEBHOOK_LINK = "/admin/sincronizaciones#webhooks"
 
 _CHANNEL_LABELS = {"virtualpos": "VirtualPOS", "toku": "Toku", "payku": "Payku", "tch": "TCH"}
 
@@ -171,27 +182,110 @@ def _stuck_billing(db: Session, now: datetime) -> list[Condition]:
         details=tuple(f"{status}: {int(n)}" for status, n in rows), link=BILLING_LINK)]
 
 
+def _webhook_queue_conditions(db: Session, now: datetime) -> list[Condition]:
+    """RT-13: demora de la cola (solo con el procesador encendido) y silencio de un canal que ya recibia webhooks."""
+    health = queue_health(db, now)
+    found: list[Condition] = []
+    lag_limit = int(settings.alert_webhook_lag_minutes)
+    if health["processor_enabled"] and lag_limit > 0:
+        late = [(s["source"], float(s["pending_lag_minutes"])) for s in health["sources"]
+                if s["pending_lag_minutes"] is not None and float(s["pending_lag_minutes"]) > lag_limit]
+        if late:
+            worst = max(minutes for _, minutes in late)
+            found.append(Condition(
+                key="webhook_lag", channel="Webhooks", title="cola de webhooks atrasada",
+                text=f"Hay eventos de webhook pendientes hace {_num(round(worst))} min (umbral: {lag_limit} min).",
+                details=tuple(f"{_channel_label(src)}: pendiente más antiguo hace {_num(round(m))} min" for src, m in late),
+                link=WEBHOOK_LINK))
+    silence_hours = int(settings.alert_webhook_silence_hours)
+    if silence_hours > 0:
+        for item in health["sources"]:
+            last = _parse(item["last_received_at"])
+            if last is None:  # nunca recibio webhooks: el canal no esta configurado, no hay silencio que avisar
+                continue
+            if now - last >= timedelta(hours=silence_hours):
+                label = _channel_label(item["source"])
+                found.append(Condition(
+                    key=f"webhook_silence:{item['source']}", channel=label, title=f"sin webhooks de {label}",
+                    text=f"No llegan webhooks de {label} hace más de {silence_hours} h.",
+                    details=(f"Último recibido: {_local_time(last)}",), link=WEBHOOK_LINK))
+    return found
+
+
+ConditionFn = Callable[[Session, datetime], list[Condition]]
+DescribeFn = Callable[[str], tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class ConditionProvider:
+    kind: str
+    evaluate: ConditionFn
+    describe: DescribeFn
+
+
+_PROVIDERS: dict[str, ConditionProvider] = {}
+
+
+def register_condition_provider(kind: str, evaluate: ConditionFn, describe: DescribeFn) -> None:
+    """Registra (o reemplaza, si `kind` ya existe) una fuente de condiciones. Ver el docstring del modulo."""
+    if not kind or ":" in kind:
+        raise ValueError("kind debe ser un identificador sin ':'")
+    _PROVIDERS[kind] = ConditionProvider(kind, evaluate, describe)
+
+
+def registered_kinds() -> tuple[str, ...]:
+    return tuple(_PROVIDERS)
+
+
+def _fixed(channel: str, subject: str) -> DescribeFn:
+    return lambda _detail: (channel, subject)
+
+
+def _sync_fail_describe(channel: str) -> tuple[str, str]:
+    label = _channel_label(channel)
+    return label, f"sincronización de {label}"
+
+
+def _core_lag_describe(channel: str) -> tuple[str, str]:
+    label = _channel_label(channel)
+    return label, f"ETL Core de {label}"
+
+
+def _silence_describe(channel: str) -> tuple[str, str]:
+    label = _channel_label(channel)
+    return label, f"sin webhooks de {label}"
+
+
+def _none(_db: Session, _now: datetime) -> list[Condition]:
+    return []
+
+
+# `sync_fail` y `core_lag` salen de una sola lectura de salud (`_sync_conditions`); `core_lag` solo aporta su descripcion.
+register_condition_provider("sync_fail", _sync_conditions, _sync_fail_describe)
+register_condition_provider("core_lag", _none, _core_lag_describe)
+register_condition_provider("webhook_failed", _webhook_conditions, _fixed("Webhooks", "eventos de webhook fallidos"))
+register_condition_provider("webhook_lag", _webhook_queue_conditions, _fixed("Webhooks", "cola de webhooks atrasada"))
+register_condition_provider("webhook_silence", _none, _silence_describe)
+register_condition_provider("cancellation_stuck", _stuck_cancellations,
+                            _fixed("Bajas de suscripción", "solicitudes de baja atascadas"))
+register_condition_provider("billing_stuck", _stuck_billing, _fixed("Cambios de cobro", "solicitudes de cobro atascadas"))
+
+
 def evaluate_conditions(db: Session, now: datetime) -> list[Condition]:
-    """Condiciones activas ahora. Solo lectura; sin datos personales."""
-    return [*_sync_conditions(db, now), *_webhook_conditions(db, now), *_stuck_cancellations(db, now),
-            *_stuck_billing(db, now)]
+    """Condiciones activas ahora, de todas las fuentes registradas. Solo lectura; sin datos personales."""
+    found: list[Condition] = []
+    for provider in list(_PROVIDERS.values()):
+        found.extend(provider.evaluate(db, now))
+    return found
 
 
 def _describe_key(key: str) -> tuple[str, str]:
     """(canal/area, sujeto) de una clave de condicion; sirve para el aviso de recuperacion sin guardar textos."""
-    kind, _, channel = key.partition(":")
-    label = _channel_label(channel)
-    if kind == "sync_fail":
-        return label, f"sincronización de {label}"
-    if kind == "core_lag":
-        return label, f"ETL Core de {label}"
-    if kind == "webhook_failed":
-        return "Webhooks", "eventos de webhook fallidos"
-    if kind == "cancellation_stuck":
-        return "Bajas de suscripción", "solicitudes de baja atascadas"
-    if kind == "billing_stuck":
-        return "Cambios de cobro", "solicitudes de cobro atascadas"
-    return key, key
+    kind, _, detail = key.partition(":")
+    provider = _PROVIDERS.get(kind)
+    if provider is None:
+        return key, key
+    return provider.describe(detail)
 
 
 # ----------------------------- estado (source_records) -----------------------------

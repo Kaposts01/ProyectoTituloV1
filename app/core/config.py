@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     alert_smtp_user: str = ""
     alert_smtp_password: str = ""
     alert_smtp_starttls: bool = True
+    # RT-13: umbrales de las alertas de webhooks (solo cuentan si las alertas estan encendidas y configuradas).
+    alert_webhook_lag_minutes: int = 60  # evento pendiente mas viejo que esto (solo con el procesador encendido)
+    alert_webhook_silence_hours: int = 0  # 0 = apagado; >0: canal que ya recibio webhooks y lleva N h sin recibir
+    # RT-11: SSE de cambios de estado (`GET /api/v1/events/stream`).
+    events_stream_poll_seconds: float = 5.0  # cada cuanto se relee `status_change_events` (sirve con varios workers)
+    events_stream_max_seconds: float = 300.0  # la conexion se cierra y el navegador reconecta (revalida la sesion)
     # RJ-15: materializa los intentos FAILED de Toku como core_payments (source_status='FAILED'). APAGADA por defecto.
     toku_materialize_failed_payments: bool = False
     # TK-20: senales de suscripcion desde los reportes (activa efectiva, racha por cuotas, tarjeta bloqueada/vencida)
