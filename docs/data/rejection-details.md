@@ -34,8 +34,9 @@ Medido en producción: `GET /v3/suscription/{id}/charges?status=rechazado` trae 
 - Commit por suscripción (un fallo parcial no pierde lo ya guardado). Cobros rechazados en local que la API no devuelve (p. ej. suscripción cancelada) reciben un marcador.
 - `message` se guarda en UTF-8 (se repara el mojibake) y sin secuencias de 12 a 19 dígitos.
 - Glosa nueva → fila en `rejection_reason_catalog` y evento `reason_changed` (`status_events.emit_reason_events`), con el `run_id` de la corrida.
-- Vínculo pago→cobro: `UPDATE` explícito e idempotente de `vp_payments.charge_external_id` y `core_payments.charge_id` (solo donde están NULL). El sync nocturno
-  reescribe `vp_payments.charge_external_id` a NULL, por eso el vínculo se rehace en cada corrida de captura y en el ETL Core desde los detalles.
+- Vínculo pago→cobro: `UPDATE` explícito e idempotente de `vp_payments.charge_external_id` y `core_payments.charge_id` (solo donde están NULL). Desde VP-PAR-06 el sync
+  nocturno ya no reescribe `vp_payments.charge_external_id` a NULL; el vínculo se rehace igual en cada corrida de captura y en el ETL Core
+  (detalles, reporte PAT y cobros con `payment.order.uuid`), para los pagos que llegan después.
 - ETL Core (`run_vp_core_etl`): `_enrich_charges_with_rejections` y `_enrich_payments_with_rejections` leen también `payment_rejection_details`. Si la tabla no existe
   (migración sin aplicar) se omite con un aviso.
 - Histórico: lo cubrirá el importador de reportes PAT (RJ-04, decisión D6) con `capture_source = 'report_pat'`. Sin él, el backfill por API toma ~8 días a 500 suscripciones diarias (3.759 con rechazos).

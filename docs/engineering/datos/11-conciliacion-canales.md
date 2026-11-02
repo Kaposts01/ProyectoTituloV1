@@ -14,6 +14,22 @@ Se realizó una conciliación completa entre los reportes descargados manualment
 
 ## 1. VirtualPOS
 
+> **Actualización 2026-10-29 (VP-PAR-14):** las cifras de esta sección (2026-10-20) quedaron desactualizadas. La auditoría de
+> paridad del 2026-10-29 ([`parity_virtualpos.md`](../../planning/auditoria-2026-10-29/parity_virtualpos.md)), con 42 archivos de
+> transacciones y 37 de suscriptores deduplicados por id, mide **0 diferencias de cantidad** en la ventana 2025-02-24 a 2026-10-26:
+>
+> | Medida | Reporte | CRM |
+> |---|---|---|
+> | Cobros (`Id cargo` únicos) | 86.541 | 86.541 en `vp_charges` (0 faltantes, 0 sobrantes, mes por mes; mismo estado, fecha, monto y suscripción) |
+> | Por estado | pagado 48.906, rechazado 23.760, cancelado 13.872, procesando 3 | idéntico en la intersección |
+> | Suscripciones (`Id de suscripción` únicos) | 9.005 | 9.005 en `vp_subscriptions` (9.014 en total; las 9 de más son posteriores al corte) |
+> | Pagos (`UUID transacción` únicos) | 72.816 | 72.816 en `vp_payments` (73.013 en total; 197 posteriores al corte) |
+>
+> Correcciones a lo que sigue: el `Id de suscripción` del portal **sí** es el `external_id` de la API (trae un tabulador final); las
+> «suscripciones solo en BD» eran posteriores al corte de los archivos. La brecha que queda es de **campos**, no de cantidad (glosa,
+> vínculo pago-cobro, medio de pago por cobro, motivo de rechazo de suscripción, últimos 4): el mapeo completo y su estado están en
+> [`docs/data/virtualpos.md`](../../data/virtualpos.md#mapeo-reporte-del-portal--crm-vp-par-14-auditoría-del-2026-10-29).
+
 ### Archivos analizados
 - **34** archivos `SuscriptoresPAT-VirtualPOS-*.csv`
 - **40** archivos `TransaccionesPAT-VirtualPOS-*.csv`
