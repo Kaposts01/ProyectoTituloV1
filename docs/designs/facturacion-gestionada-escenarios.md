@@ -371,6 +371,10 @@ Crear, aprobar, rechazar y el chequeo de renovación **no** necesitan banderas: 
 
 Todos registran su corrida en `sync_runs` y pueden lanzarse a mano desde el panel del scheduler.
 
+BILL-22 (observabilidad): las corridas programadas del barrido que no barren nada no dejan fila, salvo con `BILLING_SWEEP_HEARTBEAT_ENABLED=true` (apagada por defecto): entonces queda una sola fila «latido» (la última corrida vacía) y el tablero muestra que el job sigue vivo; las corridas que barren algo o fallan se conservan siempre. Las alertas por correo (`docs/data/alerts.md`) avisan de solicitudes en `requiere_conciliacion` (`billing_stuck`), de cobros o `write_runs` en conciliación fuera de una solicitud en conciliación, de la cola abierta más de 24 h (PI-05) y de solicitudes barridas en las últimas 24 h (`billing_reconciliation:*`); sin las variables `ALERT_*` no se envía nada.
+
+Acción del usuario (BILL-22, no la hace un agente): el lock por suscripción vive en una conexión en transacción abierta, y `idle_in_transaction_session_timeout` la cortaría y soltaría el lock a mitad de una aplicación. En la base real, con un cliente de solo lectura, ejecutar `SHOW idle_in_transaction_session_timeout;` (p. ej. `psql "$DATABASE_URL" -c "SHOW idle_in_transaction_session_timeout;"`) y reportar el valor. `0` = sin límite; un valor menor que la duración de una aplicación (minutos) obliga a revisar el parámetro antes del piloto.
+
 ### 8.6 Tareas de renovación
 
 - Una tarea por suscripción con calendario modificado (`abierta` / `vencida`); prioridad alta si está vencida o faltan menos de 15 días. «Datos desactualizados» = la última sincronización de la plataforma tiene más de 48 h o falló.

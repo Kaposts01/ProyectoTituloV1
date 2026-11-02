@@ -9,6 +9,8 @@ en `sync_runs` (source = id del job, siempre con el prefijo `BILLING_JOB_PREFIX`
 Fila `running`: se crea ANTES de trabajar (el endpoint manual la crea antes de lanzar la tarea y el job la adopta si ya
 existe con el `run_id` recibido) para que el chequeo de 409 por ejecucion simultanea sea efectivo. Las corridas
 programadas de expiracion y barrido que no hicieron nada borran su fila transitoria (evita 24 o 96 filas/dia vacias).
+BILL-22: con `BILLING_SWEEP_HEARTBEAT_ENABLED` (apagada por defecto) el barrido vacio deja una sola fila «latido» (la
+ultima) para que el tablero muestre que el job sigue vivo.
 
 Estados de cierre en `sync_runs`: `completed`, `failed` (excepcion, o todos los registros fallaron) y `partial`
 (el chequeo de renovacion termino con algunos registros fallidos; `error_message` = `errores=N`).
@@ -21,7 +23,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import text
+from sqlalchemy import delete, text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -146,8 +148,23 @@ def _sweep_sync(run_id: str | None) -> None:
     logger.info("billing_sweep_applying: %d solicitud(es) barrida(s) a requiere_conciliacion.", len(swept))
     if swept or run_id:  # cada 15 min: solo deja registro cuando barrio algo o se pidio manualmente
         _finish_run(run_pk, "completed", len(swept), None)
+    elif settings.billing_sweep_heartbeat_enabled:  # BILL-22: latido en el tablero, una sola fila vacia
+        _finish_run(run_pk, "completed", 0, None)
+        _prune_empty_runs(JOB_BILLING_SWEEP, keep=run_pk)
     else:
         _discard_run(run_pk)
+
+
+def _prune_empty_runs(source: str, keep: uuid.UUID) -> None:
+    """Borra las corridas vacias (`completed`, 0 registros, sin error) anteriores del job; deja `keep` y todo lo demas."""
+    db = SessionLocal()
+    try:
+        db.execute(delete(SyncRun).where(
+            SyncRun.source == source, SyncRun.id != keep, SyncRun.status == "completed",
+            SyncRun.records_processed == 0, SyncRun.error_message.is_(None)))
+        db.commit()
+    finally:
+        db.close()
 
 
 async def billing_renewal_check(run_id: str | None = None) -> None:
