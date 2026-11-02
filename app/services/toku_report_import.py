@@ -64,12 +64,15 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.toku_report import (
     TkReportAttempt,
+    TkReportCustomer,
     TkReportDebt,
     TkReportFile,
     TkReportInscription,
+    TkReportPayment,
     TkReportPaymentMethod,
     TkReportProduct,
     TkReportResponseCode,
+    TkReportSettlement,
 )
 from app.services.read_only_provider_sync import safe_error_message
 from app.services.toku_report_parser import (
@@ -83,12 +86,16 @@ from app.services.toku_report_parser import (
 
 __all__ = [
     "CHUNK_SIZE",
+    "REPORT_MAX_AGE_DAYS",
     "ImportSummary",
     "MissingPepperError",
     "ReportFormatError",
     "ReportImportError",
     "UnsupportedReportError",
+    "data_age_days",
     "import_report",
+    "is_older_than_max_age",
+    "report_freshness",
     "resolve_subscriptions",
     "safe_report_error_message",
 ]
@@ -153,6 +160,9 @@ _SPECS = {
     "intentos": _Spec(TkReportAttempt, ("attempt_external_id",), resolves_product=True),
     "deudas": _Spec(TkReportDebt, ("debt_external_id",), resolves_product=True),
     "inscripciones": _Spec(TkReportInscription, ("inscription_external_id",)),
+    "clientes": _Spec(TkReportCustomer, ("customer_external_id",)),  # TK-PAR-07
+    "pagos": _Spec(TkReportPayment, ("payment_external_id",)),  # TK-PAR-09
+    "liquidaciones": _Spec(TkReportSettlement, ("settlement_external_id",)),  # TK-PAR-09
 }
 _STICKY = {"deleted_at_source", "subscription_external_id"}
 
@@ -304,6 +314,49 @@ def _register_file(db: Session, parsed: ParsedReport, sha: str, filename: str, u
     db.flush()
     db.commit()  # la fila queda visible aunque la carga de datos haga rollback
     return record
+
+
+REPORT_MAX_AGE_DAYS = 7  # DEC-21: exportacion semanal; un dato con mas de 7 dias se avisa en el panel
+
+
+def data_age_days(generated_at: datetime | None, now: datetime | None = None) -> int | None:
+    """Dias completos desde la generacion del reporte (None si no se conoce)."""
+    if generated_at is None:
+        return None
+    return max(0, ((now or datetime.now(UTC)) - generated_at).days)
+
+
+def is_older_than_max_age(generated_at: datetime | None, now: datetime | None = None) -> bool:
+    """DEC-21: True si el dato del reporte tiene MAS de `REPORT_MAX_AGE_DAYS` dias (sin fecha: no se avisa)."""
+    if generated_at is None:
+        return False
+    return (now or datetime.now(UTC)) - generated_at > timedelta(days=REPORT_MAX_AGE_DAYS)
+
+
+def report_freshness(db: Session, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Ultimo archivo COMPLETADO por tipo de reporte, con la edad del dato (fecha de generacion) y el aviso DEC-21.
+
+    Solo metadatos (tipo, fechas, contadores); nunca filas ni nombres de usuario. Ordenado por tipo.
+    """
+    now = now or datetime.now(UTC)
+    latest = (
+        select(TkReportFile)
+        .where(TkReportFile.status == "completed")
+        .distinct(TkReportFile.report_type)
+        .order_by(TkReportFile.report_type, TkReportFile.generated_at.desc().nulls_last(),
+                  TkReportFile.finished_at.desc().nulls_last())
+    )
+    out = []
+    for record in db.scalars(latest):
+        out.append({
+            "report_type": record.report_type,
+            "generated_at": record.generated_at.isoformat() if record.generated_at else None,
+            "loaded_at": record.finished_at.isoformat() if record.finished_at else None,
+            "rows_total": record.rows_total,
+            "age_days": data_age_days(record.generated_at, now),
+            "is_stale": is_older_than_max_age(record.generated_at, now),
+        })
+    return out
 
 
 def _failure_label(stage: str, exc: Exception) -> str:

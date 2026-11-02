@@ -1,9 +1,9 @@
-import asyncio
 from typing import Any, Self
 
 import httpx
 
 from app.core.config import settings
+from app.integrations.http_retry import send_with_retries
 from app.integrations.toku.write_guard import (
     PROCESS_STATE,
     assert_sandbox_write_allowed,
@@ -187,19 +187,11 @@ class TokuClient:
     # ------------------------------------------------------------------ #
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        for attempt in range(settings.toku_read_retries + 1):
-            try:
-                response = await self._client.get(path, params=params)
-                if response.status_code in {429, 503}:
-                    if attempt == settings.toku_read_retries:
-                        response.raise_for_status()
-                    await asyncio.sleep(2**attempt)
-                    continue
-                break
-            except httpx.ReadTimeout:
-                if attempt == settings.toku_read_retries:
-                    raise
-                await asyncio.sleep(2**attempt)
+        # Solo GET de lectura (idempotentes): red caida, 429 y 5xx transitorio se reintentan con backoff, respetando
+        # `Retry-After` con el tope `HTTP_RETRY_MAX_DELAY_SECONDS` (helper comun SYNC-D-10). Escrituras: un solo intento.
+        response = await send_with_retries(
+            lambda: self._client.get(path, params=params), retries=settings.toku_read_retries
+        )
         response.raise_for_status()
         return response.json()
 

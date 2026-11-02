@@ -1,4 +1,4 @@
-"""SYNC-D-10: reintentos de lectura con tope, `Retry-After` y 5xx en VirtualPOS y Payku.
+"""SYNC-D-10: reintentos de lectura con tope, `Retry-After` y 5xx en VirtualPOS, Payku y Toku.
 
 Sin red: los clientes usan `httpx.MockTransport` y `asyncio.sleep` se reemplaza por un registro de esperas.
 """
@@ -13,6 +13,7 @@ import pytest
 from app.core.config import settings
 from app.integrations import http_retry
 from app.integrations.payku.client import PaykuClient
+from app.integrations.toku.client import TokuClient
 from app.integrations.virtualpos.client import VirtualPOSClient
 
 
@@ -172,4 +173,43 @@ def test_payku_post_is_never_retried(sleeps) -> None:
     with pytest.raises(httpx.HTTPStatusError):
         asyncio.run(_payku(script).create_transaction({"x": 1}))
     assert script.calls == [("POST", "/api/transaction")]
+    assert sleeps == []
+
+
+# --- Toku (solo GET de lectura) ---------------------------------------------------------------------------------
+
+
+def _toku(script: _Script) -> TokuClient:
+    client = TokuClient.__new__(TokuClient)  # sin credenciales ni red: nunca se llama a Toku
+    client._cursors = {}
+    client._client = httpx.AsyncClient(base_url="https://toku.test", transport=httpx.MockTransport(script))
+    return client
+
+
+def test_toku_429_honours_retry_after(sleeps, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "toku_read_retries", 2)
+    script = _Script((429, {"Retry-After": "4"}), (200, {}))
+    assert asyncio.run(_toku(script).get_subscription("s1")) == {"ok": True}
+    assert len(script.calls) == 2
+    assert sleeps == [4]
+
+
+def test_toku_5xx_is_retried_and_retry_after_over_cap_is_not(sleeps, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "toku_read_retries", 2)
+    script = _Script((502, {}), (200, {}))
+    assert asyncio.run(_toku(script).list_transactions()) == {"ok": True}
+    assert sleeps == [1]
+    monkeypatch.setattr(settings, "http_retry_max_delay_seconds", 10)
+    capped = _Script((429, {"Retry-After": "300"}), (200, {}))
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(_toku(capped).get_customer("c1"))
+    assert len(capped.calls) == 1
+
+
+def test_toku_writes_are_never_retried(sleeps, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "toku_read_retries", 2)
+    client = _toku(_Script((503, {}), (200, {})))
+    monkeypatch.setattr(client, "_guard_write", lambda *_: None)  # la guarda de escritura se prueba en su propio test
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(client._post("/customers", {}))
     assert sleeps == []

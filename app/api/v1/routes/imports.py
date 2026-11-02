@@ -158,6 +158,9 @@ def _toku_summary_json(summary: toku_report_import.ImportSummary) -> dict[str, A
     warnings = list(summary.warnings)
     if summary.rows_stale:
         warnings.append("stale_report")  # archivo mas viejo que el dato guardado: esas filas no se aplicaron
+    if toku_report_import.is_older_than_max_age(summary.generated_at):
+        # DEC-21: el dato del archivo (fecha de generacion) tiene mas de 7 dias. Distinto de `stale_report`.
+        warnings.append("data_older_than_max_age")
     return {
         "file_id": str(summary.file_id),
         "report_type": summary.report_type,
@@ -177,13 +180,28 @@ def _toku_summary_json(summary: toku_report_import.ImportSummary) -> dict[str, A
         "catalog_codes": summary.catalog_codes,
         "catalog_skipped": summary.catalog_skipped,
         "extra_columns_count": len(summary.extra_columns),
+        "data_age_days": toku_report_import.data_age_days(summary.generated_at),
         "warnings": warnings,
+    }
+
+
+@router.get("/toku-reports/status", tags=["Imports"])
+def toku_reports_status(
+    _user: Annotated[User, Depends(require_permissions("toku.reports.import"))],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, Any]:
+    """Frescura del ultimo reporte cargado por tipo (DEC-21: aviso si el dato tiene mas de 7 dias). Solo metadatos."""
+    reports = toku_report_import.report_freshness(db)
+    return {
+        "max_age_days": toku_report_import.REPORT_MAX_AGE_DAYS,
+        "reports": reports,
+        "stale_types": [r["report_type"] for r in reports if r["is_stale"]],
     }
 
 
 @router.post("/toku-reports", dependencies=[Depends(require_csrf)], tags=["Imports"])
 def import_toku_report(
-    report: Annotated[UploadFile, File(description="Reporte del Backoffice de Toku (.xlsx): Productos, Medios de pago, Intentos, Deudas o Inscripciones")],
+    report: Annotated[UploadFile, File(description="Reporte del Backoffice de Toku (.xlsx): Productos, Medios de pago, Intentos, Deudas, Inscripciones, Clientes, Pagos v2 o Liquidaciones")],
     user: Annotated[User, Depends(require_permissions("toku.reports.import"))],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any]:

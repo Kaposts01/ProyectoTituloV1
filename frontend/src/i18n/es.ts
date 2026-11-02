@@ -621,6 +621,33 @@ export const es = {
     interrupted: "La aplicación se interrumpió antes de terminar.",
     "subscription not active now": "La suscripción dejó de estar activa antes de aplicar la baja.",
   },
+  /** Tipos de reporte de Toku (`report_type` de `/api/v1/imports/toku-reports`, TK-19). */
+  tokuReportType: {
+    productos: "Productos",
+    "medios pago": "Medios de pago",
+    intentos: "Intentos de pago",
+    deudas: "Deudas",
+    inscripciones: "Inscripciones de medio de pago",
+    clientes: "Clientes",
+    pagos: "Pagos",
+    liquidaciones: "Liquidaciones",
+  },
+  /** Avisos de la carga de un reporte de Toku (`warnings`). */
+  tokuReportWarning: {
+    "stale report": "Algunas filas no se aplicaron porque el archivo es más antiguo que el dato ya cargado.",
+    "data older than max age": "El dato de este archivo tiene más de 7 días. Exporta un reporte nuevo desde Toku.",
+    "generated at fallback now": "El archivo no trae su fecha de generación; se usó la fecha de carga.",
+  },
+  /** Errores de la carga de un reporte de Toku (`detail.code` de `/api/v1/imports/toku-reports`). */
+  tokuReportError: {
+    "invalid format": "El archivo no es un reporte de Toku válido o su tipo no se puede cargar.",
+    "too large": "El archivo supera el tamaño máximo permitido.",
+    "already loaded": "Este reporte ya fue cargado antes (mismo contenido).",
+    "load in progress": "Este archivo ya se está cargando. Espera a que termine.",
+    "pepper not configured": "El importador de reportes de Toku no está configurado en el servidor.",
+    "import failed": "No se pudo cargar el reporte. No se guardó ningún cambio.",
+    "permission denied": "No tienes permiso para cargar reportes de Toku.",
+  },
   /**
    * Códigos de error del backend (`detail.code`, catálogo `docs/data/error-codes.md`): el texto sale de aquí, fijo y
    * sin datos variables. Si un código no está, se usa el `message` en español del backend y, sin él, el texto del

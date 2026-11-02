@@ -47,6 +47,10 @@ from app.services.status_events import (
     pop_reason_hints,
 )
 from app.services.tch_rut import identity_rut
+from app.services.toku_rejection_projection import (
+    load_report_attempt_codes,
+    toku_transaction_rejection,
+)
 from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
 from app.services.vp_current_amount import load_current_amount
 
@@ -397,8 +401,12 @@ def _consolidate_toku_invoices(db: Session, scope: Scope | None = None) -> int:
 
 def _consolidate_toku_transactions(db: Session) -> int:
     rows = []
+    report_codes = load_report_attempt_codes(db)  # TK-PAR-03: código del reporte de Intentos si la API no lo trae
     for t in db.scalars(select(TokuTransaction)).all():
         payload = t.raw_payload or {}
+        rejection_code, rejection_reason, rejected_at = toku_transaction_rejection(
+            payload, t.status, report_codes, external_id=t.external_id, created_at_api=t.created_at_api
+        )
         rows.append({
             "source": "toku",
             "external_id": t.external_id,
@@ -408,6 +416,9 @@ def _consolidate_toku_transactions(db: Session) -> int:
             "currency": t.currency,
             "status": t.status,
             "payment_date": t.created_at_api,
+            "rejection_code": rejection_code,
+            "rejection_reason": rejection_reason,
+            "rejected_at": rejected_at,
             "raw_payload": t.raw_payload,
         })
     _log_null_relations('toku.transaction', rows, ('charge_external_id', 'client_external_id'))
