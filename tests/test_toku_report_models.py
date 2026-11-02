@@ -288,7 +288,7 @@ def test_pii_guard_no_forbidden_columns() -> None:
         t for name, t in Base.metadata.tables.items()
         if name.startswith("tk_report_") or name == "core_subscription_signals"
     ]  # fmt: skip
-    assert len(tables) == 8
+    assert len(tables) == 11  # + tk_report_customers, tk_report_payments, tk_report_settlements (0057)
     offenders = [f"{t.name}.{c.name}" for t in tables for c in t.columns if c.name.lower() in FORBIDDEN_COLUMNS]
     assert not offenders, offenders
     # tampoco columnas JSON/crudas

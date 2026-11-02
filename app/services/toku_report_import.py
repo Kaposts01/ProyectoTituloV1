@@ -64,12 +64,15 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.toku_report import (
     TkReportAttempt,
+    TkReportCustomer,
     TkReportDebt,
     TkReportFile,
     TkReportInscription,
+    TkReportPayment,
     TkReportPaymentMethod,
     TkReportProduct,
     TkReportResponseCode,
+    TkReportSettlement,
 )
 from app.services.read_only_provider_sync import safe_error_message
 from app.services.toku_report_parser import (
@@ -153,6 +156,9 @@ _SPECS = {
     "intentos": _Spec(TkReportAttempt, ("attempt_external_id",), resolves_product=True),
     "deudas": _Spec(TkReportDebt, ("debt_external_id",), resolves_product=True),
     "inscripciones": _Spec(TkReportInscription, ("inscription_external_id",)),
+    "clientes": _Spec(TkReportCustomer, ("customer_external_id",)),  # TK-PAR-07
+    "pagos": _Spec(TkReportPayment, ("payment_external_id",)),  # TK-PAR-09
+    "liquidaciones": _Spec(TkReportSettlement, ("settlement_external_id",)),  # TK-PAR-09
 }
 _STICKY = {"deleted_at_source", "subscription_external_id"}
 

@@ -65,10 +65,24 @@ COLUMNS: dict[str, list[str]] = {
         "Medio de pago#2", "Estado transacción", "Código de Respuesta", "Estado Medio de Pago",
         "Fecha Último Intento de Pago", "Estado Último Intento de Pago", "id_subscription",
     ],
+    # TK-PAR-07 / TK-PAR-09: encabezados SUPUESTOS (sin acceso a los reportes reales), con PII intercalada.
+    "clientes": [
+        "ID", "Fecha de Creación", "Fecha de Eliminación", "Nombre", "Mail", "Celular", "Rut", "ID Externo",
+        "Silenciado hasta",
+    ],
+    "pagos": [
+        "ID", "Fecha de Creación", "Fecha de Eliminación", "Cliente", "Nombre", "Mail", "Rut", "Deuda", "Monto",
+        "Tipo de Pago", "N.º Cuotas", "Estado", "Procesador de Pago", "Fecha de Pago", "Número de Tarjeta",
+    ],
+    "liquidaciones": [
+        "ID", "Deuda", "Cliente", "Nombre", "Rut", "Monto", "Comisión", "Monto Neto", "Fecha de Depósito",
+        "Liquidado", "Número de Cuenta",
+    ],
 }  # fmt: skip
 TITLES = {
     "productos": "Productos", "medios_pago": "Medios de pago", "intentos": "Intentos de pago",
-    "deudas": "Deudas", "inscripciones": "Inscripciones de medio de pago",
+    "deudas": "Deudas", "inscripciones": "Inscripciones de medio de pago", "clientes": "Clientes",
+    "pagos": "Pagos v2", "liquidaciones": "Liquidaciones 2.0",
 }  # fmt: skip
 PII_VALUES = {
     "Nombre": SENTINEL_NAME, "Mail": SENTINEL_MAIL, "Email": SENTINEL_MAIL, "Celular": SENTINEL_PHONE,
@@ -117,6 +131,23 @@ def default_row(report_type: str, n: int = 1, **over: Any) -> dict[str, Any]:
             "Estado transacción": "failed", "Código de Respuesta": "TEPSP1001", "Estado Medio de Pago": "chargeable",
             "Fecha Último Intento de Pago": "2026-10-06T08:00:00", "Estado Último Intento de Pago": "failed",
             "id_subscription": sub_id(n),
+        }  # fmt: skip
+    elif report_type == "clientes":
+        base = {
+            "ID": f"cus_T{n:04d}", "Fecha de Creación": created, "Fecha de Eliminación": None,
+            "Silenciado hasta": None,
+        }  # fmt: skip
+    elif report_type == "pagos":
+        base = {
+            "ID": f"pay_T{n:04d}", "Fecha de Creación": created, "Fecha de Eliminación": None,
+            "Cliente": f"cus_T{n:04d}", "Deuda": f"in_T{n:04d}", "Monto": 10000, "Tipo de Pago": "Crédito",
+            "N.º Cuotas": 1, "Estado": "pagado", "Procesador de Pago": "Transbank",
+            "Fecha de Pago": "2026-10-06T08:00:00",
+        }  # fmt: skip
+    elif report_type == "liquidaciones":
+        base = {
+            "ID": f"tr_T{n:04d}", "Deuda": f"in_T{n:04d}", "Cliente": f"cus_T{n:04d}", "Monto": 10000,
+            "Comisión": 350, "Monto Neto": 9650, "Fecha de Depósito": "2026-10-10", "Liquidado": "true",
         }  # fmt: skip
     else:
         raise ValueError(report_type)

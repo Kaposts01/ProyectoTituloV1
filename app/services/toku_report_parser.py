@@ -30,7 +30,13 @@ Reglas
   true/false, 1/0, si/no, verdadero/falso (vacio = None; en Deudas vacio = False por ser NOT NULL).
 * Filas invalidas no tumban el archivo: se cuentan en `stats.rows_skipped` con un codigo de motivo
   (`invalid_id`, `missing_customer`, `missing_debt`, `invalid_amount`, `invalid_due_date`, `invalid_bool`,
-  `duplicate_in_file`) sin valores. Duplicados por clave natural dentro del archivo: se conserva el primero.
+  `duplicate_in_file`, `invalid_installments`) sin valores. Duplicados por clave natural dentro del archivo: se
+  conserva el primero.
+* Clientes (TK-PAR-07): solo ID (`cus_`), fechas de creacion/eliminacion y «Silenciado hasta»; nombre, mail, RUT,
+  telefono e ID Externo nunca se leen. Pagos v2 y Liquidaciones (TK-PAR-09): firmas minimas con alias
+  (`COLUMN_ALIASES`) y columnas opcionales; los IDs se guardan solo si tienen forma de ID de Toku (`prefijo_xxx`) y
+  `Cliente`/`Deuda` solo si son `cus_`/`in_` (cualquier otro texto se descarta). Se usa la primera hoja con un
+  encabezado reconocible.
 
 Mapeo de gravedad (SU/TE/PE/UE)
 -------------------------------
@@ -69,7 +75,7 @@ _DMY_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(
 _ANY_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}/\d{1,2}/\d{4}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?")
 MAX_AMOUNT = Decimal("999999999999.99")
 
-SUPPORTED_TYPES = ("productos", "medios_pago", "intentos", "deudas", "inscripciones")
+SUPPORTED_TYPES = ("productos", "medios_pago", "intentos", "deudas", "inscripciones", "clientes", "pagos", "liquidaciones")
 
 
 class ReportFormatError(Exception):
@@ -77,7 +83,7 @@ class ReportFormatError(Exception):
 
 
 class UnsupportedReportError(ReportFormatError):
-    """Reporte que no se importa en esta fase (Clientes, Pagos, Mensajes, Liquidaciones, ...)."""
+    """Reporte que no se importa (Facturacion, Contracargos, Mensajes, Eventos, ...)."""
 
 
 class MissingPepperError(RuntimeError):
@@ -115,7 +121,34 @@ SIGNATURES: dict[str, tuple[str, ...]] = {
         "codigo de respuesta", "estado medio de pago", "fecha ultimo intento de pago",
         "estado ultimo intento de pago", "id_subscription",
     ),
+    # TK-PAR-07: solo columnas sin datos personales (nombre, mail, RUT, telefono e ID Externo nunca se leen).
+    "clientes": ("id", "fecha de creacion", "fecha de eliminacion", "silenciado hasta"),
+    # TK-PAR-09 (firmas minimas SUPUESTAS: validar con el encabezado real antes de cargar en `crm`).
+    "pagos": ("id", "monto", "tipo de pago", "numero de cuotas"),
+    "liquidaciones": ("id", "monto", "comision", "monto neto", "fecha de deposito"),
 }  # fmt: skip
+# Columnas opcionales (se leen si estan; no cuentan para detectar el tipo).
+OPTIONAL_COLUMNS: dict[str, tuple[str, ...]] = {
+    "pagos": (
+        "fecha de creacion", "fecha de eliminacion", "fecha de pago", "cliente", "deuda", "estado",
+        "procesador de pago",
+    ),
+    "liquidaciones": ("deuda", "cliente", "liquidado"),
+}  # fmt: skip
+# Nombres alternativos (normalizados) de una columna de firma; el primero presente gana.
+COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+    "silenciado hasta": ("fecha silenciado hasta", "silenciado"),
+    "numero de cuotas": (
+        "n.o cuotas", "n.o de cuotas", "no cuotas", "no de cuotas", "n° cuotas", "n° de cuotas", "nro cuotas",
+        "nro. cuotas", "nro. de cuotas", "n de cuotas", "cuotas",
+    ),
+    "comision": ("comision toku", "comision total"),
+    "monto neto": ("neto", "monto liquido"),
+    "fecha de deposito": ("fecha deposito", "fecha de abono", "fecha de liquidacion"),
+    "fecha de pago": ("fecha pago", "fecha de transaccion"),
+}  # fmt: skip
+# Columnas que comparten casi todos los reportes: no bastan para suponer un tipo «probable».
+_COMMON_COLUMNS = frozenset({"id", "fecha de creacion", "fecha de eliminacion", "monto", "cliente", "estado"})
 CATALOG_SIGNATURE = ("codigo toku", "gravedad", "mensaje", "descripcion")
 _FUZZY_MIN_OVERLAP = 0.7
 
@@ -213,6 +246,47 @@ class InscriptionRecord:
     last_attempt_at: datetime | None
     last_attempt_status: str | None
     deleted_at_source: datetime | None
+
+
+@dataclass(frozen=True)
+class CustomerRecord:
+    """Clientes (TK-PAR-07): estado del cliente sin datos personales."""
+
+    customer_external_id: str
+    created_at_source: datetime | None
+    deleted_at_source: datetime | None
+    silenced_until: datetime | None
+
+
+@dataclass(frozen=True)
+class PaymentReportRecord:
+    """Pagos v2 (TK-PAR-09): tipo de pago y cuotas."""
+
+    payment_external_id: str
+    customer_external_id: str | None
+    debt_external_id: str | None
+    amount: Decimal | None
+    payment_type: str | None
+    installments: int | None
+    status: str | None
+    processor: str | None
+    paid_at: datetime | None
+    created_at_source: datetime | None
+    deleted_at_source: datetime | None
+
+
+@dataclass(frozen=True)
+class SettlementRecord:
+    """Liquidaciones 2.0 (TK-PAR-09): comision, neto y deposito por fila."""
+
+    settlement_external_id: str
+    debt_external_id: str | None
+    customer_external_id: str | None
+    amount: Decimal | None
+    commission: Decimal | None
+    net_amount: Decimal | None
+    deposit_date: date | None
+    settled: bool | None
 
 
 @dataclass
@@ -422,14 +496,38 @@ def _open_workbook(path: str | Path):
         raise ReportFormatError(f"el archivo no es un .xlsx legible ({type(exc).__name__})") from None
 
 
+def _has_column(present: set[str], col: str) -> bool:
+    return col in present or any(alias in present for alias in COLUMN_ALIASES.get(col, ()))
+
+
+def _column_index(names: list[str], col: str) -> int | None:
+    """Posicion de la primera aparicion de `col` o, si falta, de su primer alias presente."""
+    for candidate in (col, *COLUMN_ALIASES.get(col, ())):
+        if candidate in names:
+            return names.index(candidate)
+    return None
+
+
+def _matches_any_signature(names: list[str]) -> bool:
+    present = set(names)
+    return any(all(_has_column(present, c) for c in SIGNATURES[t]) for t in SUPPORTED_TYPES)
+
+
 def _find_header(rows: Iterator[tuple], *, first_is_id: bool = True, require: tuple[str, ...] = ()) -> tuple[int, tuple, list[tuple]] | None:
-    """Consume hasta 10 filas. Devuelve (indice0_del_encabezado, fila, filas_previas) o None."""
+    """Consume hasta 10 filas. Devuelve (indice0_del_encabezado, fila, filas_previas) o None.
+
+    Con `first_is_id` tambien vale una fila que traiga completa alguna firma (con alias), aunque no empiece por `ID`.
+    Solo se comparan NOMBRES normalizados; los valores de las filas de titulo no se guardan ni se informan.
+    """
     head: list[tuple] = []
     for i, row in enumerate(rows):
         if i >= HEADER_SEARCH_ROWS:
             break
         names = [norm_header(c) for c in row]
-        if (first_is_id and names and names[0] == "id") or (require and set(require) <= set(names)):
+        if (
+            (first_is_id and names and (names[0] == "id" or _matches_any_signature(names)))
+            or (require and set(require) <= set(names))
+        ):
             return i, row, head
         head.append(row)
     return None
@@ -457,19 +555,25 @@ def _meta_from_title(prev_rows: list[tuple]) -> tuple[datetime | None, date | No
 
 def detect_report_type(header_names: list[str]) -> str:
     present = set(header_names)
-    exact = [t for t in SUPPORTED_TYPES if set(SIGNATURES[t]) <= present]
+    exact = [t for t in SUPPORTED_TYPES if all(_has_column(present, c) for c in SIGNATURES[t])]
     if exact:
         best = max(exact, key=lambda t: len(SIGNATURES[t]))
         ties = [t for t in exact if len(SIGNATURES[t]) == len(SIGNATURES[best])]
         if len(ties) > 1:
             raise ReportFormatError("firma de columnas ambigua entre tipos: " + ", ".join(sorted(ties)))
         return best
+    # Un tipo solo es «probable» si comparte alguna columna PROPIA (no basta con ID, fechas, monto o cliente).
     scored = sorted(
-        ((len(present & set(SIGNATURES[t])) / len(SIGNATURES[t]), t) for t in SUPPORTED_TYPES), reverse=True
+        (
+            (sum(_has_column(present, c) for c in SIGNATURES[t]) / len(SIGNATURES[t]), t)
+            for t in SUPPORTED_TYPES
+            if any(_has_column(present, c) for c in SIGNATURES[t] if c not in _COMMON_COLUMNS)
+        ),
+        reverse=True,
     )
-    ratio, probable = scored[0]
+    ratio, probable = scored[0] if scored else (0.0, "")
     if ratio >= _FUZZY_MIN_OVERLAP:
-        missing = [c for c in SIGNATURES[probable] if c not in present]
+        missing = [c for c in SIGNATURES[probable] if not _has_column(present, c)]
         raise ReportFormatError(
             f"faltan columnas requeridas para el tipo probable «{probable}»: " + ", ".join(missing)
         )
@@ -484,7 +588,7 @@ class ParsedReport:
     stats: ParseStats
     _wb: Any
     _rows: Iterator[tuple]
-    _positions: dict[str, int]
+    _positions: dict[str, int | None]
     _pepper: str
     _severity: Mapping[str, str]
 
@@ -537,20 +641,29 @@ def open_report(
         raise MissingPepperError("falta TOKU_REPORT_HASH_PEPPER")
     wb = _open_workbook(path)
     try:
-        ws = wb.worksheets[0] if wb.worksheets else None
-        if ws is None:
+        if not wb.worksheets:
             raise ReportFormatError("el archivo no tiene hojas")
-        rows = ws.iter_rows(values_only=True)
-        found = _find_header(rows)
+        # Primera hoja con encabezado reconocible (Liquidaciones y Pagos v2 traen varias hojas). Las demas se cierran.
+        found = None
+        for ws in wb.worksheets:
+            rows = ws.iter_rows(values_only=True)
+            found = _find_header(rows)
+            if found is not None:
+                break
+            close_skipped = getattr(rows, "close", None)
+            if close_skipped is not None:
+                close_skipped()
         if found is None:
             raise ReportFormatError("no se encontro la fila de encabezado (primera celda `ID`) en las primeras 10 filas")
         header_idx, header_row, prev = found
         names = [norm_header(c) for c in header_row]
         report_type = detect_report_type(names)
-        positions: dict[str, int] = {}
+        positions: dict[str, int | None] = {}
         for col in SIGNATURES[report_type]:
-            positions[col] = names.index(col)  # primera aparicion (columnas duplicadas)
-        required = set(positions.values())
+            positions[col] = _column_index(names, col)  # primera aparicion (columnas duplicadas)
+        for col in OPTIONAL_COLUMNS.get(report_type, ()):
+            positions[col] = _column_index(names, col)
+        required = {p for p in positions.values() if p is not None}
         extras = tuple(
             _text(c, 80) or f"col_{i + 1}"
             for i, c in enumerate(header_row)
@@ -623,8 +736,8 @@ def read_response_catalog(path: str | Path) -> tuple[list[ResponseCodeRecord], P
 # ---- constructores por tipo -------------------------------------------------------------------
 
 
-def _g(row: tuple, pos: dict[str, int], col: str) -> Any:
-    return _cell(row, pos[col])
+def _g(row: tuple, pos: dict[str, int | None], col: str) -> Any:
+    return _cell(row, pos.get(col))
 
 
 def _build_product(row, pos, pepper, _sev):
@@ -760,10 +873,89 @@ def _build_inscription(row, pos, pepper, _sev):
     return rec, ins
 
 
+_TOKU_ID_RE = re.compile(r"^[A-Za-z]{1,12}_[A-Za-z0-9_-]{1,240}$")
+
+
+def _toku_id(value: Any) -> str | None:
+    """ID de Toku (`prefijo_xxx`). Cualquier otro texto (nombre, RUT, correo) se descarta sin guardarse."""
+    text = _text(value, 255)
+    return text if text and _TOKU_ID_RE.match(text) else None
+
+
+def _installments(value: Any) -> int | None:
+    try:
+        n = int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+    return n if 0 <= n <= 999 else None
+
+
+def _build_customer(row, pos, _pepper, _sev):
+    cus = _ext_id(_g(row, pos, "id"), "cus_")
+    if not cus:
+        raise _Skip("invalid_id")
+    rec = CustomerRecord(
+        customer_external_id=cus,
+        created_at_source=parse_datetime(_g(row, pos, "fecha de creacion")),
+        deleted_at_source=parse_datetime(_g(row, pos, "fecha de eliminacion")),
+        silenced_until=parse_datetime(_g(row, pos, "silenciado hasta")),
+    )
+    return rec, cus
+
+
+def _build_payment(row, pos, _pepper, _sev):
+    pay = _toku_id(_g(row, pos, "id"))
+    if not pay:
+        raise _Skip("invalid_id")
+    raw_installments = _g(row, pos, "numero de cuotas")
+    installments = _installments(raw_installments)
+    if installments is None and _text(raw_installments) is not None:
+        raise _Skip("invalid_installments")
+    status = _text(_g(row, pos, "estado"), 50)
+    rec = PaymentReportRecord(
+        payment_external_id=pay,
+        customer_external_id=_ext_id(_g(row, pos, "cliente"), "cus_"),
+        debt_external_id=_ext_id(_g(row, pos, "deuda"), "in_"),
+        amount=parse_amount(_g(row, pos, "monto")),
+        payment_type=_text(_g(row, pos, "tipo de pago"), 50),
+        installments=installments,
+        status=status.upper() if status else None,
+        processor=_text(_g(row, pos, "procesador de pago"), 100),
+        paid_at=parse_datetime(_g(row, pos, "fecha de pago")),
+        created_at_source=parse_datetime(_g(row, pos, "fecha de creacion")),
+        deleted_at_source=parse_datetime(_g(row, pos, "fecha de eliminacion")),
+    )
+    return rec, pay
+
+
+def _build_settlement(row, pos, _pepper, _sev):
+    ext = _toku_id(_g(row, pos, "id"))
+    if not ext:
+        raise _Skip("invalid_id")
+    raw_settled = _g(row, pos, "liquidado")
+    settled = parse_bool(raw_settled)
+    if settled is None and _text(raw_settled) is not None:
+        raise _Skip("invalid_bool")
+    rec = SettlementRecord(
+        settlement_external_id=ext,
+        debt_external_id=_ext_id(_g(row, pos, "deuda"), "in_"),
+        customer_external_id=_ext_id(_g(row, pos, "cliente"), "cus_"),
+        amount=parse_amount(_g(row, pos, "monto")),
+        commission=parse_amount(_g(row, pos, "comision")),
+        net_amount=parse_amount(_g(row, pos, "monto neto")),
+        deposit_date=parse_date(_g(row, pos, "fecha de deposito")),
+        settled=settled,
+    )
+    return rec, ext
+
+
 _BUILDERS = {
     "productos": _build_product,
     "medios_pago": _build_payment_method,
     "intentos": _build_attempt,
     "deudas": _build_debt,
     "inscripciones": _build_inscription,
+    "clientes": _build_customer,
+    "pagos": _build_payment,
+    "liquidaciones": _build_settlement,
 }

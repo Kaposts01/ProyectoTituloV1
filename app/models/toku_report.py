@@ -29,7 +29,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
 
-REPORT_TYPES = ("productos", "intentos", "medios_pago", "deudas", "inscripciones", "clientes", "pagos")
+REPORT_TYPES = (
+    "productos", "intentos", "medios_pago", "deudas", "inscripciones", "clientes", "pagos", "liquidaciones",
+)  # fmt: skip  (`liquidaciones` desde la migracion 0057)
 FILE_STATUSES = ("running", "completed", "failed")
 CODE_SEVERITIES = ("SU", "TE", "PE", "UE")
 SEVERITIES = (*CODE_SEVERITIES, "UNKNOWN")
@@ -244,6 +246,77 @@ class TkReportInscription(Base):
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_attempt_status: Mapped[str | None] = mapped_column(String(100))
     deleted_at_source: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_file_id: Mapped[uuid.UUID] = _file_fk()
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class TkReportCustomer(Base):
+    """Clientes (TK-PAR-07, migracion 0057): solo estado del cliente; sin nombre, mail, RUT ni telefono."""
+
+    __tablename__ = "tk_report_customers"
+    __table_args__ = (UniqueConstraint("customer_external_id", name="uq_tk_report_customers_customer"),)
+
+    id: Mapped[uuid.UUID] = _pk()
+    customer_external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at_source: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at_source: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    silenced_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_file_id: Mapped[uuid.UUID] = _file_fk()
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class TkReportPayment(Base):
+    """Pagos v2 (TK-PAR-09, migracion 0057): tipo de pago y cuotas por pago."""
+
+    __tablename__ = "tk_report_payments"
+    __table_args__ = (
+        UniqueConstraint("payment_external_id", name="uq_tk_report_payments_payment"),
+        CheckConstraint("installments IS NULL OR installments >= 0", name="ck_tkr_payments_installments"),
+        Index("ix_tk_report_payments_debt", "debt_external_id"),
+        Index("ix_tk_report_payments_customer", "customer_external_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    payment_external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    customer_external_id: Mapped[str | None] = mapped_column(String(255))
+    debt_external_id: Mapped[str | None] = mapped_column(String(255))
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    payment_type: Mapped[str | None] = mapped_column(String(50))
+    installments: Mapped[int | None] = mapped_column(SmallInteger)
+    status: Mapped[str | None] = mapped_column(String(50))
+    processor: Mapped[str | None] = mapped_column(String(100))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at_source: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at_source: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_file_id: Mapped[uuid.UUID] = _file_fk()
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class TkReportSettlement(Base):
+    """Liquidaciones 2.0 (TK-PAR-09, migracion 0057): comision, neto y deposito."""
+
+    __tablename__ = "tk_report_settlements"
+    __table_args__ = (
+        UniqueConstraint("settlement_external_id", name="uq_tk_report_settlements_settlement"),
+        Index("ix_tk_report_settlements_debt", "debt_external_id"),
+        Index("ix_tk_report_settlements_deposit_date", "deposit_date"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    settlement_external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    debt_external_id: Mapped[str | None] = mapped_column(String(255))
+    customer_external_id: Mapped[str | None] = mapped_column(String(255))
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    commission: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    net_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    deposit_date: Mapped[date | None] = mapped_column(Date)
+    settled: Mapped[bool | None] = mapped_column(Boolean)
     source_generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_file_id: Mapped[uuid.UUID] = _file_fk()
     created_at: Mapped[datetime] = _created()
