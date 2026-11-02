@@ -14,7 +14,8 @@ Que siembra (todo marcado con el prefijo ``DEMO-``; ningun dato personal ni susc
   coherente de eventos (``billing_change_request_events``), con los mismos tipos y detalles que escribe el servicio.
 - Cobros gestionados (``vp_managed_charges``) de las solicitudes ejecutadas / en conciliacion.
 - Marcas de calendario (``vp_calendar_marks``) y tareas de renovacion (``billing_renewal_tasks``): abierta de prioridad
-  alta, abierta normal, vencida, cerrada, abierta con ``data_stale`` y una ``no_aplica``.
+  alta, abierta normal, vencida, cerrada, abierta con ``data_stale``, una ``no_aplica`` y una rechazada con comentario
+  (BILL-15, con su marca aun activa porque el horizonte no termino).
 - Dos filas de auditoria de politica (``billing_policy_audit``, motivo con prefijo ``DEMO-``) y, si falta, la fila de
   politica (``billing_policy``) con los valores por defecto.
 - Solicitante / actor: el usuario ACTIVO con rol ``admin`` que ya existe en la base sandbox (no crea usuarios ni claves).
@@ -27,11 +28,11 @@ Seguridad (falla cerrado):
 Idempotencia: una solicitud/marca/tarea/cobro/auditoria se omite si ya existe (por ``subscription_external_id``,
 ``charge_id`` o ``reason`` con prefijo ``DEMO-``). Informa filas creadas y omitidas por tabla.
 
-LIMPIEZA: NO esta implementada. ``billing_change_request_events`` y ``billing_policy_audit`` son inmutables (trigger de BD
-impide UPDATE/DELETE fila por fila), y las solicitudes tienen eventos que las referencian. En el sandbox la unica forma de
-limpiar es un TRUNCATE manual y explicito de esas tablas (p. ej. ``TRUNCATE billing_change_request_events,
-billing_policy_audit, vp_managed_charges, billing_renewal_tasks, vp_calendar_marks, billing_change_requests``), SOLO en la
-base sandbox y por decision del usuario. Nunca en ``crm``.
+LIMPIEZA (UI-40): ``scripts/sandbox/clean_billing_demo.py``, con las mismas guardas. Por defecto solo informa; con
+``--apply`` borra los datos ``DEMO-`` en una transaccion y se niega si borraria algo que no es ``DEMO-``. Ejecutarlo es
+decision del usuario y solo en la base sandbox. Ojo: ``billing_change_request_events`` y ``billing_policy_audit`` son
+inmutables (trigger por fila) y un ``TRUNCATE billing_change_requests`` falla o, con CASCADE, vaciaria ``write_runs``
+(``write_runs.request_id`` la referencia): no usar el TRUNCATE manual que sugeria la version anterior de este texto.
 """
 
 from __future__ import annotations
@@ -81,6 +82,9 @@ PREFIX = "DEMO-"
 PLATFORM = "virtualpos1"
 HORIZON = 12
 EXPIRY_DAYS = 7
+# UI-41: el backend escribe la autoaprobacion y `decided_at` en la misma operacion que crea la solicitud; la siembra usa el
+# mismo instante para el evento `autoaprobada` y para `decided_at` (antes `decided_at` quedaba 2 minutos despues).
+AUTO_APPROVAL_DELAY = timedelta(seconds=1)
 SPEC_TO_PLAN_TYPE = {"one_off_charge": "one_off"}
 
 POLICY_DEFAULTS: dict[str, Any] = {
@@ -296,7 +300,7 @@ def build_events(s: Scenario, req_id: uuid.UUID, admin: uuid.UUID, created: date
     keys = ("creates", "cancels", "covered_months", "manual_review_months", "variation_pct")
     evs = [event(req_id, "creada", admin, created, {
         "request_type": s.request_type, "approvals_required": approvals_required, "summary": {k: summary.get(k) for k in keys}})]
-    t_auto = created + timedelta(seconds=1)
+    t_auto = created + AUTO_APPROVAL_DELAY
     t_decide = created + timedelta(minutes=2)
 
     def auto(final: bool) -> BillingChangeRequestEvent:
@@ -350,7 +354,7 @@ def build_request(s: Scenario, admin: uuid.UUID, preview: dict[str, Any], snapsh
     approved = s.kind in ("aprobada", "ejecutada", "fallida", "conciliacion", "no_ejecutable")
     decided_at: datetime | None = None
     if approved:
-        decided_at = created + timedelta(minutes=2)
+        decided_at = created + AUTO_APPROVAL_DELAY  # = instante del evento `autoaprobada` (UI-41)
     elif s.kind in ("rechazada", "retirada"):
         decided_at = evs[-1].created_at
     elif s.kind == "expirada":
@@ -485,6 +489,9 @@ def main() -> int:
         add_task(24, "abierta", TODAY + timedelta(days=25), 9000, stale=True)  # datos desactualizados
         add_task(25, "no_aplica", TODAY + timedelta(days=30), 7000, active_mark=False,
                  reason="La suscripción ya no está ACTIVA (estado: CANCELADA).")
+        # BILL-15 (JB-32): rechazada con comentario; la marca sigue activa hasta el fin del horizonte.
+        add_task(26, "no_aplica", TODAY + timedelta(days=20), 11000,
+                 reason=f"Rechazada por {admin.username}: El socio pidió volver al monto original (ejemplo ficticio).")
 
         # Auditoria de politica (inmutable): 2 cambios historicos que terminan en los valores por defecto.
         audited = set(session.scalars(select(BillingPolicyAudit.reason).where(BillingPolicyAudit.reason.like(f"{PREFIX}%"))))

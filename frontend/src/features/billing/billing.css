@@ -40,6 +40,11 @@ html[data-theme="dark"] {
   background: var(--bg-input); font: inherit; font-size: 14px; letter-spacing: 0; text-transform: none; width: 100%;
 }
 .bx-filters label { min-width: 150px; }
+/* UI-37: el estado tiene opciones distintas en Pendientes e Historial; ancho fijo para que los filtros no salten. */
+.bx-filters label.bx-f-status { width: 14rem; }
+/* UI-38: fila completa clicable en la bandeja de solicitudes. */
+.bx-table tr.bx-row-clickable { cursor: pointer; }
+.bx-table tr.bx-row-clickable:hover { background: var(--bg-hover); }
 .bx-form textarea, .bx-dialog textarea { min-height: 76px; resize: vertical; }
 .bx-form [aria-invalid="true"] { border-color: var(--bx-err-text); }
 .bx-field-error { color: var(--bx-err-text); font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
@@ -133,6 +138,7 @@ html[data-theme="dark"] {
   .bx-dl { grid-template-columns: 1fr; gap: 2px 0; }
   .bx-dl dd { margin-bottom: 8px; }
   .bx-filters label { min-width: 0; width: 100%; }
+  .bx-filters label.bx-f-status { width: 100%; }
   .bx-dialog-actions .bx-btn, .bx-actions .bx-btn { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -213,3 +219,6 @@ html[data-theme="dark"] {
 @media (max-width: 720px) and (prefers-reduced-motion: reduce) {
   .bx-filters-toggle::after { transition: none; }
 }
+
+/* BILL-15: acciones de una fila de renovaciones (solicitar / rechazar). */
+.bx-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }

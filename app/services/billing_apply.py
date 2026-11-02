@@ -18,7 +18,11 @@ mantiene su transaccion abierta durante toda la aplicacion (los servicios de esc
 `xact` sobre la sesion principal se soltaria en el primer commit). La transicion aprobada->aplicando es un UPDATE
 condicional (AP-14). Estado incierto (timeout) -> nunca se reintenta a ciegas: se relee el proveedor (RZ-31).
 
-`retry_charge` no usa este lock todavia (RZ-30/RA-27 quedan para otra fase).
+`retry_charge` no usa este lock: tiene su propio lock por cargo (BILL-14, RZ-30); RA-27 queda para otra fase.
+
+Reaprobacion (GB-AP-13, BILL-16): al ejecutar se recalcula la variacion; si la doble aprobacion esta encendida y la
+variacion paso a una categoria que exige mas aprobaciones que las obtenidas, la solicitud vuelve a `pendiente` (evento
+`reintentada` con `detail.action = "reaprobacion"`, aprobaciones reiniciadas, plan nuevo) y nada se escribe.
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ from app.models.billing import (
     STATUS_EXECUTED,
     STATUS_FAILED,
     STATUS_NEEDS_RECONCILIATION,
+    STATUS_PENDING,
     BillingChangeRequest,
     BillingChangeRequestEvent,
     VpCalendarMark,
@@ -133,6 +138,17 @@ class PlanDriftError(BillingApplyError):
         self.diff = diff
         self.new_preview = new_preview
         super().__init__("El estado en VirtualPOS cambio desde la aprobacion: el plan recalculado difiere del aprobado.")
+
+
+class ReapprovalRequiredError(BillingApplyError):
+    """GB-AP-13 (BILL-16): con doble aprobacion encendida, la variacion recalculada al ejecutar paso a una categoria que
+    exige mas aprobaciones que las obtenidas. Nada se escribio en el proveedor; la solicitud volvio a `pendiente`."""
+
+    def __init__(self, previous_required: int, new_required: int, variation_pct: Any) -> None:
+        self.previous_required = previous_required
+        self.new_required = new_required
+        self.variation_pct = variation_pct
+        super().__init__("La variación cambió de categoría desde la aprobación; la solicitud necesita una nueva aprobación.")
 
 
 class ApplyFailedError(BillingApplyError):
@@ -554,6 +570,57 @@ def _claim_request(db: Session, request_id: uuid.UUID) -> bool:
     return result.rowcount == 1
 
 
+def _variation(preview: dict[str, Any] | None) -> float | None:
+    value = ((preview or {}).get("summary") or {}).get("variation_pct")
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _require_reapproval_if_category_changed(
+    db: Session, req: BillingChangeRequest, new_preview: dict[str, Any], actor: uuid.UUID | None, now: datetime | None
+) -> None:
+    """GB-AP-13 (BILL-16). Con la doble aprobacion ENCENDIDA (politica vigente) compara la categoria de la variacion
+    aprobada con la recalculada. Si la nueva exige mas aprobaciones que las obtenidas, devuelve la solicitud a
+    `pendiente` (UPDATE condicional, sin tocar el proveedor), reinicia la ronda de aprobaciones y lanza
+    `ReapprovalRequiredError`. Bajar de categoria (2 -> 1) no pide nada: ya tiene aprobaciones de sobra."""
+    from app.services.billing_requests import (  # import local: billing_requests importa este modulo
+        get_policy,
+        required_approvals,
+    )
+
+    policy = get_policy(db)
+    if not policy.dual_approval_enabled:
+        return
+    old_var, new_var = _variation(req.plan_preview), _variation(new_preview)
+    old_required = required_approvals(policy, subscriptions=1, variation_pct=old_var)
+    new_required = required_approvals(policy, subscriptions=1, variation_pct=new_var)
+    if new_required <= old_required or int(req.approvals_count) >= new_required:
+        return
+    when = now.astimezone(UTC) if now is not None and now.tzinfo is not None else datetime.now(UTC)
+    previous_count, previous_required = int(req.approvals_count), int(req.approvals_required)
+    updated = db.execute(
+        update(BillingChangeRequest)
+        .where(BillingChangeRequest.id == req.id, BillingChangeRequest.status == STATUS_APPROVED)
+        .values(status=STATUS_PENDING, approvals_count=0, approvals_required=new_required, approved_by_user_id=None,
+                self_approved=False, decided_at=None, plan_preview=new_preview,
+                expires_at=when + timedelta(days=int(policy.request_expiry_days)), updated_at=func.now())
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if updated != 1:
+        db.rollback()
+        raise InvalidRequestStateError("no aprobada (transición concurrente)")
+    # `reintentada` abre una ronda nueva: las aprobaciones anteriores dejan de contar (`_approver_ids`).
+    _event(db, req.id, "reintentada", actor, {
+        "action": "reaprobacion", "reason": "variation_category_changed", "from_status": STATUS_APPROVED,
+        "to_status": STATUS_PENDING, "previous_variation_pct": old_var, "new_variation_pct": new_var,
+        "previous_approvals_count": previous_count, "previous_approvals_required": previous_required,
+        "new_approvals_required": new_required})
+    db.commit()
+    raise ReapprovalRequiredError(previous_required, new_required, new_var)
+
+
 def _subscription_state(db: Session, platform: str, sub: str) -> tuple[str | None, str | None] | None:
     row = db.execute(select(VpSubscription.status, VpSubscription.plan_external_id).where(
         VpSubscription.platform == platform, VpSubscription.external_id == sub)).first()
@@ -958,7 +1025,8 @@ async def apply_change_request(
         if plan.errors:
             return _not_executable(db, req, actor_user_id, "invalid_plan", {"errors": [e.code for e in plan.errors]})
         new_preview = plan_to_preview_json(plan)
-        cancelled_ids = {wv._as_text(i.get("id")) for i in items if is_cancelled_status(i.get("status"))}
+        _require_reapproval_if_category_changed(db, req, new_preview, actor_user_id, now)
+        cancelled_ids ={wv._as_text(i.get("id")) for i in items if is_cancelled_status(i.get("status"))}
         drift = compute_drift(req.plan_preview or {}, new_preview, {c for c in cancelled_ids if c})
         if drift is not None and not accept_drift:
             raise PlanDriftError(drift, new_preview)
@@ -1053,6 +1121,7 @@ __all__ = [
     "InvalidRequestStateError",
     "PlanDriftError",
     "ProviderListingError",
+    "ReapprovalRequiredError",
     "RequestNotFoundError",
     "SubscriptionBlockedError",
     "SubscriptionBusyError",

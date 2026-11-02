@@ -45,6 +45,7 @@ from app.services.billing_apply import (
     BillingApplyError,
     InvalidRequestStateError,
     PlanDriftError,
+    ReapprovalRequiredError,
     RequestNotFoundError,
     SubscriptionBlockedError,
     SubscriptionBusyError,
@@ -135,6 +136,21 @@ class RequiredCommentBody(BaseModel):
         return value
 
 
+class RenewalRejectBody(BaseModel):
+    """Rechazo de una tarea de renovacion (JB-32): comentario obligatorio; cabe en `close_reason` junto al usuario."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    comment: str = Field(min_length=1, max_length=renewal_svc.REJECT_COMMENT_MAX)
+
+    @field_validator("comment")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("El comentario es obligatorio y no puede estar vacío.")
+        return value
+
+
 class ApplyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -184,6 +200,11 @@ def _http(exc: BaseException) -> NoReturn:
             "plan_drift", "El estado en VirtualPOS cambió desde la aprobación; el plan recalculado difiere del aprobado. "
                           "Revise la diferencia y, si la acepta, reintente con accept_drift=true.",
             diff=exc.diff, new_preview=exc.new_preview, retry_with={"accept_drift": True}))
+    if isinstance(exc, ReapprovalRequiredError):  # GB-AP-13 / BILL-16: nada escrito, la solicitud volvio a pendiente
+        raise HTTPException(409, _detail(
+            "reapproval_required", "La variación cambió de categoría desde la aprobación; la solicitud volvió a "
+                                   "'pendiente' y necesita una nueva aprobación antes de ejecutarse.",
+            request_status="pendiente", approvals_required=exc.new_required))
     if isinstance(exc, InvalidRequestStateError):
         raise HTTPException(409, _detail("invalid_request_state", str(exc), current_status=exc.status))
     if isinstance(exc, svc.RequestStateConflictError):
@@ -225,6 +246,12 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(409, _detail("billing_flow_conflict", "La operación choca con el flujo de solicitudes de cambio."))
     if isinstance(exc, ChargeNotFoundError):
         raise HTTPException(409, _detail("charge_not_found", "Un cobro de la operación ya no existe en VirtualPOS."))
+    if isinstance(exc, renewal_svc.RenewalTaskNotFoundError):
+        raise HTTPException(404, _detail(exc.code, str(exc)))
+    if isinstance(exc, renewal_svc.RenewalTaskStateError):
+        raise HTTPException(409, _detail(exc.code, str(exc), current_status=exc.current_status))
+    if isinstance(exc, renewal_svc.RenewalTaskHasOpenRequestError):
+        raise HTTPException(409, _detail(exc.code, str(exc), open_request_id=str(exc.request_id)))
     if isinstance(exc, RequestNotFoundError):
         raise HTTPException(404, _detail("request_not_found", "Solicitud no encontrada."))
     if isinstance(exc, svc.SubscriptionUnknownError):
@@ -528,6 +555,16 @@ def list_renewal_task_inbox(
         statuses=list(status) if status else None, priority=priority, platform=platform,
         subscription_external_id=subscription_id, limit=limit, offset=offset))
     return {"items": [_task_json(t) for t in rows], "total": total, "limit": limit, "offset": offset}
+
+
+@router.post("/renewal-tasks/{task_id}/reject", dependencies=_CSRF, tags=TAGS)
+def reject_renewal_task(task_id: uuid.UUID, body: RenewalRejectBody, current_user: Approver, db: Db) -> dict:
+    """Rechaza una tarea abierta o vencida con comentario (JB-32). No escribe en el proveedor. Solo aprobadores vigentes."""
+    try:
+        task = renewal_svc.reject_renewal_task(db, task_id, current_user, body.comment)
+    except _HANDLED as exc:
+        raise _http(exc) from None
+    return _task_json(task)
 
 
 # ----------------------------- politica -----------------------------

@@ -169,6 +169,7 @@ def test_2_apply_unparseable_is_422(w, monkeypatch):
 @pytest.mark.parametrize(("exc", "code"), [
     (ba.SubscriptionBusyError("ocupada"), "subscription_busy"),
     (ba.SubscriptionBlockedError("bloqueada"), "subscription_blocked"),
+    (ba.ReapprovalRequiredError(1, 2, 80.0), "reapproval_required"),  # BILL-16
 ])
 def test_2_busy_and_blocked_are_409(w, monkeypatch, exc, code):
     rid = w.create("admin1")["id"]
@@ -188,6 +189,8 @@ def _instances():
             out.append(cls(uuid.uuid4(), None, []))
         elif cls is ba.InvalidRequestStateError:
             out.append(cls("x"))
+        elif cls is ba.ReapprovalRequiredError:
+            out.append(cls(1, 2, 80.0))
         else:
             out.append(cls("x"))
     for cls in (wv.WriteDisabledError, wv.FixedPlanChargeBlockedError, wv.ProviderListingError, wv.ReconciliationRequiredError,

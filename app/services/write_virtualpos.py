@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import re
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -72,6 +75,11 @@ class DuplicateSubscriptionError(Exception):
 
 class RetryBlockedError(Exception):
     pass
+
+
+class RetryInProgressError(RetryBlockedError):
+    """BILL-14 (GB-RZ-30): otro `/retry` del mismo cargo ya esta en curso (doble clic o dos usuarios a la vez).
+    Hereda de `RetryBlockedError` para que las rutas existentes respondan 409 sin llamar a VirtualPOS."""
 
 
 # Códigos de rechazo VirtualPOS → decisión (ver docs/integrations/virtualpos/workflows/reintento-cobro-rechazado.md)
@@ -1715,8 +1723,35 @@ async def cancel_payment(db: Session, payment_id: str, *, requested_by_user_id: 
     return payment
 
 
+def _charge_retry_lock_key(source: str, charge_id: str) -> int:
+    """Clave int64 estable (no `hash()` de Python) y con prefijo propio: no choca con el lock por suscripcion."""
+    digest = hashlib.blake2b(f"retry_charge:{source}:{charge_id}".encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
+
+
+@contextmanager
+def charge_retry_lock(db: Session, source: str, charge_id: str) -> Iterator[None]:
+    """BILL-14: `pg_try_advisory_xact_lock` por cargo en una conexion dedicada, retenido mientras dure el reintento.
+    Si otro `/retry` del mismo cargo lo tiene, falla al instante con `RetryInProgressError` (no espera)."""
+    conn = db.get_bind().engine.connect()
+    try:
+        conn.begin()
+        got = conn.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": _charge_retry_lock_key(source, charge_id)}).scalar()
+        if not got:
+            raise RetryInProgressError(f"Cargo {charge_id}: ya hay un reintento en curso; espera a que termine.")
+        yield
+    finally:
+        try:
+            conn.rollback()  # libera el lock xact
+        finally:
+            conn.close()
+
+
 async def retry_charge(db: Session, charge_id: str, source: str | None = None, *, requested_by_user_id: uuid.UUID | None = None) -> Charge:
-    """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry."""
+    """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry.
+
+    BILL-14: un solo reintento por cargo a la vez (lock por cargo); el segundo recibe `RetryInProgressError` (409)
+    sin crear `write_run` ni llamar a VirtualPOS."""
     query = select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
     if source is not None:
         query = query.where(Charge.source == source)
@@ -1727,6 +1762,11 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None, *
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
+    with charge_retry_lock(db, charge.source, charge_id):
+        return await _retry_charge_locked(db, charge, charge_id, requested_by_user_id)
+
+
+async def _retry_charge_locked(db: Session, charge: Charge, charge_id: str, requested_by_user_id: uuid.UUID | None) -> Charge:
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,

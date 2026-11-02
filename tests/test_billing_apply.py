@@ -468,6 +468,67 @@ def test_drift_between_approved_plan_and_current_state(db_session):
     assert "auto-03" not in _deleted()
 
 
+def _dual_policy(db, *, enabled=True, pct=50):
+    from app.services.billing_requests import get_policy
+
+    policy = get_policy(db)
+    policy.dual_approval_enabled = enabled
+    policy.dual_threshold_variation_pct = pct
+    db.commit()
+
+
+def _approved_once(db, req, user):
+    req.approvals_count = 1
+    req.approved_by_user_id = user.id
+    db.add(BillingChangeRequestEvent(request_id=req.id, event_type="aprobada", actor_user_id=user.id, detail={}))
+    db.commit()
+
+
+def test_variation_category_change_requires_reapproval(db_session):
+    """GB-AP-13 (BILL-16): aprobada con 1 aprobacion al 21 %; al ejecutar la variacion recalculada pasa al 100 % y con
+    doble aprobacion encendida (umbral 50 %) exige 2 -> vuelve a pendiente, ronda nueva, sin escrituras."""
+    user, req = _setup(db_session, previous_amount=None)
+    assert req.plan_preview["summary"]["variation_pct"] == pytest.approx(21.21)
+    _approved_once(db_session, req, user)
+    _dual_policy(db_session)
+    for c in STATE["charges"]:
+        if c["status"] == "pendiente":
+            c["amount"] = 6000  # el monto vigente en VP bajo: la variacion hacia 12000 es del 100 %
+    with pytest.raises(ba.ReapprovalRequiredError) as ei:
+        _apply(db_session, req, user)
+    assert (ei.value.previous_required, ei.value.new_required) == (1, 2)
+    assert set(_names()) == {"list_charges"}  # nada escrito en el proveedor
+    db_session.refresh(req)
+    assert (req.status, req.approvals_count, req.approvals_required) == ("pendiente", 0, 2)
+    assert req.approved_by_user_id is None and req.expires_at is not None
+    assert req.plan_preview["summary"]["variation_pct"] == pytest.approx(100.0)
+    ev = db_session.scalars(select(BillingChangeRequestEvent).where(
+        BillingChangeRequestEvent.request_id == req.id, BillingChangeRequestEvent.event_type == "reintentada")).one()
+    assert ev.detail["action"] == "reaprobacion" and ev.detail["new_approvals_required"] == 2
+    with pytest.raises(ba.InvalidRequestStateError):  # ya no es aplicable hasta reaprobar
+        _apply(db_session, req, user)
+
+
+@pytest.mark.parametrize("case", ["dual_off", "same_category", "already_two_approvals", "lower_category"])
+def test_variation_without_category_increase_does_not_ask_reapproval(db_session, case):
+    """GB-AP-13 (BILL-16): sin doble aprobacion, misma categoria, aprobaciones suficientes o bajada de categoria ->
+    sigue el flujo normal (aqui, el drift de montos)."""
+    user, req = _setup(db_session, previous_amount=None)
+    _approved_once(db_session, req, user)
+    _dual_policy(db_session, enabled=case != "dual_off", pct=10 if case == "lower_category" else 50)
+    if case == "already_two_approvals":
+        req.approvals_count = 2
+        db_session.commit()
+    # same_category: 21 % -> 9 % (ambas < 50 %); lower_category: 21 % (> 10 %) -> 4,35 % (< 10 %)
+    new_amount = {"same_category": 11000, "lower_category": 11500}.get(case, 6000)
+    for c in STATE["charges"]:
+        if c["status"] == "pendiente":
+            c["amount"] = new_amount
+    with pytest.raises(ba.PlanDriftError):
+        _apply(db_session, req, user)
+    assert _status(db_session, req) == "aprobada"
+
+
 def test_cancelled_subscription_is_not_executable_without_writes(db_session):
     """RA-22, JB-17: suscripcion cancelada tras la aprobacion -> no_ejecutable, cero llamadas."""
     user, req = _setup(db_session)

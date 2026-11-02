@@ -123,6 +123,8 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
   const activeFilterCount = Object.values(applied).filter((v) => v !== "").length;
   const total = data?.total ?? 0;
   const items = data?.items ?? [];
+  // UI-37: en Historial «Vencimiento» siempre sería «—» (solo aplica a pendientes); se muestra el cierre.
+  const lastColumn = listTab === "pending" ? "Vencimiento" : "Cierre";
 
   function onCreated(created: BillingRequestDetail) {
     setCreating(false);
@@ -159,6 +161,17 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
   function selectRequest(id: string) {
     setSelectedId(id);
     setFocusToken((t) => t + 1);
+  }
+
+  /**
+   * UI-38: toda la fila abre el detalle, como en el resto de las bandejas. El botón de la suscripción sigue siendo el
+   * control accesible por teclado; aquí se ignoran los clics sobre controles y la selección de texto.
+   */
+  function onRowClick(event: React.MouseEvent<HTMLTableRowElement>, id: string) {
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea, label")) return;
+    if (window.getSelection?.()?.toString()) return;
+    selectRequest(id);
   }
 
   function requestRenewal(task: RenewalTask) {
@@ -206,7 +219,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
         <>
       <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de solicitudes">
         <FiltersPanel activeCount={activeFilterCount}>
-          <label>Estado
+          <label className="bx-f-status">Estado
             <select value={draft.status} onChange={(e) => setField("status", e.target.value as RequestStatus | "")}>
               <option value="">Todos</option>
               {statusOptions.filter((s) => ALL_STATUSES.includes(s)).map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
@@ -279,14 +292,18 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
             <thead role="rowgroup">
               <tr role="row">
                 <th role="columnheader" scope="col">Suscripción</th><th role="columnheader" scope="col">Tipo</th><th role="columnheader" scope="col" className="num">Cambio</th><th role="columnheader" scope="col">Estado</th>
-                <th role="columnheader" scope="col">Solicitante</th><th role="columnheader" scope="col">Creada</th><th role="columnheader" scope="col">Vencimiento</th>
+                <th role="columnheader" scope="col">Solicitante</th><th role="columnheader" scope="col">Creada</th><th role="columnheader" scope="col">{lastColumn}</th>
               </tr>
             </thead>
             <tbody role="rowgroup">
               {items.map((r) => {
                 const expiry = expiryText(r);
+                const closedAt = r.executed_at ?? r.decided_at;
                 return (
-                  <tr role="row" key={r.id} data-selected={selectedId === r.id}>
+                  <tr
+                    role="row" key={r.id} data-selected={selectedId === r.id} className="bx-row-clickable"
+                    onClick={(e) => onRowClick(e, r.id)}
+                  >
                     <Cell label="Suscripción" className="bx-c-sub">
                       <button className="bx-row-btn mono" aria-current={selectedId === r.id ? "true" : undefined} onClick={() => selectRequest(r.id)}
                         aria-label={`Ver solicitud de la suscripción ${r.subscription_external_id}`}>
@@ -300,7 +317,9 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
                     <Cell label="Estado" className="bx-c-status"><StatusBadge status={r.status} /></Cell>
                     <Cell label="Solicitante" className="mono bx-c-who bx-lbl">{r.requested_by ?? "—"}</Cell>
                     <Cell label="Creada" className="mono bx-c-created bx-lbl">{formatDateTime(r.created_at)}</Cell>
-                    <Cell label="Vencimiento" className="mono bx-c-due bx-lbl">{expiry ?? "—"}</Cell>
+                    <Cell label={lastColumn} className="mono bx-c-due bx-lbl">
+                      {listTab === "pending" ? expiry ?? "—" : closedAt ? formatDateTime(closedAt) : "—"}
+                    </Cell>
                   </tr>
                 );
               })}

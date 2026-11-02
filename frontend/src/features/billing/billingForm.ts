@@ -1,3 +1,5 @@
+import { serverNow } from "../../serverClock";
+import { CHILE_TZ } from "./billingLabels";
 import type { ChangeBody, Platform, Policy, PolicyPatch, RequestType } from "./types";
 
 /** Valores crudos del formulario de solicitud (todo texto, como llega de los inputs). */
@@ -18,10 +20,25 @@ export const EMPTY_FORM: ChangeFormValues = {
 
 export type FormErrors = Partial<Record<"subscription" | "amount" | "chargeDay" | "chargeDate" | "taskRef" | "comment", string>>;
 
-/** Hoy en formato AAAA-MM-DD según la hora local del navegador. */
-export function todayIso(now: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+let chileDateFormatter: Intl.DateTimeFormat | null = null;
+
+/**
+ * Hoy en formato AAAA-MM-DD en hora de Chile (America/Santiago), como lo valida el backend, sin depender de la zona
+ * del navegador (BILL-21). Por defecto usa la hora del servidor (cabecera Date de la última respuesta).
+ */
+export function todayIso(now: Date = new Date(serverNow())): string {
+  chileDateFormatter ??= new Intl.DateTimeFormat("en-CA", { timeZone: CHILE_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+  const p: Record<string, string> = {};
+  for (const part of chileDateFormatter.formatToParts(now)) p[part.type] = part.value;
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+/** Tope del cobro puntual: 5 años desde hoy (Chile), el mismo que exige el backend (`_validate_params`). */
+export const ONE_OFF_MAX_YEARS = 5;
+export function oneOffMaxIso(now: Date = new Date(serverNow())): string {
+  const [y, m, d] = todayIso(now).split("-");
+  const year = String(Number(y) + ONE_OFF_MAX_YEARS);
+  return m === "02" && d === "29" ? `${year}-02-28` : `${year}-${m}-${d}`;
 }
 
 function parseInteger(value: string): number | null {
@@ -54,6 +71,7 @@ export function validateChangeForm(values: ChangeFormValues, now: Date = new Dat
   if (values.requestType === "one_off_charge") {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(values.chargeDate)) errors.chargeDate = "Indique la fecha del cobro.";
     else if (values.chargeDate <= todayIso(now)) errors.chargeDate = "La fecha del cobro puntual debe ser posterior a hoy.";
+    else if (values.chargeDate > oneOffMaxIso(now)) errors.chargeDate = `La fecha del cobro puntual no puede superar ${ONE_OFF_MAX_YEARS} años desde hoy.`;
     else body.new_charge_date = values.chargeDate;
     const ref = values.taskRef.trim();
     if (ref.length > 100) errors.taskRef = "La referencia de tarea admite hasta 100 caracteres.";

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError, type BillingErrorInfo } from "./billingErrors";
-import { EMPTY_FORM, validateChangeForm, type ChangeFormValues, type FormErrors } from "./billingForm";
+import { EMPTY_FORM, oneOffMaxIso, todayIso, validateChangeForm, type ChangeFormValues, type FormErrors } from "./billingForm";
 import { formatClp, PLATFORM_LABELS, platformLabel, REQUEST_TYPES, statusLabel, TYPE_LABELS } from "./billingLabels";
 import { PlanPreviewView } from "./PlanPreviewView";
 import type { BillingRequestDetail, Platform, PreviewResponse, RequestType } from "./types";
@@ -136,7 +136,7 @@ export function CreateRequestDialog({ prefill, onClose, onCreated }: Props) {
             <>
               <div>
                 <label>Fecha del cobro
-                <input className="mono" type="date" value={values.chargeDate} disabled={disabled} {...errProps("chargeDate")} onChange={(e) => setField("chargeDate", e.target.value)} />
+                <input className="mono" type="date" value={values.chargeDate} min={todayIso()} max={oneOffMaxIso()} disabled={disabled} {...errProps("chargeDate")} onChange={(e) => setField("chargeDate", e.target.value)} />
                 </label>
                 {errMsg("chargeDate")}
               </div>

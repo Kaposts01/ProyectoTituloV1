@@ -32,6 +32,13 @@ Reglas (cada una con su escenario)
 - Robustez: se procesa por lotes (`BATCH_SIZE`) con commit por lote y un SAVEPOINT por registro; un registro malo se cuenta en
   `errors` y NO tumba el lote. Log agregado sin PII (solo ids internos de marca y contadores).
 - JB-20 (allowlist del piloto) NO esta implementado en el proyecto (no existe tal lista/bandera): el chequeo revisa todas las marcas.
+- Rechazo con comentario (JB-32, BILL-15): un aprobador puede rechazar una tarea abierta/vencida sin solicitud de renovacion
+  abierta. La tarea se cierra como `no_aplica` con `close_reason` = "Rechazada por <usuario>: <comentario>" (sin migracion: el
+  CHECK de estados no admite otro). La marca SIGUE activa hasta el fin del horizonte (los cobros del CRM aun pendientes
+  conservan la proteccion contra el DELETE plural); el chequeo no reabre tarea para ese mismo horizonte
+  (`last_scheduled_date` igual) y, pasado el fin del horizonte, desactiva la marca: la suscripcion deja de estar
+  "calendario modificado" (contador `rejected_retired`). Si despues se aplica un cambio, la marca se extiende y el horizonte
+  nuevo vuelve a alertar.
 """
 
 from __future__ import annotations
@@ -82,6 +89,8 @@ class RenewalCheckResult:
     not_applicable: int = 0  # cerradas `no_aplica` (suscripcion no ACTIVA / sin marca activa)
     stale: int = 0  # tareas abiertas marcadas `data_stale` tras la corrida
     unsynced: int = 0  # marcas cuya suscripcion aun no esta sincronizada (ni vp_subscriptions ni subscriptions): se omiten
+    rejected_skipped: int = 0  # horizonte con tarea rechazada (JB-32): no se reabre tarea
+    rejected_retired: int = 0  # horizonte rechazado ya terminado: la marca se desactiva (JB-32)
     errors: int = 0  # registros que fallaron (aislados por SAVEPOINT)
 
     def merge(self, other: RenewalCheckResult) -> None:
@@ -124,6 +133,17 @@ def _open_renewal_request(db: Session, platform: str, sub: str) -> BillingChange
         BillingChangeRequest.platform == platform, BillingChangeRequest.subscription_external_id == sub,
         BillingChangeRequest.request_type == "renew_calendar", BillingChangeRequest.status.in_(br.OPEN_STATUSES))
         .order_by(BillingChangeRequest.created_at.desc()).limit(1))
+
+
+REJECTED_REASON_PREFIX = "Rechazada por "
+
+
+def _horizon_rejected(db: Session, platform: str, sub: str, last_scheduled_date: date) -> bool:
+    """JB-32: hay una tarea rechazada para ESTE horizonte (mismo `last_scheduled_date` de la marca)."""
+    return db.scalar(select(BillingRenewalTask.id).where(
+        BillingRenewalTask.platform == platform, BillingRenewalTask.subscription_external_id == sub,
+        BillingRenewalTask.status == TASK_NOT_APPLICABLE, BillingRenewalTask.last_scheduled_date == last_scheduled_date,
+        BillingRenewalTask.close_reason.startswith(REJECTED_REASON_PREFIX, autoescape=True)).limit(1)) is not None
 
 
 def _close(task: BillingRenewalTask, status: str, reason: str, now_utc: datetime, request_id: uuid.UUID | None = None) -> None:
@@ -182,6 +202,14 @@ def _process_mark(db: Session, mark: VpCalendarMark, *, today: date, now_utc: da
             out.closed += 1
             db.flush()  # libera el indice unico parcial antes de evaluar una tarea nueva
             task = None
+
+    if task is None and _horizon_rejected(db, platform, sub, mark.last_scheduled_date):  # JB-32
+        if today > mark.last_scheduled_date:
+            mark.is_active = False  # fin del horizonte rechazado: deja de ser "calendario modificado"
+            out.rejected_retired += 1
+        else:
+            out.rejected_skipped += 1
+        return out
 
     days = (mark.last_scheduled_date - today).days
     if task is None and days > threshold:  # JB-26: N+1 no abre
@@ -272,6 +300,79 @@ def run_renewal_check(db: Session, now: datetime | None = None) -> RenewalCheckR
     return result
 
 
+# ----------------------------- rechazo (JB-32) -----------------------------
+
+
+class RenewalTaskError(br.BillingRequestError):
+    code = "renewal_task_error"
+
+
+class RenewalTaskNotFoundError(RenewalTaskError):
+    code = "renewal_task_not_found"
+
+    def __init__(self) -> None:
+        super().__init__("Tarea de renovación no encontrada.")
+
+
+class RenewalTaskStateError(RenewalTaskError):
+    code = "renewal_task_not_open"
+
+    def __init__(self, current: str) -> None:
+        self.current_status = current
+        super().__init__(f"La tarea está en estado {current!r}; solo se rechaza una tarea abierta o vencida.")
+
+
+class RenewalTaskHasOpenRequestError(RenewalTaskError):
+    code = "renewal_task_has_open_request"
+
+    def __init__(self, request_id: uuid.UUID) -> None:
+        self.request_id = request_id
+        super().__init__("La tarea tiene una solicitud de renovación abierta: decida esa solicitud en lugar de la tarea.")
+
+
+REJECT_COMMENT_MAX = _REASON_MAX - len(REJECTED_REASON_PREFIX) - 82  # cabe "Rechazada por <usuario de hasta 80>: "
+
+
+def reject_renewal_task(db: Session, task_id: uuid.UUID, actor: Any, comment: str | None, *,
+                        now: datetime | None = None) -> BillingRenewalTask:
+    """JB-32 (BILL-15): un aprobador vigente rechaza una tarea `abierta|vencida` con comentario obligatorio.
+
+    Cierra la tarea como `no_aplica` con el comentario en `close_reason`. No toca el proveedor ni crea solicitudes. Si el
+    horizonte ya termino, desactiva la marca en el acto; si no, la desactiva el chequeo cuando termine (ver docstring)."""
+    text = br._clean_comment(comment, required=True)
+    task = db.scalar(select(BillingRenewalTask).where(BillingRenewalTask.id == task_id)
+                     .with_for_update().execution_options(populate_existing=True))
+    if task is None:
+        db.rollback()
+        raise RenewalTaskNotFoundError()
+    if task.status not in OPEN_TASK_STATUSES:
+        status = task.status
+        db.rollback()
+        raise RenewalTaskStateError(status)
+    if not br.is_approver(actor, br.get_policy(db)):
+        log.warning("renovacion: rechazo denegado tarea=%s usuario=%s", task.id, actor.id)
+        db.rollback()
+        raise br.NotApproverError()
+    linked = _open_renewal_request(db, task.platform, task.subscription_external_id)
+    if linked is not None:
+        db.rollback()
+        raise RenewalTaskHasOpenRequestError(linked.id)
+    chile_now = ba._chile_now(now)
+    username = str(getattr(actor, "username", "") or "aprobador")[:80]
+    _close(task, TASK_NOT_APPLICABLE, f"{REJECTED_REASON_PREFIX}{username}: {text[:REJECT_COMMENT_MAX]}",
+           chile_now.astimezone(UTC))
+    if chile_now.date() > task.last_scheduled_date:
+        mark = db.scalar(select(VpCalendarMark).where(
+            VpCalendarMark.platform == task.platform, VpCalendarMark.subscription_external_id == task.subscription_external_id,
+            VpCalendarMark.is_active.is_(True), VpCalendarMark.last_scheduled_date == task.last_scheduled_date))
+        if mark is not None:
+            mark.is_active = False
+    db.commit()
+    log.info("renovacion: tarea %s rechazada por usuario %s", task.id, actor.id)
+    db.refresh(task)
+    return task
+
+
 # ----------------------------- consulta (bandeja) -----------------------------
 
 
@@ -304,6 +405,18 @@ def list_renewal_tasks(db: Session, f: TaskFilters) -> tuple[list[BillingRenewal
 
 
 __all__ = [
-    "BATCH_SIZE", "HIGH_PRIORITY_DAYS", "OPEN_TASK_STATUSES", "STALE_AFTER_HOURS",
-    "RenewalCheckResult", "TaskFilters", "list_renewal_tasks", "run_renewal_check",
+    "BATCH_SIZE",
+    "HIGH_PRIORITY_DAYS",
+    "OPEN_TASK_STATUSES",
+    "REJECTED_REASON_PREFIX",
+    "STALE_AFTER_HOURS",
+    "RenewalCheckResult",
+    "RenewalTaskError",
+    "RenewalTaskHasOpenRequestError",
+    "RenewalTaskNotFoundError",
+    "RenewalTaskStateError",
+    "TaskFilters",
+    "list_renewal_tasks",
+    "reject_renewal_task",
+    "run_renewal_check",
 ]

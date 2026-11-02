@@ -34,6 +34,7 @@ from app.services.rejection_format import format_rejection_reason
 from app.services.vp_current_amount import load_current_amount
 from app.services.write_virtualpos import (
     ChargeNotFoundError,
+    RetryBlockedError,
     WriteDisabledError,
     retry_charge,
 )
@@ -784,7 +785,7 @@ async def request_retries(body: RetryRequest, db: Annotated[Session, Depends(get
         try:
             charge = await retry_charge(db, item.external_id, item.source)
             results.append({"source": item.source, "external_id": item.external_id, "success": True, "status": charge.status})
-        except (ChargeNotFoundError, WriteDisabledError) as exc:
+        except (ChargeNotFoundError, WriteDisabledError, RetryBlockedError) as exc:  # BILL-14: incluye «ya en curso»
             results.append({"source": item.source, "external_id": item.external_id, "success": False, "error": type(exc).__name__})
         except (HTTPStatusError, VirtualPOSAPIError) as exc:
             results.append({"source": item.source, "external_id": item.external_id, "success": False, "error": _vp_error_label(exc)})
