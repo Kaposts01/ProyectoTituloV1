@@ -1,0 +1,13 @@
+/* RT-12: avisos de cambios en vivo */
+.change-toasts { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, calc(100vw - 32px)); pointer-events: none; }
+.change-toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, .12); color: var(--text-1); }
+.change-toast-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
+.change-toast-body strong { font-size: 14px; }
+.change-toast-body span { color: var(--text-2); overflow-wrap: anywhere; }
+.change-toast-close { background: none; border: 0; color: var(--text-muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.change-toast-close:hover { color: var(--text-1); }
+
+/* RT-14: panel de salud de webhooks */
+.webhook-health-wrap { overflow-x: auto; }
+.webhook-health-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.webhook-health-table th, .webhook-health-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
