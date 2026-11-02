@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
@@ -22,6 +23,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.source_record import SourceRecord
+from app.services.source_record_store import StoreResult
 
 logger = logging.getLogger("sync.metrics")
 
@@ -100,7 +102,11 @@ def deactivate(token: Token) -> None:
 
 
 class ResourceTimer:
-    """Acumula, para un recurso de un canal, el tiempo de extraccion (API) y el de upsert (staging/canal)."""
+    """Acumula, para un recurso de un canal, el tiempo de extraccion (API) y el de upsert (staging/canal).
+
+    SYNC-D-17: tambien junta filas nuevas/actualizadas/sin cambio (`store`), el modo de lectura (`full`/`window`) y
+    la duracion total del recurso; `summary()` es lo que se guarda en `sync_runs.resource_stats`.
+    """
 
     def __init__(self, metrics: RunMetrics | None, channel: str, resource: str) -> None:
         self._metrics = metrics
@@ -110,6 +116,10 @@ class ResourceTimer:
         self.upsert_seconds = 0.0
         self.pages = 0
         self.records = 0
+        self.mode = "full"
+        self.store = StoreResult()
+        self._started = time.perf_counter()
+        self._seconds: float | None = None
 
     @contextmanager
     def api(self) -> Iterator[None]:
@@ -129,16 +139,41 @@ class ResourceTimer:
             self.upsert_seconds += time.perf_counter() - started
             self.records += records
 
-    def finish(self) -> None:
+    def summary(self) -> dict[str, Any]:
+        seconds = self._seconds if self._seconds is not None else time.perf_counter() - self._started
+        return {
+            "mode": self.mode,
+            "seconds": round(seconds, 3),
+            "api_seconds": round(self.api_seconds, 3),
+            "upsert_seconds": round(self.upsert_seconds, 3),
+            "pages": self.pages,
+            "records": self.records,
+            "inserted": self.store.inserted,
+            "updated": self.store.updated,
+            "unchanged": self.store.unchanged,
+        }
+
+    def finish(self) -> dict[str, Any]:
+        self._seconds = time.perf_counter() - self._started
+        summary = self.summary()
         if self._metrics is not None:
             self._metrics.add(
                 "sync_resource",
                 f"{self.channel}.{self.resource}",
-                api_seconds=round(self.api_seconds, 3),
-                upsert_seconds=round(self.upsert_seconds, 3),
-                pages=self.pages,
-                records=self.records,
+                **{key: value for key, value in summary.items() if key != "seconds"},
             )
+        return summary
+
+
+def current_run_id() -> uuid.UUID | None:
+    """SYNC-D-17: id de la corrida global activa (`etl_runs.id`), para correlacionar cada `sync_runs`."""
+    metrics = _current.get()
+    if metrics is None:
+        return None
+    try:
+        return uuid.UUID(metrics.run_id)
+    except ValueError:
+        return None
 
 
 def resource_timer(channel: str, resource: str) -> ResourceTimer:

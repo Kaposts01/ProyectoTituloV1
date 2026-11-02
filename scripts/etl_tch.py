@@ -1746,9 +1746,10 @@ def reload_full(
         for file_name in report_files:
             sha = report_registry.file_sha256(file_name)
             t = _process_file(file_name, db)
-            report_registry.register(db, sha, file_name.name, file_name.stat().st_size)
+            file_rows = t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
+            report_registry.register(db, sha, file_name.name, file_name.stat().st_size, rows_loaded=file_rows)
             latest = t
-            total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
+            total += file_rows
             log.info(f"  [{file_name.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
         if latest:
             cancellations = _apply_implicit_cancellations(db, latest["fichas"])
@@ -1825,8 +1826,8 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
             raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
         latest_loaded = _last_closed_period(db)
         totals = _process_file(filepath, db)
-        report_registry.register(db, sha, filepath.name, filepath.stat().st_size)
         total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
+        report_registry.register(db, sha, filepath.name, filepath.stat().st_size, rows_loaded=total)
         if _is_latest_report(latest_loaded, _report_period(filepath)):
             cancellations = _apply_implicit_cancellations(db, totals["fichas"])
             log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")

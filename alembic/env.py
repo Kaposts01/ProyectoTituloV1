@@ -58,11 +58,13 @@ from app.models.status_change import (  # noqa: F401
 from app.models.stg_payku_webhook_event import StgPaykuWebhookEvent  # noqa: F401
 from app.models.stg_toku_webhook_event import StgTokuWebhookEvent  # noqa: F401
 from app.models.stg_vpos_webhook_event import StgVposWebhookEvent  # noqa: F401
+from app.models.sync_cursor import SyncCursor  # noqa: F401
 from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.tch import (  # noqa: F401
     TchBank,
     TchClient,
     TchCostCenter,
+    TchFileLoad,
     TchMandateType,
     TchMonthlyCollection,
     TchOrigin,

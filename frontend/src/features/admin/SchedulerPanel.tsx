@@ -1,11 +1,12 @@
 import type { ChangeEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { getJson, postJson, postForm, friendlyError } from "../../api";
 import { invalidateCache } from "../../apiCache";
 import { label } from "../../i18n/label";
 import { CHANNEL_UNAVAILABLE_TITLE, useEnabledChannels } from "../shared/environment";
 import type { EtlRun, SchedulerJob, SseEvent } from "../shared/types";
 import { API_CHANNELS, phaseText, runTypeLabel } from "./schedulerLabels";
+import { RunResourceStats } from "./RunResourceStats";
 import { SseLogEntry } from "./SseLogEntry";
 
 type ChannelKey = "all" | "virtualpos" | "toku" | "payku" | "tch";
@@ -82,6 +83,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
   const [polledPhase, setPolledPhase] = useState<string | null>(null);
   const [triggeredChannels, setTriggeredChannels] = useState<string[] | null | undefined>(undefined);
   const [jobsError, setJobsError] = useState(false);
+  const [detailRunId, setDetailRunId] = useState<string | null>(null);
 
   const activeRunIdRef = useRef<string | null>(null);
   const reportInputRef = useRef<HTMLInputElement>(null);
@@ -401,16 +403,22 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
               <tr><td colSpan={7} className="muted-copy" style={{ textAlign: "center", padding: "1rem" }}>{canSync ? "Aún no hay ejecuciones. Ejecute una sincronización manual desde un job programado." : "Aún no hay ejecuciones registradas."}</td></tr>
             ) : runs.items.map((run) => {
               const isThisRunActive = run.status === "running" && activeRunId === run.id;
+              const showDetail = detailRunId === run.id;
               return (
-                <tr key={run.id}>
+                <Fragment key={run.id}>
+                <tr>
                   <td className="runs-date">{fmtDate(run.started_at)}</td>
                   <td className="runs-date hide-mobile">{fmtDate(run.finished_at)}</td>
                   <td className="runs-dur">{isThisRunActive && globalPct !== null ? <span className="runs-live-dur">⟳ {globalPct}%</span> : fmtDuration(run.started_at, run.finished_at)}</td>
                   <td>{statusBadge(run.status)}</td>
                   <td className="runs-type">{runTypeLabel(run.channels_processed, enabled)}</td>
                   <td className="runs-rec">{run.records_upserted != null ? <span className="runs-rec-val">{run.records_upserted.toLocaleString()}</span> : <span className="muted-copy">—</span>}</td>
-                  <td>{run.status === "running" ? (isThisRunActive ? <span className="runs-watching-dot" title="Viendo en vivo">●</span> : <button className="runs-ver-btn" onClick={() => { setActiveRunId(run.id); setTriggeredChannels(undefined); }}>Ver en vivo</button>) : null}</td>
+                  <td>{run.status === "running" ? (isThisRunActive ? <span className="runs-watching-dot" title="Viendo en vivo">●</span> : <button className="runs-ver-btn" onClick={() => { setActiveRunId(run.id); setTriggeredChannels(undefined); }}>Ver en vivo</button>) : <button className="runs-ver-btn" aria-expanded={showDetail} onClick={() => setDetailRunId(showDetail ? null : run.id)}>{showDetail ? "Ocultar" : "Detalle"}</button>}</td>
                 </tr>
+                {showDetail ? (
+                  <tr className="runs-detail-row"><td colSpan={7}><RunResourceStats etlRunId={run.id} /></td></tr>
+                ) : null}
+                </Fragment>
               );
             })}
           </tbody>

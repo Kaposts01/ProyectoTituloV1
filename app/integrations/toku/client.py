@@ -172,8 +172,16 @@ class TokuClient:
     # Transactions                                                         #
     # ------------------------------------------------------------------ #
 
-    async def list_transactions(self, page: int = 1, page_size: int = 100) -> Any:
-        return await self._get("/transactions", params={"page": page, "page_size": page_size})
+    async def list_transactions(
+        self, page: int = 1, page_size: int = 100, start_date: str | None = None, end_date: str | None = None
+    ) -> Any:
+        """GET /transactions. `start_date`/`end_date` (`YYYY-MM-DD`, inclusive) acotan la ventana (SYNC-O-02)."""
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return await self._get("/transactions", params=params)
 
     # ------------------------------------------------------------------ #
     # Payments                                                             #

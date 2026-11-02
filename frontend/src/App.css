@@ -509,6 +509,10 @@ td:first-child { font-weight: 700; }
 .runs-type { font-size: 0.8rem; color: var(--text-1); white-space: nowrap; }
 .runs-rec { font-size: 0.82rem; }
 .runs-rec-val { font-variant-numeric: tabular-nums; font-weight: 500; }
+/* SYNC-D-17: detalle por recurso de una ejecucion (cifras en JetBrains Mono, DESIGN.md). */
+.runs-detail-row > td { padding: .5rem .75rem 1rem; }
+.run-resource-stats { width: 100%; }
+.run-resource-stats .mono-num { font-family: var(--font-mono); text-align: right; }
 .runs-ver-btn { padding: 0.25rem 0.6rem; font-size: 0.75rem; border: 1px solid var(--color-primary, #2563EB); border-radius: 5px; background: transparent; color: var(--color-primary, #2563EB); cursor: pointer; white-space: nowrap; }
 .runs-ver-btn:hover { background: rgba(37,99,235,.07); }
 .runs-live-dur { font-size: 0.82rem; font-weight: 600; color: #2563EB; white-space: nowrap; animation: pulse-text 1.2s ease-in-out infinite; }

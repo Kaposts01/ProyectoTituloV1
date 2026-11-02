@@ -20,8 +20,7 @@ from app.core.config import settings
 from app.db.session import engine
 from app.models.crm import Charge, Client, Subscription
 from app.models.etl_run import EtlRun
-from app.models.source_record import SourceRecord
-from app.models.tch import TchClient, TchSubscription, TchTransaction
+from app.models.tch import TchClient, TchFileLoad, TchSubscription, TchTransaction
 from app.scheduler.jobs import sync_all
 from app.services import tch_report_registry as registry
 from app.services.channel_consolidation import consolidate_to_centralized
@@ -80,9 +79,8 @@ def test_a_full_reload_of_the_same_files_triggers_consolidation(db_session) -> N
     registry.mark_consolidated(db_session, registry.consolidation_snapshot(db_session))
     registry.clear(db_session)  # carga completa: reinicia el registro y vuelve a cargar los mismos archivos
     db_session.add(
-        SourceRecord(source=registry.SOURCE, resource_type=registry.RESOURCE_TYPE, external_id=sha,
-                     payload={"filename": "a.xlsx", "size_bytes": 10},
-                     first_seen_at=datetime.now(UTC) + timedelta(seconds=5))  # otro instante de carga
+        TchFileLoad(file_sha256=sha, file_name="a.xlsx", size_bytes=10,
+                    loaded_at=datetime.now(UTC) + timedelta(seconds=5))  # otro instante de carga
     )
     db_session.flush()
     assert registry.needs_consolidation(db_session, registry.consolidation_snapshot(db_session)) is True

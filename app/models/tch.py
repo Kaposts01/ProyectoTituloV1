@@ -2,7 +2,15 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -199,3 +207,20 @@ class TchMonthlyCollection(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class TchFileLoad(Base):
+    """SYNC-O-08: registro de reportes Excel TCH cargados, por sha256 del contenido (antes en `source_records`).
+
+    `consolidated_at` lo fija la consolidacion TCH exitosa que ya vio el archivo; NULL = cargado y aun sin consolidar.
+    Solo guarda nombre, tamano y conteo: nada del contenido del reporte.
+    """
+
+    __tablename__ = "tch_file_loads"
+
+    file_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    rows_loaded: Mapped[int | None] = mapped_column(Integer)
+    loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    consolidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

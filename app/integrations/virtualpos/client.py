@@ -92,6 +92,11 @@ def _decode(response: httpx.Response, *, lenient: bool = False, empty_ok: bool =
     return body
 
 
+def _date_filters(**filters: str | None) -> dict[str, str]:
+    """Solo los filtros de fecha con valor (sin ellos la peticion es identica a la de siempre)."""
+    return {key: value for key, value in filters.items() if value}
+
+
 class VirtualPOSClient:
     """Client for the VirtualPOS API (v3). Supports both account 1 and account 2."""
 
@@ -132,8 +137,13 @@ class VirtualPOSClient:
     async def __aexit__(self, *_: object) -> None:
         await self._client.aclose()
 
-    async def list_clients(self, page: int = 1, limit: int = 100) -> Any:
-        return await self._get("/v3/clients", params={"page": page, "limit": limit})
+    async def list_clients(
+        self, page: int = 1, limit: int = 100, created_from: str | None = None, created_to: str | None = None
+    ) -> Any:
+        """GET /v3/clients. `created_from`/`created_to` (`YYYY-MM-DD`, inclusive) acotan la ventana (SYNC-O-05)."""
+        params: dict[str, Any] = {"page": page, "limit": limit}
+        params.update(_date_filters(created_from=created_from, created_to=created_to))
+        return await self._get("/v3/clients", params=params)
 
     async def get_client(self, client_id: str) -> Any:
         return await self._get(f"/v3/client/{client_id}")
@@ -174,8 +184,26 @@ class VirtualPOSClient:
         response = await self._client.post("/v3/suscription", json=data)
         return _decode(response)
 
-    async def list_payments(self, page: int = 1, limit: int = 100) -> Any:
-        return await self._get("/v3/payments", params={"page": page, "limit": limit})
+    async def list_payments(
+        self,
+        page: int = 1,
+        limit: int = 100,
+        created_from: str | None = None,
+        created_to: str | None = None,
+        authorization_from: str | None = None,
+        authorization_to: str | None = None,
+    ) -> Any:
+        """GET /v3/payments. Filtros de fecha `YYYY-MM-DD` opcionales para la lectura por ventana (SYNC-O-05)."""
+        params: dict[str, Any] = {"page": page, "limit": limit}
+        params.update(
+            _date_filters(
+                created_from=created_from,
+                created_to=created_to,
+                authorization_from=authorization_from,
+                authorization_to=authorization_to,
+            )
+        )
+        return await self._get("/v3/payments", params=params)
 
     async def get_payment(self, payment_uuid: str) -> Any:
         return await self._get(f"/v3/payment/{payment_uuid}")

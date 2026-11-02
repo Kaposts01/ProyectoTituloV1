@@ -1,8 +1,10 @@
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.security import require_permissions
@@ -10,7 +12,7 @@ from app.db.session import SessionLocal
 from app.models.core import CoreCharge
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
-from app.services import core_etl_mark
+from app.services import core_etl_mark, sync_cursors, tch_report_registry
 
 router = APIRouter()
 
@@ -24,11 +26,19 @@ def get_db():
 
 
 @router.get("", dependencies=[Depends(require_permissions("sync_runs.view"))])
-def list_sync_runs(db: Session = Depends(get_db)) -> list[dict[str, object]]:  # noqa: B008
-    # Solo corridas de canales: las de los jobs de facturacion (`billing_*`) se ven en /scheduler/jobs.
-    runs = db.scalars(
-        select(SyncRun).where(SyncRun.is_channel_source()).order_by(SyncRun.started_at.desc()).limit(50)
-    ).all()
+def list_sync_runs(
+    etl_run_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),  # noqa: B008
+) -> list[dict[str, object]]:
+    """Corridas de canales (las de facturacion/bajas se ven en /scheduler/jobs).
+
+    SYNC-D-17: `etl_run_id` filtra las corridas de canal de una corrida global; cada fila trae `resource_stats`
+    (por recurso: modo, duracion, nuevas/actualizadas/sin cambio) y `duration_seconds`.
+    """
+    query = select(SyncRun).where(SyncRun.is_channel_source())
+    if etl_run_id is not None:
+        query = query.where(SyncRun.etl_run_id == etl_run_id)
+    runs = db.scalars(query.order_by(SyncRun.started_at.desc()).limit(50)).all()
     return [
         {
             "id": str(run.id),
@@ -36,11 +46,20 @@ def list_sync_runs(db: Session = Depends(get_db)) -> list[dict[str, object]]:  #
             "status": run.status,
             "started_at": run.started_at,
             "finished_at": run.finished_at,
+            "duration_seconds": _duration_seconds(run.started_at, run.finished_at),
             "records_processed": run.records_processed,
             "error_message": run.error_message,
+            "etl_run_id": str(run.etl_run_id) if run.etl_run_id else None,
+            "resource_stats": run.resource_stats,
         }
         for run in runs
     ]
+
+
+def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> float | None:
+    if started_at is None or finished_at is None:
+        return None
+    return round((finished_at - started_at).total_seconds(), 1)
 
 
 _WARN_AFTER = timedelta(hours=24)
@@ -173,6 +192,20 @@ def _core_lag_hours(db: Session, channel: str, sources: tuple[str, ...]) -> floa
     return round(max(0.0, (last_sync - core_last).total_seconds() / 3600), 1)
 
 
+def _resources_health(db: Session, channel: str, sources: tuple[str, ...]) -> list[dict[str, object]]:
+    """SYNC-O-08: `last_success_at` por recurso (marcas de `sync_cursors`; TCH: ultima carga de reporte)."""
+    if channel != "tch":
+        return sync_cursors.resources_health(db, sources)
+    try:
+        with db.begin_nested():
+            loaded = tch_report_registry.last_loaded_at(db)
+    except SQLAlchemyError:
+        return []
+    if loaded is None:
+        return []
+    return [{"source": "tch", "resource": "file", "mode": "load", "last_success_at": loaded.isoformat()}]
+
+
 def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for channel, sources in _CHANNEL_SOURCES.items():
@@ -188,6 +221,9 @@ def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
             "consecutive_failures": worst["consecutive_failures"],
             "days_without_success": worst["days_without_success"],
         }
+        resources = _resources_health(db, channel, sources)
+        if resources:  # SYNC-O-08: solo con marcas (sin ellas el contrato de la fila no cambia)
+            item["resources"] = resources
         if channel in _CORE_CHANNELS:
             lag = _core_lag_hours(db, channel, sources)
             if lag is not None:
