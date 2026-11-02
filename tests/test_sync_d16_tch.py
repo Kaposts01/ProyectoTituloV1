@@ -13,7 +13,10 @@ from app.models.crm import Charge, Client, Subscription
 from app.models.source_record import SourceRecord
 from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.services import channel_consolidation
-from app.services.tch_source_records import missing_tch_source_records, sync_tch_source_records
+from app.services.tch_source_records import (
+    missing_tch_source_records,
+    sync_tch_source_records,
+)
 from scripts import etl_tch
 from tests.tch_synthetic import write_report
 
