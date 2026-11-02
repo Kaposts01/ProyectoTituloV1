@@ -175,7 +175,7 @@ def test_migration_0055_chain_and_copies_match_code() -> None:
     from app.services import rbac
 
     mig = _migration()
-    assert mig.revision == "20261102_0055" and mig.down_revision == "20261102_0052"
+    assert mig.revision == "20261102_0055" and mig.down_revision == "20261102_0057"
     assert mig.SUBSCRIPTION_STATUS == payku_status.PAYKU_COMMON_STATUS
     assert mig.CHARGE_STATUS == payku_status.PAYKU_CHARGE_STATUS
     assert mig.GRANT_RULES == rbac.PAYKU_RECOVERY_GRANT_RULES
