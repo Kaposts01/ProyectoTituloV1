@@ -1,8 +1,25 @@
+"""Tablas de canal VirtualPOS (`vp_*`).
+
+Columnas promovidas desde `raw_payload` (VP-PAR-07, migracion `20261102_0060`): tarjeta vigente, alias POS y origen
+en suscripciones; RUT del cliente, autorizacion, comision y abono en pagos.
+"""
+
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import DateTime, Index, String, UniqueConstraint, func, text
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,6 +80,7 @@ class VpSubscription(Base):
             unique=True,
             postgresql_where=text("status IN ('ACTIVA', 'SUSCRIBIENDO')"),
         ),
+        CheckConstraint("card_last4 IS NULL OR card_last4 ~ '^[0-9]{4}$'", name="ck_vp_subscriptions_card_last4"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -78,6 +96,12 @@ class VpSubscription(Base):
     canceled_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
     amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # VP-PAR-07: tarjeta vigente (`payment_method`), sin PAN ni BIN; solo los ultimos 4.
+    card_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    card_brand: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    card_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    terminal_pos: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    origin: Mapped[str | None] = mapped_column(String(100), nullable=True)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -114,6 +138,12 @@ class VpPayment(Base):
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     payment_date: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    # VP-PAR-07: RUT del cliente (vinculo con la suscripcion en el ETL Core), autorizacion y primer tramo de abono.
+    client_social_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    authorized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    processing_fee: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    payout_amount: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    payout_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

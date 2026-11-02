@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -41,7 +42,12 @@ class ExternalIdentity(Base):
 
 class CoreSubscription(Base):
     __tablename__ = "core_subscriptions"
-    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_core_subscription_source_external_id"),)
+    __table_args__ = (
+        UniqueConstraint("source", "external_id", name="uq_core_subscription_source_external_id"),
+        CheckConstraint("card_last4 IS NULL OR card_last4 ~ '^[0-9]{4}$'", name="ck_core_subscriptions_card_last4"),
+        CheckConstraint("card_last4_source IS NULL OR card_last4_source IN ('api', 'report')",
+                        name="ck_core_subscriptions_card_last4_source"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("core_clients.id"), index=True)
@@ -53,6 +59,11 @@ class CoreSubscription(Base):
     currency: Mapped[str | None] = mapped_column(String(3))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # VP-PAR-09 (migracion 20261102_0060): «Motivo de rechazo» de SuscriptoresPAT y ultimos 4 de la tarjeta. La tarjeta
+    # de la API manda (`card_last4_source = 'api'`) y el reporte completa (`'report'`). Hoy solo VirtualPOS los llena.
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    card_last4: Mapped[str | None] = mapped_column(String(4))
+    card_last4_source: Mapped[str | None] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

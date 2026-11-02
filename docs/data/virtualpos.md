@@ -98,8 +98,8 @@ la excluyen con la regla de VP-PAR-10.
 | UUID transacción | `vp_payments.external_id` (= `order.uuid`) | COL; vínculo al cobro: ver abajo |
 | Código y glosa de autorización/error/rechazo | `payment_rejection_details.code/reason` (`capture_source = report_pat`) → `core_payments.rejection_*`, `core_charges.latest_rejection_*` | REP → COL (tabla única, D3) |
 | Medio de pago (Débito/Crédito/Prepago), Final número tarjeta | `vp_report_payments.payment_medium/card_last4` | REP (el API no lo tiene por cobro) |
-| Fecha de autorización, comisión, abono, fecha de abono | `vp_payments.raw_payload.order.*` y `vp_report_payments.*` | RAW / REP (VP-PAR-07 los promoverá a columnas) |
-| Alias POS, Código de vendedor, Origen | `vp_subscriptions.raw_payload` / `vp_report_payments.pos_alias`, `seller_code_hash` (HMAC) | RAW / REP |
+| Fecha de autorización, comisión, abono, fecha de abono | `vp_payments.authorized_at/processing_fee/payout_amount/payout_date` (primer tramo de `order.deposits`) y `vp_report_payments.*` | COL (VP-PAR-07, migración `0060`) / REP |
+| Alias POS, Código de vendedor, Origen | `vp_subscriptions.terminal_pos/origin` (VP-PAR-07); el código de vendedor sigue solo en `raw_payload` (forma de RUT, decisión de privacidad pendiente) / `vp_report_payments.pos_alias`, `seller_code_hash` (HMAC) | COL / RAW / REP |
 | Número de cargo (N de M) | `vp_report_payments.charge_number/charges_total` | REP |
 | Nombre, apellido, correo, RUT | `vp_clients.*` | COL (el importador nunca los guarda) |
 
@@ -109,8 +109,8 @@ la excluyen con la regla de VP-PAR-10.
 |---|---|---|
 | Id de suscripción | `vp_subscriptions.external_id` | COL, 9.005/9.005 |
 | Estado, Fecha de suscripción, Fecha de cancelación | `vp_subscriptions.status/suscription_date/canceled_at`, `core_subscriptions.status/started_at/ended_at` | COL |
-| Motivo de rechazo (suscripción fallida) | `vp_report_subscriptions.rejection_reason` | REP; VP-PAR-09 lo proyecta en lectura (`core_vp_etl.project_subscription_report_fields`); `core_subscriptions` no tiene columna (requiere migración) |
-| Tipo, marca y últimos 4 de la tarjeta | API: `vp_subscriptions.raw_payload.payment_method` (70 %); reporte: `vp_report_subscriptions.card_*` | RAW / REP; la API manda y el reporte completa los ~1.784 que faltan (VP-PAR-09) |
+| Motivo de rechazo (suscripción fallida) | `vp_report_subscriptions.rejection_reason` → `core_subscriptions.rejection_reason` | REP → COL (VP-PAR-09, migración `0060`; lo mantiene `core_vp_etl.persist_subscription_report_fields`) |
+| Tipo, marca y últimos 4 de la tarjeta | API: `vp_subscriptions.card_type/card_brand/card_last4` (70 %); reporte: `vp_report_subscriptions.card_*`; vigente: `core_subscriptions.card_last4` + `card_last4_source` (`api`/`report`) | COL / REP; la API manda y el reporte completa los ~1.784 que faltan (VP-PAR-09) |
 | Contadores de cargos, próximo cargo, despacho | `vp_report_subscriptions.charges_*` / NO | REP / NO (vacíos en el portal) |
 
 ### Vínculo pago → cobro (VP-PAR-06)

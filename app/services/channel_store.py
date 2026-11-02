@@ -35,6 +35,10 @@ from app.services.payku_status import (
     normalize_payku_status,
 )
 from app.services.payload_sanitization import sanitize_payload
+from app.services.vp_typed_fields import (
+    payment_typed_fields,
+    subscription_typed_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +194,7 @@ def extract_vp_plan(p: dict) -> dict:
 
 
 def extract_vp_subscription(p: dict) -> dict:
+    """Columnas de `vp_subscriptions`; tarjeta vigente, alias POS y origen salen de `raw_payload` (VP-PAR-07)."""
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid"),
@@ -203,6 +208,7 @@ def extract_vp_subscription(p: dict) -> dict:
         "canceled_at": _str(p, "canceled_at"),
         "amount": _str(p, "amount") or _str(order, "amount"),
         "currency": _str(p, "currency") or _str(order, "currency"),
+        **subscription_typed_fields(p),
     }
 
 
@@ -228,6 +234,9 @@ def extract_vp_payment(p: dict) -> dict:
     rechazos (`vp_rejection_capture.link_payments_to_charges`). Al no estar en el lote, el `ON CONFLICT DO UPDATE`
     no toca la columna y el vinculo sobrevive a la siguiente sync. La clave se omite siempre (y no solo cuando
     viene vacia) porque un lote multi-fila exige las mismas claves en todas las filas.
+
+    VP-PAR-07: RUT del cliente, `authorized_at` y el primer tramo de `order.deposits` (comision, abono y fecha de
+    abono) se promueven a columnas (`vp_typed_fields.payment_typed_fields`).
     """
     order = p.get("order") or {}
     return {
@@ -237,6 +246,7 @@ def extract_vp_payment(p: dict) -> dict:
         "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status") or _str(order, "status"),
         "payment_date": _str(p, "payment_date") or _str(order, "authorized_at") or _str(order, "created_at"),
+        **payment_typed_fields(p),
     }
 
 

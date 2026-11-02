@@ -197,10 +197,11 @@ def project_subscription_report_fields(db: Session) -> dict[tuple[str, str], dic
     """Motivo de rechazo y ultimos 4 de cada suscripcion VP, completando la API con `SuscriptoresPAT` (VP-PAR-09).
 
     - `rejection_reason`: «Motivo de rechazo» del reporte (la API no lo expone).
-    - `card_last4` / `card_last4_source`: la tarjeta vigente de la API (`payment_method.last4CardDigit`) manda; si
-      falta (suscripcion fallida, cancelada o sin tarjeta vigente) se usa la del reporte.
-    Solo filas del reporte con plataforma `resolved`. Solo lectura: `core_subscriptions` aun no tiene columnas para
-    estos campos (requiere migracion), asi que el ETL solo los cuenta. Si las tablas del reporte no existen, `{}`.
+    - `card_last4` / `card_last4_source`: la tarjeta vigente de la API (`vp_subscriptions.card_last4`, VP-PAR-07; si
+      la fila aun no la tiene, `raw_payload.payment_method.last4CardDigit`) manda; si falta (suscripcion fallida,
+      cancelada o sin tarjeta vigente) se usa la del reporte.
+    Solo filas del reporte con plataforma `resolved`. `persist_subscription_report_fields` lo guarda en
+    `core_subscriptions`. Si las tablas del reporte no existen, el reporte se trata como vacio.
     """
     from app.services.vp_report_import import subscription_report_fields
 
@@ -209,15 +210,14 @@ def project_subscription_report_fields(db: Session) -> dict[tuple[str, str], dic
             report = subscription_report_fields(db)
     except SQLAlchemyError as exc:
         log.warning("VP Core ETL: vp_report_subscriptions no disponible (%s); se omite", type(exc).__name__)
-        return {}
+        report = {}
     out: dict[tuple[str, str], dict[str, str | None]] = {}
-    for platform, external_id, raw_payload in db.execute(
-        select(VpSubscription.platform, VpSubscription.external_id, VpSubscription.raw_payload).where(
-            VpSubscription.platform.in_(_VP_SOURCES)
-        )
+    for platform, external_id, card_last4, raw_payload in db.execute(
+        select(VpSubscription.platform, VpSubscription.external_id, VpSubscription.card_last4,
+               VpSubscription.raw_payload).where(VpSubscription.platform.in_(_VP_SOURCES))
     ):
         rep = report.get((platform, external_id), {})
-        api_last4 = _api_last4(raw_payload)
+        api_last4 = card_last4 or _api_last4(raw_payload)
         last4 = api_last4 or rep.get("card_last4")
         out[(platform, external_id)] = {
             "rejection_reason": rep.get("rejection_reason"),
@@ -225,6 +225,32 @@ def project_subscription_report_fields(db: Session) -> dict[tuple[str, str], dic
             "card_last4_source": ("api" if api_last4 else "report") if last4 else None,
         }
     return out
+
+
+def persist_subscription_report_fields(db: Session, fields: dict[tuple[str, str], dict[str, str | None]]) -> int:
+    """Guarda en `core_subscriptions` el motivo de rechazo y los ultimos 4 proyectados (VP-PAR-09, migracion 0060).
+
+    UPDATE explicito por clave primaria solo donde cambia algo (idempotente). Una suscripcion que pierde el motivo o
+    la tarjeta (p. ej. el reporte ya no la trae) vuelve a NULL: la columna refleja siempre la proyeccion vigente.
+    Devuelve las filas actualizadas.
+    """
+    updates: list[dict] = []
+    for row in db.execute(
+        select(CoreSubscription.id, CoreSubscription.source, CoreSubscription.external_id,
+               CoreSubscription.rejection_reason, CoreSubscription.card_last4, CoreSubscription.card_last4_source)
+        .where(CoreSubscription.source.in_(_VP_SOURCES))
+    ):
+        new = fields.get((row.source, row.external_id))
+        if new is None:
+            continue
+        current = (row.rejection_reason, row.card_last4, row.card_last4_source)
+        target = (new["rejection_reason"], new["card_last4"], new["card_last4_source"])
+        if current != target:
+            updates.append({"id": row.id, "rejection_reason": target[0], "card_last4": target[1],
+                            "card_last4_source": target[2], "updated_at": datetime.now(tz=timezone.utc)})
+    for i in range(0, len(updates), _BATCH):
+        db.execute(update(CoreSubscription), updates[i : i + _BATCH])
+    return len(updates)
 
 
 # ── Paso 3: cargos ────────────────────────────────────────────────────────────
@@ -316,8 +342,8 @@ def _materialize_payments(db: Session, rut_to_sub: dict) -> tuple[int, int]:
     rows = []
     ambiguous = 0
     for p in payments:
-        rut = None
-        if p.raw_payload and isinstance(p.raw_payload, dict):
+        rut = p.client_social_id  # VP-PAR-07; las filas aun sin la columna caen al payload
+        if rut is None and p.raw_payload and isinstance(p.raw_payload, dict):
             rut = (p.raw_payload.get("client") or {}).get("social_id")
         candidates = rut_to_sub.get((p.platform, rut), []) if rut else []
         sub_id = candidates[0] if len(candidates) == 1 else None
@@ -623,14 +649,16 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
     report_fields = project_subscription_report_fields(db)
     subs_with_reason = sum(1 for v in report_fields.values() if v["rejection_reason"])
     last4_from_report = sum(1 for v in report_fields.values() if v["card_last4_source"] == "report")
-    log.info("VP Core ETL — suscripciones con motivo del reporte: %d; últimos 4 completados desde el reporte: %d",
-             subs_with_reason, last4_from_report)
+    subs_report_updated = persist_subscription_report_fields(db, report_fields)
+    log.info("VP Core ETL — suscripciones con motivo del reporte: %d; últimos 4 completados desde el reporte: %d; "
+             "core_subscriptions actualizadas: %d", subs_with_reason, last4_from_report, subs_report_updated)
 
     db.commit()
     return {
         "clients_created": clients_created,
         "subscriptions_report_reason": subs_with_reason,
         "subscriptions_last4_from_report": last4_from_report,
+        "subscriptions_report_fields_updated": subs_report_updated,
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
         "charges_upserted": charges,
