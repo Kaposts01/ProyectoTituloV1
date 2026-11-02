@@ -183,3 +183,19 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
         )
         logger.info("Job '%s' registrado (cada 15 min; detras de ALERTS_ENABLED).", JOB_ALERTS)
+
+    # VP-PAR-11: paridad diaria reportes PAT vs base (solo lectura, al log). 06:40, despues de la sync de las 02:00 y del
+    # reintento. Detras de VP_PARITY_CHECK_ENABLED (apagada por defecto): con la bandera apagada el job no hace nada.
+    from app.scheduler.jobs.vp_parity_job import JOB_VP_PARITY, vp_parity_check
+
+    if not scheduler.get_job(JOB_VP_PARITY):
+        scheduler.add_job(
+            vp_parity_check,
+            trigger="cron",
+            hour=6,
+            minute=40,
+            id=JOB_VP_PARITY,
+            name="Paridad VirtualPOS reportes PAT vs base",
+            replace_existing=True,
+        )
+        logger.info("Job '%s' registrado (06:40; detras de VP_PARITY_CHECK_ENABLED).", JOB_VP_PARITY)
