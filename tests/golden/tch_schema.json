@@ -275,6 +275,22 @@
     "type": "TIMESTAMP WITH TIME ZONE",
     "unique": false
    },
+   "error_message": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(500)",
+    "unique": false
+   },
+   "etl_run_id": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "UUID",
+    "unique": false
+   },
    "file_name": {
     "index": false,
     "nullable": false,
@@ -297,6 +313,22 @@
     "primary_key": false,
     "server_default": "now()",
     "type": "TIMESTAMP WITH TIME ZONE",
+    "unique": false
+   },
+   "report_period": {
+    "index": false,
+    "nullable": true,
+    "primary_key": false,
+    "server_default": null,
+    "type": "VARCHAR(7)",
+    "unique": false
+   },
+   "result": {
+    "index": false,
+    "nullable": false,
+    "primary_key": false,
+    "server_default": "cargado",
+    "type": "VARCHAR(12)",
     "unique": false
    },
    "rows_loaded": {

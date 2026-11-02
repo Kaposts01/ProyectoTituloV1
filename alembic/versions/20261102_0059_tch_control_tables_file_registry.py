@@ -1,11 +1,17 @@
-"""TCH-PAR-10: tablas de control adicionales del reporte TCH.
+"""TCH-PAR-10 y TCH-PAR-11: tablas de control adicionales del reporte TCH y registro de archivos cargados.
 
+TCH-PAR-10 (tablas nuevas, solo agregados del reporte, sin datos personales):
 * `tch_flujo_mandatos`: hojas FLUJO MANDATOS CANT/MONTO (vigentes, altas y bajas por entidad y mes).
 * `tch_rechazos_motivo`: hojas RECHAZOS y ENT RECHAZOS (motivos de rechazo, con entidad cuando la hoja la trae).
 * `tch_kpi_reporte`: hoja KPI (indicador -> valor) por mes del reporte.
+Se llenan al cargar o recargar reportes: no hay backfill.
 
-Solo agregados del reporte, sin datos personales. Tablas nuevas y vacias: no hay backfill (se llenan al cargar o
-recargar reportes). Reversible: el downgrade borra las tres tablas. La aplica el usuario.
+TCH-PAR-11: columnas nuevas en `tch_file_loads` (SYNC-O-08) para el registro por archivo: `report_period`, `result`
+('cargado' por defecto, que es lo que significa toda fila existente; o 'fallido'), `error_message` (texto generico)
+y `etl_run_id`. Las filas existentes quedan 'cargado' sin mes: no se toca ningun dato.
+
+Reversible: el downgrade quita las cuatro columnas (se pierden los registros 'fallido', que primero se borran para
+que no bloqueen el reintento del mismo archivo con el codigo anterior) y borra las tres tablas. La aplica el usuario.
 
 Revision ID: 20261102_0059
 Revises: 20261102_0054
@@ -73,8 +79,20 @@ def upgrade() -> None:
     )
     op.create_index("ix_tch_kpi_reporte_reporte_periodo", "tch_kpi_reporte", ["reporte_periodo"])
 
+    op.add_column("tch_file_loads", sa.Column("report_period", sa.String(7), nullable=True))
+    op.add_column(
+        "tch_file_loads", sa.Column("result", sa.String(12), nullable=False, server_default="cargado")
+    )
+    op.add_column("tch_file_loads", sa.Column("error_message", sa.String(500), nullable=True))
+    op.add_column("tch_file_loads", sa.Column("etl_run_id", postgresql.UUID(as_uuid=True), nullable=True))
+
 
 def downgrade() -> None:
+    op.execute("DELETE FROM tch_file_loads WHERE result = 'fallido'")
+    op.drop_column("tch_file_loads", "etl_run_id")
+    op.drop_column("tch_file_loads", "error_message")
+    op.drop_column("tch_file_loads", "result")
+    op.drop_column("tch_file_loads", "report_period")
     op.drop_index("ix_tch_kpi_reporte_reporte_periodo", table_name="tch_kpi_reporte")
     op.drop_table("tch_kpi_reporte")
     op.drop_index("ix_tch_rechazos_motivo_reporte_periodo", table_name="tch_rechazos_motivo")

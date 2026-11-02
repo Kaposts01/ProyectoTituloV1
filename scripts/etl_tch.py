@@ -2091,7 +2091,9 @@ def reload_full(
             sha = report_registry.file_sha256(file_name)
             t = _process_file(file_name, db)
             file_rows = t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
-            report_registry.register(db, sha, file_name.name, file_name.stat().st_size, rows_loaded=file_rows)
+            report_registry.register(
+                db, sha, file_name.name, file_name.stat().st_size, rows_loaded=file_rows, report_period=t.get("periodo_reporte")
+            )
             latest = t
             total += file_rows
             log.info(f"  [{file_name.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
@@ -2152,11 +2154,46 @@ def _close_cancellations_from_report(db) -> int:
         return 0
 
 
-def import_incremental_file(filepath: Path, run_id=None) -> int:
-    """Carga un reporte TCH individual y deja el resultado trazado en ``etl_runs``."""
+def _registry_file_name(filepath: Path, display_name: str | None) -> str:
+    """Nombre que se guarda en el registro: el original de la subida (sin ruta) o el del archivo. Un nombre con forma
+    de RUT o de correo no se guarda."""
+    name = Path(display_name).name if display_name else filepath.name
+    name = re.sub(r"\s+", " ", name).strip()[:255]
+    return "[nombre omitido].xlsx" if not name or _LOOKS_PERSONAL.search(name) else name
+
+
+def _registry_failure_message(exc: Exception) -> str:
+    """Texto generico para el registro de archivos: nunca el contenido del reporte (el detalle queda en etl_runs)."""
+    if isinstance(exc, LegacyDedupeKeysError):
+        return _LEGACY_KEYS_MESSAGE
+    return f"La carga fallo ({type(exc).__name__}); ver el detalle en la corrida ETL."
+
+
+def _register_failed_load(db, sha: str, filepath: Path, file_name: str, exc: Exception, run_id) -> None:
+    """TCH-PAR-11: deja el intento fallido en el registro. Nunca hace fallar el manejo del error original."""
+    try:
+        size = filepath.stat().st_size if filepath.exists() else None
+        report_registry.register_failure(
+            db, sha, file_name, size, _registry_failure_message(exc),
+            report_period=_report_period(Path(file_name)), etl_run_id=run_id,
+        )
+        db.commit()
+    except Exception as registry_exc:
+        db.rollback()
+        log.warning("No se pudo registrar el intento fallido (%s).", type(registry_exc).__name__)
+
+
+def import_incremental_file(filepath: Path, run_id=None, display_name: str | None = None) -> int:
+    """Carga un reporte TCH individual y deja el resultado trazado en ``etl_runs`` y en el registro de archivos.
+
+    ``display_name``: nombre original del archivo subido (la subida se guarda con un nombre temporal); solo se usa
+    para el registro de archivos (TCH-PAR-11), no cambia como se procesa el reporte.
+    """
     db = SessionLocal()
     run = None
     total = 0
+    sha = None
+    file_name = _registry_file_name(filepath, display_name)
     try:
         run = db.get(EtlRun, run_id) if run_id else _start_run(db)
         if run is None:
@@ -2171,7 +2208,11 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
         latest_loaded = _last_closed_period(db)
         totals = _process_file(filepath, db)
         total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
-        report_registry.register(db, sha, filepath.name, filepath.stat().st_size, rows_loaded=total)
+        report_period = _report_period(Path(file_name)) or totals.get("periodo_reporte")
+        report_registry.register(
+            db, sha, file_name, filepath.stat().st_size, rows_loaded=total,
+            report_period=report_period, etl_run_id=run.id,
+        )
         if _is_latest_report(latest_loaded, _report_period(filepath)):
             cancellations = _apply_implicit_cancellations(db, totals["fichas"])
             log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")
@@ -2181,6 +2222,8 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
         return total
     except Exception as exc:
         db.rollback()
+        if sha is not None and not isinstance(exc, ReportAlreadyLoadedError):
+            _register_failed_load(db, sha, filepath, file_name, exc, run.id if run is not None else None)
         if run is not None:
             _finish_run(db, run, total, error=_safe_error_message(exc))
         raise
@@ -2331,7 +2374,9 @@ def main(argv: list[str] | None = None) -> None:
             if _has_legacy_dedupe_keys(db):
                 raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
             t = _process_file(file_name, db)
-            report_registry.register(db, sha, file_name.name, file_name.stat().st_size)
+            report_registry.register(
+                db, sha, file_name.name, file_name.stat().st_size, report_period=t.get("periodo_reporte"), etl_run_id=run_id
+            )
             if _is_latest_report(latest_loaded, _report_period(file_name)):
                 cancellations = _apply_implicit_cancellations(db, t["fichas"])
                 log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")

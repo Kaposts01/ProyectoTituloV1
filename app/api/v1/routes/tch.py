@@ -46,12 +46,12 @@ def _get_db() -> Session:
     return SessionLocal()
 
 
-def _import_report_background(run_id: str, report_path: str) -> None:
+def _import_report_background(run_id: str, report_path: str, original_name: str | None = None) -> None:
     """Processes the isolated upload and removes it whether the ETL succeeds or fails."""
     try:
         from scripts import etl_tch
 
-        etl_tch.import_incremental_file(Path(report_path), uuid.UUID(run_id))
+        etl_tch.import_incremental_file(Path(report_path), uuid.UUID(run_id), display_name=original_name)
     except Exception:
         logger.exception("La importación del reporte TCH falló (run_id=%s)", run_id)
     finally:
@@ -717,8 +717,44 @@ async def import_report(
     finally:
         db.close()
 
-    background_tasks.add_task(_import_report_background, str(run.id), temporary_path)
+    background_tasks.add_task(_import_report_background, str(run.id), temporary_path, original_name=Path(filename).name)
     return {"run_id": str(run.id), "status": "accepted"}
+
+
+@router.get(
+    "/archivos",
+    dependencies=[Depends(require_permissions("sync_runs.view"))],
+    tags=["TCH"],
+)
+def list_report_files(limit: int = Query(50, ge=1, le=200)) -> dict:
+    """TCH-PAR-11: registro de reportes Excel cargados, por archivo: fecha, sha256, mes, filas y resultado.
+
+    Solo metadatos del archivo (nombre, tamano, hash, conteos): nada del contenido del reporte ni datos personales.
+    `resultado`: cargado, consolidado (ya lo vio la consolidacion TCH) o fallido.
+    """
+    db = _get_db()
+    try:
+        loads = tch_report_registry.list_loads(db, limit)
+        return {
+            "items": [
+                {
+                    "sha256": load.file_sha256,
+                    "archivo": load.file_name,
+                    "periodo": load.report_period,
+                    "cargado_en": load.loaded_at.isoformat() if load.loaded_at else None,
+                    "consolidado_en": load.consolidated_at.isoformat() if load.consolidated_at else None,
+                    "filas": load.rows_loaded,
+                    "tamano_bytes": load.size_bytes,
+                    "resultado": tch_report_registry.display_result(load),
+                    "error": load.error_message,
+                    "etl_run_id": str(load.etl_run_id) if load.etl_run_id else None,
+                }
+                for load in loads
+            ],
+            "limit": limit,
+        }
+    finally:
+        db.close()
 
 
 @router.get(

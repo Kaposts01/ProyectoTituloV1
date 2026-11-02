@@ -14,6 +14,7 @@ que llega mientras se consolida no se pierde (queda fuera de la foto y dispara l
 from __future__ import annotations
 
 import hashlib
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -37,17 +38,94 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+RESULT_LOADED = "cargado"
+RESULT_FAILED = "fallido"
+RESULT_CONSOLIDATED = "consolidado"  # derivado de `consolidated_at`; no se guarda en `result`
+
+_LOADED = TchFileLoad.result != RESULT_FAILED
+
+
 def is_registered(db: Session, sha256: str) -> bool:
-    return db.scalar(select(TchFileLoad.file_sha256).where(TchFileLoad.file_sha256 == sha256)) is not None
+    """True si el contenido ya se cargo bien. Un intento fallido no bloquea reintentar el mismo archivo."""
+    return db.scalar(select(TchFileLoad.file_sha256).where(TchFileLoad.file_sha256 == sha256, _LOADED)) is not None
 
 
-def register(db: Session, sha256: str, filename: str, size_bytes: int, rows_loaded: int | None = None) -> None:
-    """Registra el reporte; idempotente por sha256. Guarda solo nombre, tamano y conteo, no su contenido."""
-    statement = insert(TchFileLoad).values(
-        file_sha256=sha256, file_name=filename[:255], size_bytes=size_bytes, rows_loaded=rows_loaded
+def register(
+    db: Session,
+    sha256: str,
+    filename: str,
+    size_bytes: int,
+    rows_loaded: int | None = None,
+    *,
+    report_period: str | None = None,
+    etl_run_id: uuid.UUID | None = None,
+) -> None:
+    """Registra el reporte cargado; idempotente por sha256. Guarda solo nombre, tamano, mes y conteo, no su contenido.
+
+    Si el mismo contenido tenia un intento fallido, la fila pasa a 'cargado' con los datos de esta carga.
+    """
+    values = {
+        "file_sha256": sha256,
+        "file_name": filename[:255],
+        "size_bytes": size_bytes,
+        "rows_loaded": rows_loaded,
+        "report_period": report_period,
+        "etl_run_id": etl_run_id,
+        "result": RESULT_LOADED,
+        "error_message": None,
+    }
+    statement = insert(TchFileLoad).values(**values)
+    db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[TchFileLoad.file_sha256],
+            set_={**{key: statement.excluded[key] for key in values if key != "file_sha256"}, "loaded_at": func.now()},
+            where=TchFileLoad.result == RESULT_FAILED,
+        )
     )
-    db.execute(statement.on_conflict_do_nothing(index_elements=[TchFileLoad.file_sha256]))
     db.flush()
+
+
+def register_failure(
+    db: Session,
+    sha256: str,
+    filename: str,
+    size_bytes: int | None,
+    error_message: str,
+    *,
+    report_period: str | None = None,
+    etl_run_id: uuid.UUID | None = None,
+) -> None:
+    """Registra un intento fallido (TCH-PAR-11). Nunca pisa un archivo ya cargado bien. No hace commit."""
+    values = {
+        "file_sha256": sha256,
+        "file_name": filename[:255],
+        "size_bytes": size_bytes,
+        "rows_loaded": None,
+        "report_period": report_period,
+        "etl_run_id": etl_run_id,
+        "result": RESULT_FAILED,
+        "error_message": error_message[:500],
+    }
+    statement = insert(TchFileLoad).values(**values)
+    db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[TchFileLoad.file_sha256],
+            set_={**{key: statement.excluded[key] for key in values if key != "file_sha256"}, "loaded_at": func.now()},
+            where=TchFileLoad.result == RESULT_FAILED,
+        )
+    )
+    db.flush()
+
+
+def list_loads(db: Session, limit: int = 50) -> list[TchFileLoad]:
+    """Archivos registrados, del mas reciente al mas antiguo (pantalla de archivos cargados, TCH-PAR-11)."""
+    return list(db.scalars(select(TchFileLoad).order_by(TchFileLoad.loaded_at.desc()).limit(limit)))
+
+
+def display_result(load: TchFileLoad) -> str:
+    if load.result == RESULT_FAILED:
+        return RESULT_FAILED
+    return RESULT_CONSOLIDATED if load.consolidated_at is not None else RESULT_LOADED
 
 
 def clear(db: Session) -> None:
@@ -57,12 +135,12 @@ def clear(db: Session) -> None:
 
 def last_loaded_at(db: Session) -> datetime | None:
     """Instante de la carga de reporte mas reciente (salud por recurso de TCH)."""
-    return db.scalar(select(func.max(TchFileLoad.loaded_at)))
+    return db.scalar(select(func.max(TchFileLoad.loaded_at)).where(_LOADED))
 
 
 def consolidation_snapshot(db: Session) -> dict:
     """Foto del registro: sha256 de los reportes cargados y el instante del mas reciente (ISO o None)."""
-    rows = db.execute(select(TchFileLoad.file_sha256, TchFileLoad.loaded_at)).all()
+    rows = db.execute(select(TchFileLoad.file_sha256, TchFileLoad.loaded_at).where(_LOADED)).all()
     latest = max((row.loaded_at for row in rows if row.loaded_at is not None), default=None)
     return {"sha256s": sorted(row.file_sha256 for row in rows), "latest_load_at": latest.isoformat() if latest else None}
 

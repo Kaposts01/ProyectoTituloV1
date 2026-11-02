@@ -290,3 +290,10 @@ class TchFileLoad(Base):
     rows_loaded: Mapped[int | None] = mapped_column(Integer)
     loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     consolidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # TCH-PAR-11: registro de cada archivo con su resultado. `result`: 'cargado' o 'fallido' (un fallido no bloquea
+    # reintentar el mismo contenido; 'consolidado' se deriva de `consolidated_at`). `error_message` es un texto
+    # generico (tipo de error), nunca contenido del reporte. `report_period` = mes del reporte (YYYY-MM).
+    report_period: Mapped[str | None] = mapped_column(String(7))
+    result: Mapped[str] = mapped_column(String(12), nullable=False, server_default="cargado")
+    error_message: Mapped[str | None] = mapped_column(String(500))
+    etl_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))

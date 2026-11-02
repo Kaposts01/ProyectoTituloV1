@@ -74,7 +74,8 @@ def test_tch_report_import_accepts_xlsx_for_admin(monkeypatch) -> None:
     monkeypatch.setattr(tch, "start_exclusive_run", lambda _db, **_f: type("Run", (), {"id": uuid.uuid4()})())
     captured: list[Path] = []
 
-    def fake_import(_run_id: str, report_path: str) -> None:
+    def fake_import(_run_id: str, report_path: str, original_name: str | None = None) -> None:
+        assert original_name == "septiembre.xlsx"  # TCH-PAR-11: el registro guarda el nombre original
         path = Path(report_path)
         captured.append(path)
         assert path.suffix == ".xlsx"
