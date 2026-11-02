@@ -333,7 +333,8 @@ def test_dashboard_channel_endpoint_returns_subset_by_source(db_session) -> None
         assert "transactions_monthly" in data
 
 
-def test_report_series_filters_events_to_the_requested_date_range(db_session) -> None:
+def test_report_series_filters_events_to_the_requested_date_range(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(reports, "chile_today", lambda: date(2099, 12, 31))  # UI-30: los cargos futuros no cuentan
     db_session.add_all(
         [
             Payment(source="payku", external_id="report-in", status="success", amount="1200", payment_date="2099-04-15", raw_payload={}),
@@ -358,7 +359,8 @@ def test_report_dates_require_a_strictly_increasing_range() -> None:
         reports._parse_date("04-01-2099", "date_from")
 
 
-def test_virtualpos_report_uses_historical_snapshot_and_period_charges(db_session) -> None:
+def test_virtualpos_report_uses_historical_snapshot_and_period_charges(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(reports, "chile_today", lambda: date(2099, 12, 31))  # UI-30: los cargos futuros no cuentan
     db_session.add_all(
         [
             Client(source="virtualpos1", external_id="report-client", provider_created_at="2099-04-01", raw_payload={}),

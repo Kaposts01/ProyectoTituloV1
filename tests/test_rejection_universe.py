@@ -84,3 +84,26 @@ def test_toku_and_payku_rejected_kpi_from_transactions(db_session, monkeypatch) 
     for source in ("toku", "payku"):
         out = staging._payment_rejected_month_kpi(db_session, source)
         assert (out["count"], out["amount"], out["basis"]) == (1, 700.0, "transacciones")
+
+
+def test_reports_use_the_same_rejection_universe(db_session, monkeypatch) -> None:
+    """UI-30: reportes HTML con la misma regla: sin cancelados, pendientes ni cargos futuros en la tasa."""
+    from app.api.v1.routes import reports
+
+    monkeypatch.setattr(reports, "chile_today", lambda: date(2001, 6, 15))
+    rows = (
+        ("pagado", "2001-06-01"), ("rechazado", "2001-06-02"), ("pendiente", "2001-06-03"),
+        ("cancelado", "2001-06-04"), ("rechazado", "2001-06-20"),  # futuro respecto a hoy
+    )
+    for i, (status, day) in enumerate(rows):
+        db_session.add(Charge(
+            source="virtualpos1", external_id=f"ui30-{i}", status=status, amount="1000", charge_date=day, raw_payload={},
+        ))
+    db_session.flush()
+
+    series = reports._series(db_session, "virtualpos", date(2001, 6, 1), date(2001, 6, 30))
+    assert {r["status"]: r["count"] for r in series["charges"]} == {"Aceptadas": 1, "Rechazadas": 1, "Pendientes": 1}
+
+    period = reports._auto_period_data(db_session, date(2001, 6, 1), date(2001, 6, 30))
+    vp = period["channels"]["virtualpos"]
+    assert (vp["rejected"], vp["total_charges"], vp["rejection_rate"]) == (1, 2, 50.0)
