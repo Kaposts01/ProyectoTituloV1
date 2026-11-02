@@ -45,6 +45,7 @@ from app.services import tch_report_registry as report_registry
 from app.services.core_tch_etl import normalize_tch_currency
 from app.services.payload_sanitization import sanitize_payload
 from app.services.tch_rut import normalize_tch_rut
+from app.services.tch_source_records import sync_tch_source_records
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1430,6 +1431,35 @@ def _unique_reports_by_sha256(files: list[Path]) -> tuple[list[Path], list[Path]
     return unique, skipped
 
 
+def _register_source_records(db) -> dict[str, int]:
+    """SYNC-D-16: un ``source_record`` por fila ``tch_*`` (idempotente; ver app/services/tch_source_records.py).
+
+    No se borran en ``_clear_tch_data``: las filas centralizadas los referencian por ``source_record_id`` y, como las
+    claves son estables, una recarga completa reutiliza los mismos registros.
+    """
+    created = sync_tch_source_records(db)
+    if any(created.values()):
+        log.info("  source_records TCH nuevos: %s", ", ".join(f"{k}={v}" for k, v in created.items()))
+    return created
+
+
+def backfill_source_records(db, *, apply: bool) -> dict[str, int]:
+    """Backfill SYNC-D-16 de lo ya cargado: registra las filas ``tch_*`` sin ``source_record``.
+
+    Idempotente: una segunda ejecucion no crea nada. Con ``apply=False`` (dry-run) cuenta y hace ROLLBACK.
+    """
+    try:
+        created = sync_tch_source_records(db)
+        if apply:
+            db.commit()
+        else:
+            db.rollback()
+        return created
+    except Exception:
+        db.rollback()
+        raise
+
+
 def _clear_tch_data(db) -> None:
     """Rebuild the local TCH projection from the complete report history."""
     report_registry.clear(db)
@@ -1687,6 +1717,7 @@ def reload_full(
         if latest:
             cancellations = _apply_implicit_cancellations(db, latest["fichas"])
             log.info(f"Bajas implicitas (ausentes de {latest['archivo']}): {cancellations}")
+        _register_source_records(db)
         result = reconcile(db, tolerance_month, tolerance_total, exclude_months=exclude_months)
         active_count = db.scalar(select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")) or 0
         committed = apply and result.ok
@@ -1763,6 +1794,7 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
         if _is_latest_report(latest_loaded, _report_period(filepath)):
             cancellations = _apply_implicit_cancellations(db, totals["fichas"])
             log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")
+        _register_source_records(db)
         _finish_run(db, run, total)
         _close_cancellations_from_report(db)
         return total
@@ -1791,6 +1823,11 @@ def _build_parser() -> argparse.ArgumentParser:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--folder", help="Carpeta con archivos .xlsx (procesa todos)")
     group.add_argument("--file", help="Archivo .xlsx individual")
+    group.add_argument(
+        "--backfill-source-records",
+        action="store_true",
+        help="SYNC-D-16: registra en source_records las filas tch_* ya cargadas (dry-run salvo --apply)",
+    )
     parser.add_argument("--mode", choices=["full", "incremental"], default="incremental")
     parser.add_argument("--dry-run", action="store_true", help="(modo full, por defecto) reconstruye y hace ROLLBACK")
     parser.add_argument("--apply", action="store_true", help="(modo full) confirma la recarga si la conciliacion cuadra")
@@ -1801,8 +1838,33 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _main_backfill(args) -> None:
+    """``--backfill-source-records``: dry-run por defecto; ``--apply`` exige ``--confirm-database`` con el nombre exacto."""
+    if args.apply and args.dry_run:
+        log.error("--apply y --dry-run son excluyentes")
+        sys.exit(2)
+    database_name = engine.url.database
+    if args.apply and args.confirm_database != database_name:
+        log.error("--apply exige --confirm-database con el nombre exacto de la base destino (%s)", database_name)
+        sys.exit(2)
+    db = SessionLocal()
+    try:
+        created = backfill_source_records(db, apply=args.apply)
+    finally:
+        db.close()
+    summary = ", ".join(f"{k}={v}" for k, v in created.items())
+    if args.apply:
+        log.info("Backfill source_records TCH CONFIRMADO en '%s': %s", database_name, summary)
+    else:
+        log.info("Dry-run backfill source_records TCH en '%s' (ROLLBACK): se crearian %s", database_name, summary)
+
+
 def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
+
+    if args.backfill_source_records:
+        _main_backfill(args)
+        return
 
     full = args.mode == "full"
     if (args.apply or args.dry_run or args.confirm_database) and not full:
@@ -1894,6 +1956,7 @@ def main(argv: list[str] | None = None) -> None:
                 log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             log.info(f"  [{file_name.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
+        _register_source_records(db)
         _finish_run(db, db.get(EtlRun, run_id), total)
         _close_cancellations_from_report(db)
         log.info(f"ETL completado. Total procesados: {total}")
