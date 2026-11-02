@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from app.services.payku_rejection_codes import (
     PAYKU_CATEGORY_LABELS,
+    PAYKU_SUBSCRIPTION_REJECTION_LABELS,
     payku_rejection_category,
+    payku_subscription_rejection_status,
 )
 from app.services.toku_rejection_codes import (
     lookup_toku_code,
@@ -59,5 +61,21 @@ def format_rejection_reason(source: str | None, code: str | None, reason: str | 
         category = payku_rejection_category(reason_s) or (code_s if code_s in PAYKU_CATEGORY_LABELS else None)
         if category:
             return PAYKU_CATEGORY_LABELS[category]
+        subscription_status = payku_subscription_rejection_status(reason_s)  # respaldo PK-PAR-06
+        if subscription_status:
+            return PAYKU_SUBSCRIPTION_REJECTION_LABELS[subscription_status]
 
     return reason_s or code_s or not_reported_label(source)
+
+
+def format_rejection_with_code(source: str | None, code: str | None, reason: str | None) -> str:
+    """Motivo legible seguido del código del proveedor (VP-PAR-03): «Tarjeta expirada (código -8)».
+
+    El código va tal como lo guarda `core_*` (p. ej. `-2119`, `TEPSP1008`, `ISO:51`) para que se pueda buscar en
+    la documentación del proveedor. Sin código, o si el motivo ya es el código, devuelve solo el motivo.
+    """
+    text = format_rejection_reason(source, code, reason)
+    code_s = _clean(code)
+    if code_s is None or text == code_s:
+        return text
+    return f"{text} (código {code_s})"

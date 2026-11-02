@@ -11,7 +11,8 @@ Payment → subscription linkage uses client RUT from the payment payload:
   - Exactly 1 subscription for that RUT on that platform → link it
   - 0 or 2+ subscriptions → subscription_id left NULL (ambiguous)
 charge_id is NULL when a payment is inserted (the payload carries no charge reference); it is filled
-afterwards, where known, from payment_rejection_details (RJ-06/RJ-04) by an explicit UPDATE.
+afterwards by an explicit UPDATE from exact sources only (VP-PAR-06): the PAT report (UUID -> Id cargo),
+payment_rejection_details (RJ-06/RJ-04) and charge payloads that embed the payment UUID.
 """
 
 import logging
@@ -19,7 +20,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -183,6 +184,47 @@ def _materialize_subscriptions(
         )
     ) or 0
     return after - before
+
+
+def _api_last4(raw_payload: object) -> str | None:
+    payment_method = raw_payload.get("payment_method") if isinstance(raw_payload, dict) else None
+    value = payment_method.get("last4CardDigit") if isinstance(payment_method, dict) else None
+    text_value = str(value).strip() if value is not None else ""
+    return text_value if len(text_value) == 4 and text_value.isdigit() else None
+
+
+def project_subscription_report_fields(db: Session) -> dict[tuple[str, str], dict[str, str | None]]:
+    """Motivo de rechazo y ultimos 4 de cada suscripcion VP, completando la API con `SuscriptoresPAT` (VP-PAR-09).
+
+    - `rejection_reason`: «Motivo de rechazo» del reporte (la API no lo expone).
+    - `card_last4` / `card_last4_source`: la tarjeta vigente de la API (`payment_method.last4CardDigit`) manda; si
+      falta (suscripcion fallida, cancelada o sin tarjeta vigente) se usa la del reporte.
+    Solo filas del reporte con plataforma `resolved`. Solo lectura: `core_subscriptions` aun no tiene columnas para
+    estos campos (requiere migracion), asi que el ETL solo los cuenta. Si las tablas del reporte no existen, `{}`.
+    """
+    from app.services.vp_report_import import subscription_report_fields
+
+    try:
+        with db.begin_nested():
+            report = subscription_report_fields(db)
+    except SQLAlchemyError as exc:
+        log.warning("VP Core ETL: vp_report_subscriptions no disponible (%s); se omite", type(exc).__name__)
+        return {}
+    out: dict[tuple[str, str], dict[str, str | None]] = {}
+    for platform, external_id, raw_payload in db.execute(
+        select(VpSubscription.platform, VpSubscription.external_id, VpSubscription.raw_payload).where(
+            VpSubscription.platform.in_(_VP_SOURCES)
+        )
+    ):
+        rep = report.get((platform, external_id), {})
+        api_last4 = _api_last4(raw_payload)
+        last4 = api_last4 or rep.get("card_last4")
+        out[(platform, external_id)] = {
+            "rejection_reason": rep.get("rejection_reason"),
+            "card_last4": last4,
+            "card_last4_source": ("api" if api_last4 else "report") if last4 else None,
+        }
+    return out
 
 
 # ── Paso 3: cargos ────────────────────────────────────────────────────────────
@@ -376,19 +418,67 @@ def _detail_rows(db: Session) -> list:
         return []
 
 
-def _link_payments_from_details(db: Session) -> int:
-    """Rehace pago -> cobro (`vp_payments.charge_external_id`, `core_payments.charge_id`) desde los detalles."""
+_CHARGE_PAYLOAD_LINK_CTE = """
+    WITH link AS (
+        SELECT platform, raw_payload->'payment'->'order'->>'uuid' AS payment_external_id,
+               min(external_id) AS charge_external_id
+        FROM vp_charges
+        WHERE platform IN ('virtualpos1', 'virtualpos2')
+          AND coalesce(raw_payload->'payment'->'order'->>'uuid', '') <> ''
+        GROUP BY platform, raw_payload->'payment'->'order'->>'uuid'
+        HAVING count(DISTINCT external_id) = 1
+    )
+"""
+
+
+def link_payments_from_charge_payloads(db: Session) -> dict[str, int]:
+    """Vinculo pago -> cobro cuando el propio cobro trae el UUID del pago (`payment.order.uuid`).
+
+    `GET /suscription/{id}/charges` y `GET /charge/{id}` lo traen; el `charge_program` del listado de suscripciones
+    hoy no. Cruce exacto 1 a 1 (un UUID en dos cobros no se vincula), UPDATE solo donde el vinculo esta NULL.
+    """
+    vp = db.execute(text(_CHARGE_PAYLOAD_LINK_CTE + """
+        UPDATE vp_payments p SET charge_external_id = link.charge_external_id, updated_at = now()
+        FROM link
+        WHERE p.platform = link.platform AND p.external_id = link.payment_external_id AND p.charge_external_id IS NULL
+    """)).rowcount or 0
+    core = db.execute(text(_CHARGE_PAYLOAD_LINK_CTE + """
+        UPDATE core_payments cp SET charge_id = cc.id, updated_at = now()
+        FROM link JOIN core_charges cc ON cc.source = link.platform AND cc.external_id = link.charge_external_id
+        WHERE cp.source = link.platform AND cp.external_id = link.payment_external_id AND cp.charge_id IS NULL
+    """)).rowcount or 0
+    return {"vp_payments": vp, "core_payments": core}
+
+
+def _link_payments_to_charges(db: Session) -> dict[str, int]:
+    """Rehace pago -> cobro (`vp_payments.charge_external_id`, `core_payments.charge_id`) desde fuentes exactas.
+
+    VP-PAR-06. Tres fuentes, todas por cruce exacto del UUID del pago y solo donde el vinculo esta NULL:
+    1. Reporte PAT (`vp_report_payments`: `UUID transaccion` -> `Id cargo`, 1 a 1). Cubre pagados y rechazados del
+       historico cargado y los `core_payments` que el ETL crea despues de la carga del reporte.
+    2. Detalles de rechazo (`payment_rejection_details`, RJ-06/RJ-04).
+    3. Cobros cuyo payload trae `payment.order.uuid`.
+    Nunca por RUT ni por fecha. Cada fuente va en su SAVEPOINT: si su tabla no existe (migracion sin aplicar) se omite.
+    Devuelve los `core_payments` vinculados por fuente.
+    """
     from app.services.vp_rejection_capture import (
         link_payments_to_charges,  # evita importar el cliente HTTP al cargar el ETL
     )
+    from app.services.vp_report_import import link_payments_from_reports
 
-    try:
-        with db.begin_nested():
-            linked = link_payments_to_charges(db)
-    except SQLAlchemyError as exc:
-        log.warning("VP Core ETL: no se pudo rehacer el vinculo pago-cobro (%s)", type(exc).__name__)
-        return 0
-    return linked["core_payments"]
+    linked: dict[str, int] = {}
+    for name, step in (
+        ("reports", link_payments_from_reports),
+        ("rejection_details", link_payments_to_charges),
+        ("charge_payloads", link_payments_from_charge_payloads),
+    ):
+        try:
+            with db.begin_nested():
+                linked[name] = step(db)["core_payments"]
+        except SQLAlchemyError as exc:
+            log.warning("VP Core ETL: no se pudo rehacer el vinculo pago-cobro desde %s (%s)", name, type(exc).__name__)
+            linked[name] = 0
+    return linked
 
 
 def _enrich_charges_with_rejections(
@@ -524,20 +614,30 @@ def run_vp_core_etl(db: Session) -> dict[str, int]:
     log.info("VP Core ETL — pagos insertados: %d (sin suscripción por ambigüedad RUT: %d)", payments, ambiguous)
 
     log.info("VP Core ETL — enriqueciendo pagos y cobros con el último rechazo")
-    payments_linked = _link_payments_from_details(db)
+    links = _link_payments_to_charges(db)
+    payments_linked = sum(links.values())
     payment_rejections = _enrich_payments_with_rejections(db)
     rejections = _enrich_charges_with_rejections(db)
     log.info("VP Core ETL — pagos con rechazo: %d; cobros con rechazo enriquecido: %d", payment_rejections, rejections)
 
+    report_fields = project_subscription_report_fields(db)
+    subs_with_reason = sum(1 for v in report_fields.values() if v["rejection_reason"])
+    last4_from_report = sum(1 for v in report_fields.values() if v["card_last4_source"] == "report")
+    log.info("VP Core ETL — suscripciones con motivo del reporte: %d; últimos 4 completados desde el reporte: %d",
+             subs_with_reason, last4_from_report)
+
     db.commit()
     return {
         "clients_created": clients_created,
+        "subscriptions_report_reason": subs_with_reason,
+        "subscriptions_last4_from_report": last4_from_report,
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
         "charges_upserted": charges,
         "charges_rejection_enriched": rejections,
         "payments_rejection_enriched": payment_rejections,
         "payments_charge_linked": payments_linked,
+        "payments_charge_linked_from_reports": links["reports"],
         "payments_inserted": payments,
         "payments_unlinked_ambiguous_rut": ambiguous,
     }

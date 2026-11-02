@@ -49,7 +49,7 @@
 
 | Campo | Tipo | Notas |
 |---|---|---|
-| `charge_external_id` | String(255) | FK lógica al cobro |
+| `charge_external_id` | String(255) | FK lógica al cobro. El listado `GET /payments` no lo trae: lo llenan solo cruces exactos (ver «Vínculo pago → cobro»). La sync no lo escribe (VP-PAR-06) |
 | `payment_date` | String(50) | Fecha del pago (string) |
 | `status` | String(50) | Estado del pago |
 
@@ -76,6 +76,62 @@ VirtualPOS API
 ```
 
 También existe `core_vp_etl.py` (Pipeline B) y `crm_materialization.py` (legacy). Ver `channel_consolidation.py` docstring para el estado de la transición.
+
+## Mapeo reporte del portal → CRM (VP-PAR-14, auditoría del 2026-10-29)
+
+Fuente: [`planning/auditoria-2026-10-29/parity_virtualpos.md`](../planning/auditoria-2026-10-29/parity_virtualpos.md) §3.
+El importador de los reportes PAT y sus tablas `vp_report_*` están en [`vp-reports.md`](vp-reports.md). Leyenda: COL = columna
+propia; RAW = solo en `raw_payload`; REP = tabla del reporte; NO = no existe.
+
+**Cantidad (ventana 2025-02-24 a 2026-10-26):** paridad exacta. Los 86.541 `Id cargo` del portal están en `vp_charges` (0 faltantes,
+0 sobrantes, mes por mes), con igual estado, fecha, monto y suscripción; las 9.005 suscripciones del reporte están en `vp_subscriptions`;
+los 72.816 `UUID transacción` están en `vp_payments`. `vp_charges` además guarda la programación futura (`cancelado` hasta 2031): los KPIs
+la excluyen con la regla de VP-PAR-10.
+
+### Cobros (`TransaccionesPAT`)
+
+| Columna del reporte | Campo CRM | Estado |
+|---|---|---|
+| Id cargo | `vp_charges.external_id`, `core_charges.external_id` | COL, 100 % |
+| Id suscripción | `vp_charges.subscription_external_id` | COL, 100 % |
+| Estado del cargo, Fecha programada, Monto, Moneda | `vp_charges.status/charge_date/amount/currency`, `core_charges.*` | COL, 0 diferencias |
+| UUID transacción | `vp_payments.external_id` (= `order.uuid`) | COL; vínculo al cobro: ver abajo |
+| Código y glosa de autorización/error/rechazo | `payment_rejection_details.code/reason` (`capture_source = report_pat`) → `core_payments.rejection_*`, `core_charges.latest_rejection_*` | REP → COL (tabla única, D3) |
+| Medio de pago (Débito/Crédito/Prepago), Final número tarjeta | `vp_report_payments.payment_medium/card_last4` | REP (el API no lo tiene por cobro) |
+| Fecha de autorización, comisión, abono, fecha de abono | `vp_payments.raw_payload.order.*` y `vp_report_payments.*` | RAW / REP (VP-PAR-07 los promoverá a columnas) |
+| Alias POS, Código de vendedor, Origen | `vp_subscriptions.raw_payload` / `vp_report_payments.pos_alias`, `seller_code_hash` (HMAC) | RAW / REP |
+| Número de cargo (N de M) | `vp_report_payments.charge_number/charges_total` | REP |
+| Nombre, apellido, correo, RUT | `vp_clients.*` | COL (el importador nunca los guarda) |
+
+### Suscripciones (`SuscriptoresPAT`)
+
+| Columna del reporte | Campo CRM | Estado |
+|---|---|---|
+| Id de suscripción | `vp_subscriptions.external_id` | COL, 9.005/9.005 |
+| Estado, Fecha de suscripción, Fecha de cancelación | `vp_subscriptions.status/suscription_date/canceled_at`, `core_subscriptions.status/started_at/ended_at` | COL |
+| Motivo de rechazo (suscripción fallida) | `vp_report_subscriptions.rejection_reason` | REP; VP-PAR-09 lo proyecta en lectura (`core_vp_etl.project_subscription_report_fields`); `core_subscriptions` no tiene columna (requiere migración) |
+| Tipo, marca y últimos 4 de la tarjeta | API: `vp_subscriptions.raw_payload.payment_method` (70 %); reporte: `vp_report_subscriptions.card_*` | RAW / REP; la API manda y el reporte completa los ~1.784 que faltan (VP-PAR-09) |
+| Contadores de cargos, próximo cargo, despacho | `vp_report_subscriptions.charges_*` / NO | REP / NO (vacíos en el portal) |
+
+### Vínculo pago → cobro (VP-PAR-06)
+
+`vp_payments.charge_external_id` y `core_payments.charge_id` se llenan **solo por cruces exactos del UUID del pago**, con `UPDATE`
+idempotente donde el vínculo está vacío; nunca por RUT ni por fecha:
+
+1. Reporte PAT: `UUID transacción` → `Id cargo` (1 a 1; un UUID en dos cobros no se vincula). Lo aplican el importador y, en cada
+   corrida, el ETL Core (`core_vp_etl._link_payments_to_charges`), que así vincula también los `core_payments` creados después de la carga.
+2. Glosas capturadas (`payment_rejection_details`, RJ-06/RJ-04).
+3. Cobros cuyo payload trae `payment.order.uuid` (`/suscription/{id}/charges`, `/charge/{id}`; el `charge_program` del listado hoy no).
+
+`extract_vp_payment` ya no escribe la columna, así que la sync nocturna no borra el vínculo. Los pagos posteriores al último reporte
+cargado quedan sin vínculo hasta cargar un reporte nuevo (los rechazados lo reciben de la captura RJ-06).
+
+### Códigos de rechazo (VP-PAR-03 / VP-PAR-05)
+
+`app/services/vp_rejection_codes.py`: catálogo oficial (`-1` a `-11`, `-1001` a `-1018`) y, de los códigos del adquirente `-2xxx`, solo
+`-2122` («Violación de seguridad», documentado en `integrations/virtualpos/resources/payments.md`). Los otros 11 `-2xxx` vistos en los
+reportes (165 rechazos; p. ej. `-2119`, `-2121`, `-2133`, `-2150`, `-2152`) **no tienen glosa documentada**: se muestra la glosa que entrega
+el proveedor. `rejection_format.format_rejection_with_code` muestra el motivo con el código («Tarjeta expirada (código -8)»).
 
 ## Brechas y limitaciones conocidas
 

@@ -73,6 +73,7 @@ __all__ = [
     "link_payments_from_reports",
     "reconcile",
     "resolve_platforms",
+    "subscription_report_fields",
 ]
 
 logger = logging.getLogger(__name__)
@@ -371,12 +372,41 @@ def link_payments_from_reports(db: Session) -> dict[str, int]:
     """UPDATE explicito e idempotente del vinculo pago -> cobro desde el cruce exacto UUID -> Id cargo del reporte.
 
     Solo donde el vinculo esta NULL (`vp_payments.charge_external_id`, `core_payments.charge_id`). Nunca por RUT ni
-    por inferencia. Nota: el sync nocturno reescribe `vp_payments.charge_external_id` a NULL; para los rechazados el
-    ETL Core rehace el vinculo desde `payment_rejection_details`, y este paso puede repetirse cuando se quiera.
+    por inferencia. Desde VP-PAR-06 el sync ya no reescribe `vp_payments.charge_external_id` a NULL, y el ETL Core
+    (`core_vp_etl._link_payments_to_charges`) repite este paso en cada corrida para los pagos que llegan despues.
     """
     vp = db.execute(text(_LINK_VP_SQL)).rowcount or 0
     core = db.execute(text(_LINK_CORE_SQL)).rowcount or 0
     return {"vp_payments": vp, "core_payments": core}
+
+
+# ---- campos de suscripcion (VP-PAR-09) ---------------------------------------------------------------------------
+
+
+def subscription_report_fields(db: Session) -> dict[tuple[str, str], dict[str, str | None]]:
+    """Motivo de rechazo y tarjeta de `SuscriptoresPAT` por (plataforma, suscripcion). Solo filas `resolved`.
+
+    `{(platform, subscription_external_id): {rejection_reason, card_last4, card_type, card_brand}}`, sin claves vacias
+    (una fila sin motivo ni tarjeta no aparece). Solo lectura; la proyeccion a `core_*` la decide `core_vp_etl`.
+    """
+    rows = db.execute(
+        select(
+            VpReportSubscription.platform, VpReportSubscription.subscription_external_id,
+            VpReportSubscription.rejection_reason, VpReportSubscription.card_last4,
+            VpReportSubscription.card_type, VpReportSubscription.card_brand,
+        ).where(VpReportSubscription.platform_status == "resolved")
+    )
+    out: dict[tuple[str, str], dict[str, str | None]] = {}
+    for platform, sub, reason, last4, card_type, brand in rows:
+        values = {
+            "rejection_reason": (reason or "").strip() or None,
+            "card_last4": last4 or None,
+            "card_type": (card_type or "").strip() or None,
+            "card_brand": (brand or "").strip() or None,
+        }
+        if any(values.values()):
+            out[(platform, sub)] = values
+    return out
 
 
 def reconcile(db: Session, *, commit: bool = True) -> dict[str, Any]:

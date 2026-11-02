@@ -101,8 +101,9 @@ en hora de Chile.
   (`code = ''`), la glosa del reporte lo reemplaza. Las glosas nuevas entran a `rejection_reason_catalog` y emiten `reason_changed` (`status_events`), como RJ-06.
   Ojo: el texto del reporte («Excede límite de reintentos de rechazo») difiere del catálogo local para `-11`; el catálogo registra ambas redacciones hasta resolver RJ-03.
 * **Vínculo pago -> cobro:** `UUID transacción` -> `Id cargo` (1 a 1) con `UPDATE` explícito solo donde está NULL: `vp_payments.charge_external_id` y
-  `core_payments.charge_id`. Un UUID asociado a más de un cobro no se vincula. El sync nocturno reescribe `vp_payments.charge_external_id` a NULL; para los
-  rechazados el ETL Core lo rehace desde `payment_rejection_details` (que ahora contiene el histórico); para el resto, `reconcile` puede repetirse cuando se quiera.
+  `core_payments.charge_id`. Un UUID asociado a más de un cobro no se vincula. Desde VP-PAR-06 el sync nocturno ya no reescribe
+  `vp_payments.charge_external_id` a NULL, y el ETL Core repite este cruce en cada corrida (pagados y rechazados), así que los `core_payments`
+  creados después de la carga también se vinculan.
 
 ## 4. Qué cubre y qué no
 
@@ -111,7 +112,8 @@ en hora de Chile.
 * **No cubre** el histórico **anterior a 2025-02** (no existe reporte ni la API devuelve esos cobros), ni lo posterior al corte de cada archivo (hay que exportar y
   cargar reportes nuevos; las glosas de cobros nuevos las captura RJ-06 por API). Las columnas que el portal exporta vacías (despacho, próximo cargo, nómina) no aportan.
 * No cambia KPIs ni dashboards: solo agrega tablas y rellena `payment_rejection_details` y los vínculos; los consumidores existentes no leen `vp_report_*`.
-* Pendientes relacionados: VP-PAR-03/05 (leer/mostrar el código y completar el catálogo `-2xxx`), VP-PAR-07 (promover estos campos a `core_*`), VP-PAR-12 (2 cobros con plataforma discordante entre el Sheet y el CRM aparecerán como `ambiguous`).
+* Hechos: VP-PAR-03/05 (motivo con código y `-2122`; los otros `-2xxx` no tienen glosa documentada), VP-PAR-06 (vínculo) y VP-PAR-09
+  (motivo y últimos 4 de suscripción, solo en lectura). Pendientes relacionados: VP-PAR-07 (promover estos campos a `core_*`), VP-PAR-12 (2 cobros con plataforma discordante entre el Sheet y el CRM aparecerán como `ambiguous`).
 
 ## 5. Cómo cargar
 

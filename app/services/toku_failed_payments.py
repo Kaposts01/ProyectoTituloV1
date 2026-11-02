@@ -37,7 +37,11 @@ from sqlalchemy.orm import Session
 
 from app.models.core import CoreCharge, CorePayment
 from app.models.toku_channel import TokuTransaction
-from app.services.toku_rejection_projection import _parse_ts, _rejection_values
+from app.services.toku_rejection_projection import (
+    _parse_ts,
+    _rejection_values,
+    load_report_attempt_codes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +84,8 @@ def materialize_failed_toku_payments(db: Session, *, apply: bool = True) -> dict
             payload["transaction"]["transaction_date"].astext,
             payload["transaction"]["amount"].astext,
             payload["payment_intents"][0]["id_invoice"].astext,
+            payload["transaction"]["id"].astext,
+            payload["payment_intents"][0]["id"].astext,
         ).where(TokuTransaction.status == FAILED)
     ).all()
 
@@ -109,14 +115,16 @@ def materialize_failed_toku_payments(db: Session, *, apply: bool = True) -> dict
             existing[r.external_id] = r
 
     to_write: list[dict[str, Any]] = []
-    for ext_id, tx_amount, tx_currency, created_at_api, code, message, tx_date, payload_amount, invoice in rows:
+    report = load_report_attempt_codes(db)  # RJ-11: codigo del reporte de Intentos para los FAILED sin codigo
+    for ext_id, tx_amount, tx_currency, created_at_api, code, message, tx_date, payload_amount, invoice, tx_id, intent_id in rows:
         charge_id, subscription_id = charge_index.get(invoice, (None, None)) if invoice else (None, None)
         if charge_id is None:
             stats["without_charge"] += 1
-        reject_code, reject_reason = _rejection_values(code, message)
+        at = _parse_ts(tx_date) or _parse_ts(created_at_api)
+        report_code = None if (code and str(code).strip()) else report.lookup((ext_id, tx_id, intent_id), invoice, at)[0]
+        reject_code, reject_reason = _rejection_values(code, message, report_code)
         if reject_code is None and reject_reason is None:
             stats["without_rejection_data"] += 1
-        at = _parse_ts(tx_date) or _parse_ts(created_at_api)
         values: dict[str, Any] = {
             "subscription_id": subscription_id,
             "charge_id": charge_id,

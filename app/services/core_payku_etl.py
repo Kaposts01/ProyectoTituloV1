@@ -1,11 +1,12 @@
 """Materialize Payku provider tables (p_*) into Core entities.
 
-Run order: client attributes → subscriptions → payments
+Run order: client attributes → subscriptions → payments → rejection fallback
 Idempotent: safe to re-run.
 
 Payku has no CoreCharge concept — p_transactions map directly to CorePayment.
-Rejected transactions carry amount=0; no rejection code/reason is available
-in the current payload format.
+Rejected transactions carry amount=0; the embedded payload has no rejection code/reason. As a fallback
+(PK-PAR-06 / RJ-10) the latest rejection of each subscription takes its `last_status_current_payment`.
+occurred_at keeps the transaction time in Chile (PK-PAR-04).
 """
 
 import logging
@@ -13,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -23,9 +24,16 @@ from app.models.core import (
     CoreSubscription,
     ExternalIdentity,
 )
-from app.models.payku_channel import PaykuClient, PaykuSubscription, PaykuTransaction
+from app.models.payku_channel import (
+    PaykuClient,
+    PaykuPlan,
+    PaykuSubscription,
+    PaykuTransaction,
+)
 from app.services.channel_consolidation import _payku_last_transition_date
 from app.services.core_materialization import materialize_core_clients
+from app.services.payku_rejection_codes import payku_subscription_rejection_status
+from app.services.rejected_month import CHILE_TZ
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +56,33 @@ def _parse_date(value: str | None) -> datetime | None:
         return None
 
 
+def _parse_datetime_cl(value: str | None) -> datetime | None:
+    """Fecha y hora de una transaccion Payku como instante con zona (PK-PAR-04).
+
+    Payku entrega `created_at` sin zona (`2023-09-30 19:58:35`, hora de Chile); antes se truncaba a la fecha y se
+    asumia UTC, lo que perdia la hora y corria al mes anterior los cobros de la noche del ultimo dia. Ahora:
+    - texto sin zona -> hora local de America/Santiago (con su horario de verano);
+    - texto con zona (`Z`, `+00:00`) -> se respeta;
+    - solo fecha -> 00:00 de Chile; tambien acepta `DD-MM-AAAA HH:MM:SS` (formato de las notificaciones).
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parsed: datetime | None = None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        for fmt in ("%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(raw, fmt).replace(tzinfo=CHILE_TZ)
+                break
+            except ValueError:
+                continue
+    if parsed is None:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=CHILE_TZ)
+
+
 def _parse_amount(value: str | None) -> Decimal | None:
     if not value:
         return None
@@ -55,6 +90,45 @@ def _parse_amount(value: str | None) -> Decimal | None:
         return Decimal(str(value).strip())
     except InvalidOperation:
         return None
+
+
+# Taxonomia comun de estados de suscripcion (PK-PAR-07). Mapeo de docs/integrations/payku/resources/statuses.md §12
+# con los nombres del plan (`active`/`suspended`/`cancelled`/`pending_enrollment`). `suspended_awaits_change_plan`
+# cuenta como vigente, igual que en `_ACTIVE_STATUSES`, `channel_consolidation` y los reportes. Cualquier otro valor
+# es `unknown` y se avisa en el log (nunca rompe el ETL). El estado crudo de Payku se sigue guardando tal cual.
+COMMON_STATUS_UNKNOWN = "unknown"
+_PAYKU_COMMON_STATUS: dict[str, str] = {
+    "register": "pending_enrollment",
+    "active": "active",
+    "suspended_awaits_change_plan": "active",
+    "suspended": "suspended",
+    "cancel": "cancelled",
+    "delete": "cancelled",
+    "finish": "cancelled",
+}
+
+
+def normalize_payku_status(status: str | None) -> str:
+    """Estado Payku crudo -> taxonomia comun (ver `_PAYKU_COMMON_STATUS`)."""
+    return _PAYKU_COMMON_STATUS.get((status or "").strip().lower(), COMMON_STATUS_UNKNOWN)
+
+
+def _plan_amounts(db: Session) -> dict[str, Decimal]:
+    """external_id del plan -> monto, solo planes con monto valido."""
+    out: dict[str, Decimal] = {}
+    for external_id, amount in db.execute(select(PaykuPlan.external_id, PaykuPlan.amount)):
+        parsed = _parse_amount(amount)
+        if parsed is not None:
+            out[external_id] = parsed
+    return out
+
+
+def _subscription_amount(s: PaykuSubscription, plan_amounts: dict[str, Decimal]) -> Decimal | None:
+    """Monto de la suscripcion; una `register` sin monto (inscripcion sin completar) toma el de su plan (PK-PAR-07)."""
+    amount = _parse_amount(s.amount)
+    if amount is None and (s.status or "").strip().lower() == "register" and s.plan_id:
+        return plan_amounts.get(s.plan_id)
+    return amount
 
 
 def _ended_at(s: PaykuSubscription) -> datetime | None:
@@ -127,9 +201,13 @@ def _materialize_subscriptions(db: Session) -> int:
         identity_index[row.external_id] = row.client_id
 
     subscriptions = db.scalars(select(PaykuSubscription)).all()
+    plan_amounts = _plan_amounts(db)
 
     rows = []
+    unknown_statuses: set[str] = set()
     for s in subscriptions:
+        if normalize_payku_status(s.status) == COMMON_STATUS_UNKNOWN:
+            unknown_statuses.add(str(s.status or "")[:50])
         client_id = identity_index.get(s.client_id) if s.client_id else None
         rows.append({
             "id": uuid.uuid4(),
@@ -138,11 +216,14 @@ def _materialize_subscriptions(db: Session) -> int:
             "external_id": s.external_id,
             "status": s.status,
             "last_payment_status": s.last_status_current_payment,
-            "amount": _parse_amount(s.amount),
+            "amount": _subscription_amount(s, plan_amounts),
             "currency": s.currency or _DEFAULT_CURRENCY,
             "started_at": _parse_date(s.start_date),
             "ended_at": _ended_at(s),
         })
+
+    if unknown_statuses:
+        log.warning("Payku Core ETL: estados de suscripción fuera de la taxonomía común: %s", sorted(unknown_statuses))
 
     before = db.scalar(select(func.count()).select_from(CoreSubscription).where(CoreSubscription.source == _SOURCE)) or 0
     for i in range(0, len(rows), _BATCH):
@@ -191,12 +272,12 @@ def _materialize_payments(db: Session) -> int:
             "subscription_id": sub_id,
             "charge_id": None,
             "source_status": t.status,
-            "occurred_at": _parse_date(t.created_at_api),
+            "occurred_at": _parse_datetime_cl(t.created_at_api),
             "amount": _parse_amount(t.amount),
             "currency": _DEFAULT_CURRENCY,
             "rejection_code": None,
             "rejection_reason": None,
-            "rejection_reported_at": _parse_date(t.created_at_api) if is_rejected else None,
+            "rejection_reported_at": _parse_datetime_cl(t.created_at_api) if is_rejected else None,
         })
 
     if skipped:
@@ -210,7 +291,71 @@ def _materialize_payments(db: Session) -> int:
             .on_conflict_do_nothing(constraint="uq_core_payment_source_external_id")
         )
     after = db.scalar(select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)) or 0
+    _refresh_payment_times(db, {r["external_id"]: (r["occurred_at"], r["rejection_reported_at"]) for r in rows})
     return after - before
+
+
+def _refresh_payment_times(db: Session, times: dict[str, tuple[datetime | None, datetime | None]]) -> int:
+    """UPDATE explicito de `occurred_at`/`rejection_reported_at` de pagos ya existentes (PK-PAR-04).
+
+    El insert usa `on_conflict_do_nothing`, asi que los pagos cargados con la fecha truncada a UTC nunca se
+    corregirian solos. Solo cambia filas cuyo instante difiere. Idempotente. Devuelve las filas actualizadas.
+    """
+    updates: list[dict] = []
+    for row in db.execute(
+        select(CorePayment.id, CorePayment.external_id, CorePayment.occurred_at, CorePayment.rejection_reported_at)
+        .where(CorePayment.source == _SOURCE)
+    ):
+        new = times.get(row.external_id)
+        if new is None or new[0] is None:
+            continue
+        if (row.occurred_at, row.rejection_reported_at) != new:
+            updates.append({"id": row.id, "occurred_at": new[0], "rejection_reported_at": new[1]})
+    for i in range(0, len(updates), 1000):
+        db.execute(update(CorePayment), updates[i : i + 1000])
+    return len(updates)
+
+
+# ── Paso 4: motivo minimo de rechazo por suscripcion (PK-PAR-06 / RJ-10) ─────
+
+def _apply_subscription_rejection_fallback(db: Session) -> int:
+    """Llena `core_payments.rejection_reason` del rechazo mas reciente de cada suscripcion desde su
+    `last_status_current_payment` (`maximum attempt limit`, `first payment rejected`, `payment consumes failed`).
+
+    Respaldo mientras no exista la glosa por cobro (PK-PAR-05): guarda el valor crudo de Payku (la etiqueta legible
+    la pone `rejection_format`), sin codigo. Solo el rechazo mas reciente, porque el campo describe el ultimo estado
+    de cobro de la suscripcion, no cada intento. Nunca pisa un motivo ya guardado. UPDATE explicito, idempotente.
+    """
+    statuses = {
+        row.id: status
+        for row in db.execute(
+            select(CoreSubscription.id, PaykuSubscription.last_status_current_payment)
+            .join(PaykuSubscription, PaykuSubscription.external_id == CoreSubscription.external_id)
+            .where(CoreSubscription.source == _SOURCE, PaykuSubscription.last_status_current_payment.is_not(None))
+        )
+        if (status := payku_subscription_rejection_status(row.last_status_current_payment))
+    }
+    if not statuses:
+        return 0
+    latest: dict = {}
+    for p in db.execute(
+        select(CorePayment.id, CorePayment.subscription_id, CorePayment.occurred_at, CorePayment.external_id,
+               CorePayment.rejection_reason)
+        .where(CorePayment.source == _SOURCE, func.lower(CorePayment.source_status) == "rejected",
+               CorePayment.subscription_id.in_(list(statuses)))
+    ):
+        key = (p.occurred_at or datetime.min.replace(tzinfo=timezone.utc), p.external_id)
+        prev = latest.get(p.subscription_id)
+        if prev is None or key > prev[0]:
+            latest[p.subscription_id] = (key, p)
+    updates = [
+        {"id": p.id, "rejection_reason": statuses[sub_id]}
+        for sub_id, (_key, p) in latest.items()
+        if p.rejection_reason is None
+    ]
+    if updates:
+        db.execute(update(CorePayment), updates)
+    return len(updates)
 
 
 # ── Punto de entrada ──────────────────────────────────────────────────────────
@@ -233,10 +378,18 @@ def run_payku_core_etl(db: Session) -> dict[str, int]:
     payments = _materialize_payments(db)
     log.info("Payku Core ETL — pagos insertados: %d", payments)
 
+    reasons = _apply_subscription_rejection_fallback(db)
+    log.info("Payku Core ETL — rechazos con motivo de respaldo por suscripción: %d", reasons)
+
     db.commit()
     return {
         "clients_created": clients_created,
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
         "payments_inserted": payments,
+        "payments_rejection_reason_fallback": reasons,
+        "subscriptions_unknown_status": sum(
+            1 for (status,) in db.execute(select(PaykuSubscription.status))
+            if normalize_payku_status(status) == COMMON_STATUS_UNKNOWN
+        ),
     }
