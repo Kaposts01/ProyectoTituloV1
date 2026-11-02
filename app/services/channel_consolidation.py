@@ -46,6 +46,7 @@ from app.services.status_events import (
     event_context,
     pop_reason_hints,
 )
+from app.services.tch_rut import identity_rut
 from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
 from app.services.vp_current_amount import load_current_amount
 
@@ -559,7 +560,7 @@ def _consolidate_tch_clients(db: Session) -> int:
             "email": None,
             "phone_number": None,
             "status": "active",
-            "social_id": t.rut,
+            "social_id": identity_rut(t.rut),  # TCH-PAR-14: solo un RUT valido es senal de identidad
             "gender_id": None,
             "birth_date": t.birth_date,
             "provider_created_at": None,
@@ -577,7 +578,7 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
             "source": "tch",
             "external_id": _s(t.file_number),
             "client_external_id": None,
-            "client_social_id": t.client_rut,
+            "client_social_id": identity_rut(t.client_rut),
             "plan_external_id": None,
             "service_id": None,
             "status": t.status,

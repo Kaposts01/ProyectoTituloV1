@@ -44,6 +44,7 @@ from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import tch_report_registry as report_registry
 from app.services.core_tch_etl import normalize_tch_currency
 from app.services.payload_sanitization import sanitize_payload
+from app.services.tch_rut import normalize_tch_rut
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,18 +64,14 @@ def _safe_error_message(exc: Exception) -> str:
 # ---------------------------------------------------------------------------
 
 def _norm_rut(val: Any) -> str | None:
+    """Llave del cliente TCH (TCH-PAR-14): formato ``12.345.678-5`` o, si no tiene forma de RUT, ``EXT-...`` aislado.
+
+    Ver ``app/services/tch_rut.py``: el verificador NO cambia la llave; solo decide si el RUT sale del canal como
+    senal de identidad.
+    """
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
-    rut = re.sub(r"[^\dKk-]", "", str(val).strip().upper())
-    if not rut:
-        return None
-    if "-" not in rut:
-        rut = rut[:-1] + "-" + rut[-1]
-    try:
-        number_part, dv = rut.split("-", 1)
-        return f"{int(number_part):,}".replace(",", ".") + f"-{dv}"
-    except Exception:
-        return str(val).strip()[:20] or None
+    return normalize_tch_rut(val)
 
 
 def _norm_date(val: Any) -> str | None:

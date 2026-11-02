@@ -23,6 +23,7 @@ from app.models.core import (
 )
 from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.services.core_materialization import materialize_core_clients
+from app.services.tch_rut import identity_rut, is_valid_rut
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +111,8 @@ def _materialize_client_attributes(db: Session) -> int:
         full_name = " ".join(filter(None, [c.name, c.last_name])).strip() or None
         for attr_type, attr_val in [
             ("name", full_name),
-            ("rut", c.rut),
+            # TCH-PAR-14 / ADR-001: el RUT solo es senal de identidad si su verificador es correcto.
+            ("rut", identity_rut(c.rut)),
             ("email", c.email),
             ("phone", c.phone),
         ]:
@@ -124,6 +126,9 @@ def _materialize_client_attributes(db: Session) -> int:
                     "observed_at": observed,
                 })
 
+    isolated = _prune_invalid_rut_attributes(db)
+    if isolated:
+        log.info("TCH Core ETL: %d atributos rut sin verificador valido retirados del matching", isolated)
     before = db.scalar(select(func.count()).select_from(CoreClientAttribute).where(CoreClientAttribute.source == _SOURCE)) or 0
     for i in range(0, len(rows), _BATCH):
         batch = rows[i : i + _BATCH]
@@ -134,6 +139,22 @@ def _materialize_client_attributes(db: Session) -> int:
         )
     after = db.scalar(select(func.count()).select_from(CoreClientAttribute).where(CoreClientAttribute.source == _SOURCE)) or 0
     return after - before
+
+
+def _prune_invalid_rut_attributes(db: Session) -> int:
+    """Quita los atributos ``rut`` de TCH cuyo valor no es un RUT valido (cargados antes de TCH-PAR-14). Idempotente."""
+    invalid = [
+        attr_id
+        for attr_id, value in db.execute(
+            select(CoreClientAttribute.id, CoreClientAttribute.attribute_value).where(
+                CoreClientAttribute.source == _SOURCE, CoreClientAttribute.attribute_type == "rut"
+            )
+        )
+        if not is_valid_rut(value)
+    ]
+    for i in range(0, len(invalid), _BATCH):
+        db.execute(delete(CoreClientAttribute).where(CoreClientAttribute.id.in_(invalid[i : i + _BATCH])))
+    return len(invalid)
 
 
 # ── Paso 2: suscripciones ─────────────────────────────────────────────────────
