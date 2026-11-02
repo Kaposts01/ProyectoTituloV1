@@ -7,12 +7,11 @@ from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services.payload_sanitization import sanitize_payload
+from app.services.source_record_store import StoreResult, upsert_source_records
 from app.services.sync_metrics import resource_timer
 from app.services.sync_progress import ProgressCallback, pagination_totals
 
@@ -80,22 +79,20 @@ def _external_id(record: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(record, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def store_records(db: Session, source: str, resource_type: str, records: Iterable[dict[str, Any]]) -> int:
-    processed = 0
-    for record in records:
-        statement = insert(SourceRecord).values(
-            source=source,
-            resource_type=resource_type,
-            external_id=_external_id(sanitize_record(record)),
-            payload=sanitize_record(record),
-        )
-        statement = statement.on_conflict_do_update(
-            constraint="uq_source_record",
-            set_={"payload": statement.excluded.payload, "last_seen_at": datetime.now(UTC)},
-            where=SourceRecord.payload.is_distinct_from(statement.excluded.payload),
-        )
-        processed += int(db.execute(statement.returning(SourceRecord.id)).scalar_one_or_none() is not None)
-    return processed
+def store_records(
+    db: Session,
+    source: str,
+    resource_type: str,
+    records: Iterable[dict[str, Any]],
+    *,
+    result: StoreResult | None = None,
+) -> int:
+    """Escribe en `source_records` en lotes (SYNC-O-10); devuelve las filas nuevas o con payload cambiado."""
+    sanitized = [sanitize_record(record) for record in records]
+    stored = upsert_source_records(db, source, resource_type, sanitized, external_id_fn=_external_id)
+    if result is not None:
+        result.add(stored)
+    return stored.processed
 
 
 def safe_error_message(exc: Exception, secrets: Iterable[str]) -> str:

@@ -5,18 +5,16 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSAPIError, VirtualPOSClient
-from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.channel_store import _VP_PLATFORMS, store_vp_resources
 from app.services.charge_recovery import reconcile_charge_recoveries
 from app.services.payload_sanitization import sanitize_payload
+from app.services.source_record_store import StoreResult, upsert_source_records
 from app.services.sync_metrics import resource_timer
 from app.services.sync_progress import ProgressCallback, pagination_totals
 
@@ -97,34 +95,27 @@ def _store_records(
     resource_type: str,
     records: Iterable[dict[str, Any]],
     sync_context: dict[str, Any] | None = None,
+    *,
+    contexts: list[dict[str, Any] | None] | None = None,
+    result: StoreResult | None = None,
 ) -> int:
-    processed = 0
-    for record in records:
-        sanitized_record = _sanitize_record(record)
-        statement = insert(SourceRecord).values(
-            source=source,
-            resource_type=resource_type,
-            external_id=_external_id(sanitized_record),
-            payload=sanitized_record,
-            sync_context=sync_context,
-        )
-        statement = statement.on_conflict_do_update(
-            constraint="uq_source_record",
-            set_={
-                "payload": statement.excluded.payload,
-                "sync_context": statement.excluded.sync_context,
-                "last_seen_at": datetime.now(UTC),
-            },
-            where=or_(
-                SourceRecord.payload.is_distinct_from(statement.excluded.payload),
-                SourceRecord.sync_context.is_distinct_from(statement.excluded.sync_context),
-            ),
-        )
-        result = db.execute(statement.returning(SourceRecord.id))
-        source_record_id = result.scalar_one_or_none()
-        if source_record_id is not None:
-            processed += 1
-    return processed
+    """Escribe en `source_records` en lotes (SYNC-O-10) y devuelve las filas nuevas o cambiadas.
+
+    `contexts` da un `sync_context` por registro (cobros de varias suscripciones en un solo lote); si falta, todos
+    llevan `sync_context`. `result` acumula nuevas/actualizadas/sin cambio para las estadisticas de la corrida.
+    """
+    sanitized = [_sanitize_record(record) for record in records]
+    stored = upsert_source_records(
+        db,
+        source,
+        resource_type,
+        sanitized,
+        external_id_fn=_external_id,
+        contexts=contexts if contexts is not None else [sync_context] * len(sanitized),
+    )
+    if result is not None:
+        result.add(stored)
+    return stored.processed
 
 
 async def sync_virtualpos(
@@ -203,6 +194,8 @@ async def sync_virtualpos(
                     store_vp_resources(
                         db, "subscription", sanitized_subs, platform=platform, skipped_subscriptions=skipped_subscriptions
                     )
+                page_charges: list[dict[str, Any]] = []
+                page_contexts: list[dict[str, Any] | None] = []
                 for subscription in sanitized_subs:
                     subscription_id = _subscription_id(subscription)
                     if subscription_id is None:
@@ -215,14 +208,9 @@ async def sync_virtualpos(
                         if isinstance(c, dict)
                     ]
                     sanitized_charges = [_sanitize_record(c) for c in charge_records]
+                    page_charges.extend(sanitized_charges)
+                    page_contexts.extend([{"subscription_external_id": subscription_id}] * len(sanitized_charges))
                     with charge_timer.upsert(len(sanitized_charges)):
-                        processed += _store_records(
-                            db,
-                            platform,
-                            "charge",
-                            sanitized_charges,
-                            sync_context={"subscription_external_id": subscription_id},
-                        )
                         store_vp_resources(
                             db, "charge", sanitized_charges, platform=platform, subscription_external_id=subscription_id
                         )
@@ -234,6 +222,9 @@ async def sync_virtualpos(
                             len(sanitized_charges),
                             1,
                         )
+                with charge_timer.upsert(0):
+                    # SYNC-O-10: los cobros de todas las suscripciones de la pagina van a source_records en un lote.
+                    processed += _store_records(db, platform, "charge", page_charges, contexts=page_contexts)
                 if progress_callback:
                     total_records, total_pages = pagination_totals(response)
                     progress_callback("subscription", page, subscription_records, total_records, total_pages)
