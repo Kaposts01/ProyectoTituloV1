@@ -11,7 +11,7 @@ Solo agrega: no borra ni reescribe datos crudos. Reversible: el downgrade quita 
 columnas nuevas y la tabla `p_cycles`. La aplica el usuario (ningun agente corre Alembic).
 
 Revision ID: 20261102_0055
-Revises: 20261102_0052
+Revises: 20261102_0057
 Create Date: 2026-11-02 12:00:00
 """
 
@@ -23,7 +23,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "20261102_0055"
-down_revision = "20261102_0052"
+down_revision = "20261102_0057"
 branch_labels = None
 depends_on = None
 
