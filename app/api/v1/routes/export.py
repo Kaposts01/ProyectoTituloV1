@@ -30,6 +30,7 @@ router = APIRouter()
 
 Entity = Literal["clientes", "suscripciones", "cobros", "pagos"]
 Channel = Literal["virtualpos", "virtualpos1", "virtualpos2", "toku", "payku", "tch"]
+Outcome = Literal["paid", "rejected", "pending", "excluded", "other"]  # UX-09: resultado normalizado (charge_stats)
 PII_PERMISSION = "export.pii"
 
 
@@ -45,14 +46,17 @@ def _parse_date(value: str | None, name: str) -> date | None:
 def _resolve(
     entity: str, channel: str | None, user: User, query: str | None, filter_field: str, status: str | None,
     date_from: str | None, date_to: str | None, amount_min: float | None, amount_max: float | None,
+    outcome: str | None = None,
 ) -> tuple[list, ExportFilters, bool, list[str]]:
     if filter_field not in FILTER_FIELDS[entity]:
         raise HTTPException(status_code=422, detail="Invalid filter field")
     if entity == "clientes" and (amount_min is not None or amount_max is not None):
         raise HTTPException(status_code=422, detail="Amount range is unsupported for this resource")
+    if outcome is not None and entity not in ("cobros", "pagos"):
+        raise HTTPException(status_code=422, detail="Outcome filter is unsupported for this resource")
     filters = ExportFilters(
         query=query, filter_field=filter_field, status=status, date_from=_parse_date(date_from, "date_from"),
-        date_to=_parse_date(date_to, "date_to"), amount_min=amount_min, amount_max=amount_max,
+        date_to=_parse_date(date_to, "date_to"), amount_min=amount_min, amount_max=amount_max, outcome=outcome,
     )
     codes = permission_codes(user)
     items, denied = select_specs(entity, channel, codes)
@@ -79,9 +83,10 @@ def export_count(
     date_to: str | None = None,
     amount_min: float | None = Query(None, ge=0),
     amount_max: float | None = Query(None, ge=0),
+    outcome: Outcome | None = None,
 ) -> dict[str, Any]:
     items, filters, include_pii, channels = _resolve(
-        entity, channel, user, query, filter_field, status, date_from, date_to, amount_min, amount_max)
+        entity, channel, user, query, filter_field, status, date_from, date_to, amount_min, amount_max, outcome)
     return {"entity": entity, "rows": total_rows(db, items, filters), "canales": channels, "include_pii": include_pii}
 
 
@@ -97,12 +102,13 @@ def export_entity(
     date_to: str | None = None,
     amount_min: float | None = Query(None, ge=0),
     amount_max: float | None = Query(None, ge=0),
+    outcome: Outcome | None = None,
     export_all: bool = Query(False, alias="all"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=1000),
 ) -> StreamingResponse:
     items, filters, include_pii, channels = _resolve(
-        entity, channel, user, query, filter_field, status, date_from, date_to, amount_min, amount_max)
+        entity, channel, user, query, filter_field, status, date_from, date_to, amount_min, amount_max, outcome)
     # El usuario se captura ya: la respuesta se genera despues de cerrar la sesion de la peticion.
     actor = SimpleNamespace(id=user.id, username=user.username)
     endpoint = f"export/{entity}"

@@ -23,15 +23,16 @@ describe("agrupación del menú de un solo nivel (D29)", () => {
     const shape = visibleMenu(canAll).map((g) => [g.label, g.items.map((i) => i.label)]);
     expect(shape).toEqual([
       [null, ["Resumen"]],
-      ["Cartera", ["Socios", "Suscripciones"]],
+      // Cambio deliberado (UX-09): Cobros entra a Cartera.
+      ["Cartera", ["Socios", "Suscripciones", "Cobros"]],
       ["Operación", ["Recuperador", "Cambios de cobro", "Bajas"]],
       ["Sistema", ["Sincronización", "Administración", "Reportes"]],
     ]);
   });
 
-  it("Cobros e Identidad quedan fuera hasta que existan sus vistas (UX-09, UX-11)", () => {
+  it("Identidad queda fuera hasta que exista su vista (UX-11); Cobros ya existe (UX-09)", () => {
     const labels = menuGroups.flatMap((g) => g.items.map((i) => i.label));
-    expect(labels).not.toContain("Cobros");
+    expect(labels).toContain("Cobros");
     expect(labels).not.toContain("Identidad");
   });
 

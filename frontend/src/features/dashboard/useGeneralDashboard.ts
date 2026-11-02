@@ -11,7 +11,7 @@ import type {
 } from "../shared/types";
 
 /** «summary» = Resumen unificado (features/summary); «classic» = vista anterior del dashboard general (transitoria, UX-15). */
-export type GeneralView = "summary" | "classic" | "clients" | "subscriptions" | "report";
+export type GeneralView = "summary" | "classic" | "clients" | "subscriptions" | "charges" | "report";
 export type GeneralClientFilter = "all" | "rut" | "name" | "last_name" | "platform" | "email" | "phone";
 export type GeneralSubscriptionFilter = "all" | "id" | "rut" | "client" | "platform" | "status";
 
@@ -41,6 +41,9 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   const [generalClientQuery, setGeneralClientQuery] = useState("");
   const [generalClientFilter, setGeneralClientFilter] = useState<GeneralClientFilter>("all");
   const [generalClientOffset, setGeneralClientOffset] = useState(0);
+  /** UX-10 (transitorio): filtros de canal y de estado (con o sin suscripción activa); «» = todos. */
+  const [generalClientChannel, setGeneralClientChannel] = useState<"" | "virtualpos" | "toku" | "payku" | "tch">("");
+  const [generalClientStatus, setGeneralClientStatus] = useState<"" | "active" | "inactive">("");
   const [generalClientDetail, setGeneralClientDetail] = useState<GeneralClientDetail | null>(null);
   const [generalSubscriptions, setGeneralSubscriptions] = useState<GeneralSubscriptions | null>(null);
   const [generalSubscriptionQuery, setGeneralSubscriptionQuery] = useState("");
@@ -53,7 +56,6 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   const [debtFilter, setDebtFilter] = useState<ChargeFilter>("all");
   const [transactionFilter, setTransactionFilter] = useState<ChargeFilter>("all");
   const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
-  const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
 
   useEffect(() => {
     if (!session || generalView !== "classic" || channel || activeSection || tchView || adminOpen || profileView) return;
@@ -95,24 +97,18 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   useEffect(() => {
     if (!session || generalView !== "clients") return;
     const params = new URLSearchParams({ limit: "100", offset: String(generalClientOffset), filter_field: generalClientFilter });
+    if (generalClientChannel) params.set("canal", generalClientChannel);
+    if (generalClientStatus) params.set("status", generalClientStatus);
     if (debouncedGeneralClientQuery.trim()) params.set("query", debouncedGeneralClientQuery.trim());
     const controller = new AbortController();
     getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${params}`, controller.signal)
       .then(setGeneralClients)
       .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")); });
     return () => controller.abort();
-  }, [session, generalView, debouncedGeneralClientQuery, generalClientFilter, generalClientOffset, setError]);
+  }, [session, generalView, debouncedGeneralClientQuery, generalClientFilter, generalClientOffset, generalClientChannel, generalClientStatus, setError]);
 
-  useEffect(() => {
-    if (!session || generalView !== "subscriptions") return;
-    const params = new URLSearchParams({ limit: "100", offset: String(generalSubscriptionOffset), filter_field: generalSubscriptionFilter });
-    if (debouncedGeneralSubscriptionQuery.trim()) params.set("query", debouncedGeneralSubscriptionQuery.trim());
-    const controller = new AbortController();
-    getJson<GeneralSubscriptions>(`/api/v1/staging/dashboard/general/subscriptions?${params}`, controller.signal)
-      .then(setGeneralSubscriptions)
-      .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar las suscripciones consolidadas.")); });
-    return () => controller.abort();
-  }, [session, generalView, debouncedGeneralSubscriptionQuery, generalSubscriptionFilter, generalSubscriptionOffset, setError]);
+  // UX-08: /central/suscripciones usa la vista unificada paginada en SQL (features/general/UnifiedSubscriptionsView);
+  // ya no se pide la lista consolidada en memoria (/staging/dashboard/general/subscriptions).
 
   return {
     summary,
@@ -128,6 +124,10 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
     generalClientFilter,
     setGeneralClientFilter,
     generalClientOffset,
+    generalClientChannel,
+    setGeneralClientChannel,
+    generalClientStatus,
+    setGeneralClientStatus,
     setGeneralClientOffset,
     generalClientDetail,
     setGeneralClientDetail,

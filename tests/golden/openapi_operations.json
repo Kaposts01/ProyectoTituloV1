@@ -192,6 +192,7 @@
   "query:filter_field",
   "query:limit",
   "query:offset",
+  "query:outcome",
   "query:query",
   "query:status"
  ],
@@ -203,8 +204,72 @@
   "query:date_from",
   "query:date_to",
   "query:filter_field",
+  "query:outcome",
   "query:query",
   "query:status"
+ ],
+ "GET /api/v1/general/charges": [
+  "cookie:crm_access_token",
+  "query:amount_max",
+  "query:amount_min",
+  "query:canal",
+  "query:date_from",
+  "query:date_to",
+  "query:filter_field",
+  "query:limit",
+  "query:offset",
+  "query:outcome",
+  "query:query",
+  "query:status"
+ ],
+ "GET /api/v1/general/charges/statuses": [
+  "cookie:crm_access_token",
+  "query:canal",
+  "query:date_from",
+  "query:date_to"
+ ],
+ "GET /api/v1/general/charges/summary": [
+  "cookie:crm_access_token",
+  "query:canal",
+  "query:date_from",
+  "query:date_to"
+ ],
+ "GET /api/v1/general/payments": [
+  "cookie:crm_access_token",
+  "query:amount_max",
+  "query:amount_min",
+  "query:canal",
+  "query:date_from",
+  "query:date_to",
+  "query:filter_field",
+  "query:limit",
+  "query:offset",
+  "query:outcome",
+  "query:query",
+  "query:status"
+ ],
+ "GET /api/v1/general/payments/statuses": [
+  "cookie:crm_access_token",
+  "query:canal",
+  "query:date_from",
+  "query:date_to"
+ ],
+ "GET /api/v1/general/subscriptions": [
+  "cookie:crm_access_token",
+  "query:amount_max",
+  "query:amount_min",
+  "query:canal",
+  "query:date_from",
+  "query:date_to",
+  "query:filter_field",
+  "query:limit",
+  "query:offset",
+  "query:query",
+  "query:status"
+ ],
+ "GET /api/v1/general/subscriptions/statuses": [
+  "cookie:crm_access_token",
+  "query:canal"
  ],
  "GET /api/v1/imports/toku-reports/status": [
   "cookie:crm_access_token"
@@ -412,10 +477,12 @@
  ],
  "GET /api/v1/staging/dashboard/general/clients": [
   "cookie:crm_access_token",
+  "query:canal",
   "query:filter_field",
   "query:limit",
   "query:offset",
-  "query:query"
+  "query:query",
+  "query:status"
  ],
  "GET /api/v1/staging/dashboard/general/clients/{}": [
   "cookie:crm_access_token"

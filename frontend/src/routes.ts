@@ -10,7 +10,7 @@ const TCH_URL_SEGMENT: Record<Exclude<TchRouteView, "summary">, string> = { clie
 export const tchPermissionSegment = (view: Exclude<TchRouteView, "summary">): string => TCH_URL_SEGMENT[view];
 
 export type AppRoute =
-  | { kind: "central"; view: "summary" | "classic" | "clients" | "subscriptions" | "report" }
+  | { kind: "central"; view: "summary" | "classic" | "clients" | "subscriptions" | "charges" | "report" }
   | { kind: "channel"; source: ProviderSource }
   | { kind: "resource"; source: ProviderSource; resource: string }
   | { kind: "record"; source: ProviderSource; resource: string; externalId: string }
@@ -59,6 +59,8 @@ export function parseRoute(pathname: string): AppRoute | null {
   if (parts[0] === "central") {
     if (parts[1] === "clientes") return { kind: "central", view: "clients" };
     if (parts[1] === "suscripciones") return { kind: "central", view: "subscriptions" };
+    // Cobros unificados (UX-09): misma familia de rutas que Socios y Suscripciones (D29 mantuvo /central/*).
+    if (parts[1] === "cobros") return { kind: "central", view: "charges" };
     if (parts[1] === "resumen") return { kind: "central", view: "summary" };
     // Vista anterior del resumen (TRANSITORIA, fuera del menú; se retira con UX-15).
     if (parts[1] === "resumen-clasico") return { kind: "central", view: "classic" };
@@ -128,6 +130,7 @@ export function routePath(route: AppRoute): string {
     if (route.view === "classic") return "/central/resumen-clasico";
     if (route.view === "clients") return "/central/clientes";
     if (route.view === "subscriptions") return "/central/suscripciones";
+    if (route.view === "charges") return "/central/cobros";
     return "/central/reporte-automatico";
   }
   if (route.kind === "channel") return `/${route.source}/resumen`;

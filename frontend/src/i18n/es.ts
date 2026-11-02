@@ -141,6 +141,14 @@ export const es = {
     inactiva: "Inactiva",
     "nunca cobrado": "Nunca cobrado",
   },
+  /** Resultado normalizado de un cobro (`charge_stats.charge_outcome`, definición única de rechazo; UX-09). */
+  chargeOutcome: {
+    paid: "Pagado",
+    rejected: "Rechazado",
+    pending: "Pendiente",
+    excluded: "Cancelado, expirado o anulado",
+    other: "Otro estado",
+  },
   /** Estado de una corrida (ETL, sincronización, trabajo programado). */
   runStatus: {
     completed: "Completada",

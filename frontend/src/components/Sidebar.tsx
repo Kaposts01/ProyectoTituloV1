@@ -13,9 +13,11 @@ export type SidebarProps = {
   onToggleDetail: () => void;
   theme: "light" | "dark";
   onDashboard: () => void;
-  generalView: "summary" | "classic" | "clients" | "subscriptions" | "report";
+  generalView: "summary" | "classic" | "clients" | "subscriptions" | "charges" | "report";
   onGeneralClients: () => void;
   onGeneralSubscriptions: () => void;
+  /** Cobros unificados (UX-09). */
+  onGeneralCharges?: () => void;
   onAutoReport: () => void;
   onChannel: (source: ProviderSource) => void;
   onSection: (section: ProviderSection) => void;
@@ -41,7 +43,7 @@ export type SidebarProps = {
 
 export function Sidebar({
   activeSection, channel, tchView, detailOpen, onToggleDetail, theme, onDashboard,
-  generalView, onGeneralClients, onGeneralSubscriptions, onAutoReport,
+  generalView, onGeneralClients, onGeneralSubscriptions, onGeneralCharges, onAutoReport,
   onChannel, onSection, onTheme, onTch,
   permissions, onAdmin, adminOpen, adminTab,
   onLogout, onProfile, open, onClose, recoveryOpen, onRecovery, billingOpen = false, onBilling, cancellationsOpen = false, onCancellations, profileOpen = false, health,
@@ -100,6 +102,7 @@ export function Sidebar({
       if (action.view === "summary") onDashboard();
       else if (action.view === "clients") onGeneralClients();
       else if (action.view === "subscriptions") onGeneralSubscriptions();
+      else if (action.view === "charges") onGeneralCharges?.();
       else onAutoReport();
     } else if (action.kind === "recovery") onRecovery();
     else if (action.kind === "billing") onBilling?.();

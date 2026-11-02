@@ -168,6 +168,26 @@ const client = (n: number) => ({ rut: `1111111${n}-1`, name: `Persona Sintética
 describe("Clientes consolidados (/central/clientes)", () => {
   const list = { items: [client(1), client(2)], total: 250, offset: 0, limit: 100 };
 
+  it("UX-10: filtros de canal y estado van a la API, el canal al Exportar y se avisa que el RUT no está verificado", async () => {
+    const app = mountApp("/central/clientes", [
+      ["GET", "/api/v1/staging/dashboard/general/clients", list],
+      ["GET", "/api/v1/export/clientes/count", { entity: "clientes", rows: 3, canales: [], include_pii: false }],
+    ]);
+    await appReady();
+    await screen.findByRole("button", { name: "11111111-1" });
+    expect(screen.getByText(/no verificado/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Canal de los socios"), { target: { value: "tch" } });
+    fireEvent.change(screen.getByLabelText("Estado de los socios"), { target: { value: "active" } });
+    await waitFor(() => {
+      const last = app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)!;
+      expect([last.query.get("canal"), last.query.get("status"), last.query.get("offset")]).toEqual(["tch", "active", "0"]);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Exportar/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Todo el listado/ }));
+    expect(await screen.findByText(/sin esos filtros/)).toBeTruthy();
+    expect(app.find("GET", "/api/v1/export/clientes/count").at(-1)?.query.get("canal")).toBe("tch");
+  });
+
   it("pide la primera página y muestra título, columnas, filas y paginación", async () => {
     const app = mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", list]]);
     await appReady();
@@ -259,57 +279,67 @@ describe("Clientes consolidados (/central/clientes)", () => {
   });
 });
 
+// Cambio deliberado (UX-08): /central/suscripciones usa la vista unificada paginada en SQL (/api/v1/general/subscriptions)
+// en vez de la lista consolidada en memoria. Se caracteriza la nueva vista.
 const subscription = (n: number, over: Record<string, unknown> = {}) => ({
-  id: `S-${n}`, platform: "VirtualPOS", rut: `1111111${n}-1`, client: `Persona Sintética ${n}`, status: "ACTIVA",
-  started_at: "2025-01-10", ended_at: null, amount: "10000", currency: "CLP", last_paid_date: "2025-03-05T00:00:00", secondary_status: "cobrable", ...over,
+  channel: "virtualpos1", subscription_id: `S-${n}`, rut: `1111111${n}-1`, name: `Persona Sintética ${n}`, status: "ACTIVA",
+  start_date: "2025-01-10", end_date: null, amount: "10000", currency: "CLP", last_charge: "2025-03-05T00:00:00", secondary_status: "cobrable", ...over,
 });
 
-describe("Suscripciones consolidadas (/central/suscripciones)", () => {
-  const list = { items: [subscription(1), subscription(2, { status: "", client: "", rut: "", amount: null, last_paid_date: null, secondary_status: "inactiva", ended_at: "2025-02-01" })], total: 250, offset: 0, limit: 100 };
+describe("Suscripciones unificadas (/central/suscripciones)", () => {
+  const list = {
+    items: [subscription(1), subscription(2, { channel: "tch", subscription_id: "900", status: "", name: "", rut: "", amount: null, last_charge: null, secondary_status: "inactiva", end_date: "2025-02-01" })],
+    total: 250, offset: 0, limit: 50, by_channel: { virtualpos: 200, tch: 50 }, canales: ["virtualpos1", "tch"],
+  };
+  const statuses: Handler = ["GET", "/api/v1/general/subscriptions/statuses", { statuses: [{ status: "ACTIVA", count: 200 }], canales: ["virtualpos1", "tch"] }];
 
   it("pide la primera página y muestra título, columnas, filas y paginación", async () => {
-    const app = mountApp("/central/suscripciones", [["GET", "/api/v1/staging/dashboard/general/subscriptions", list]]);
+    const app = mountApp("/central/suscripciones", [["GET", "/api/v1/general/subscriptions", list], statuses]);
     await appReady();
-    expect(await screen.findByText("S-1")).toBeTruthy();
-    const call = app.find("GET", "/api/v1/staging/dashboard/general/subscriptions")[0];
-    expect(call.query.get("limit")).toBe("100");
-    expect(call.query.get("offset")).toBe("0");
-    expect(call.query.get("filter_field")).toBe("all");
-    expect(screen.getByText("SUSCRIPCIONES CONSOLIDADAS")).toBeTruthy();
-    expect(screen.getByText("250 suscripciones")).toBeTruthy();
-    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["ID", "Cliente", "RUT", "Plataforma", "Estado", "Estado secundario", "Último cobro", "Inicio", "Término", "Monto"]);
+    expect(await screen.findByRole("button", { name: "S-1" })).toBeTruthy();
+    const call = app.exact("GET", "/api/v1/general/subscriptions")[0];
+    expect(Object.fromEntries(call.query)).toEqual({ offset: "0", limit: "50" });
+    expect(screen.getByRole("heading", { name: "Suscripciones", level: 1 })).toBeTruthy();
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Canal", "ID", "Socio", "RUT", "Estado", "Estado secundario", "Último cobro", "Inicio", "Término", "Monto"]);
     expect(screen.getByText("CLP $10.000")).toBeTruthy();
     expect(screen.getByText("2025-03-05")).toBeTruthy();
     expect(screen.getByText("Cobrable").className).toContain("badge-green");
     expect(screen.getByText("Inactiva").className).toContain("badge-gray");
-    expect(screen.getByText("1-2 de 250")).toBeTruthy();
-    await listSettled();
-    expect(contentHtml()).toMatchSnapshot();
+    expect(app.exact("GET", "/api/v1/staging/dashboard/general/subscriptions")).toHaveLength(0);
   });
 
-  it("buscar, cambiar el campo y paginar piden la lista y reflejan campo y offset en la URL", async () => {
-    const app = mountApp("/central/suscripciones", [["GET", "/api/v1/staging/dashboard/general/subscriptions", list]]);
+  it("filtros de canal, estado y búsqueda y la paginación van a la API; el RUT abre Socios", async () => {
+    const app = mountApp("/central/suscripciones", [["GET", "/api/v1/general/subscriptions", list], statuses, ["GET", "/api/v1/staging/dashboard/general/clients", { items: [], total: 0, offset: 0, limit: 100 }]]);
     await appReady();
-    await screen.findByText("S-1");
+    await screen.findByRole("button", { name: "S-1" });
     fireEvent.click(screen.getByRole("button", { name: "Siguiente →" }));
-    await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/subscriptions").at(-1)?.query.get("offset")).toBe("100"));
-    expect(window.location.search).toBe("?offset=100");
-    fireEvent.change(screen.getByLabelText("Campo de búsqueda de suscripciones"), { target: { value: "status" } });
-    await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/subscriptions").at(-1)?.query.get("filter_field")).toBe("status"));
-    expect(window.location.search).toBe("?campo=status");
-    fireEvent.change(screen.getByLabelText("Buscar suscripción consolidada"), { target: { value: "ACTIVA" } });
-    await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/subscriptions").at(-1)?.query.get("query")).toBe("ACTIVA"));
+    await waitFor(() => expect(app.exact("GET", "/api/v1/general/subscriptions").at(-1)?.query.get("offset")).toBe("50"));
+    fireEvent.change(screen.getByLabelText("Canal"), { target: { value: "tch" } });
+    fireEvent.change(await screen.findByLabelText("Estado"), { target: { value: "ACTIVA" } });
+    fireEvent.change(screen.getByLabelText("Buscar en"), { target: { value: "rut" } });
+    fireEvent.change(screen.getByLabelText("Texto"), { target: { value: "1111" } });
+    await waitFor(() => expect(Object.fromEntries(app.exact("GET", "/api/v1/general/subscriptions").at(-1)!.query)).toEqual({ canal: "tch", status: "ACTIVA", filter_field: "rut", query: "1111", offset: "0", limit: "50" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver socio 11111111-1" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
+    await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)?.query.get("filter_field")).toBe("rut"));
   });
 
   it("sin suscripciones muestra «Sin suscripciones.»", async () => {
-    mountApp("/central/suscripciones", [["GET", "/api/v1/staging/dashboard/general/subscriptions", { items: [], total: 0, offset: 0, limit: 100 }]]);
+    mountApp("/central/suscripciones", [["GET", "/api/v1/general/subscriptions", { ...list, items: [], total: 0 }], statuses]);
     await appReady();
     expect(await screen.findByText("Sin suscripciones.")).toBeTruthy();
   });
 
   it("si falla la lista muestra el error", async () => {
-    mountApp("/central/suscripciones", [["GET", "/api/v1/staging/dashboard/general/subscriptions", failWith(500, "lista rota")]]);
+    mountApp("/central/suscripciones", [["GET", "/api/v1/general/subscriptions", failWith(500, "lista rota")], statuses]);
     await appReady();
     expect(await screen.findByText("lista rota")).toBeTruthy();
+  });
+
+  it("con solo dashboard.view (sin permiso de suscripciones de ningún canal) explica el motivo y no pide la lista", async () => {
+    const app = mountApp("/central/suscripciones", [["GET", "/api/v1/general/subscriptions", list], statuses], { permissions: ["dashboard.view"] });
+    await appReady();
+    expect(await screen.findByText(/no puede ver suscripciones de ningún canal/)).toBeTruthy();
+    expect(app.exact("GET", "/api/v1/general/subscriptions")).toHaveLength(0);
   });
 });

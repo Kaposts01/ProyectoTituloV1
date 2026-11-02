@@ -6,6 +6,7 @@ from app.api.v1.routes import (
     cancellations,
     catalog,
     changes,
+    charges_unified,
     crm,
     dashboard,
     etl,
@@ -17,6 +18,7 @@ from app.api.v1.routes import (
     reports,
     scheduler,
     staging,
+    subscriptions,
     sync_runs,
     tch,
     webhooks_admin,
@@ -45,3 +47,5 @@ api_router.include_router(changes.router, prefix="/changes", tags=["Changes"])
 api_router.include_router(dashboard.router, prefix="/dashboard")
 api_router.include_router(events.router, prefix="/events")
 api_router.include_router(webhooks_admin.router, prefix="/admin/webhooks")
+api_router.include_router(charges_unified.router, prefix="/general")
+api_router.include_router(subscriptions.router, prefix="/general")

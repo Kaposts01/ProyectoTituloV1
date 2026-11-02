@@ -203,11 +203,12 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
     expect(within(list).getByText("Sincronización atrasada: hace 30 h")).toBeTruthy();
   });
 
-  it("Cobros e Identidad no están en el menú (no existen sus vistas)", async () => {
+  // Cambio deliberado (UX-09): Cobros ya existe y aparece en Cartera; Identidad sigue fuera (UX-11).
+  it("Cobros está en el menú e Identidad no (no existe su vista)", async () => {
     mountApp("/central/resumen", [listHandler]);
     await appReady();
     const nav = document.querySelector(".sidebar-nav") as HTMLElement;
-    expect(within(nav).queryByRole("button", { name: "Cobros" })).toBeNull();
+    expect(within(nav).getByRole("button", { name: "Cobros" })).toBeTruthy();
     expect(within(nav).queryByRole("button", { name: "Identidad" })).toBeNull();
   });
 

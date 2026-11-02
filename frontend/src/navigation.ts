@@ -4,6 +4,7 @@ import { PERM_VIEW as PERM_BILLING_VIEW } from "./features/billing/types";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
 import { canOpenRecovery } from "./features/recovery/recoveryChannels";
 import type { ProviderSection, ProviderSource, TchRouteView } from "./routes";
+import { VIEW_PERMISSIONS, canAny } from "./features/general/unifiedTypes";
 
 export type { ProviderSection, ProviderSource };
 
@@ -50,15 +51,14 @@ export function resourcePermission(source: string, resource: string): string {
 
 /* ── Menú de un solo nivel (UX-05, D29) ─────────────────────────────────────────────
    Grupos: Resumen · Cartera · Operación · Sistema, más el grupo transitorio «Detalle por canal».
-   Solo contiene vistas que existen hoy. Fuera del menú, a propósito:
-   - Cobros (Cartera): aún no hay vista unificada; entra con UX-09.
+   Solo contiene vistas que existen hoy. Cobros (Cartera) entró con UX-09. Fuera del menú, a propósito:
    - Identidad (Operación): no existe pantalla (cola de candidatos, UX-11).
    Las rutas no cambian: el menú solo reagrupa y renombra. */
 
 export type Can = (permission: string) => boolean;
 
 export type MenuAction =
-  | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "report" }
+  | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "charges" | "report" }
   | { kind: "recovery" }
   | { kind: "billing" }
   | { kind: "cancellations" }
@@ -69,6 +69,13 @@ export type MenuItem = { id: string; label: string; action: MenuAction; allowed:
 export type MenuGroup = { id: string; label: string | null; items: MenuItem[] };
 
 const canDashboard: MenuItem["allowed"] = (can) => can("dashboard.view");
+
+/** Vistas unificadas de Cartera (UX-08..10): `dashboard.view` (como antes) o el permiso de vista de algún canal. La API
+ *  filtra las filas por los permisos de vista de cada canal; sin ninguno, la pantalla lo explica. */
+export const canOpenMembers: MenuItem["allowed"] = (can) => can("dashboard.view") || canAny(can, VIEW_PERMISSIONS.members);
+export const canOpenSubscriptions: MenuItem["allowed"] = (can) => can("dashboard.view") || canAny(can, VIEW_PERMISSIONS.subscriptions);
+/** Cobros (UX-09) es nueva: solo con el permiso de vista de cobros o pagos de algún canal. */
+export const canOpenCharges: MenuItem["allowed"] = (can) => canAny(can, VIEW_PERMISSIONS.charges) || canAny(can, VIEW_PERMISSIONS.payments);
 
 /** Permiso general de Cambios de cobro (UX-12). El permiso VirtualPOS sigue valiendo (la API acepta ambos). */
 export const PERM_GENERAL_BILLING_VIEW = "general.billing_changes.view";
@@ -81,8 +88,9 @@ export const menuGroups: MenuGroup[] = [
     id: "cartera",
     label: "Cartera",
     items: [
-      { id: "clients", label: "Socios", action: { kind: "central", view: "clients" }, allowed: canDashboard },
-      { id: "subscriptions", label: "Suscripciones", action: { kind: "central", view: "subscriptions" }, allowed: canDashboard },
+      { id: "clients", label: "Socios", action: { kind: "central", view: "clients" }, allowed: canOpenMembers },
+      { id: "subscriptions", label: "Suscripciones", action: { kind: "central", view: "subscriptions" }, allowed: canOpenSubscriptions },
+      { id: "charges", label: "Cobros", action: { kind: "central", view: "charges" }, allowed: canOpenCharges },
     ],
   },
   {

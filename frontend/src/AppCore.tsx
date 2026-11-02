@@ -4,7 +4,7 @@ import { setCsrfToken, getJson, postJson } from "./api";
 import { useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
 import { ChangeToasts } from "./components/ChangeToasts";
-import { canOpenBilling, canOpenRecovery, providerGroups, resourcePermission } from "./navigation";
+import { canOpenBilling, canOpenCharges, canOpenMembers, canOpenRecovery, canOpenSubscriptions, providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
 import "./App.css";
 import "./Staging.css";
@@ -47,6 +47,9 @@ const ChannelDashboardView = lazy(() => import("./features/dashboard/ChannelDash
 const GeneralDashboardView = lazy(() => import("./features/dashboard/GeneralDashboardView").then((m) => ({ default: m.GeneralDashboardView })));
 const SummaryView = lazy(() => import("./features/summary/SummaryView").then((m) => ({ default: m.SummaryView })));
 const TchContent = lazy(() => import("./features/tch/TchContent").then((m) => ({ default: m.TchContent })));
+// Vistas unificadas de Cartera (UX-08, UX-09): paginadas en el servidor y cargadas bajo demanda.
+const UnifiedSubscriptionsView = lazy(() => import("./features/general/UnifiedSubscriptionsView").then((m) => ({ default: m.UnifiedSubscriptionsView })));
+const UnifiedChargesView = lazy(() => import("./features/charges/UnifiedChargesView").then((m) => ({ default: m.UnifiedChargesView })));
 
 
 class ContentErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -176,7 +179,12 @@ function AppCore() {
   }
 
   function canAccessRoute(route: AppRoute) {
-    if (route.kind === "central") return can("dashboard.view");
+    if (route.kind === "central") {
+      if (route.view === "charges") return canOpenCharges(can);
+      if (route.view === "subscriptions") return canOpenSubscriptions(can);
+      if (route.view === "clients") return canOpenMembers(can);
+      return can("dashboard.view");
+    }
     if (route.kind === "resource" || route.kind === "record") return can(resourcePermission(route.source, route.resource));
     if (route.kind === "channel") {
       return providerGroups.find((group) => group.sections[0].source === route.source)?.sections.some((section) => can(resourcePermission(section.source, section.resource))) ?? false;
@@ -250,6 +258,18 @@ function AppCore() {
     showDashboard(false);
     setGeneralView("subscriptions");
     if (updateUrl) navigate({ kind: "central", view: "subscriptions" });
+  }
+
+  function showGeneralCharges(updateUrl = true) {
+    showDashboard(false);
+    setGeneralView("charges");
+    if (updateUrl) navigate({ kind: "central", view: "charges" });
+  }
+
+  /** Abre una ruta interna (p. ej. la ficha por canal desde una vista unificada) como si fuera un enlace. */
+  function openPath(path: string) {
+    window.history.pushState({}, "", path);
+    setRouteLocation(path);
   }
 
   function showAutoReport(updateUrl = true) {
@@ -419,13 +439,17 @@ function AppCore() {
       if (route.view === "report") showAutoReport(false);
       else if (route.view === "summary") showDashboard(false);
       else if (route.view === "classic") showClassicSummary(false);
+      else if (route.view === "charges") showGeneralCharges(false);
       else if (route.view === "clients") {
         showGeneralClients(false);
         const field = location.searchParams.get("campo");
         if (["all", "rut", "name", "last_name", "platform", "email", "phone"].includes(field ?? "")) {
           setGeneralClientFilter(field as typeof generalClientFilter);
         }
-        setGeneralClientQuery("");
+        // Enlace «ver socio» desde las vistas unificadas (UX-08/09): ?rut= abre Socios filtrado por ese RUT.
+        const rut = location.searchParams.get("rut");
+        if (rut) setGeneralClientFilter("rut");
+        setGeneralClientQuery(rut ?? "");
         setGeneralClientOffset(listOffset(location.searchParams));
       } else {
         showGeneralSubscriptions(false);
@@ -681,7 +705,7 @@ function AppCore() {
         />
       )
     ) : (
-      generalView === "report" ? <AutomaticReport /> : generalView === "summary" ? (
+      generalView === "report" ? <AutomaticReport /> : generalView === "charges" ? <UnifiedChargesView can={can} onOpenPath={openPath} /> : generalView === "subscriptions" ? <UnifiedSubscriptionsView can={can} onOpenPath={openPath} /> : generalView === "summary" ? (
         // El estado inicial es «summary» aunque el enlace profundo apunte a otra vista: solo se monta el Resumen
         // unificado si la URL es de verdad la suya (así un enlace a otra pantalla no dispara su petición).
         onSummaryRoute ? <SummaryView /> : <main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>
@@ -719,6 +743,7 @@ function AppCore() {
         generalView={generalView}
         onGeneralClients={showGeneralClients}
         onGeneralSubscriptions={showGeneralSubscriptions}
+        onGeneralCharges={showGeneralCharges}
         onAutoReport={showAutoReport}
         onChannel={showChannel}
         onSection={showSection}

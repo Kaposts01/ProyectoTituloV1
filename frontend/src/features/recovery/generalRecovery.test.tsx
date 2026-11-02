@@ -42,7 +42,8 @@ describe("rutas y menú (UX-12)", () => {
     expect(labels(only("general.recovery.toku.view"))).toEqual(["Recuperador"]);
     expect(labels(only("general.recovery.tch.view"))).toEqual(["Recuperador"]);
     expect(labels(only("virtualpos.recovery.view"))).toEqual(["Recuperador"]);
-    expect(labels(only("toku.subscriptions.view"))).toEqual([]);
+    // Cambio deliberado (UX-08): con un permiso de vista de suscripciones aparece Suscripciones (Cartera), no el Recuperador.
+    expect(labels(only("toku.subscriptions.view"))).toEqual(["Suscripciones"]);
     expect(canOpenRecovery(only())).toBe(false);
   });
 

@@ -11,7 +11,7 @@ las tablas: se comparan los 10 primeros caracteres ISO y se castea el monto solo
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -36,6 +36,12 @@ from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription as CSub
 from app.models.payku_channel import PaykuTransaction as PkTx
 from app.models.tch import TchClient, TchSubscription, TchTransaction
+from app.services.charge_stats import (
+    EXCLUDED_STATES,
+    PAID_STATES,
+    PENDING_DASHBOARD_STATES,
+    REJECTED_STATES,
+)
 from app.services.exporter import ExportColumn
 
 YIELD_PER = 2000
@@ -95,6 +101,8 @@ class ExportFilters:
     date_to: date | None = None
     amount_min: float | None = None
     amount_max: float | None = None
+    # UX-09: resultado normalizado del cobro segun `charge_stats.charge_outcome` (paid|rejected|pending|excluded|other).
+    outcome: str | None = None
 
     def audit(self) -> dict[str, Any]:
         """Filtros para la auditoria. El texto de busqueda solo se guarda si el campo no puede ser un dato personal."""
@@ -105,7 +113,7 @@ class ExportFilters:
                 out["query_len"] = len(self.query.strip())
             else:
                 out["query"] = self.query.strip()
-        for name in ("status", "amount_min", "amount_max"):
+        for name in ("status", "amount_min", "amount_max", "outcome"):
             if getattr(self, name) is not None:
                 out[name] = getattr(self, name)
         for name in ("date_from", "date_to"):
@@ -184,6 +192,25 @@ def _common_conditions(filters: ExportFilters, status_col: Any, date_col: Any | 
         if filters.amount_max is not None:
             conds.append(_numeric(amount_col) <= filters.amount_max)
     return conds
+
+
+OUTCOMES = ("paid", "rejected", "pending", "excluded", "other")
+_OUTCOME_STATES: dict[str, frozenset[str]] = {
+    "paid": PAID_STATES,
+    "rejected": REJECTED_STATES,
+    "excluded": EXCLUDED_STATES,
+    "pending": PENDING_DASHBOARD_STATES,
+}
+
+
+def outcome_condition(status_col: Any, outcome: str | None) -> Any | None:
+    """SQL equivalente a `charge_stats.charge_outcome(status) == outcome` (misma normalizacion: strip + minusculas)."""
+    if not outcome:
+        return None
+    norm = func.lower(func.trim(func.coalesce(cast(status_col, String), "")))
+    if outcome == "other":
+        return norm.notin_(sorted(set().union(*_OUTCOME_STATES.values())))
+    return norm.in_(sorted(_OUTCOME_STATES[outcome]))
 
 
 def _pii(expr: Any, include_pii: bool) -> Any:
@@ -375,6 +402,9 @@ def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> A
         stmt = select(*cols, null().label("rut"), null().label("name"))
     search = _search(f, {"id": CCharge.external_id, "subscription_id": CCharge.subscription_external_id, "status": CCharge.status})
     conds = [CCharge.source.in_(sources), *_common_conditions(f, CCharge.status, CCharge.charge_date, CCharge.amount)]
+    outcome = outcome_condition(CCharge.status, f.outcome)
+    if outcome is not None:
+        conds.append(outcome)
     if search is not None:
         conds.append(search)
     return stmt.where(*conds).order_by(CCharge.source, CCharge.external_id)
@@ -398,6 +428,9 @@ def _charges_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
         stmt = select(*cols, null().label("rut"), null().label("name"))
     search = _search(f, {"id": cast(t.id, String), "subscription_id": cast(t.file_number, String), "status": t.status})
     conds = _common_conditions(f, t.status, t.charge_date, t.amount)
+    outcome = outcome_condition(t.status, f.outcome)
+    if outcome is not None:
+        conds.append(outcome)
     if search is not None:
         conds.append(search)
     return stmt.where(*conds).order_by(t.id)
@@ -424,6 +457,9 @@ def _payments_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> 
         stmt = select(*cols, null().label("rut"), null().label("name"))
     search = _search(f, {"id": CPayment.external_id, "charge_id": CPayment.charge_external_id, "status": CPayment.status})
     conds = [CPayment.source.in_(sources), *_common_conditions(f, CPayment.status, CPayment.payment_date, CPayment.amount)]
+    outcome = outcome_condition(CPayment.status, f.outcome)
+    if outcome is not None:
+        conds.append(outcome)
     if search is not None:
         conds.append(search)
     return stmt.where(*conds).order_by(CPayment.source, CPayment.external_id)
@@ -549,3 +585,50 @@ def iter_rows(
 
 def total_rows(session: Session, items: list[tuple[ChannelSpec, tuple[str, ...]]], filters: ExportFilters) -> int:
     return sum(count_rows(session, spec.build(sources, filters, False)) for spec, sources in items)
+
+
+# ----------------------------------------------------------------------------- vistas unificadas (UX-08, UX-09)
+
+
+def fetch_page(
+    session: Session,
+    items: list[tuple[ChannelSpec, tuple[str, ...]]],
+    filters: ExportFilters,
+    include_pii: bool,
+    offset: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Una pagina de la vista unificada, paginada EN SQL (COUNT por canal + OFFSET/LIMIT por canal).
+
+    Usa el mismo orden y el mismo reparto que `iter_rows(paged=...)`, asi que «Exportar esta vista» descarga
+    exactamente las filas mostradas. Devuelve (filas, {proveedor: total})."""
+    counts = [count_rows(session, spec.build(sources, filters, False)) for spec, sources in items]
+    rows: list[dict[str, Any]] = []
+    for (spec, sources), (skip, take) in zip(items, page_plan(counts, offset, limit), strict=True):
+        if take <= 0:
+            continue
+        stmt = spec.build(sources, filters, include_pii).offset(skip).limit(take)
+        for row in session.execute(stmt).mappings():
+            data = dict(row)
+            rows.append(spec.post(data) if spec.post else data)
+    totals: dict[str, int] = {}
+    for (spec, _sources), total in zip(items, counts, strict=True):
+        totals[spec.provider] = totals.get(spec.provider, 0) + total
+    return rows, totals
+
+
+def status_facets(
+    session: Session, items: list[tuple[ChannelSpec, tuple[str, ...]]], filters: ExportFilters, limit: int = 60,
+) -> list[dict[str, Any]]:
+    """Estados presentes (texto del proveedor, tal cual) con su cantidad, ignorando el filtro de estado activo."""
+    base = replace(filters, status=None)
+    merged: dict[str, int] = {}
+    for spec, sources in items:
+        sub = spec.build(sources, base, False).order_by(None).subquery()
+        stmt = select(sub.c.status, func.count()).group_by(sub.c.status)
+        for status, count in session.execute(stmt):
+            if status is None or str(status).strip() == "":
+                continue
+            merged[str(status)] = merged.get(str(status), 0) + int(count)
+    ordered = sorted(merged.items(), key=lambda kv: (-kv[1], kv[0].lower()))[:limit]
+    return [{"status": status, "count": count} for status, count in ordered]
