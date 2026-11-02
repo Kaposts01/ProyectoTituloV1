@@ -1,4 +1,5 @@
 import logging
+import os
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -37,9 +38,15 @@ def _host(url: str) -> str:
     return (urlparse(url.strip()).hostname or "").lower()
 
 
+# `.env` a leer: `CRM_DOTENV_PATH` (variable de proceso) si esta definida, p. ej. para correr la suite
+# desde un git worktree que no tiene `.env`; si no, `.env` del directorio actual. Las variables de proceso
+# siguen teniendo prioridad sobre el archivo.
+DOTENV_PATH = os.environ.get("CRM_DOTENV_PATH") or ".env"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=DOTENV_PATH,
         env_file_encoding="utf-8",
         extra="ignore",
         hide_input_in_errors=True,
