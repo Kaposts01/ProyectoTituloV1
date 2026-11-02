@@ -47,6 +47,8 @@
  ".kpis.mrr",
  ".kpis.rejected_charges",
  ".kpis.rejected_charges.amount",
+ ".kpis.rejected_charges.basis",
+ ".kpis.rejected_charges.basis_label",
  ".kpis.rejected_charges.count",
  ".last_sync",
  ".payments_monthly",

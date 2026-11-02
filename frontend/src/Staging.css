@@ -188,9 +188,9 @@
   cursor: default;
 }
 
-.status-bar-empty {
-  width: 100%;
-  background: var(--bg-muted) !important;
+.status-bar-note {
+  margin: 0;
+  font-size: 12px;
 }
 
 .status-bar-legend {
@@ -1246,8 +1246,13 @@
   .kpi-card { min-height: 86px; padding: 14px; }
   .kpi-value { font-size: 20px !important; }
 
-  /* Gráficos extendidos: 1 columna */
-  .extended-charts { grid-template-columns: 1fr; }
+  /* Gráficos extendidos: 1 columna. minmax(0, 1fr) para que el contenido mínimo de un panel no ensanche la columna. */
+  .extended-charts { grid-template-columns: minmax(0, 1fr); }
+  .extended-charts > .panel { min-width: 0; }
+
+  /* UI-32: título + pestañas (Churn mensual: Todas / VirtualPOS 1 / VirtualPOS 2) bajan de línea en vez de desbordar. */
+  .panel-heading-wrap { flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+  .panel-heading-wrap .mode-switch { flex-wrap: wrap; max-width: 100%; }
 }
 
 /* ── KpiCard v2 ──────────────────────────────────────────────────── */

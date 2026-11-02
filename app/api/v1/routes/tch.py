@@ -30,8 +30,8 @@ from app.models.tch import (
     TchTransaction,
 )
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
-from app.services import tch_report_registry
-from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
+from app.services import rejected_month, tch_report_registry
+from app.services.charge_stats import rejected_month_kpi
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -176,8 +176,16 @@ def _monthly_statuses(rows: list[tuple[str, str, int, int | float]]) -> list[dic
 
 
 def _rejected_current_month(monthly_transactions: list[dict]) -> dict:
-    """Transacciones RECHAZADA del mes actual (hora Chile)."""
-    return rejected_current_month(monthly_transactions, REJECTED_TX_STATUSES)
+    """Cargos RECHAZADA del mes actual (hora Chile) con la definicion unica de charge_stats (UI-29)."""
+    return rejected_month_kpi(
+        (
+            {**entry, "date": f"{int(entry['year']):04d}-{int(entry['month']):02d}"}
+            for entry in monthly_transactions
+            if entry.get("year") and entry.get("month")
+        ),
+        rejected_month.now_chile().date(),
+        "tch",
+    )
 
 
 def _parse_tch_amount(value: object) -> float:

@@ -70,4 +70,5 @@ def test_tch_rejected_current_month() -> None:
         {"year": y, "month": m, "status": "RECHAZADA", "count": 3, "amount": 300},
         {"year": y, "month": 1 if m != 1 else 2, "status": "RECHAZADA", "count": 7, "amount": 700},
     ]
-    assert tch._rejected_current_month(rows) == {"count": 3, "amount": 300.0}
+    out = tch._rejected_current_month(rows)
+    assert (out["count"], out["amount"], out["basis"]) == (3, 300.0, "cargos")

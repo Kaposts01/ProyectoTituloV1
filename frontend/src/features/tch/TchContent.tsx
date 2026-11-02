@@ -92,32 +92,45 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
                   {tchSummary.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
                 </select>
               ) : null}
+            </div>
+            {/* UI-35: misma fila inferior que los demás canales (estado de la carga + Generar reporte). */}
+            <div className="channel-hero-bottom-row">
+              {tchSummary.lastEtl.startedAt ? (
+                <div className={`sync-state ${tchSummary.lastEtl.status === "completed" ? "ready" : "attention"}`}>
+                  <span />{tchSummary.lastEtl.status ? label("runStatus", tchSummary.lastEtl.status) : "Sin ETL"}
+                </div>
+              ) : null}
               <button className="sync-btn sync-btn-secondary" onClick={() => onReport("tch")}>Generar reporte</button>
             </div>
             {tchSummary.lastEtl.startedAt ? (
-              <>
-              <div className={`sync-state ${tchSummary.lastEtl.status === "completed" ? "ready" : "attention"}`}>
-                <span />{tchSummary.lastEtl.status ? label("runStatus", tchSummary.lastEtl.status) : "Sin ETL"}
-              </div>
               <p className="muted-copy" style={{ fontSize: "0.78rem" }}>
                 Último ETL: {tchSummary.lastEtl.startedAt?.slice(0, 10)} · {(tchSummary.lastEtl.recordsUpserted ?? 0).toLocaleString("es-CL")} registros
               </p>
-              </>
             ) : null}
           </div>
         </header>
+        <section className="channel-resources channel-resources-quick" aria-label="Explorar recursos">
+          <div><p className="eyebrow">EXPLORAR TCH</p><h3>Vistas disponibles</h3></div>
+          <div>
+            <button onClick={() => showTch("subscriptions")}>Suscripciones<span>{tchSummary.subscriptions.total}</span></button>
+            <button onClick={() => showTch("transactions")}>Transacciones<span>{tchSummary.transactions.total}</span></button>
+          </div>
+        </section>
+        <div className="dashboard-section-heading"><div><p className="eyebrow">OPERACIÓN DEL PERÍODO</p><h3>Indicadores clave</h3></div></div>
         <section className="metrics provider-metrics" aria-label="KPIs TCH">
           <Metric label="Suscripciones vigentes" value={tchSummary.subscriptions.active} tone="green" amount={tchSummary.subscriptions.activeAmount} mode={tchMode} />
           <Metric label="Suscripciones eliminadas" value={tchSummary.subscriptions.deleted} tone="orange" amount={tchSummary.subscriptions.deletedAmount} mode={tchMode} />
           <Metric label="Total suscripciones" value={tchSummary.subscriptions.total} tone="blue" amount={tchSummary.subscriptions.totalAmount} mode={tchMode} />
           <Metric label="Total transacciones" value={tchSummary.transactions.total} tone="violet" amount={tchSummary.transactions.amount} mode={tchMode} />
         </section>
-        <ChannelKpiStrip kpis={normalizeKpis("tch", tchSummary.kpis, tchSummary.churnWindowLabel)} ariaLabel="KPIs financieros TCH" />
         <section className="metrics kpi-metrics" aria-label="KPIs transacciones TCH">
           <KpiCard label="Aceptadas" value={tchSummary.transactions.accepted} format="count" caption="Transacciones cobradas" />
           <KpiCard label="Rechazadas" value={tchSummary.transactions.rejected} format="count" caption="Transacciones fallidas" />
           <KpiCard label="Tasa de rechazo" value={tchSummary.transactions.rejectionRatePct} format="percent" caption="Rechazadas / total" emptyCaption="Sin base para calcular" />
         </section>
+        <div className="dashboard-section-heading dashboard-section-heading-compact"><div><p className="eyebrow">CARTERA</p><h3>Salud de suscripciones</h3></div></div>
+        <ChannelKpiStrip kpis={normalizeKpis("tch", tchSummary.kpis, tchSummary.churnWindowLabel)} ariaLabel="KPIs financieros TCH" />
+        <div className="dashboard-section-heading dashboard-section-heading-charts"><div><p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p><h3>Lectura mensual</h3></div></div>
         <section className="extended-charts">
           {(() => {
             const tx = statusStackedChart(tchSummary.monthlyTransactions, tchMode);
@@ -160,13 +173,6 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
           ) : null}
         </section>
         <OperationalAlerts alerts={tchSummary.alerts ?? []} />
-        <section className="panel channel-resources">
-          <div><p className="eyebrow">EXPLORAR TCH</p><h3>Vistas disponibles</h3></div>
-          <div>
-            <button onClick={() => showTch("subscriptions")}>Suscripciones<span>{tchSummary.subscriptions.total}</span></button>
-            <button onClick={() => showTch("transactions")}>Transacciones<span>{tchSummary.transactions.total}</span></button>
-          </div>
-        </section>
       </main>
     ) : tchView === "client-detail" && tchClientDetail ? (
       <main className="app-shell">

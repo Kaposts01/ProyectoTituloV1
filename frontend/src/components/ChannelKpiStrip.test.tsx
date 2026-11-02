@@ -39,6 +39,16 @@ describe("ChannelKpiStrip", () => {
     expect(screen.queryByText(/churn mensual/i)).not.toBeInTheDocument();
   });
 
+  it("rotula el rechazo según la base del canal (UI-29)", () => {
+    const tx = { ...base, rejected_charges: { count: 3, amount: 1500, basis: "transacciones", basis_label: "x" } };
+    render(<ChannelKpiStrip kpis={normalizeKpis("toku", tx)} />);
+    expect(screen.getByText("Transacciones rechazadas")).toBeInTheDocument();
+    expect(screen.queryByText("Cargos rechazados")).not.toBeInTheDocument();
+    cleanup();
+    render(<ChannelKpiStrip kpis={normalizeKpis("virtualpos", { ...base, rejected_charges: { count: 1, amount: 1, basis: "cargos" } })} />);
+    expect(screen.getByText("Cargos rechazados")).toBeInTheDocument();
+  });
+
   it("sin kpis todo queda en guion", () => {
     render(<ChannelKpiStrip kpis={null} />);
     expect(screen.getAllByLabelText("sin datos").length).toBeGreaterThanOrEqual(4);

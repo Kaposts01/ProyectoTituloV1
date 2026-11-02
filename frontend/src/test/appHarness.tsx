@@ -6,6 +6,17 @@
 import { cleanup, configure, render, screen, waitFor } from "@testing-library/react";
 import { expect, vi } from "vitest";
 import AppCore from "../AppCore";
+// VIZ-10: AppCore carga estas vistas con React.lazy. Se precargan aquí para que el `import()` de la prueba resuelva
+// desde la caché de módulos y no dependa del tiempo de transformación (recharts tarda varios segundos en frío).
+import "../AutomaticReport";
+import "../features/admin/AdminPanel";
+import "../features/billing/BillingInbox";
+import "../features/cancellations/CancellationsInbox";
+import "../features/dashboard/ChannelDashboardView";
+import "../features/dashboard/GeneralDashboardView";
+import "../features/recovery/RecoveryPanel";
+import "../features/summary/SummaryView";
+import "../features/tch/TchContent";
 import { invalidateCache } from "../apiCache";
 import { setCsrfToken } from "../api";
 import { rawSummary } from "../features/summary/summaryFixtures";

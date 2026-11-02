@@ -174,7 +174,8 @@ def test_rejected_month_uses_chile_time_not_utc(monkeypatch) -> None:
         {"year": 2099, "month": 1, "status": "ACEPTADA", "count": 7, "amount": 700},
         {"year": 2099, "month": 2, "status": "RECHAZADA", "count": 5, "amount": 500},
     ]
-    assert tch._rejected_current_month(tch_rows) == {"count": 3, "amount": 300.0}
+    out = tch._rejected_current_month(tch_rows)
+    assert (out["count"], out["amount"]) == (3, 300.0)
 
 
 # -- TCH recaudo mensual -------------------------------------------------------

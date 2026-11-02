@@ -17,7 +17,12 @@ from app.db.session import SessionLocal
 from app.models.auth import User
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.tch import TchSubscription, TchTransaction
-from app.services.charge_stats import chile_today, is_future_charge
+from app.services.charge_stats import (
+    charge_outcome,
+    charge_rejection_stats,
+    chile_today,
+    is_future_charge,
+)
 from app.services.rbac import permission_codes, source_permission
 
 router = APIRouter()
@@ -51,6 +56,20 @@ def _require_report_access(user: User, scope: str) -> None:
 
 def _status(value: Any) -> str:
     return staging._general_transaction_status(value)
+
+
+def _charge_status(status: Any, charge_date: Any, today: date) -> str | None:
+    """Rotulo de un CARGO con la definicion unica de charge_stats (UI-30).
+
+    Pagado/rechazado solo con fecha <= hoy (Chile); pendiente/procesando -> Pendientes; cancelados, expirados, anulados
+    y estados desconocidos quedan fuera (antes caian en Pendientes o en el denominador).
+    """
+    outcome = charge_outcome(status)
+    if outcome in ("paid", "rejected"):
+        if is_future_charge(charge_date, today):
+            return None
+        return "Aceptadas" if outcome == "paid" else "Rechazadas"
+    return "Pendientes" if outcome == "pending" else None
 
 
 def _amount(value: Any) -> float:
@@ -96,8 +115,8 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
     numeric_subscription = case((Subscription.amount.op("~")(r"^\d+(\.\d+)?$"), cast(Subscription.amount, Numeric)), else_=0)
     sources = _source_filter(scope)
 
-    def add(kind: str, value: str | None, status: str, count: int, amount: Any) -> None:
-        if not value:
+    def add(kind: str, value: str | None, status: str | None, count: int, amount: Any) -> None:
+        if not value or status is None:
             return
         try:
             event_date = date.fromisoformat(value[:10])
@@ -109,6 +128,7 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
             bucket["amount"] += _amount(amount)
 
     start_value, end_value = start.isoformat(), end.isoformat()
+    today = chile_today()
     payment_query = select(Payment.payment_date, Payment.status, func.count(), func.coalesce(func.sum(numeric_payment), 0)).where(func.substring(Payment.payment_date, 1, 10).between(start_value, end_value)).group_by(Payment.payment_date, Payment.status)
     charge_query = select(Charge.charge_date, Charge.status, func.count(), func.coalesce(func.sum(numeric_charge), 0)).where(func.substring(Charge.charge_date, 1, 10).between(start_value, end_value)).group_by(Charge.charge_date, Charge.status)
     activation_query = select(Subscription.suscription_date, func.count(), func.coalesce(func.sum(numeric_subscription), 0)).where(func.substring(Subscription.suscription_date, 1, 10).between(start_value, end_value)).group_by(Subscription.suscription_date)
@@ -122,7 +142,7 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
         for event_date, status, count, amount in db.execute(payment_query):
             add("transactions", event_date, _status(status), count, amount)
         for event_date, status, count, amount in db.execute(charge_query):
-            add("charges", event_date, _status(status), count, amount)
+            add("charges", event_date, _charge_status(status, event_date, today), count, amount)
         for event_date, count, amount in db.execute(activation_query):
             add("activations", event_date, "Altas", count, amount)
         for event_date, count, amount in db.execute(cancellation_query):
@@ -130,7 +150,7 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
     if scope in {"general", "tch"}:
         for transaction in db.scalars(select(TchTransaction).where(func.substring(TchTransaction.charge_date, 1, 10).between(start_value, end_value))):
             add("transactions", transaction.charge_date, _status(transaction.status), 1, transaction.amount)
-            add("charges", transaction.charge_date, _status(transaction.status), 1, transaction.amount)
+            add("charges", transaction.charge_date, _charge_status(transaction.status, transaction.charge_date, today), 1, transaction.amount)
         for subscription in db.scalars(select(TchSubscription).where(func.substring(TchSubscription.activation_date, 1, 10).between(start_value, end_value))):
             add("activations", subscription.activation_date, "Altas", 1, subscription.peso_equivalent or subscription.amount)
         for subscription in db.scalars(select(TchSubscription).where(func.substring(TchSubscription.deletion_date, 1, 10).between(start_value, end_value))):
@@ -176,8 +196,10 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
             func.substring(Charge.charge_date, 1, 10).between(start.isoformat(), end.isoformat()),
         )
     ).all()
-    paid_charges = [charge for charge in charges if _status(charge.status) == "Aceptadas"]
-    rejected_charges = [charge for charge in charges if _status(charge.status) == "Rechazadas"]
+    today_chile = chile_today()
+    # UI-30: pagados y rechazados con la definicion unica (charge_stats): sin cargos con fecha posterior a hoy.
+    paid_charges = [c for c in charges if _charge_status(c.status, c.charge_date, today_chile) == "Aceptadas"]
+    rejected_charges = [c for c in charges if _charge_status(c.status, c.charge_date, today_chile) == "Rechazadas"]
     charge_by_month: dict[str, list[Charge]] = defaultdict(list)
     for charge in charges:
         if charge_date := _as_date(charge.charge_date):
@@ -197,7 +219,6 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
             .group_by(Charge.source, Charge.subscription_external_id)
         )
     }
-    today_chile = chile_today()
     active_count_by_month = []
     churn = []
     signups, cancellations = [], []
@@ -215,8 +236,8 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
         active_start = sum(1 for subscription in subscriptions if (created := _as_date(subscription.suscription_date)) and created < month_start and (not (cancelled := _as_date(subscription.canceled_at)) or cancelled >= month_start))
         active_end = sum(1 for subscription in subscriptions if (created := _as_date(subscription.suscription_date)) and created <= month_end and (not (cancelled := _as_date(subscription.canceled_at)) or cancelled > month_end))
         statuses = charge_by_month[month]
-        paid = [charge for charge in statuses if _status(charge.status) == "Aceptadas"]
-        rejected = [charge for charge in statuses if _status(charge.status) == "Rechazadas"]
+        paid = [c for c in statuses if _charge_status(c.status, c.charge_date, today_chile) == "Aceptadas"]
+        rejected = [c for c in statuses if _charge_status(c.status, c.charge_date, today_chile) == "Rechazadas"]
         # VP-PAR-10: un cobro con fecha posterior a hoy (Chile) no es un cancelado ni un pendiente reales.
         past = [charge for charge in statuses if not is_future_charge(charge.charge_date, today_chile)]
         cancelled = [charge for charge in past if str(charge.status or "").lower() == "cancelado"]
@@ -288,7 +309,7 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
     for (src, sid), clist in sub_charges_map.items():
         streak = 0
         for charge in clist:
-            if _status(charge.status) == "Rechazadas":
+            if _charge_status(charge.status, charge.charge_date, today_chile) == "Rechazadas":
                 streak += 1
             else:
                 streak = 0
@@ -717,20 +738,22 @@ def _auto_period_data(db: Session, dfrom: date, dto: date) -> dict[str, Any]:
         ).all()
     }
 
-    rejected = dict(db.execute(
-        select(Charge.source, func.count())
-        .where(
-            func.substring(Charge.charge_date, 1, 10).between(start_iso, end_iso),
-            func.lower(Charge.status).in_(("rechazado", "rejected", "failed", "failure")),
-        )
-        .group_by(Charge.source)
-    ).all())
-
-    total_charges = dict(db.execute(
-        select(Charge.source, func.count())
-        .where(func.substring(Charge.charge_date, 1, 10).between(start_iso, end_iso))
-        .group_by(Charge.source)
-    ).all())
+    # UI-30: rechazo con la definicion unica de charge_stats (fecha <= hoy en Chile, sin cancelados/expirados/anulados;
+    # tasa = rechazados / (pagados + rechazados)). Antes el denominador eran TODOS los cargos del rango.
+    charge_day = func.substring(Charge.charge_date, 1, 10)
+    charge_rows_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for src, day, status, cnt in db.execute(
+        select(Charge.source, charge_day, Charge.status, func.count())
+        .where(charge_day.between(start_iso, end_iso))
+        .group_by(Charge.source, charge_day, Charge.status)
+    ).all():
+        charge_rows_by_source[src].append({"date": day, "status": status, "count": int(cnt)})
+    stats_until = min(dto, chile_today())
+    charge_stats_by_source = {
+        src: charge_rejection_stats(rows, stats_until, since=dfrom) for src, rows in charge_rows_by_source.items()
+    }
+    rejected = {src: s["rejected"] for src, s in charge_stats_by_source.items()}
+    total_charges = {src: s["evaluable"] for src, s in charge_stats_by_source.items()}
 
     tch_new = db.scalar(select(func.count()).select_from(TchSubscription).where(
         TchSubscription.activation_date.isnot(None),
@@ -760,15 +783,20 @@ def _auto_period_data(db: Session, dfrom: date, dto: date) -> dict[str, Any]:
         )
     ).one()
     tch_rev_count, tch_rev_amount = int(tch_rev_row[0] or 0), float(tch_rev_row[1] or 0)
-    tch_rejected = db.scalar(select(func.count()).select_from(TchTransaction).where(
-        TchTransaction.charge_date.isnot(None),
-        func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
-        func.upper(TchTransaction.status) == "RECHAZADA",
-    )) or 0
-    tch_total = db.scalar(select(func.count()).select_from(TchTransaction).where(
-        TchTransaction.charge_date.isnot(None),
-        func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
-    )) or 0
+    tch_day = func.substring(TchTransaction.charge_date, 1, 10)
+    tch_charge_stats = charge_rejection_stats(
+        (
+            {"date": day, "status": status, "count": int(cnt)}
+            for day, status, cnt in db.execute(
+                select(tch_day, TchTransaction.status, func.count())
+                .where(TchTransaction.charge_date.isnot(None), tch_day.between(start_iso, end_iso))
+                .group_by(tch_day, TchTransaction.status)
+            ).all()
+        ),
+        stats_until,
+        since=dfrom,
+    )
+    tch_rejected, tch_total = tch_charge_stats["rejected"], tch_charge_stats["evaluable"]
     tch_reasons = db.execute(
         select(TchTransaction.rejection_reason, func.count())
         .where(
