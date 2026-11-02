@@ -47,6 +47,7 @@ const GeneralDashboardView = lazy(() => import("./features/dashboard/GeneralDash
 const SummaryView = lazy(() => import("./features/summary/SummaryView").then((m) => ({ default: m.SummaryView })));
 const TchContent = lazy(() => import("./features/tch/TchContent").then((m) => ({ default: m.TchContent })));
 // Vistas unificadas de Cartera (UX-08, UX-09): paginadas en el servidor y cargadas bajo demanda.
+const UnifiedSubscriptionsView = lazy(() => import("./features/general/UnifiedSubscriptionsView").then((m) => ({ default: m.UnifiedSubscriptionsView })));
 const UnifiedChargesView = lazy(() => import("./features/charges/UnifiedChargesView").then((m) => ({ default: m.UnifiedChargesView })));
 
 
@@ -444,7 +445,10 @@ function AppCore() {
         if (["all", "rut", "name", "last_name", "platform", "email", "phone"].includes(field ?? "")) {
           setGeneralClientFilter(field as typeof generalClientFilter);
         }
-        setGeneralClientQuery("");
+        // Enlace «ver socio» desde las vistas unificadas (UX-08/09): ?rut= abre Socios filtrado por ese RUT.
+        const rut = location.searchParams.get("rut");
+        if (rut) setGeneralClientFilter("rut");
+        setGeneralClientQuery(rut ?? "");
         setGeneralClientOffset(listOffset(location.searchParams));
       } else {
         showGeneralSubscriptions(false);
@@ -700,7 +704,7 @@ function AppCore() {
         />
       )
     ) : (
-      generalView === "report" ? <AutomaticReport /> : generalView === "charges" ? <UnifiedChargesView can={can} onOpenPath={openPath} /> : generalView === "summary" ? (
+      generalView === "report" ? <AutomaticReport /> : generalView === "charges" ? <UnifiedChargesView can={can} onOpenPath={openPath} /> : generalView === "subscriptions" ? <UnifiedSubscriptionsView can={can} onOpenPath={openPath} /> : generalView === "summary" ? (
         // El estado inicial es «summary» aunque el enlace profundo apunte a otra vista: solo se monta el Resumen
         // unificado si la URL es de verdad la suya (así un enlace a otra pantalla no dispara su petición).
         onSummaryRoute ? <SummaryView /> : <main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>

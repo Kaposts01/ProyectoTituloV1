@@ -47,9 +47,11 @@ describe("Exportar: clientes y suscripciones consolidados", () => {
     expect(Object.fromEntries(lastExport(app, "clientes").query)).toEqual({ filter_field: "email", query: "socio", all: "true" });
   });
 
+  // Cambio deliberado (UX-08): la vista unificada pagina de a 50 en el servidor.
   it("suscripciones: «Esta vista» envía el offset de la página", async () => {
     const app = mountApp("/central/suscripciones?offset=100", [
-      ["GET", "/api/v1/staging/dashboard/general/subscriptions", { items: [], total: 300, offset: 100, limit: 100 }],
+      ["GET", "/api/v1/general/subscriptions", { items: [], total: 300, offset: 100, limit: 50, by_channel: {}, canales: [] }],
+      ["GET", "/api/v1/general/subscriptions/statuses", { statuses: [], canales: [] }],
       ...exportHandlers("suscripciones", 300),
     ]);
     await appReady();
@@ -58,7 +60,7 @@ describe("Exportar: clientes y suscripciones consolidados", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Descargar CSV" }));
     await waitFor(() => expect(saved).toHaveLength(1));
     const q = lastExport(app, "suscripciones").query;
-    expect([q.get("offset"), q.get("limit"), q.has("all")]).toEqual(["100", "100", false]);
+    expect([q.get("offset"), q.get("limit"), q.has("all")]).toEqual(["100", "50", false]);
   });
 });
 

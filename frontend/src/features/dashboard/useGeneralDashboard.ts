@@ -53,7 +53,6 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   const [debtFilter, setDebtFilter] = useState<ChargeFilter>("all");
   const [transactionFilter, setTransactionFilter] = useState<ChargeFilter>("all");
   const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
-  const debouncedGeneralSubscriptionQuery = useDebouncedValue(generalSubscriptionQuery);
 
   useEffect(() => {
     if (!session || generalView !== "classic" || channel || activeSection || tchView || adminOpen || profileView) return;
@@ -103,16 +102,8 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
     return () => controller.abort();
   }, [session, generalView, debouncedGeneralClientQuery, generalClientFilter, generalClientOffset, setError]);
 
-  useEffect(() => {
-    if (!session || generalView !== "subscriptions") return;
-    const params = new URLSearchParams({ limit: "100", offset: String(generalSubscriptionOffset), filter_field: generalSubscriptionFilter });
-    if (debouncedGeneralSubscriptionQuery.trim()) params.set("query", debouncedGeneralSubscriptionQuery.trim());
-    const controller = new AbortController();
-    getJson<GeneralSubscriptions>(`/api/v1/staging/dashboard/general/subscriptions?${params}`, controller.signal)
-      .then(setGeneralSubscriptions)
-      .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar las suscripciones consolidadas.")); });
-    return () => controller.abort();
-  }, [session, generalView, debouncedGeneralSubscriptionQuery, generalSubscriptionFilter, generalSubscriptionOffset, setError]);
+  // UX-08: /central/suscripciones usa la vista unificada paginada en SQL (features/general/UnifiedSubscriptionsView);
+  // ya no se pide la lista consolidada en memoria (/staging/dashboard/general/subscriptions).
 
   return {
     summary,

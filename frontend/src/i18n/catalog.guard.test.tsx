@@ -147,7 +147,11 @@ GUARDED_VIEWS.push(
   {
     name: "suscripciones consolidadas con estado crudo",
     path: "/central/suscripciones",
-    handlers: [["GET", "/api/v1/staging/dashboard/general/subscriptions", { total: 1, offset: 0, limit: 100, items: [{ id: "s-1", client: "Cliente Uno", rut: "11111111-1", platform: "Toku", status: "ACTIVE", secondary_status: "cobrable", last_paid_date: null, started_at: "2025-01-01", ended_at: null, amount: "1000", currency: "CLP" }] }]],
+    // Cambio deliberado (UX-08): vista unificada de suscripciones (/api/v1/general/subscriptions).
+    handlers: [
+      ["GET", "/api/v1/general/subscriptions", { total: 1, offset: 0, limit: 50, by_channel: { toku: 1 }, canales: ["toku"], items: [{ channel: "toku", subscription_id: "s-1", name: "Cliente Uno", rut: "11111111-1", status: "ACTIVE", secondary_status: "cobrable", last_charge: null, start_date: "2025-01-01", end_date: null, amount: "1000", currency: "CLP" }] }],
+      ["GET", "/api/v1/general/subscriptions/statuses", { statuses: [{ status: "ACTIVE", count: 1 }], canales: ["toku"] }],
+    ],
     ready: () => screen.findByText("Cliente Uno"),
   },
   {
