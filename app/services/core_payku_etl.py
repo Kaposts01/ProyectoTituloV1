@@ -1,9 +1,11 @@
 """Materialize Payku provider tables (p_*) into Core entities.
 
-Run order: client attributes → subscriptions → payments → rejection fallback
-Idempotent: safe to re-run.
+Run order: client attributes → normalized statuses → subscriptions → cycles → charges → payments → charge links →
+rejection fallback. Idempotent: safe to re-run.
 
-Payku has no CoreCharge concept — p_transactions map directly to CorePayment.
+Payku has no charge resource. PK-06: the billing cycles of `paid[]` (V3, stored in `p_cycles`) are the closest thing
+and become CoreCharge (source=payku); without V3 data `p_cycles` stays empty and p_transactions map directly to
+CorePayment, as before. Payments are linked to their cycle only through `paid[].transactions[]` (no guessing).
 Rejected transactions carry amount=0; the embedded payload has no rejection code/reason. As a fallback
 (PK-PAR-06 / RJ-10) the latest rejection of each subscription takes its `last_status_current_payment`.
 occurred_at keeps the transaction time in Chile (PK-PAR-04).
@@ -19,6 +21,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.core import (
+    CoreCharge,
     CoreClientAttribute,
     CorePayment,
     CoreSubscription,
@@ -26,13 +29,21 @@ from app.models.core import (
 )
 from app.models.payku_channel import (
     PaykuClient,
+    PaykuCycle,
     PaykuPlan,
     PaykuSubscription,
     PaykuTransaction,
 )
 from app.services.channel_consolidation import _payku_last_transition_date
+from app.services.channel_store import extract_payku_cycles
 from app.services.core_materialization import materialize_core_clients
 from app.services.payku_rejection_codes import payku_subscription_rejection_status
+from app.services.payku_status import (
+    COMMON_STATUS_UNKNOWN,
+    PAYKU_COMMON_STATUS,
+    normalize_payku_charge_status,
+    normalize_payku_status,
+)
 from app.services.rejected_month import CHILE_TZ
 
 log = logging.getLogger(__name__)
@@ -92,25 +103,9 @@ def _parse_amount(value: str | None) -> Decimal | None:
         return None
 
 
-# Taxonomia comun de estados de suscripcion (PK-PAR-07). Mapeo de docs/integrations/payku/resources/statuses.md §12
-# con los nombres del plan (`active`/`suspended`/`cancelled`/`pending_enrollment`). `suspended_awaits_change_plan`
-# cuenta como vigente, igual que en `_ACTIVE_STATUSES`, `channel_consolidation` y los reportes. Cualquier otro valor
-# es `unknown` y se avisa en el log (nunca rompe el ETL). El estado crudo de Payku se sigue guardando tal cual.
-COMMON_STATUS_UNKNOWN = "unknown"
-_PAYKU_COMMON_STATUS: dict[str, str] = {
-    "register": "pending_enrollment",
-    "active": "active",
-    "suspended_awaits_change_plan": "active",
-    "suspended": "suspended",
-    "cancel": "cancelled",
-    "delete": "cancelled",
-    "finish": "cancelled",
-}
-
-
-def normalize_payku_status(status: str | None) -> str:
-    """Estado Payku crudo -> taxonomia comun (ver `_PAYKU_COMMON_STATUS`)."""
-    return _PAYKU_COMMON_STATUS.get((status or "").strip().lower(), COMMON_STATUS_UNKNOWN)
+# Taxonomia comun de estados (PK-PAR-07): vive en `payku_status` para que la usen tambien los extractores de
+# `channel_store` sin importacion circular; se reexporta aqui con los nombres de siempre.
+_PAYKU_COMMON_STATUS = PAYKU_COMMON_STATUS
 
 
 def _plan_amounts(db: Session) -> dict[str, Decimal]:
@@ -188,6 +183,28 @@ def _materialize_client_attributes(db: Session) -> int:
     return after - before
 
 
+# ── Paso 1b: estado normalizado en las tablas de canal (PK-PAR-07 / PK-06) ────
+
+def _refresh_normalized_statuses(db: Session) -> int:
+    """Recalcula `status_normalized` de `p_subscriptions` y `p_transactions` desde el estado crudo.
+
+    Los extractores ya la escriben al sincronizar; esto cubre filas antiguas y cambios de la taxonomia. Solo toca
+    filas cuyo valor difiere (UPDATE explicito, idempotente). Devuelve las filas actualizadas.
+    """
+    changed = 0
+    pairs = ((PaykuSubscription, normalize_payku_status), (PaykuTransaction, normalize_payku_charge_status))
+    for model, normalize in pairs:
+        updates = [
+            {"id": row.id, "status_normalized": common}
+            for row in db.execute(select(model.id, model.status, model.status_normalized))
+            if (common := normalize(row.status)) != row.status_normalized
+        ]
+        for i in range(0, len(updates), 1000):
+            db.execute(update(model), updates[i : i + 1000])
+        changed += len(updates)
+    return changed
+
+
 # ── Paso 2: suscripciones ─────────────────────────────────────────────────────
 
 def _materialize_subscriptions(db: Session) -> int:
@@ -242,6 +259,91 @@ def _materialize_subscriptions(db: Session) -> int:
         ))
     after = db.scalar(select(func.count()).select_from(CoreSubscription).where(CoreSubscription.source == _SOURCE)) or 0
     return after - before
+
+
+# ── Paso 2b: ciclos y cargos (PK-06) ─────────────────────────────────────────
+
+def _materialize_cycles(db: Session) -> int:
+    """`paid[]` del payload de cada suscripcion -> `p_cycles` (upsert por clave de ciclo). Idempotente."""
+    rows: dict[str, dict] = {}
+    for external_id, payload in db.execute(select(PaykuSubscription.external_id, PaykuSubscription.raw_payload)):
+        if not isinstance(payload, dict) or not isinstance(payload.get("paid"), list):
+            continue
+        for row in extract_payku_cycles({**payload, "__external_id": external_id}):
+            rows[row["external_id"]] = {"id": uuid.uuid4(), **row}
+    values = list(rows.values())
+    for i in range(0, len(values), _BATCH):
+        ins = insert(PaykuCycle).values(values[i : i + _BATCH])
+        db.execute(ins.on_conflict_do_update(
+            index_elements=["external_id"],
+            set_={key: ins.excluded[key] for key in values[0] if key not in ("id", "external_id")}
+            | {"updated_at": datetime.now(tz=timezone.utc)},
+        ))
+    return len(values)
+
+
+def _materialize_charges(db: Session) -> int:
+    """`p_cycles` -> `core_charges` (source=payku). `source_status` guarda el estado crudo del ciclo; un ciclo
+    rechazado deja `latest_rejection_at` (dia de pago o del ciclo) y, si el estado es de la Lista A, su texto crudo
+    como motivo (la etiqueta la pone `rejection_format`). Upsert por (source, external_id); idempotente."""
+    sub_index = {
+        row.external_id: row.id
+        for row in db.execute(
+            select(CoreSubscription.external_id, CoreSubscription.id).where(CoreSubscription.source == _SOURCE)
+        )
+    }
+    rows = []
+    for c in db.scalars(select(PaykuCycle)).all():
+        due_at = _parse_datetime_cl(c.cycle_day)
+        rejected = c.status_normalized == "rejected"
+        rows.append({
+            "id": uuid.uuid4(),
+            "subscription_id": sub_index.get(c.subscription_id),
+            "source": _SOURCE,
+            "external_id": c.external_id,
+            "period_reference": (c.cycle_day or "")[:7] or None,
+            "due_at": due_at,
+            "amount": _parse_amount(c.amount_paid),
+            "currency": _DEFAULT_CURRENCY,
+            "source_status": c.status,
+            "latest_rejection_reason": payku_subscription_rejection_status(c.status) if rejected else None,
+            "latest_rejection_at": (_parse_datetime_cl(c.payment_day) or due_at) if rejected else None,
+        })
+    updatable = ("subscription_id", "period_reference", "due_at", "amount", "currency", "source_status",
+                 "latest_rejection_reason", "latest_rejection_at")
+    for i in range(0, len(rows), _BATCH):
+        ins = insert(CoreCharge).values(rows[i : i + _BATCH])
+        db.execute(ins.on_conflict_do_update(
+            constraint="uq_core_charge_source_external_id",
+            set_={key: ins.excluded[key] for key in updatable} | {"updated_at": datetime.now(tz=timezone.utc)},
+        ))
+    return len(rows)
+
+
+def _link_payments_to_charges(db: Session) -> int:
+    """`core_payments.charge_id` desde `p_cycles.transaction_ids` (solo enlaces explicitos). Idempotente."""
+    charge_by_tx: dict[str, uuid.UUID] = {}
+    for charge_id, tx_ids in db.execute(
+        select(CoreCharge.id, PaykuCycle.transaction_ids)
+        .join(PaykuCycle, PaykuCycle.external_id == CoreCharge.external_id)
+        .where(CoreCharge.source == _SOURCE)
+    ):
+        for tx in tx_ids or []:
+            charge_by_tx[str(tx)] = charge_id
+    if not charge_by_tx:
+        return 0
+    updates = [
+        {"id": row.id, "charge_id": charge_by_tx[row.external_id]}
+        for row in db.execute(
+            select(CorePayment.id, CorePayment.external_id, CorePayment.charge_id).where(
+                CorePayment.source == _SOURCE, CorePayment.external_id.in_(list(charge_by_tx))
+            )
+        )
+        if row.charge_id != charge_by_tx[row.external_id]
+    ]
+    for i in range(0, len(updates), 1000):
+        db.execute(update(CorePayment), updates[i : i + 1000])
+    return len(updates)
 
 
 # ── Paso 3: pagos ─────────────────────────────────────────────────────────────
@@ -370,13 +472,22 @@ def run_payku_core_etl(db: Session) -> dict[str, int]:
     attrs = _materialize_client_attributes(db)
     log.info("Payku Core ETL — atributos insertados: %d", attrs)
 
+    normalized = _refresh_normalized_statuses(db)
+    log.info("Payku Core ETL — estados normalizados actualizados: %d", normalized)
+
     log.info("Payku Core ETL — materializando suscripciones")
     subs = _materialize_subscriptions(db)
     log.info("Payku Core ETL — suscripciones upserted: %d", subs)
 
+    cycles = _materialize_cycles(db)
+    charges = _materialize_charges(db)
+    log.info("Payku Core ETL — ciclos: %d, cargos upserted: %d", cycles, charges)
+
     log.info("Payku Core ETL — materializando pagos")
     payments = _materialize_payments(db)
     log.info("Payku Core ETL — pagos insertados: %d", payments)
+    linked = _link_payments_to_charges(db)
+    log.info("Payku Core ETL — pagos enlazados a su ciclo: %d", linked)
 
     reasons = _apply_subscription_rejection_fallback(db)
     log.info("Payku Core ETL — rechazos con motivo de respaldo por suscripción: %d", reasons)
@@ -388,8 +499,12 @@ def run_payku_core_etl(db: Session) -> dict[str, int]:
         "subscriptions_upserted": subs,
         "payments_inserted": payments,
         "payments_rejection_reason_fallback": reasons,
-        "subscriptions_unknown_status": sum(
-            1 for (status,) in db.execute(select(PaykuSubscription.status))
-            if normalize_payku_status(status) == COMMON_STATUS_UNKNOWN
-        ),
+        "statuses_normalized": normalized,
+        "cycles_upserted": cycles,
+        "charges_upserted": charges,
+        "payments_linked_to_charge": linked,
+        "subscriptions_unknown_status": db.scalar(
+            select(func.count()).select_from(PaykuSubscription)
+            .where(PaykuSubscription.status_normalized == COMMON_STATUS_UNKNOWN)
+        ) or 0,
     }
