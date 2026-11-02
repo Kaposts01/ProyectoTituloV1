@@ -34,18 +34,19 @@ export function StatusBars({
               <span>{label("resourcePlural", resource)}</span>
               <b className="mono">{total}</b>
             </div>
-            <div className="status-bar-track">
-              {items.length ? (
-                items.map((item) => {
+            {/* UI-34: un recurso sin estados (p. ej. Planes) muestra su total sin una barra vacía. */}
+            {items.length ? (
+              <div className="status-bar-track">
+                {items.map((item) => {
                   const kind = normalizeStatus(item.status);
                   return (
                     <div key={item.status} data-status-kind={kind} className="status-bar-segment" style={{ width: `${(item.count / total) * 100}%`, background: statusKindColor(kind) }} title={`${label("status", item.status)}: ${item.count}`} />
                   );
-                })
-              ) : (
-                <div className="status-bar-segment status-bar-empty" />
-              )}
-            </div>
+                })}
+              </div>
+            ) : (
+              <p className="status-bar-note muted-copy">Sin estado informado por el canal</p>
+            )}
             {items.length > 0 && (
               <div className="status-bar-legend">
                 {items.map((item) => {

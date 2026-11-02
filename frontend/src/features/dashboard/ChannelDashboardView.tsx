@@ -221,7 +221,7 @@ export function ChannelDashboardView({
         ) : null}
         {isVirtualPos && data.churn_rate_monthly?.length ? (
           <article className="panel">
-            <div className="panel-heading">
+            <div className="panel-heading panel-heading-wrap">
               <div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div>
               <div className="mode-switch" style={{ fontSize: "0.8rem" }}>
                 <button className={churnSource === "all" ? "active" : ""} onClick={() => setChurnSource("all")}>Todas</button>

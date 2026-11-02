@@ -22,4 +22,11 @@ describe("StatusBars: estados en español", () => {
     const kinds = Array.from(container.querySelectorAll(".status-bar-segment")).map((el) => el.getAttribute("data-status-kind"));
     expect(kinds).toEqual(["paid", "rejected", "unknown"]);
   });
+
+  it("UI-34: un recurso con total y sin estados muestra el total sin barra vacía", () => {
+    const { container } = render(<StatusBars source="virtualpos" resources={{ charge: 6, plan: 8 }} statuses={statuses} />);
+    expect(screen.getByText("8")).toBeTruthy();
+    expect(screen.getByText("Sin estado informado por el canal")).toBeTruthy();
+    expect(container.querySelectorAll(".status-bar-track")).toHaveLength(1);
+  });
 });
