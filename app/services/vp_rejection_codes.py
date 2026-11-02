@@ -36,6 +36,18 @@ VP_REJECTION_LABELS: dict[str, str] = {
     "-1018": "Transacción rechazada por botón volver",
 }
 
+# Códigos del adquirente (`-2xxx`, VP-PAR-05). La documentación oficial de VirtualPOS NO los cataloga
+# (docs/integrations/virtualpos/resources/discrepancies.md). Solo se agregan los que tienen glosa documentada en el
+# repo; para el resto se muestra la glosa que el proveedor entrega en el reporte o en el intento (`format_rejection_reason`
+# ya usa ese respaldo). Pendientes sin glosa documentada (vistos en los reportes PAT, auditoría 2026-10-29):
+# -2119, -2121, -2133, -2150, -2152 y otros 6 del mismo rango.
+VP_ACQUIRER_REJECTION_LABELS: dict[str, str] = {
+    # docs/integrations/virtualpos/resources/payments.md (intento de Klap, `response_description`).
+    "-2122": "Violación de seguridad (adquirente)",
+}
+
+VP_REJECTION_LABELS.update(VP_ACQUIRER_REJECTION_LABELS)
+
 NOT_REPORTED = "No informado por VirtualPOS"
 
 
