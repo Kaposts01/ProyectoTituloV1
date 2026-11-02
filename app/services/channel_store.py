@@ -30,6 +30,10 @@ from app.models.toku_channel import (
     TokuTransaction,
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
+from app.services.payku_status import (
+    normalize_payku_charge_status,
+    normalize_payku_status,
+)
 from app.services.payload_sanitization import sanitize_payload
 
 logger = logging.getLogger(__name__)
@@ -362,6 +366,8 @@ def extract_payku_subscription(p: dict) -> dict:
         "client_id": _str(p, "client_id") or _str(client, "id"),
         "plan_id": _str(p, "plan_id") or _str(plan, "id"),
         "status": _str(p, "status"),
+        # Taxonomia comun (PK-PAR-07); `status` sigue siendo el valor crudo de Payku.
+        "status_normalized": normalize_payku_status(_str(p, "status", "estatus")),
         "last_status_current_payment": _str(p, "last_status_current_payment"),
         "start_date": _str(p, "start"),
         "end_date": _str(p, "end"),
@@ -385,6 +391,7 @@ def extract_payku_transaction(p: dict) -> dict:
         or subscription_from_list
     )
     order = p.get("order") or {}
+    order_ref = order if isinstance(order, (str, int)) and not isinstance(order, bool) else None
     return {
         "external_id": _str(p, "__external_id", "id", "transaction"),
         "subscription_id": sub_id,
@@ -394,7 +401,74 @@ def extract_payku_transaction(p: dict) -> dict:
         # Texto crudo con fecha Y hora (hora de Chile, sin zona); el ETL Core lo interpreta (PK-PAR-04).
         # `fecha` es el nombre del campo en las notificaciones de cobro (`DD-MM-AAAA HH:MM:SS`).
         "created_at_api": _str(p, "created_at", "fecha"),
+        # PK-06: p_transactions ampliada (estado comun de cobro, orden del comercio y concepto, p. ej. «Cobro: # 3»).
+        "status_normalized": normalize_payku_charge_status(_str(p, "status")),
+        "order_ref": str(order_ref)[:100] if order_ref not in (None, "") else None,
+        "description": _str(p, "description"),
     }
+
+
+def extract_payku_cycles(subscription: dict) -> list[dict]:
+    """Ciclos de cobro de una suscripcion Payku (PK-06) desde `paid[]` de V3; lista vacia si no viene (V1).
+
+    Clave `<suscripcion>:<payment_cycle_day>` (o `<suscripcion>:n<paid_number>` si falta el dia). Si el mismo ciclo
+    aparece varias veces (un elemento por intento) gana el de mayor `try_number`. Devuelve filas listas para
+    `p_cycles` (incluye `raw_payload` del elemento, ya saneado por el llamador).
+    """
+
+    def as_int(value: Any) -> int | None:
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+
+    def transaction_ids(transactions: Any) -> list[str]:
+        # `paid[].transactions[]` no esta documentada (Q-05): ids sueltos u objetos con transaction/transaction_id/id.
+        if not isinstance(transactions, list):
+            return []
+        ids: list[str] = []
+        for item in transactions:
+            value = _get(item, "transaction", "transaction_id", "id") if isinstance(item, dict) else item
+            if value is not None and not isinstance(value, (dict, list, bool)) and str(value).strip():
+                text = str(value).strip()
+                if text not in ids:
+                    ids.append(text)
+        return ids
+
+    sub_id = _str(subscription, "__external_id", "id")
+    paid = subscription.get("paid") if isinstance(subscription, dict) else None
+    if not sub_id or not isinstance(paid, list):
+        return []
+    by_key: dict[str, dict] = {}
+    for item in paid:
+        if not isinstance(item, dict):
+            continue
+        cycle_day = _str(item, "payment_cycle_day")
+        paid_number = as_int(item.get("paid_number"))
+        if cycle_day:
+            key = f"{sub_id}:{cycle_day.strip()[:40]}"
+        elif paid_number is not None:
+            key = f"{sub_id}:n{paid_number}"
+        else:
+            continue
+        status = _str(item, "status", "estatus")
+        row = {
+            "external_id": key,
+            "subscription_id": sub_id,
+            "cycle_day": cycle_day,
+            "payment_day": _str(item, "payment_day"),
+            "status": status,
+            "status_normalized": normalize_payku_charge_status(status),
+            "amount_paid": _str(item, "amount_paid", "amount"),
+            "try_number": as_int(item.get("try_number")),
+            "paid_number": paid_number,
+            "transaction_ids": transaction_ids(item.get("transactions")),
+            "raw_payload": item,
+        }
+        previous = by_key.get(key)
+        if previous is None or (row["try_number"] or 0) >= (previous["try_number"] or 0):
+            by_key[key] = row
+    return list(by_key.values())
 
 
 # ── Funciones de sincronización por canal ─────────────────────────────────────

@@ -64,6 +64,7 @@ PERMISSIONS: dict[str, str] = {
     "general.recovery.view": "Ver el Recuperador general (Operación)",
     "general.recovery.toku.view": "Ver la pestaña Toku del Recuperador general",
     "general.recovery.tch.view": "Ver la pestaña TCH del Recuperador general (solo lectura)",
+    "general.recovery.payku.view": "Ver la pestaña Payku del Recuperador general (solo lectura)",
     "general.billing_changes.view": "Ver Cambios de cobro en Operación",
 }
 
@@ -73,6 +74,7 @@ PERMISSIONS: dict[str, str] = {
 GENERAL_RECOVERY_VIEW = "general.recovery.view"
 RECOVERY_TOKU_VIEW = "general.recovery.toku.view"
 RECOVERY_TCH_VIEW = "general.recovery.tch.view"
+RECOVERY_PAYKU_VIEW = "general.recovery.payku.view"
 GENERAL_BILLING_VIEW = "general.billing_changes.view"
 
 # Regla de la migracion 20261102_0052 (por datos, sin nombres de rol): cada permiso nuevo se otorga a los roles que
@@ -82,6 +84,12 @@ GENERAL_GRANT_RULES: dict[str, tuple[str, ...]] = {
     GENERAL_BILLING_VIEW: ("virtualpos.billing_changes.view",),
     RECOVERY_TOKU_VIEW: ("virtualpos.recovery.view", "toku.subscriptions.view"),
     RECOVERY_TCH_VIEW: ("virtualpos.recovery.view", "tch.suscripciones.view"),
+}
+
+# Pestaña Payku (REC-05), sembrada por la migracion 20261102_0055 con la misma regla por datos. Va aparte para no
+# alterar la regla de la 0052 (su prueba compara la migracion con `GENERAL_GRANT_RULES`).
+PAYKU_RECOVERY_GRANT_RULES: dict[str, tuple[str, ...]] = {
+    RECOVERY_PAYKU_VIEW: ("virtualpos.recovery.view", "payku.subscriptions.view"),
 }
 
 # --- Baja de suscripciones multicanal (MGT-16) ---------------------------------------------------------------------
@@ -195,14 +203,15 @@ def ensure_cancellation_grants(db: Session) -> dict[str, int]:
 
 
 def ensure_general_grants(db: Session) -> dict[str, int]:
-    """Equivale a la migracion 20261102_0052: otorga cada permiso `general.*` a los roles existentes que ya tienen todos
+    """Equivale a las migraciones 20261102_0052 y 20261102_0055 (pestaña Payku): otorga cada permiso `general.*` a los roles existentes que ya tienen todos
     los permisos de su regla (`GENERAL_GRANT_RULES`). Nunca crea roles ni quita permisos. Idempotente.
     Devuelve {rol: permisos_agregados} solo de los roles que recibieron alguno."""
-    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(GENERAL_GRANT_RULES))).all()}
+    rules = {**GENERAL_GRANT_RULES, **PAYKU_RECOVERY_GRANT_RULES}
+    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(rules))).all()}
     added: dict[str, int] = {}
     for role in db.scalars(select(Role)).all():
         present = {p.code for p in role.permissions}
-        for code, required in GENERAL_GRANT_RULES.items():
+        for code, required in rules.items():
             if code in by_code and code not in present and set(required) <= present:
                 role.permissions.append(by_code[code])
                 added[role.name] = added.get(role.name, 0) + 1

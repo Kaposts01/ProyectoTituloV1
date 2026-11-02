@@ -26,18 +26,20 @@ export const RECOVERY_CHANNELS: Record<RecoveryChannelId, RecoveryChannelConfig>
 };
 
 /* ── Recuperador general (/general/recuperador, UX-12) ───────────────────────────────
-   Una pestaña por canal; cada una tiene su permiso y su API lo exige. Payku (REC-05) aún no existe. */
+   Una pestaña por canal; cada una tiene su permiso y su API lo exige. Payku (REC-05) con cobertura limitada (DEC-10). */
 
 export const PERM_GENERAL_RECOVERY = "general.recovery.view";
 export const PERM_RECOVERY_TOKU = "general.recovery.toku.view";
 export const PERM_RECOVERY_TCH = "general.recovery.tch.view";
+export const PERM_RECOVERY_PAYKU = "general.recovery.payku.view";
 
-export type RecoveryTabId = "virtualpos" | "toku" | "tch";
+export type RecoveryTabId = "virtualpos" | "toku" | "tch" | "payku";
 
 export const RECOVERY_TABS: { id: RecoveryTabId; label: string; permission: string }[] = [
   { id: "virtualpos", label: "VirtualPOS", permission: RECOVERY_CHANNELS.virtualpos.viewPermission },
   { id: "toku", label: "Toku", permission: PERM_RECOVERY_TOKU },
   { id: "tch", label: "TCH", permission: PERM_RECOVERY_TCH },
+  { id: "payku", label: "Payku", permission: PERM_RECOVERY_PAYKU },
 ];
 
 /** Pestañas de canal que el usuario puede ver. */

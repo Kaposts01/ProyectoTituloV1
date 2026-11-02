@@ -40,7 +40,7 @@ function cell(row: Row, column: RecoveryColumn): { content: string; mono: boolea
   }
 }
 
-/** Pestaña de solo lectura del recuperador general (Toku o TCH). */
+/** Pestaña de solo lectura del recuperador general (Toku, TCH o Payku). */
 export function ChannelRecoveryPanel({ channel }: { channel: ReadOnlyChannel }) {
   const config = CHANNEL_RECOVERY[channel];
   const [view, setView] = useState<ChannelView>(config.views[0]);
@@ -70,6 +70,7 @@ export function ChannelRecoveryPanel({ channel }: { channel: ReadOnlyChannel }) 
 
   return (
     <section aria-label={`Recuperador ${config.label}`}>
+      {config.coverageWarning ? <p className="muted-copy" role="note"><strong>{config.coverageWarning}</strong></p> : null}
       <p className="muted-copy">{config.notice}</p>
       <div className="recovery-tabs" role="tablist" aria-label={`Vistas de ${config.label}`}>
         {config.views.map((item) => (

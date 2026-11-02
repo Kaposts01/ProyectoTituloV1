@@ -23,12 +23,17 @@ from app.models.charge_recovery import ChargeRecovery
 from app.models.core import CoreCharge
 from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.write_run import WriteRun
-from app.services import recovery_tch, recovery_toku
+from app.services import recovery_payku, recovery_tch, recovery_toku
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
 from app.services.charge_stats import chile_today, counts_in_universe
 from app.services.exporter import ExportColumn, audit_payload, visible_columns
 from app.services.exporter import csv_safe as _csv_safe
-from app.services.rbac import RECOVERY_TCH_VIEW, RECOVERY_TOKU_VIEW, permission_codes
+from app.services.rbac import (
+    RECOVERY_PAYKU_VIEW,
+    RECOVERY_TCH_VIEW,
+    RECOVERY_TOKU_VIEW,
+    permission_codes,
+)
 from app.services.read_only_provider_sync import safe_error_message
 from app.services.rejection_format import format_rejection_reason
 from app.services.vp_current_amount import load_current_amount
@@ -818,3 +823,24 @@ async def create_card_change_link(subscription_id: str, db: Annotated[Session, D
     run.finished_at = datetime.now().astimezone()
     db.commit()
     return {"url": url, "expires_at": expires_at}
+
+
+# --- Recuperador general: pestaña Payku (REC-05). Solo lectura; exige su propio permiso. Cobertura limitada: Payku sin
+# sandbox, validar despues (DEC-10). ---------------------------------------------------------------------------------
+
+PaykuViewer = [Depends(require_permissions(RECOVERY_PAYKU_VIEW))]
+
+
+@router.get("/payku/cancelled", dependencies=PaykuViewer, tags=["Recovery"])
+def payku_cancelled(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_payku.cancelled(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+
+
+@router.get("/payku/suspended", dependencies=PaykuViewer, tags=["Recovery"])
+def payku_suspended(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_payku.suspended(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+
+
+@router.get("/payku/rejected", dependencies=PaykuViewer, tags=["Recovery"])
+def payku_rejected(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_payku.rejected(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)

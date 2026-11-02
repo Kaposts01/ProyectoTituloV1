@@ -1,9 +1,9 @@
 /**
- * Vistas de solo lectura del recuperador general para Toku (REC-04) y TCH (REC-06).
+ * Vistas de solo lectura del recuperador general para Toku (REC-04), TCH (REC-06) y Payku (REC-05).
  * Cada vista apunta a un endpoint `/api/v1/recovery/<canal>/<vista>` que exige el permiso de su pestaña.
  */
 
-export type ReadOnlyChannel = "toku" | "tch";
+export type ReadOnlyChannel = "toku" | "tch" | "payku";
 
 export type ColumnKind = "id" | "text" | "date" | "number" | "money" | "status" | "tchStatus" | "reason" | "recoverableReason";
 
@@ -20,9 +20,74 @@ export type ChannelView = {
   columns: RecoveryColumn[];
 };
 
-export type ChannelRecoveryConfig = { id: ReadOnlyChannel; label: string; notice: string; views: ChannelView[] };
+export type ChannelRecoveryConfig = {
+  id: ReadOnlyChannel;
+  label: string;
+  notice: string;
+  /** Aviso destacado de cobertura (Payku: sin sandbox, DEC-10). */
+  coverageWarning?: string;
+  views: ChannelView[];
+};
+
+/** Aviso obligatorio de la pestaña Payku (REC-05). */
+export const PAYKU_COVERAGE_WARNING = "Cobertura limitada: Payku sin sandbox; validar después (DEC-10).";
 
 const money = (key = "amount"): RecoveryColumn => ({ key, header: "Monto", kind: "money" });
+
+/** Pestaña Payku (REC-05): misma forma que Toku y TCH, con aviso de cobertura limitada. */
+const PAYKU_RECOVERY: ChannelRecoveryConfig = {
+  id: "payku",
+  label: "Payku",
+  notice: "Solo lectura: los datos salen del modelo central (core) de Payku con su estado normalizado. «Recuperable» aún no está definido para Payku y las acciones de cobro siguen en el portal de Payku.",
+  coverageWarning: PAYKU_COVERAGE_WARNING,
+  views: [
+    {
+      id: "cancelled",
+      label: "Suscripciones dadas de baja",
+      path: "/api/v1/recovery/payku/cancelled",
+      dateLabels: { from: "Baja desde", to: "Baja hasta" },
+      columns: [
+        { key: "subscription_id", header: "Suscripción", kind: "id" },
+        { key: "status", header: "Estado", kind: "status" },
+        { key: "started_at", header: "Alta", kind: "date" },
+        { key: "cancelled_at", header: "Baja", kind: "date" },
+        { key: "antiquity_days", header: "Antigüedad (días)", kind: "number" },
+        money(),
+        { key: "last_payment_status", header: "Último cobro", kind: "status" },
+      ],
+    },
+    {
+      id: "suspended",
+      label: "Suspendidas",
+      path: "/api/v1/recovery/payku/suspended",
+      dateLabels: { from: "Suspensión desde", to: "Suspensión hasta" },
+      columns: [
+        { key: "subscription_id", header: "Suscripción", kind: "id" },
+        { key: "status", header: "Estado", kind: "status" },
+        { key: "started_at", header: "Alta", kind: "date" },
+        { key: "cancelled_at", header: "Suspensión", kind: "date" },
+        { key: "antiquity_days", header: "Antigüedad (días)", kind: "number" },
+        money(),
+        { key: "last_payment_status", header: "Último cobro", kind: "status" },
+      ],
+    },
+    {
+      id: "rejected",
+      label: "Cobros rechazados",
+      path: "/api/v1/recovery/payku/rejected",
+      dateLabels: { from: "Cobro desde", to: "Cobro hasta" },
+      columns: [
+        { key: "charge_id", header: "Cobro", kind: "id" },
+        { key: "subscription_id", header: "Suscripción", kind: "id" },
+        { key: "period", header: "Período", kind: "date" },
+        { key: "charge_date", header: "Fecha", kind: "date" },
+        money(),
+        { key: "status", header: "Estado", kind: "status" },
+        { key: "rejection_reason", header: "Motivo de rechazo", kind: "reason" },
+      ],
+    },
+  ],
+};
 
 export const CHANNEL_RECOVERY: Record<ReadOnlyChannel, ChannelRecoveryConfig> = {
   toku: {
@@ -116,6 +181,7 @@ export const CHANNEL_RECOVERY: Record<ReadOnlyChannel, ChannelRecoveryConfig> = 
       },
     ],
   },
+  payku: PAYKU_RECOVERY,
 };
 
 /** Texto del estado vacío que explica POR QUÉ no hay filas (`empty_reason` del backend). */

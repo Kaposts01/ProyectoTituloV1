@@ -109,6 +109,16 @@ export const es = {
     "temporary failed": "Falla temporal",
     "permanent failed": "Falla permanente",
     "permanently deleted": "Eliminado definitivamente",
+    /** Estados crudos de Payku (suscripción y cobro) que se muestran en el Recuperador (REC-05). */
+    register: "Inscripción pendiente",
+    "pending enrollment": "Inscripción pendiente",
+    cancel: "Cancelada",
+    delete: "Eliminada",
+    finish: "Finalizada",
+    "suspended awaits change plan": "Suspendida por cambio de plan",
+    "maximum attempt limit": "Reintentos agotados",
+    "first payment rejected": "Primer cobro rechazado",
+    "payment consumes failed": "Cobro de consumo fallido",
   },
   /** Motivo por el que una suscripción de Toku es recuperable (señales TK-20, DEC-25). */
   recoverableReason: {
