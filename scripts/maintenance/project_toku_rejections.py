@@ -1,5 +1,9 @@
 """Proyecta el último rechazo de Toku (tk_transactions FAILED) a core_charges.latest_rejection_* (RJ-01).
 
+Tambien es el backfill de RJ-11 / TK-PAR-04: los FAILED sin `response_code` toman el codigo del reporte «Intentos de
+pago» ya cargado en `tk_report_attempts` (`codes_from_report_by_*` en la salida). Idempotente: una segunda corrida
+no escribe nada.
+
 Por defecto es un DRY-RUN: corre dentro de una transacción de solo lectura (PostgreSQL rechaza cualquier
 escritura) e imprime solo conteos. Para escribir hay que pasar `--apply` de forma explícita.
 
