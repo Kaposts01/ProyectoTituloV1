@@ -78,6 +78,32 @@ describe("bandeja", () => {
     for (const h of ["Suscripción", "Tipo", "Estado", "Solicitante", "Creada", "Vencimiento"]) expect(within(table).getByRole("columnheader", { name: h })).toBeTruthy();
   });
 
+  it("UI-37: en Historial la ultima columna es «Cierre» con la fecha de ejecucion o decision, no «—»", async () => {
+    render(<BillingInbox can={canOf(READONLY)} />);
+    await screen.findByRole("table");
+    listItems = [
+      req({ id: "h1", status: "ejecutada", decided_at: "2026-03-02T13:00:00+00:00", executed_at: "2026-03-03T15:30:00+00:00" }),
+      req({ id: "h2", subscription_external_id: "SUB-200", status: "rechazada", decided_at: "2026-03-04T12:00:00+00:00" }),
+    ];
+    fireEvent.click(screen.getByRole("tab", { name: "Historial" }));
+    const table = await screen.findByRole("table", { name: /Solicitudes de cambio de cobro/ });
+    await waitFor(() => expect(within(table).getByRole("columnheader", { name: "Cierre" })).toBeTruthy());
+    expect(within(table).queryByRole("columnheader", { name: "Vencimiento" })).toBeNull();
+    expect(within(table).getByText("2026-03-03 12:30").className).toContain("mono"); // ejecutada: executed_at en hora de Chile
+    expect(within(table).getByText("2026-03-04 09:00")).toBeTruthy(); // rechazada: decided_at
+    expect(screen.getByLabelText("Estado").closest("label")?.className).toContain("bx-f-status");
+  });
+
+  it("UI-38: un clic en cualquier parte de la fila abre el detalle", async () => {
+    render(<BillingInbox can={canOf(READONLY)} />);
+    const table = await screen.findByRole("table", { name: /Solicitudes de cambio de cobro/ });
+    const row = within(table).getAllByRole("row")[1];
+    expect(row.className).toContain("bx-row-clickable");
+    fireEvent.click(within(row).getByText("$5.000 → $8.000"));
+    expect(await screen.findByRole("heading", { name: /Cambio de monto/ })).toBeTruthy();
+    expect(row.getAttribute("data-selected")).toBe("true");
+  });
+
   it("muestra estado vacio con accion", async () => {
     listItems = [];
     render(<BillingInbox can={canOf(ADMIN)} />);
