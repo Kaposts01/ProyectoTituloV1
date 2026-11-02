@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,7 @@ from app.models.core import (
 from app.models.payku_channel import PaykuClient, PaykuSubscription, PaykuTransaction
 from app.services.channel_consolidation import _payku_last_transition_date
 from app.services.core_materialization import materialize_core_clients
+from app.services.rejected_month import CHILE_TZ
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +47,33 @@ def _parse_date(value: str | None) -> datetime | None:
         return d.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return None
+
+
+def _parse_datetime_cl(value: str | None) -> datetime | None:
+    """Fecha y hora de una transaccion Payku como instante con zona (PK-PAR-04).
+
+    Payku entrega `created_at` sin zona (`2023-09-30 19:58:35`, hora de Chile); antes se truncaba a la fecha y se
+    asumia UTC, lo que perdia la hora y corria al mes anterior los cobros de la noche del ultimo dia. Ahora:
+    - texto sin zona -> hora local de America/Santiago (con su horario de verano);
+    - texto con zona (`Z`, `+00:00`) -> se respeta;
+    - solo fecha -> 00:00 de Chile; tambien acepta `DD-MM-AAAA HH:MM:SS` (formato de las notificaciones).
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parsed: datetime | None = None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        for fmt in ("%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                continue
+    if parsed is None:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=CHILE_TZ)
 
 
 def _parse_amount(value: str | None) -> Decimal | None:
@@ -191,12 +219,12 @@ def _materialize_payments(db: Session) -> int:
             "subscription_id": sub_id,
             "charge_id": None,
             "source_status": t.status,
-            "occurred_at": _parse_date(t.created_at_api),
+            "occurred_at": _parse_datetime_cl(t.created_at_api),
             "amount": _parse_amount(t.amount),
             "currency": _DEFAULT_CURRENCY,
             "rejection_code": None,
             "rejection_reason": None,
-            "rejection_reported_at": _parse_date(t.created_at_api) if is_rejected else None,
+            "rejection_reported_at": _parse_datetime_cl(t.created_at_api) if is_rejected else None,
         })
 
     if skipped:
@@ -210,7 +238,29 @@ def _materialize_payments(db: Session) -> int:
             .on_conflict_do_nothing(constraint="uq_core_payment_source_external_id")
         )
     after = db.scalar(select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)) or 0
+    _refresh_payment_times(db, {r["external_id"]: (r["occurred_at"], r["rejection_reported_at"]) for r in rows})
     return after - before
+
+
+def _refresh_payment_times(db: Session, times: dict[str, tuple[datetime | None, datetime | None]]) -> int:
+    """UPDATE explicito de `occurred_at`/`rejection_reported_at` de pagos ya existentes (PK-PAR-04).
+
+    El insert usa `on_conflict_do_nothing`, asi que los pagos cargados con la fecha truncada a UTC nunca se
+    corregirian solos. Solo cambia filas cuyo instante difiere. Idempotente. Devuelve las filas actualizadas.
+    """
+    updates: list[dict] = []
+    for row in db.execute(
+        select(CorePayment.id, CorePayment.external_id, CorePayment.occurred_at, CorePayment.rejection_reported_at)
+        .where(CorePayment.source == _SOURCE)
+    ):
+        new = times.get(row.external_id)
+        if new is None or new[0] is None:
+            continue
+        if (row.occurred_at, row.rejection_reported_at) != new:
+            updates.append({"id": row.id, "occurred_at": new[0], "rejection_reported_at": new[1]})
+    for i in range(0, len(updates), 1000):
+        db.execute(update(CorePayment), updates[i : i + 1000])
+    return len(updates)
 
 
 # ── Punto de entrada ──────────────────────────────────────────────────────────

@@ -391,7 +391,9 @@ def extract_payku_transaction(p: dict) -> dict:
         "amount": _str(p, "amount") or _str(order, "amount"),
         "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status"),
-        "created_at_api": _str(p, "created_at"),
+        # Texto crudo con fecha Y hora (hora de Chile, sin zona); el ETL Core lo interpreta (PK-PAR-04).
+        # `fecha` es el nombre del campo en las notificaciones de cobro (`DD-MM-AAAA HH:MM:SS`).
+        "created_at_api": _str(p, "created_at", "fecha"),
     }
 
 
