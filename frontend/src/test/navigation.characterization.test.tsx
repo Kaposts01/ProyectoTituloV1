@@ -95,10 +95,13 @@ describe("Rutas y permisos", () => {
     expect(await screen.findByRole("heading", { name: "Cambios de cobro" })).toBeTruthy();
   });
 
-  it("el recuperador de VirtualPOS abre en /virtualpos/recuperador-socios", async () => {
+  // Cambio deliberado (UX-12): el recuperador vive en /general/recuperador; la URL antigua redirige y abre VirtualPOS.
+  it("la ruta antigua del recuperador redirige a /general/recuperador y abre la pestaña VirtualPOS", async () => {
     mountApp("/virtualpos/recuperador-socios", [["GET", /^\/api\/v1\/recovery\//, { items: [], total: 0, offset: 0, limit: 50 }]]);
     await appReady();
+    await waitFor(() => expect(window.location.pathname).toBe("/general/recuperador"));
     expect(await screen.findByRole("heading", { name: "Recuperador de Socios" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "VirtualPOS" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("«Mi perfil» muestra al usuario y /admin/usuarios abre el panel de administración", async () => {
@@ -151,7 +154,7 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
     fireEvent.click(navTop("Resumen"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/resumen"));
     fireEvent.click(navTop("Recuperador"));
-    await waitFor(() => expect(window.location.pathname).toBe("/virtualpos/recuperador-socios"));
+    await waitFor(() => expect(window.location.pathname).toBe("/general/recuperador"));
     fireEvent.click(navTop("Cambios de cobro"));
     await waitFor(() => expect(window.location.pathname).toBe("/general/cambios-de-cobro"));
     fireEvent.click(navTop("Sincronización"));

@@ -92,6 +92,8 @@ export function parseRoute(pathname: string): AppRoute | null {
     return null;
   }
 
+  if (parts[0] === "general" && parts[1] === "recuperador" && parts.length === 2) return { kind: "recovery" };
+  // Ruta anterior (grupo VirtualPOS, UX-12): sigue resolviendo; AppCore la redirige a /general/recuperador.
   if (parts[0] === "virtualpos" && parts[1] === "recuperador-socios") return { kind: "recovery" };
   if (parts[0] === "general" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
   if (parts[0] === "general" && parts[1] === "bajas" && parts.length === 2) return { kind: "cancellations" };
@@ -129,7 +131,7 @@ export function routePath(route: AppRoute): string {
     return "/central/reporte-automatico";
   }
   if (route.kind === "channel") return `/${route.source}/resumen`;
-  if (route.kind === "recovery") return "/virtualpos/recuperador-socios";
+  if (route.kind === "recovery") return "/general/recuperador";
   if (route.kind === "billingChanges") return "/general/cambios-de-cobro";
   if (route.kind === "cancellations") return "/general/bajas";
   if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : TCH_URL_SEGMENT[route.view]}`;
