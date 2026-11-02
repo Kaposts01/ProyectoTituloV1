@@ -115,8 +115,13 @@ suscripciones eliminadas. El Backoffice sí lo exporta, y se carga a mano (una v
 | Deudas (`deudas`) | ID, fechas, ID Producto, Fecha de Vencimiento (dd/mm/aaaa), Monto, Pagado, Anulado, Cliente, Estado | `tk_report_debts` | `debt_external_id` |
 | Inscripciones (`inscripciones`) | ID, fechas, Medio de pago, Estado transacción, Código de Respuesta (formato largo `TEPSP1001`), Estado Medio de Pago, Fecha/Estado Último Intento de Pago, id_subscription | `tk_report_inscriptions` | `inscription_external_id` |
 
-No soportados todavía (se rechazan con 422 sin leer filas): Clientes, Pagos, Liquidaciones, Facturación, Contracargos y el resto
-(TK-PAR-07 y TK-PAR-09). **`Estado` en Productos es el estado del medio de pago, no el de la suscripción**; el ciclo de vida sale
+Desde TK-PAR-07 y TK-PAR-09 (migración 0057) también se cargan Clientes (`clientes` → `tk_report_customers`: ID `cus_`,
+fechas de creación y eliminación, «Silenciado hasta»), Pagos v2 (`pagos` → `tk_report_payments`: tipo de pago, cuotas) y
+Liquidaciones (`liquidaciones` → `tk_report_settlements`: comisión, neto, fecha de depósito). **Sus firmas de columnas son
+supuestas** (se escribieron sin abrir reportes reales): validar con los encabezados reales antes de cargar en `crm`.
+No soportados (se rechazan con 422 sin leer filas): Facturación, Contracargos y el resto. El panel de administración (pestaña
+de sincronización, permiso `toku.reports.import`) sube los archivos y avisa si el dato tiene más de 7 días (DEC-21;
+`GET /api/v1/imports/toku-reports/status`). **`Estado` en Productos es el estado del medio de pago, no el de la suscripción**; el ciclo de vida sale
 de `Fecha de Eliminación`. `last_payment_intent_response_code` viene vacío en todos los medios: el código de rechazo por
 suscripción se obtiene del último intento fallido. Las fechas sin zona horaria son hora de Chile (`America/Santiago`).
 
