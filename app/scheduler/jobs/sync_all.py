@@ -311,7 +311,10 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 )
                 consolidate_info["records"] = consolidated
             for item in consolidation_timings:
-                metrics.add("consolidate", f"{item['source']}.{item['fn']}", item["seconds"], records=item["records"])
+                metrics.add(
+                    "consolidate", f"{item['source']}.{item['fn']}", item["seconds"], records=item["records"],
+                    **({"written": item["written"]} if "written" in item else {}),
+                )
             total_records += consolidated
             if "tch" in consolidate_sources and tch_snapshot is not None and not any(
                 f.startswith("tch.") for f in consolidation_failures

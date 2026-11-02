@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -35,6 +36,7 @@ from app.services.payku_status import (
     normalize_payku_status,
 )
 from app.services.payload_sanitization import sanitize_payload
+from app.services.upsert_guard import distinct_where
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,17 @@ def _card_summaries(cards: Any) -> list[dict] | None:
     return result or None
 
 
+def _stamped(model: type, updatable: dict[str, Any]) -> dict[str, Any]:
+    """SET del upsert con `updated_at = now()` (SYNC-O-07).
+
+    El upsert solo actualiza las filas que cambiaron (guarda `IS DISTINCT FROM`), asi que `updated_at` pasa a ser el
+    instante del ultimo cambio real del registro: es la marca que usa la consolidacion diferencial.
+    """
+    if "updated_at" in model.__table__.c and "updated_at" not in updatable:
+        return {**updatable, "updated_at": func.now()}
+    return updatable
+
+
 def upsert_channel(
     db: Session,
     model: type,
@@ -127,7 +140,10 @@ def upsert_channel(
     rows = deduped
     stmt = insert(model).values(rows)
     updatable = {key: stmt.excluded[key] for key in rows[0] if key not in (*identity_fields, "id", "created_at")}
-    stmt = stmt.on_conflict_do_update(index_elements=list(identity_fields), set_=updatable)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=list(identity_fields), set_=_stamped(model, updatable),
+        where=distinct_where(model.__table__, updatable),
+    )
     if skipped is None:
         db.execute(stmt)
         db.commit()
@@ -141,9 +157,11 @@ def upsert_channel(
         stored = 0
         for row in ordered:
             single = insert(model).values([row])
+            single_set = {key: single.excluded[key] for key in row if key not in (*identity_fields, "id", "created_at")}
             single = single.on_conflict_do_update(
                 index_elements=list(identity_fields),
-                set_={key: single.excluded[key] for key in row if key not in (*identity_fields, "id", "created_at")},
+                set_=_stamped(model, single_set),
+                where=distinct_where(model.__table__, single_set),
             )
             try:
                 with db.begin_nested():
