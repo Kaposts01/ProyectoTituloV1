@@ -518,6 +518,9 @@
  "POST /api/v1/billing/changes/{}/withdraw": [
   "cookie:crm_access_token"
  ],
+ "POST /api/v1/billing/renewal-tasks/{}/reject": [
+  "cookie:crm_access_token"
+ ],
  "POST /api/v1/cancellations": [
   "cookie:crm_access_token"
  ],
