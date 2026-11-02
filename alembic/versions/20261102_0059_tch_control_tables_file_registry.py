@@ -14,7 +14,7 @@ Reversible: el downgrade quita las cuatro columnas (se pierden los registros 'fa
 que no bloqueen el reintento del mismo archivo con el codigo anterior) y borra las tres tablas. La aplica el usuario.
 
 Revision ID: 20261102_0059
-Revises: 20261102_0054
+Revises: 20261102_0063
 Create Date: 2026-11-02 18:00:00
 """
 
@@ -24,7 +24,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "20261102_0059"
-down_revision = "20261102_0054"
+down_revision = "20261102_0063"
 branch_labels = None
 depends_on = None
 
