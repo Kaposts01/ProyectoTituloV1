@@ -433,10 +433,12 @@
  ],
  "GET /api/v1/staging/dashboard/general/clients": [
   "cookie:crm_access_token",
+  "query:canal",
   "query:filter_field",
   "query:limit",
   "query:offset",
-  "query:query"
+  "query:query",
+  "query:status"
  ],
  "GET /api/v1/staging/dashboard/general/clients/{}": [
   "cookie:crm_access_token"

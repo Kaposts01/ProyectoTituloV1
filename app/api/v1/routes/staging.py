@@ -5,8 +5,20 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Date, Numeric, String, and_, case, cast, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import (
+    Date,
+    Numeric,
+    String,
+    and_,
+    case,
+    cast,
+    func,
+    literal,
+    or_,
+    select,
+)
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import Session, aliased
 
 from app.core.config import settings
 from app.core.security import get_current_user, require_csrf, require_permissions
@@ -607,71 +619,130 @@ def _portal(source: str) -> str:
     return {"virtualpos": "VirtualPOS", "virtualpos1": "VirtualPOS", "virtualpos2": "VirtualPOS", "toku": "Toku", "payku": "Payku", "tch": "TCH"}[source]
 
 
+MemberFilterField = Literal["all", "rut", "name", "last_name", "platform", "email", "phone"]
+MemberChannel = Literal["virtualpos", "toku", "payku", "tch"]
+MemberStatus = Literal["active", "inactive"]
+_MEMBER_CHANNEL_LABEL = {"virtualpos": "VirtualPOS", "toku": "Toku", "payku": "Payku", "tch": "TCH"}
+
+
+def _rut_key_sql(column: Any) -> Any:
+    """`_rut_key` en SQL: solo digitos y K, en mayusculas."""
+    return func.regexp_replace(func.upper(func.coalesce(column, "")), "[^0-9K]", "", "g")
+
+
+def _portal_sql(source: Any) -> Any:
+    return case(
+        (source.like("virtualpos%"), "VirtualPOS"), (source == "toku", "Toku"), (source == "payku", "Payku"),
+        (source == "tch", "TCH"), else_=source,
+    )
+
+
+def _like_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _general_clients_stmt(
+    query: str | None, filter_field: str, channel: str | None = None, status: str | None = None,
+) -> Any:
+    """Socios agrupados por RUT normalizado (UX-10, transitorio): consulta SQL, sin cargar las tablas en memoria.
+
+    Mismas reglas que la version anterior en memoria: clientes centralizados con RUT y clientes TCH, agrupados por
+    `_rut_key`; «activo en» = suscripcion activa/active (o VIGENTE en TCH) ligada por el RUT de la suscripcion o por
+    el cliente. Nombre y apellido: el primero no vacio de cada grupo. El RUT no esta verificado entre canales (ADR-001).
+    """
+    c_key = _rut_key_sql(CClient.social_id)
+    t_key = _rut_key_sql(TchClient.rut)
+    base = select(
+        c_key.label("key"), CClient.social_id.label("rut"), func.coalesce(CClient.first_name, "").label("first_name"),
+        func.coalesce(CClient.last_name, "").label("last_name"), CClient.email.label("email"),
+        CClient.phone_number.label("phone"), _portal_sql(CClient.source).label("portal"), literal(0).label("prio"),
+        cast(CClient.id, String).label("ord"),
+    ).where(CClient.social_id.isnot(None), c_key != "").union_all(
+        select(
+            t_key, TchClient.rut, func.coalesce(TchClient.name, ""), func.coalesce(TchClient.last_name, ""),
+            TchClient.email, TchClient.phone, literal("TCH"), literal(1), cast(TchClient.id, String),
+        ).where(t_key != "")
+    ).subquery("base")
+
+    client = aliased(CClient)
+    sub_key = func.coalesce(func.nullif(_rut_key_sql(CSub.client_social_id), ""), _rut_key_sql(client.social_id))
+    active = select(sub_key.label("key"), _portal_sql(CSub.source).label("portal")).select_from(CSub).outerjoin(
+        client, and_(client.source == CSub.source, client.external_id == CSub.client_external_id, client.social_id.isnot(None)),
+    ).where(func.lower(func.coalesce(CSub.status, "")).in_(("activa", "active"))).union_all(
+        select(_rut_key_sql(TchSubscription.client_rut), literal("TCH")).where(TchSubscription.status == "VIGENTE")
+    ).subquery("active_raw")
+    active_by_key = select(
+        active.c.key, postgresql.array_agg(func.distinct(active.c.portal)).label("active_origins"),
+    ).where(active.c.key.isnot(None), active.c.key != "").group_by(active.c.key).subquery("active_by_key")
+
+    first_name = func.min(func.nullif(base.c.first_name, ""))
+    last_name = func.min(func.nullif(base.c.last_name, ""))
+    grouped = select(
+        base.c.key,
+        postgresql.array_agg(postgresql.aggregate_order_by(base.c.rut, base.c.prio, base.c.ord))[1].label("rut"),
+        func.coalesce(first_name, "").label("first_name"),
+        func.coalesce(last_name, "").label("last_name"),
+        postgresql.array_agg(func.distinct(base.c.portal)).label("origins"),
+        func.coalesce(func.string_agg(func.distinct(base.c.email), " "), "").label("emails"),
+        func.coalesce(func.string_agg(func.distinct(base.c.phone), " "), "").label("phones"),
+    ).group_by(base.c.key).subquery("grouped")
+
+    full_name = func.trim(func.concat(grouped.c.first_name, " ", grouped.c.last_name))
+    active_origins = func.coalesce(active_by_key.c.active_origins, postgresql.array([], type_=String))
+    stmt = select(
+        grouped.c.key, grouped.c.rut, full_name.label("name"), grouped.c.origins, active_origins.label("active_origins"),
+    ).select_from(grouped).outerjoin(active_by_key, active_by_key.c.key == grouped.c.key)
+
+    needle = (query or "").strip()
+    if needle:
+        rut_needle = _rut_key(needle)
+        pattern = f"%{_like_escape(needle.lower())}%"
+        values = {
+            "name": func.lower(full_name),
+            "last_name": func.lower(grouped.c.last_name),
+            "platform": func.lower(func.array_to_string(grouped.c.origins, " ")),
+            "email": func.lower(grouped.c.emails),
+            "phone": func.lower(grouped.c.phones),
+        }
+        rut_cond = grouped.c.key.like(f"%{rut_needle}%") if rut_needle else literal(False)
+        if filter_field == "all":
+            stmt = stmt.where(or_(rut_cond, *[value.like(pattern, escape="\\") for value in values.values()]))
+        elif filter_field == "rut":
+            stmt = stmt.where(rut_cond)
+        else:
+            stmt = stmt.where(values[filter_field].like(pattern, escape="\\"))
+    if channel:
+        stmt = stmt.where(literal(_MEMBER_CHANNEL_LABEL[channel]) == func.any(grouped.c.origins))
+    if status == "active":
+        stmt = stmt.where(func.cardinality(active_origins) > 0)
+    elif status == "inactive":
+        stmt = stmt.where(func.cardinality(active_origins) == 0)
+    sort_name = func.lower(func.coalesce(func.nullif(full_name, ""), grouped.c.rut))
+    return stmt.order_by(sort_name, grouped.c.key)
+
+
+def _member_item(row: Any) -> dict[str, Any]:
+    return {"rut": row.rut, "name": row.name, "origins": sorted(row.origins or []), "active_origins": sorted(row.active_origins or [])}
+
+
+def _general_clients_page(
+    db: Session, query: str | None, filter_field: str, offset: int, limit: int,
+    channel: str | None = None, status: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Una pagina de Socios paginada EN SQL (COUNT + OFFSET/LIMIT)."""
+    stmt = _general_clients_stmt(query, filter_field, channel, status)
+    total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    rows = db.execute(stmt.offset(offset).limit(limit)).all()
+    return [_member_item(row) for row in rows], total
+
+
 def _general_clients(
     db: Session,
     query: str | None = None,
     filter_field: Literal["all", "rut", "name", "last_name", "platform", "email", "phone"] = "all",
 ) -> list[dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
-    client_keys: dict[tuple[str, str], str] = {}
-    for client in db.scalars(select(CClient).where(CClient.social_id.isnot(None))):
-        key = _rut_key(client.social_id)
-        if key:
-            item = grouped.setdefault(key, {"rut": client.social_id, "name": "", "last_name": "", "origins": set(), "active_origins": set(), "emails": set(), "phones": set()})
-            item["name"] = item["name"] or (client.first_name or "")
-            item["last_name"] = item["last_name"] or (client.last_name or "")
-            if client.email:
-                item["emails"].add(client.email)
-            if client.phone_number:
-                item["phones"].add(client.phone_number)
-            item["origins"].add(_portal(client.source))
-            client_keys[(client.source, client.external_id)] = key
-    for client in db.scalars(select(TchClient)):
-        key = _rut_key(client.rut)
-        if key:
-            item = grouped.setdefault(key, {"rut": client.rut, "name": "", "last_name": "", "origins": set(), "active_origins": set(), "emails": set(), "phones": set()})
-            item["name"] = item["name"] or (client.name or "")
-            item["last_name"] = item["last_name"] or (client.last_name or "")
-            if client.email:
-                item["emails"].add(client.email)
-            if client.phone:
-                item["phones"].add(client.phone)
-            item["origins"].add("TCH")
-    for subscription in db.scalars(select(CSub)):
-        key = _rut_key(subscription.client_social_id) or client_keys.get((subscription.source, subscription.client_external_id or ""))
-        if key in grouped and str(subscription.status or "").lower() in {"activa", "active"}:
-            grouped[key]["active_origins"].add(_portal(subscription.source))
-    for subscription in db.scalars(select(TchSubscription).where(TchSubscription.status == "VIGENTE")):
-        key = _rut_key(subscription.client_rut)
-        if key in grouped:
-            grouped[key]["active_origins"].add("TCH")
-    needle = (query or "").strip().lower()
-
-    def matches(key: str, item: dict[str, Any]) -> bool:
-        if not needle:
-            return True
-        rut_needle = _rut_key(query)
-        values = {
-            "name": " ".join((item["name"], item["last_name"])).lower(),
-            "last_name": item["last_name"].lower(),
-            "platform": " ".join(item["origins"]).lower(),
-            "email": " ".join(item["emails"]).lower(),
-            "phone": " ".join(item["phones"]).lower(),
-        }
-        if filter_field == "all":
-            return (rut_needle and rut_needle in key) or any(needle in value for value in values.values())
-        return bool(rut_needle and rut_needle in key) if filter_field == "rut" else needle in values[filter_field]
-
-    return sorted((
-        {
-            "rut": item["rut"],
-            "name": " ".join(part for part in (item["name"], item["last_name"]) if part),
-            "origins": sorted(item["origins"]),
-            "active_origins": sorted(item["active_origins"]),
-        }
-        for key, item in grouped.items()
-        if matches(key, item)
-    ), key=lambda item: (item["name"] or item["rut"]).lower())
+    """Lista completa (sin paginar) de Socios; misma consulta SQL que la pagina. Se mantiene por compatibilidad."""
+    return [_member_item(row) for row in db.execute(_general_clients_stmt(query, filter_field)).all()]
 
 
 _ACTIVE_STATUSES = {"activa", "activo", "active", "vigente"}
@@ -831,13 +902,24 @@ def _general_subscriptions(
     return sorted((item for item in items if matches(item)), key=lambda item: (item["client"] or item["id"]).lower())
 
 
-def _general_client_detail(db: Session, rut: str) -> dict[str, Any]:
+def _member_exists(db: Session, rut: str) -> bool:
     key = _rut_key(rut)
-    clients = [item for item in db.scalars(select(CClient)) if _rut_key(item.social_id) == key]
-    tch_clients = [item for item in db.scalars(select(TchClient)) if _rut_key(item.rut) == key]
+    if not key:
+        return False
+    found = db.scalar(select(CClient.id).where(CClient.social_id.isnot(None), _rut_key_sql(CClient.social_id) == key).limit(1))
+    return found is not None or db.scalar(select(TchClient.id).where(_rut_key_sql(TchClient.rut) == key).limit(1)) is not None
+
+
+def _general_client_detail(db: Session, rut: str) -> dict[str, Any]:
+    """Ficha de Socio por RUT normalizado con paneles por canal; filtra EN SQL (antes recorria todas las tablas)."""
+    key = _rut_key(rut)
+    clients = db.scalars(select(CClient).where(_rut_key_sql(CClient.social_id) == key)).all() if key else []
+    tch_clients = db.scalars(select(TchClient).where(_rut_key_sql(TchClient.rut) == key)).all() if key else []
     client_ids = {(item.source, item.external_id) for item in clients}
-    subscriptions = [item for item in db.scalars(select(CSub)) if _rut_key(item.client_social_id) == key or (item.source, item.client_external_id) in client_ids]
-    tch_subscriptions = [item for item in db.scalars(select(TchSubscription)) if _rut_key(item.client_rut) == key]
+    by_client = [and_(CSub.source == source, CSub.client_external_id == external_id) for source, external_id in client_ids]
+    sub_filter = or_(_rut_key_sql(CSub.client_social_id) == key, *by_client) if key else None
+    subscriptions = db.scalars(select(CSub).where(sub_filter)).all() if sub_filter is not None else []
+    tch_subscriptions = db.scalars(select(TchSubscription).where(_rut_key_sql(TchSubscription.client_rut) == key)).all() if key else []
     subscription_ids = {(item.source, item.external_id) for item in subscriptions}
     charge_filters = [and_(CCharge.source == source, CCharge.client_external_id == external_id) for source, external_id in client_ids]
     charge_filters += [and_(CCharge.source == source, CCharge.subscription_external_id == external_id) for source, external_id in subscription_ids]
@@ -3575,12 +3657,15 @@ def centralized_channel_dashboard(source: str, db: Session = Depends(get_db)) ->
 def general_clients(
     db: Session = Depends(get_db),  # noqa: B008
     query: str | None = None,
-    filter_field: Literal["all", "rut", "name", "last_name", "platform", "email", "phone"] = "all",
+    filter_field: MemberFilterField = "all",
     offset: PaginationOffset = 0,
     limit: PaginationLimit = 50,
+    channel: Annotated[MemberChannel | None, Query(alias="canal")] = None,
+    status: MemberStatus | None = None,
 ) -> dict[str, Any]:
-    items = _general_clients(db, query, filter_field)
-    return {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit}
+    # UX-10 (transitorio): paginado en SQL; filtros de canal (`canal`) y de estado (con/sin suscripcion activa).
+    items, total = _general_clients_page(db, query, filter_field, offset, limit, channel, status)
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 @router.get("/dashboard/general/subscriptions", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
@@ -3597,7 +3682,7 @@ def general_subscriptions(
 
 @router.get("/dashboard/general/clients/{rut}", dependencies=[Depends(require_permissions("dashboard.view"))], tags=["Staging"])
 def general_client_detail(rut: str, db: Session = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
-    if not _general_clients(db, rut):
+    if not _member_exists(db, rut):
         raise HTTPException(status_code=404, detail={"code": "client_not_found", "message": "Cliente no encontrado."})
     return _general_client_detail(db, rut)
 
