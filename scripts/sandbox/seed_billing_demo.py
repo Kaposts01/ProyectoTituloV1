@@ -81,6 +81,9 @@ PREFIX = "DEMO-"
 PLATFORM = "virtualpos1"
 HORIZON = 12
 EXPIRY_DAYS = 7
+# UI-41: el backend escribe la autoaprobacion y `decided_at` en la misma operacion que crea la solicitud; la siembra usa el
+# mismo instante para el evento `autoaprobada` y para `decided_at` (antes `decided_at` quedaba 2 minutos despues).
+AUTO_APPROVAL_DELAY = timedelta(seconds=1)
 SPEC_TO_PLAN_TYPE = {"one_off_charge": "one_off"}
 
 POLICY_DEFAULTS: dict[str, Any] = {
@@ -296,7 +299,7 @@ def build_events(s: Scenario, req_id: uuid.UUID, admin: uuid.UUID, created: date
     keys = ("creates", "cancels", "covered_months", "manual_review_months", "variation_pct")
     evs = [event(req_id, "creada", admin, created, {
         "request_type": s.request_type, "approvals_required": approvals_required, "summary": {k: summary.get(k) for k in keys}})]
-    t_auto = created + timedelta(seconds=1)
+    t_auto = created + AUTO_APPROVAL_DELAY
     t_decide = created + timedelta(minutes=2)
 
     def auto(final: bool) -> BillingChangeRequestEvent:
@@ -350,7 +353,7 @@ def build_request(s: Scenario, admin: uuid.UUID, preview: dict[str, Any], snapsh
     approved = s.kind in ("aprobada", "ejecutada", "fallida", "conciliacion", "no_ejecutable")
     decided_at: datetime | None = None
     if approved:
-        decided_at = created + timedelta(minutes=2)
+        decided_at = created + AUTO_APPROVAL_DELAY  # = instante del evento `autoaprobada` (UI-41)
     elif s.kind in ("rechazada", "retirada"):
         decided_at = evs[-1].created_at
     elif s.kind == "expirada":
