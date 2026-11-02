@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     targeted_reconcile_pause_seconds: float = 1.0
     targeted_reconcile_due_days: int = 5  # cobro programado en los ultimos N dias
     targeted_reconcile_rejection_days: int = 15  # rechazo reciente = cobro rechazado de los ultimos N dias
+    # SYNC-O-15: intentos de una orden de `refresh_queue` (la consume la reconciliacion dirigida) antes de quedar `failed`.
+    refresh_queue_max_attempts: int = 5
     # SYNC-D-13: bajas por desaparicion. Tras una sync COMPLETA y exitosa de suscripciones, las que no se vieron quedan con
     # `removed_at` en su tabla de canal y un evento `removed`. Si las desaparecidas superan el umbral (proporcion de las
     # conocidas O cantidad absoluta) se aborta sin marcar nada y se alerta (probable error del proveedor). APAGADA por defecto.

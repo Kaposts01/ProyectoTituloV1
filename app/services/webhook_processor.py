@@ -18,6 +18,8 @@ Reglas (RT-07):
   VirtualPOS   payment (uuid) -> suscripcion del pago/cobro local; subscription (callback) -> esa suscripcion; payout -> ignored
   Payku        subscription -> esa suscripcion; payment|transaction|nullification -> suscripcion de la transaccion; payout -> ignored
 Varios eventos de la misma suscripcion en un lote se resuelven con UN solo refresh.
+SYNC-O-15: cuando un evento queda `failed` (agoto intentos), sus suscripciones se encolan en `refresh_queue`
+(`reason='webhook_failed'`) y la reconciliacion dirigida las relee primero en su siguiente pasada.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ from app.models.toku_channel import (
 )
 from app.models.vp import VpCharge, VpPayment, VpSubscription
 from app.models.webhook_event import WebhookEvent
+from app.services.refresh_queue import enqueue_refresh
 from app.services.status_events import emit_status_events, event_context
 from app.services.subscription_refresh import RefreshError, refresh_subscription
 
@@ -358,6 +361,22 @@ def mark_toku_subscription_deleted(db: Session, external_id: str, run_id: uuid.U
 # ----------------------------- procesamiento -----------------------------
 
 
+def _enqueue_failed_targets(db: Session, targets: list[tuple[str, str]]) -> None:
+    """SYNC-O-15: el evento agoto sus intentos; sus suscripciones quedan en `refresh_queue` para la reconciliacion.
+
+    Idempotente (una sola orden viva por suscripcion). Nunca lanza: la cola es un extra sobre el dead-letter.
+    """
+    if not targets:
+        return
+    try:
+        for source, sub_id in targets:
+            enqueue_refresh(db, source, sub_id, "webhook_failed")
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.warning("webhook_processor: no se encolo la relectura del evento fallido (%s)", type(exc).__name__)
+
+
 def _invalidate_dashboard_cache() -> None:
     try:
         from app.api.v1.routes.staging import invalidate_dashboard_cache
@@ -427,12 +446,18 @@ async def process_pending(
             outcome[ev.id] = outcome.get(ev.id) or code  # el primer fallo manda; None si todos salieron bien
 
     by_id = {e.id: e for e in events}
+    targets_of: dict[uuid.UUID, list[tuple[str, str]]] = {}
+    for target, evs in by_target.items():
+        for ev in evs:
+            targets_of.setdefault(ev.id, []).append(target)
     for ev_id, code in outcome.items():
         if code is None:
             _finish(db, [ev_id], "done", None, datetime.now(UTC))
             summary.done += 1
         else:
             _retry_or_fail(db, [by_id[ev_id]], code, datetime.now(UTC), summary)
+            if by_id[ev_id].attempts >= settings.webhook_max_attempts:
+                _enqueue_failed_targets(db, targets_of.get(ev_id, []))
 
     if summary.done:
         _invalidate_dashboard_cache()

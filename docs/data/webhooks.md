@@ -109,6 +109,16 @@ Prioridad: rechazo, luego cobro reciente, luego pendiente. Tope `TARGETED_RECONC
 y respeto del lock de `run_lock`: si hay una sincronización/ETL en curso no hace nada (se vuelve a comprobar cada 20 refrescos). Se corta tras 5 fallos seguidos (proveedor caído o limitando).
 No escribe en `sync_runs` (un `source` nuevo aparecería como canal en los KPI); el resumen va al log y los cambios a `status_change_events`.
 
+### Cola `refresh_queue` (SYNC-O-15)
+
+`webhook_events` ya es, de hecho, la cola de los webhooks (dedupe por aviso, `SKIP LOCKED`, backoff, `failed`, reproceso RT-14); no se duplicó. Lo que faltaba: al agotar sus
+intentos, la suscripción del evento quedaba sin relectura hasta la sync diaria. Ahora el procesador la encola en `refresh_queue` (`reason='webhook_failed'`; migración
+`20261102_0063`) y cada pasada de la reconciliación dirigida refresca **primero** esas órdenes, dentro del mismo tope, y luego la ventana de riesgo sin repetirlas.
+Una sola orden viva por suscripción (índice único parcial; encolar de nuevo no duplica), `done` no se reprocesa, un fallo vuelve a `pending` con backoff (30 min × 2^(n−1),
+tope 6 h) y queda `failed` a los `REFRESH_QUEUE_MAX_ATTEMPTS` (5) intentos. Si la pasada se corta, las órdenes no alcanzadas vuelven a `pending` sin gastar intento; un
+reclamo abandonado vence a los 30 min. Las razones `manual` y `post_write` existen para otros llamadores (`refresh_queue.enqueue_refresh`), pero aún nadie las usa.
+Sigue pendiente la detección de «webhook perdido» (`missed_webhook`): depende de la decisión sobre qué eventos deben llegar por canal.
+
 ## Seguridad (RT-08)
 
 - **Firma Toku**: HMAC-SHA256 de `"{t}.{event_id}"` con `whesec_…`, comparación en tiempo constante (`hmac.compare_digest`), ventana de 5 min. No cubre el body → no se confía en él.
