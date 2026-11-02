@@ -785,6 +785,12 @@ export const es = {
     "local write failed": "No se pudo guardar el registro local",
     "consolidation failed": "Falló la consolidación",
   },
+  /** Resultado de un reporte Excel TCH en el registro de archivos cargados (TCH-PAR-11). */
+  tchFileResult: {
+    cargado: "Cargado",
+    consolidado: "Consolidado",
+    fallido: "Fallido",
+  },
 } as const;
 
 export type Domain = keyof typeof es;
