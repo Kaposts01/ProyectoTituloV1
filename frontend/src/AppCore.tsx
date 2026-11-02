@@ -1,4 +1,4 @@
-import { Component, Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson } from "./api";
 import { useChannelHealth } from "./hooks/useChannelHealth";
@@ -8,25 +8,17 @@ import type { ProviderSection } from "./routes";
 import "./App.css";
 import "./Staging.css";
 import { legacyRedirectPath, parseRoute, routePath, tchPermissionSegment, type AppRoute, type ProviderSource, type TchRouteView } from "./routes";
-import { AutomaticReport } from "./AutomaticReport";
 // Feature modules
 import type { ChannelDashboard, AuthSession } from "./features/shared/types";
 import { stagingFilters } from "./features/virtualpos/constants";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
-import { RecoveryPanel } from "./features/recovery/RecoveryPanel";
-import { BillingInbox } from "./features/billing/BillingInbox";
-import { CancellationsInbox } from "./features/cancellations/CancellationsInbox";
 import { DirectCancelContext } from "./features/cancellations/directCancel";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
-import { AdminPanel } from "./features/admin/AdminPanel";
 import { useEnabledChannels } from "./features/shared/environment";
-import { ChannelDashboardView } from "./features/dashboard/ChannelDashboardView";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
 import { useEtl } from "./features/dashboard/useEtl";
 import { useGeneralDashboard } from "./features/dashboard/useGeneralDashboard";
-import { GeneralDashboardView } from "./features/dashboard/GeneralDashboardView";
-import { SummaryView } from "./features/summary/SummaryView";
 import { useChannelDashboard } from "./features/dashboard/useChannelDashboard";
 import { ClientDetailView } from "./features/virtualpos/ClientDetailView";
 import { PlanDetailView } from "./features/virtualpos/PlanDetailView";
@@ -43,7 +35,17 @@ import { useProviderWrites } from "./features/provider/useProviderWrites";
 import { ProviderWriteDialogs } from "./features/provider/ProviderWriteDialogs";
 import { useTch } from "./features/tch/useTch";
 import { provisionalTchSubscriptionDetail } from "./features/tch/tchAdapter";
-import { TchContent } from "./features/tch/TchContent";
+
+// VIZ-10: vistas pesadas (y recharts) en chunks aparte, cargadas bajo demanda.
+const AutomaticReport = lazy(() => import("./AutomaticReport").then((m) => ({ default: m.AutomaticReport })));
+const RecoveryPanel = lazy(() => import("./features/recovery/RecoveryPanel").then((m) => ({ default: m.RecoveryPanel })));
+const BillingInbox = lazy(() => import("./features/billing/BillingInbox").then((m) => ({ default: m.BillingInbox })));
+const CancellationsInbox = lazy(() => import("./features/cancellations/CancellationsInbox").then((m) => ({ default: m.CancellationsInbox })));
+const AdminPanel = lazy(() => import("./features/admin/AdminPanel").then((m) => ({ default: m.AdminPanel })));
+const ChannelDashboardView = lazy(() => import("./features/dashboard/ChannelDashboardView").then((m) => ({ default: m.ChannelDashboardView })));
+const GeneralDashboardView = lazy(() => import("./features/dashboard/GeneralDashboardView").then((m) => ({ default: m.GeneralDashboardView })));
+const SummaryView = lazy(() => import("./features/summary/SummaryView").then((m) => ({ default: m.SummaryView })));
+const TchContent = lazy(() => import("./features/tch/TchContent").then((m) => ({ default: m.TchContent })));
 
 
 class ContentErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -737,7 +739,9 @@ function AppCore() {
         health={channelHealth}
       />
       {adminOpen ? (
-        <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
+        <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>
+          <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
+        </Suspense>
       ) : profileView ? (
         <ProfilePanel
           user={session.user}
