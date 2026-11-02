@@ -1,6 +1,6 @@
 # Facturación gestionada por el CRM (opción A): escenarios de prueba
 
-> Estado: borrador de QA/diseño · Creado: 2026-10-27 · Revisado: 2026-10-28 (corrección de alcance, ver "Decisiones finales") · Alcance: suscripciones VirtualPOS de plan `MONTO_FIJO` (más de 6000; no se pueden cambiar de plan).
+> Estado: borrador de QA/diseño · Creado: 2026-10-27 · Revisado: 2026-10-28 (corrección de alcance, ver "Decisiones finales") · Operación: 2026-11-02 (sección 8, BILL-13) · Alcance: suscripciones VirtualPOS de plan `MONTO_FIJO` (más de 6000; no se pueden cambiar de plan).
 > Fuentes: `app/services/write_virtualpos.py` (`create_charge`, `cancel_future_charges`, `reassign_subscription_amount`, `retry_charge`), `app/services/vp_current_amount.py`, `app/integrations/virtualpos/client.py`, `docs/integrations/virtualpos/` (VALIDATION-PLAN.md, resources/sandbox.md, resources/charges.md, resources/subscriptions.md, resources/plans.md, workflows/*), `tests/`, `tests_contract/virtualpos/` y `reports/contract/virtualpos/drift-20261027-122600.md`.
 > Este documento no cambia código. Solo lista escenarios y qué resultado espera el diseño ya decidido.
 
@@ -310,6 +310,83 @@ Configuración actual (decisión 2026-10-28): aprobadores = rol admin; autoaprob
 | GB-PI-11 | Una suscripción del piloto con N de renovación forzado alto (p. ej. 400 días) | Chequeo diario | Genera la tarea de renovación en la bandeja sin ninguna escritura al proveedor (JB-25, JB-29). Aprobarla aplica la renovación (JB-30) | PILOTO | P1 | a verificar (nuevo) |
 
 ---
+
+## 8. Operación de la opción A (estado al 2026-11-02, BILL-13)
+
+Guía para quien opera los cambios de cobro. Describe el código vigente (`app/services/billing_requests.py`, `billing_apply.py`, `billing_renewal.py`, `write_virtualpos.py`, `app/api/v1/routes/billing_changes.py`, `app/scheduler/jobs/billing_jobs.py`). Lo pendiente de la tanda 1b (reemplazo fuera del mes original, DEC-30) queda en BILL-18 y no se describe aquí.
+
+### 8.1 Banderas y ambientes
+
+| Bandera | Efecto | Valor por defecto |
+| --- | --- | --- |
+| `VIRTUALPOS_WRITES_ENABLED` | Sin ella, aplicar una solicitud responde 403 `writes_disabled` y la solicitud sigue `aprobada` (no se llama a VirtualPOS). También bloquea `retry_charge` | apagada |
+| `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` | Permite crear cobros en planes `MONTO_FIJO` (el caso de la opción A). Sin ella: 422 `fixed_plan_charge_blocked`, antes de cambiar de estado | apagada |
+| `APP_ENV=sandbox` | Usa solo las variables `*_SANDBOX_*`; la escritura sale de `VIRTUALPOS_SANDBOX_WRITES_ENABLED` y el plan fijo exige además esa bandera | — |
+
+Crear, aprobar, rechazar y el chequeo de renovación **no** necesitan banderas: no escriben en el proveedor (solo leen `/charges` para la vista previa).
+
+### 8.2 Permisos y política
+
+- `virtualpos.billing_changes.view`: ver bandeja, historial, detalle y tareas de renovación.
+- `virtualpos.billing_changes.request`: vista previa y creación de solicitudes; retirar las propias (un admin puede retirar cualquiera).
+- `virtualpos.billing_changes.approve`: el permiso habilita la ruta, pero aprobar, rechazar, reabrir, aplicar y rechazar tareas de renovación exige además ser **aprobador según la política vigente** (`billing_policy.approver_roles` / `approver_user_ids`; hoy el rol `admin`).
+- `virtualpos.billing_policy.manage`: editar la política (pantalla de administración); cada cambio deja una fila inmutable en `billing_policy_audit`.
+- Autoaprobación activada y doble aprobación apagada (decisión 5). Con doble aprobación encendida se exigen 2 aprobadores distintos cuando la variación supera `dual_threshold_variation_pct` (o las suscripciones superan `dual_threshold_subscriptions`).
+
+### 8.3 Ciclo de una solicitud
+
+`pendiente` → (`aprobada` | `rechazada` | `retirada` | `expirada`) → `aplicando` → (`ejecutada` | `fallida` | `requiere_conciliacion` | `no_ejecutable`).
+
+1. **Vista previa** (`POST /billing/changes/preview`): calcula el plan con el estado actual de VirtualPOS, no guarda nada.
+2. **Crear** (`POST /billing/changes`): una sola solicitud abierta por suscripción (409 `open_request_exists`). Vence a los `request_expiry_days` (job `billing_expire_requests`).
+3. **Aprobar / rechazar** (comentario obligatorio al rechazar). Cada acción queda en `billing_change_request_events` (inmutable).
+4. **Aplicar** (`POST /billing/changes/{id}/apply`), siempre por un aprobador:
+   - Toma el lock por suscripción (409 `subscription_busy` si otra operación lo tiene) y revalida: suscripción ACTIVA y mismo plan (si no, `no_ejecutable` sin escribir).
+   - Recalcula el plan. Si la doble aprobación está encendida y la variación pasó a una categoría que exige más aprobaciones, la solicitud **vuelve a `pendiente`** con aprobaciones reiniciadas y responde 409 `reapproval_required` (BILL-16, AP-13). No se escribe nada.
+   - Si el plan difiere del aprobado responde 409 `plan_drift` con las diferencias; se reintenta con `accept_drift=true` solo tras revisarlas.
+   - Orden seguro: **crea** todos los cobros nuevos y solo después **cancela** los antiguos uno por uno (nunca el DELETE plural). Falla al crear → compensa y queda `fallida`; falla al cancelar o compensar → `requiere_conciliacion`.
+   - Verifica que quede exactamente un pendiente por mes del horizonte y deja la marca `vp_calendar_marks` ("calendario modificado").
+5. **Reabrir** (`fallida` / `requiere_conciliacion` → `aprobada` o `pendiente`): comentario obligatorio, sin reintento automático; después hay que aplicar de nuevo.
+
+### 8.4 Qué hacer ante cada respuesta
+
+| Código | Qué pasó | Qué hacer |
+| --- | --- | --- |
+| `writes_disabled` (403) | Escrituras apagadas en el ambiente | Nada que reparar; la solicitud sigue `aprobada` |
+| `subscription_busy` (409) | Otra aplicación o baja tiene el lock | Esperar unos segundos y reintentar |
+| `subscription_blocked` (409) | Cobros del CRM en `requiere_conciliacion` de otra solicitud | Resolver esa conciliación primero |
+| `plan_drift` (409) | VirtualPOS cambió desde la aprobación | Revisar las diferencias y aplicar con `accept_drift` o rechazar |
+| `reapproval_required` (409) | La variación cambió de categoría | Conseguir la(s) nueva(s) aprobación(es) y aplicar de nuevo |
+| `apply_failed` (502) | Falló un create; los creados se compensaron | Revisar el código técnico; reabrir cuando se corrija la causa |
+| `reconciliation_required` (503) | Estado incompleto en VirtualPOS | Conciliar a mano (8.6) antes de reabrir |
+| `provider_listing_incomplete` / `provider_error` (502) | VirtualPOS no respondió bien; nada escrito | Reintentar más tarde |
+
+### 8.5 Jobs (solo lectura hacia el proveedor)
+
+| Job | Horario (America/Santiago) | Qué hace |
+| --- | --- | --- |
+| `billing_renewal_check` | 03:00 | Crea o actualiza tareas "renovar calendario" a `renewal_threshold_days` (60) del fin del horizonte; cierra las que ya no aplican |
+| `billing_expire_requests` | cada hora, minuto 10 | Pasa a `expirada` las `pendiente` vencidas |
+| `billing_sweep_applying` | :05, :20, :35, :50 | Pasa a `requiere_conciliacion` las solicitudes en `aplicando` hace más de 30 min sin lock vivo (proceso caído) |
+
+Todos registran su corrida en `sync_runs` y pueden lanzarse a mano desde el panel del scheduler.
+
+### 8.6 Tareas de renovación
+
+- Una tarea por suscripción con calendario modificado (`abierta` / `vencida`); prioridad alta si está vencida o faltan menos de 15 días. «Datos desactualizados» = la última sincronización de la plataforma tiene más de 48 h o falló.
+- **Solicitar renovación**: crea una solicitud `renew_calendar` con el flujo normal; al ejecutarse, la tarea se cierra sola.
+- **Rechazar** (BILL-15, JB-32; `POST /billing/renewal-tasks/{id}/reject`, comentario obligatorio, aprobador vigente): la tarea queda `no_aplica` con «Rechazada por usuario: comentario». No se escribe en VirtualPOS. La marca sigue activa hasta el fin del horizonte (protege los cobros del CRM aún pendientes del DELETE plural); el chequeo no reabre ese horizonte y, al terminar, desactiva la marca: desde ahí VirtualPOS cobra el automático con el monto antiguo. Si la tarea tiene una solicitud de renovación abierta responde 409: se decide la solicitud.
+
+### 8.7 Reintentos y conciliación manual
+
+- `retry_charge` (recuperador y ficha) tiene **lock por cargo** (BILL-14): un segundo `/retry` del mismo cargo mientras el primero sigue en curso responde 409 «ya hay un reintento en curso» sin llamar a VirtualPOS ni crear `write_run`. Un timeout **no** se reintenta solo: revisar el cargo en VirtualPOS antes de volver a pulsar.
+- `requiere_conciliacion`: comparar en VirtualPOS los cobros de la suscripción con `vp_managed_charges` de la solicitud (`creado` / `requiere_conciliacion`), cancelar a mano el duplicado que corresponda (por `charge_id`, nunca el DELETE plural) y luego reabrir la solicitud con un comentario que explique lo hecho.
+
+### 8.8 Datos de demostración del sandbox
+
+- Siembra: `scripts/sandbox/seed_billing_demo.py` (idempotente, prefijo `DEMO-`, solo bases sandbox/qa).
+- Limpieza: `scripts/sandbox/clean_billing_demo.py` (UI-40). Por defecto solo informa; `--apply` borra los `DEMO-` en una transacción y se niega si tocaría datos reales. No usar un `TRUNCATE` manual de `billing_change_requests`: `write_runs.request_id` la referencia y un CASCADE vaciaría `write_runs`.
+- Nunca correr ninguno de los dos contra `crm`.
 
 ## Resultados medidos en el sandbox (2026-10-27/28)
 
