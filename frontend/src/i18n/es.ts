@@ -718,6 +718,28 @@ export const es = {
     "virtualpos update requires reconciliation": "La actualización se hizo en VirtualPOS, pero quedó pendiente de conciliación en el CRM. Revisa el registro antes de reintentar.",
     "virtualpos writes disabled": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente.",
   },
+  /** Estado de un evento de la cola de webhooks (RT-14). */
+  webhookStatus: {
+    pending: "Pendiente",
+    processing: "Procesando",
+    done: "Procesado",
+    failed: "Fallido",
+    ignored: "Descartado",
+  },
+  /** Código fijo de resultado del procesador de webhooks (RT-14). */
+  webhookErrorCode: {
+    "no resource": "No se encontró el recurso afectado",
+    "unknown event": "Tipo de evento desconocido",
+    "bulk event": "Evento masivo (lo cubre la conciliación)",
+    "ignored kind": "Tipo de aviso que no se procesa",
+    unexpected: "Error inesperado",
+    "stale processing": "Procesamiento abandonado",
+    "provider read failed": "No se pudo leer al proveedor",
+    "empty subscription": "El proveedor no devolvió la suscripción",
+    "unsupported source": "Canal no soportado",
+    "local write failed": "No se pudo guardar el registro local",
+    "consolidation failed": "Falló la consolidación",
+  },
 } as const;
 
 export type Domain = keyof typeof es;
