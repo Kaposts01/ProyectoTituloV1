@@ -92,3 +92,45 @@ def test_core_payment_keeps_hour_and_existing_rows_are_corrected(db_session: Ses
     db_session.refresh(payment)
     assert payment.occurred_at == datetime(2026, 2, 1, 1, 30, tzinfo=UTC)
     assert core_payku_etl._refresh_payment_times(db_session, {tx: (payment.occurred_at, payment.rejection_reported_at)}) == 0
+
+
+# -- PK-PAR-06 / RJ-10: motivo minimo por suscripcion -------------------------------------------------------------------
+
+def test_latest_rejection_takes_the_subscription_payment_status(db_session: Session) -> None:
+    sub = _sub(db_session, status="suspended", last_status_current_payment="maximum attempt limit")
+    other = _sub(db_session, last_status_current_payment="success")
+    core_payku_etl._materialize_subscriptions(db_session)
+    old = _tx(db_session, sub, "2026-03-05 10:00:00", status="rejected")
+    new = _tx(db_session, sub, "2026-04-05 10:00:00", status="rejected")
+    ok = _tx(db_session, sub, "2026-02-05 10:00:00")
+    rejected_other = _tx(db_session, other, "2026-04-05 10:00:00", status="rejected")
+    core_payku_etl._materialize_payments(db_session)
+
+    assert core_payku_etl._apply_subscription_rejection_fallback(db_session) == 1
+    assert _payment(db_session, new).rejection_reason == "maximum attempt limit"
+    assert _payment(db_session, new).rejection_code is None
+    assert _payment(db_session, old).rejection_reason is None
+    assert _payment(db_session, ok).rejection_reason is None
+    assert _payment(db_session, rejected_other).rejection_reason is None
+    assert core_payku_etl._apply_subscription_rejection_fallback(db_session) == 0  # idempotente
+
+
+def test_fallback_never_overwrites_an_existing_reason(db_session: Session) -> None:
+    sub = _sub(db_session, last_status_current_payment="first payment rejected")
+    core_payku_etl._materialize_subscriptions(db_session)
+    tx = _tx(db_session, sub, "2026-04-05 10:00:00", status="rejected")
+    core_payku_etl._materialize_payments(db_session)
+    payment = _payment(db_session, tx)
+    payment.rejection_reason = "Rechazo de transacción."
+    db_session.flush()
+    assert core_payku_etl._apply_subscription_rejection_fallback(db_session) == 0
+    db_session.refresh(payment)
+    assert payment.rejection_reason == "Rechazo de transacción."
+
+
+def test_fallback_reason_has_a_readable_label() -> None:
+    from app.services.rejection_format import format_rejection_reason
+
+    assert format_rejection_reason("payku", None, "maximum attempt limit") == "Se agotaron los reintentos de cobro"
+    assert format_rejection_reason("payku", None, "First Payment  Rejected") == "Falló el primer cobro"
+    assert format_rejection_reason("payku", None, "canceled by customer") == "canceled by customer"

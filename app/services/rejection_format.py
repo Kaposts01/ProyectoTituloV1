@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from app.services.payku_rejection_codes import (
     PAYKU_CATEGORY_LABELS,
+    PAYKU_SUBSCRIPTION_REJECTION_LABELS,
     payku_rejection_category,
+    payku_subscription_rejection_status,
 )
 from app.services.toku_rejection_codes import (
     lookup_toku_code,
@@ -59,6 +61,9 @@ def format_rejection_reason(source: str | None, code: str | None, reason: str | 
         category = payku_rejection_category(reason_s) or (code_s if code_s in PAYKU_CATEGORY_LABELS else None)
         if category:
             return PAYKU_CATEGORY_LABELS[category]
+        subscription_status = payku_subscription_rejection_status(reason_s)  # respaldo PK-PAR-06
+        if subscription_status:
+            return PAYKU_SUBSCRIPTION_REJECTION_LABELS[subscription_status]
 
     return reason_s or code_s or not_reported_label(source)
 

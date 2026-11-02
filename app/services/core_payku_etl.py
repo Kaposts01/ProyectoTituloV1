@@ -1,11 +1,12 @@
 """Materialize Payku provider tables (p_*) into Core entities.
 
-Run order: client attributes → subscriptions → payments
+Run order: client attributes → subscriptions → payments → rejection fallback
 Idempotent: safe to re-run.
 
 Payku has no CoreCharge concept — p_transactions map directly to CorePayment.
-Rejected transactions carry amount=0; no rejection code/reason is available
-in the current payload format.
+Rejected transactions carry amount=0; the embedded payload has no rejection code/reason. As a fallback
+(PK-PAR-06 / RJ-10) the latest rejection of each subscription takes its `last_status_current_payment`.
+occurred_at keeps the transaction time in Chile (PK-PAR-04).
 """
 
 import logging
@@ -26,6 +27,7 @@ from app.models.core import (
 from app.models.payku_channel import PaykuClient, PaykuSubscription, PaykuTransaction
 from app.services.channel_consolidation import _payku_last_transition_date
 from app.services.core_materialization import materialize_core_clients
+from app.services.payku_rejection_codes import payku_subscription_rejection_status
 from app.services.rejected_month import CHILE_TZ
 
 log = logging.getLogger(__name__)
@@ -263,6 +265,48 @@ def _refresh_payment_times(db: Session, times: dict[str, tuple[datetime | None, 
     return len(updates)
 
 
+# ── Paso 4: motivo minimo de rechazo por suscripcion (PK-PAR-06 / RJ-10) ─────
+
+def _apply_subscription_rejection_fallback(db: Session) -> int:
+    """Llena `core_payments.rejection_reason` del rechazo mas reciente de cada suscripcion desde su
+    `last_status_current_payment` (`maximum attempt limit`, `first payment rejected`, `payment consumes failed`).
+
+    Respaldo mientras no exista la glosa por cobro (PK-PAR-05): guarda el valor crudo de Payku (la etiqueta legible
+    la pone `rejection_format`), sin codigo. Solo el rechazo mas reciente, porque el campo describe el ultimo estado
+    de cobro de la suscripcion, no cada intento. Nunca pisa un motivo ya guardado. UPDATE explicito, idempotente.
+    """
+    statuses = {
+        row.id: status
+        for row in db.execute(
+            select(CoreSubscription.id, PaykuSubscription.last_status_current_payment)
+            .join(PaykuSubscription, PaykuSubscription.external_id == CoreSubscription.external_id)
+            .where(CoreSubscription.source == _SOURCE, PaykuSubscription.last_status_current_payment.is_not(None))
+        )
+        if (status := payku_subscription_rejection_status(row.last_status_current_payment))
+    }
+    if not statuses:
+        return 0
+    latest: dict = {}
+    for p in db.execute(
+        select(CorePayment.id, CorePayment.subscription_id, CorePayment.occurred_at, CorePayment.external_id,
+               CorePayment.rejection_reason)
+        .where(CorePayment.source == _SOURCE, func.lower(CorePayment.source_status) == "rejected",
+               CorePayment.subscription_id.in_(list(statuses)))
+    ):
+        key = (p.occurred_at or datetime.min.replace(tzinfo=timezone.utc), p.external_id)
+        prev = latest.get(p.subscription_id)
+        if prev is None or key > prev[0]:
+            latest[p.subscription_id] = (key, p)
+    updates = [
+        {"id": p.id, "rejection_reason": statuses[sub_id]}
+        for sub_id, (_key, p) in latest.items()
+        if p.rejection_reason is None
+    ]
+    if updates:
+        db.execute(update(CorePayment), updates)
+    return len(updates)
+
+
 # ── Punto de entrada ──────────────────────────────────────────────────────────
 
 def run_payku_core_etl(db: Session) -> dict[str, int]:
@@ -283,10 +327,14 @@ def run_payku_core_etl(db: Session) -> dict[str, int]:
     payments = _materialize_payments(db)
     log.info("Payku Core ETL — pagos insertados: %d", payments)
 
+    reasons = _apply_subscription_rejection_fallback(db)
+    log.info("Payku Core ETL — rechazos con motivo de respaldo por suscripción: %d", reasons)
+
     db.commit()
     return {
         "clients_created": clients_created,
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
         "payments_inserted": payments,
+        "payments_rejection_reason_fallback": reasons,
     }
