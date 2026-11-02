@@ -56,6 +56,7 @@ const ALLOWED_BY_FILE: Record<string, { words: string[]; reason: string }> = {
   "features/general/unifiedTypes.ts": { words: ["canales"], reason: "clave `canales` que entregan las vistas unificadas `/general/*` (mismo contrato que la exportación)" },
   "features/charges/UnifiedChargesView.tsx": { words: ["canal", "canales"], reason: "parámetro `canal` y clave `canales` del contrato de `/general/*` y de la exportación" },
   "features/general/UnifiedSubscriptionsView.tsx": { words: ["canal", "canales"], reason: "parámetro `canal` y clave `canales` del contrato de `/general/*` y de la exportación" },
+  "features/dashboard/GeneralClientsPanel.tsx": { words: ["canal"], reason: "propiedad `canal` del contrato de exportación" },
   "features/tch/TchContent.tsx": { words: ["canal"], reason: "propiedad `canal` del contrato de exportación" },
   "features/billing/billingLabels.ts": { words: ["rechazada", "pendiente", "creada", "fallida", "requiere", "conciliacion", "expirada", "aplicada", "aprobada", "retirada", "reintentada", "ejecutable", "ejecutada"], reason: "estados del backend usados como clave de tabla" },
   "features/billing/billingPlan.ts": { words: ["pagado", "revision", "procesando", "cubierto", "crear", "cancelar"], reason: "valores del plan de cobro usados como clave de tabla" },

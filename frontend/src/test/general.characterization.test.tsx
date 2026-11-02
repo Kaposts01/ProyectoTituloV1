@@ -168,6 +168,26 @@ const client = (n: number) => ({ rut: `1111111${n}-1`, name: `Persona Sintética
 describe("Clientes consolidados (/central/clientes)", () => {
   const list = { items: [client(1), client(2)], total: 250, offset: 0, limit: 100 };
 
+  it("UX-10: filtros de canal y estado van a la API, el canal al Exportar y se avisa que el RUT no está verificado", async () => {
+    const app = mountApp("/central/clientes", [
+      ["GET", "/api/v1/staging/dashboard/general/clients", list],
+      ["GET", "/api/v1/export/clientes/count", { entity: "clientes", rows: 3, canales: [], include_pii: false }],
+    ]);
+    await appReady();
+    await screen.findByRole("button", { name: "11111111-1" });
+    expect(screen.getByText(/no verificado/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Canal de los socios"), { target: { value: "tch" } });
+    fireEvent.change(screen.getByLabelText("Estado de los socios"), { target: { value: "active" } });
+    await waitFor(() => {
+      const last = app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)!;
+      expect([last.query.get("canal"), last.query.get("status"), last.query.get("offset")]).toEqual(["tch", "active", "0"]);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Exportar/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Todo el listado/ }));
+    expect(await screen.findByText(/sin esos filtros/)).toBeTruthy();
+    expect(app.find("GET", "/api/v1/export/clientes/count").at(-1)?.query.get("canal")).toBe("tch");
+  });
+
   it("pide la primera página y muestra título, columnas, filas y paginación", async () => {
     const app = mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", list]]);
     await appReady();
