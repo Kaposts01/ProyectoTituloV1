@@ -12,7 +12,9 @@ from app.core.security import get_current_user
 from app.db.session import engine
 from app.main import app
 from app.models.etl_run import EtlRun
+from app.models.sync_cursor import SyncCursor
 from app.models.sync_run import SyncRun
+from app.models.tch import TchFileLoad
 
 NOW = datetime(2099, 6, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -24,6 +26,8 @@ def db_session():
     session = Session(bind=connection, join_transaction_mode="create_savepoint")
     session.execute(delete(SyncRun))
     session.execute(delete(EtlRun))
+    session.execute(delete(SyncCursor))
+    session.execute(delete(TchFileLoad))
     session.flush()
     sync_runs.clear_sync_health_cache()
     try:
