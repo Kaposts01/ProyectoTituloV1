@@ -35,7 +35,7 @@ def _first_subscription_with_charges() -> tuple[str, list[dict]]:
 
 @pytest.mark.contract(claim="VP-C01")
 def test_vp_c01_listing_has_all_the_charges(claim):
-    """Doc: docs/integrations/virtualpos/resources/subscriptions.md (+ charges.md).
+    """[CLAIM:VP-C01] Doc: docs/integrations/virtualpos/resources/subscriptions.md (+ charges.md).
     Esperado: `charge_program[]` de GET /v3/suscriptions trae TODOS los cargos de la suscripcion
     (igual al total de GET /v3/suscription/{id}/charges)."""
     resp = call("GET", "/v3/suscriptions", {"page": 1, "limit": 100})
@@ -55,7 +55,7 @@ def test_vp_c01_listing_has_all_the_charges(claim):
 
 @pytest.mark.contract(claim="VP-C08")
 def test_vp_c08_shape_of_payments_and_parser(claim):
-    """Doc: docs/integrations/virtualpos/resources/payments.md (l.956) y pagination.md.
+    """[CLAIM:VP-C08] Doc: docs/integrations/virtualpos/resources/payments.md (l.956) y pagination.md.
     Esperado: GET /v3/payments devuelve `payments` como lista; el ejemplo oficial lo muestra como objeto y la doc
     pide un parser que acepte ambos. Se verifica que `_records_from_response` no descarte datos reales."""
     from app.services.virtualpos_sync import _records_from_response
@@ -77,7 +77,7 @@ def test_vp_c08_shape_of_payments_and_parser(claim):
 
 @pytest.mark.contract(claim="VP-C14")
 def test_vp_c14_pagination(claim):
-    """Doc: docs/integrations/virtualpos/resources/pagination.md.
+    """[CLAIM:VP-C14] Doc: docs/integrations/virtualpos/resources/pagination.md.
     Esperado: page parte en 1; limit minimo 1 y maximo 100 (E-090 page, E-091 limit invalidos)."""
     doc = f"{DOCS}/pagination.md"
     cases = {
@@ -103,7 +103,7 @@ def test_vp_c14_pagination(claim):
 
 @pytest.mark.contract(claim="VP-C15")
 def test_vp_c15_clients_pagination_in_root(claim):
-    """Doc: docs/integrations/virtualpos/resources/pagination.md (tabla seccion 2).
+    """[CLAIM:VP-C15] Doc: docs/integrations/virtualpos/resources/pagination.md (tabla seccion 2).
     Esperado: GET /v3/clients trae page/limit/total en la raiz y NO `pages`."""
     resp = call("GET", "/v3/clients", {"page": 1, "limit": 5})
     keys = sorted(resp.body) if isinstance(resp.body, dict) else []
@@ -115,7 +115,7 @@ def test_vp_c15_clients_pagination_in_root(claim):
 
 @pytest.mark.contract(claim="VP-C16")
 def test_vp_c16_burst_of_20_get(claim):
-    """Doc: docs/integrations/virtualpos/resources/pagination.md (l.74) y errors.md.
+    """[CLAIM:VP-C16] Doc: docs/integrations/virtualpos/resources/pagination.md (l.74) y errors.md.
     Esperado: rate limit NO documentado; solo se observa si aparece 429 o cabeceras de rate limit en 20 GET seguidos."""
     statuses, rl_headers = [], set()
     for _ in range(20):
@@ -139,7 +139,7 @@ def _json_kind(value: object) -> str:
 
 @pytest.mark.contract(claim="VP-C19")
 def test_vp_c19_types_of_charge(claim):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (Objeto Charge).
+    """[CLAIM:VP-C19] Doc: docs/integrations/virtualpos/resources/charges.md (Objeto Charge).
     Esperado: amount numerico, charge_date string YYYY-MM-DD, id de cargo string `cid_...`/`id_...`."""
     sid, charges = _first_subscription_with_charges()
     sample = charges[0]
@@ -155,7 +155,7 @@ def test_vp_c19_types_of_charge(claim):
 
 @pytest.mark.contract(claim="VP-C28")
 def test_vp_c28_internal_code_in_payload_of_the_charge(claim, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (solo `cancel_charges[]` muestra `internal_code`).
+    """[CLAIM:VP-C28] Doc: docs/integrations/virtualpos/resources/charges.md (solo `cancel_charges[]` muestra `internal_code`).
     Esperado: el payload de un cargo existente de la suscripcion variable expone `internal_code` (lectura pura).
     Registra solo NOMBRES de campos y si hay valores no vacios, nunca los valores."""
     listing = call("GET", f"/v3/suscription/{sub_variable}/charges", {"page": 1, "limit": 100})
@@ -180,7 +180,7 @@ def test_vp_c28_internal_code_in_payload_of_the_charge(claim, sub_variable):
 
 @pytest.mark.contract(claim="VP-C26")
 def test_vp_c26_filters_of_date(claim):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (l.766-767).
+    """[CLAIM:VP-C26] Doc: docs/integrations/virtualpos/resources/charges.md (l.766-767).
     Esperado: charge_date_from/to NO estan declarados (solo aparecen en errores E-093/E-094/E-095); se observa si
     existen y filtran en GET /v3/suscription/{id}/charges."""
     sid, charges = _first_subscription_with_charges()

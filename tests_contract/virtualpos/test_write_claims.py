@@ -28,7 +28,7 @@ def _pending(sub_id: str) -> list[dict]:
 @write_test
 @pytest.mark.contract(claim="VP-C05")
 def test_vp_c05_charge_over_plan_fixed(claim, created_charges, sub_fixed):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (POST /v3/charge) y README.md.
+    """[CLAIM:VP-C05] Doc: docs/integrations/virtualpos/resources/charges.md (POST /v3/charge) y README.md.
     Esperado: POST /v3/charge sobre una suscripcion de plan MONTO_FIJO falla con E-113 (HTTP 400).
     Drift conocido: el 2026-10-27 el sandbox lo acepto."""
     resp = created_charges.create(sub_fixed, "VP-C05")
@@ -39,7 +39,7 @@ def test_vp_c05_charge_over_plan_fixed(claim, created_charges, sub_fixed):
 @write_test
 @pytest.mark.contract(claim="VP-C07")
 def test_vp_c07_internal_code_duplicado(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/errors.md (E-086) y charges.md.
+    """[CLAIM:VP-C07] Doc: docs/integrations/virtualpos/resources/errors.md (E-086) y charges.md.
     Esperado: dos POST con el MISMO internal_code -> el segundo responde E-086."""
     code = created_charges.internal_code("VP-C07")
     first = created_charges.create(sub_variable, "VP-C07", internal_code=code)
@@ -53,7 +53,7 @@ def test_vp_c07_internal_code_duplicado(claim, created_charges, sub_variable):
 @write_test
 @pytest.mark.contract(claim="VP-C29")
 def test_vp_c29_reuse_internal_code_after_cancel(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (internal_code). Sin esperado documentado.
+    """[CLAIM:VP-C29] Doc: docs/integrations/virtualpos/resources/charges.md (internal_code). Sin esperado documentado.
     Observa si se puede crear un cargo con un internal_code cuyo cargo anterior fue cancelado
     (la app crea uno nuevo en ese caso, no adopta el cancelado)."""
     code = created_charges.internal_code("VP-C29")
@@ -73,7 +73,7 @@ def test_vp_c29_reuse_internal_code_after_cancel(claim, created_charges, sub_var
 @write_test
 @pytest.mark.contract(claim="VP-C27")
 def test_vp_c27_errors_of_business_arrive_with_http_200(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/errors.md (los errores se documentan como HTTP 4xx).
+    """[CLAIM:VP-C27] Doc: docs/integrations/virtualpos/resources/errors.md (los errores se documentan como HTTP 4xx).
     Esperado: una peticion invalida (POST /v3/charge con charge_date pasada, no crea nada) responde HTTP 400 con
     status NOK. Observacion conocida: llega HTTP 200 con cuerpo {"status": "NOK", "code": 400, "error": {...}}."""
     past = (chile_today() - timedelta(days=3)).strftime("%Y-%m-%d")
@@ -89,7 +89,7 @@ def test_vp_c27_errors_of_business_arrive_with_http_200(claim, created_charges, 
 @write_test
 @pytest.mark.contract(claim="VP-C09")
 def test_vp_c09_delete_with_signature_only_api_key(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/authentication.md (l.32).
+    """[CLAIM:VP-C09] Doc: docs/integrations/virtualpos/resources/authentication.md (l.32).
     Esperado: DELETE /v3/charge/{id} funciona con la firma de solo {api_key}: responde 200."""
     made = created_charges.create(sub_variable, "VP-C09")
     cid = charge_obj(made.body).get("id")
@@ -103,7 +103,7 @@ def test_vp_c09_delete_with_signature_only_api_key(claim, created_charges, sub_v
 @write_test
 @pytest.mark.contract(claim="VP-C11")
 def test_vp_c11_delete_plural_without_pending(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (DELETE /v3/charges/{sub}) y errors.md.
+    """[CLAIM:VP-C11] Doc: docs/integrations/virtualpos/resources/charges.md (DELETE /v3/charges/{sub}) y errors.md.
     Esperado: sobre una suscripcion SIN cargos pendientes responde E-079.
     Si hay pendientes ajenos a la sesion, se salta (el DELETE plural cancelaria cargos que no creamos)."""
     own = {cid for _sub, cid in created_charges.charges}
@@ -122,7 +122,7 @@ def test_vp_c11_delete_plural_without_pending(claim, created_charges, sub_variab
 @write_test
 @pytest.mark.contract(claim="VP-C12")
 def test_vp_c12_delete_of_charge_cancelled(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/errors.md (E-059) y charges.md (Cancelar Charge).
+    """[CLAIM:VP-C12] Doc: docs/integrations/virtualpos/resources/errors.md (E-059) y charges.md (Cancelar Charge).
     Esperado: DELETE de un cargo que ya esta `cancelado` responde E-059. Nunca se usa un cargo pagado."""
     made = created_charges.create(sub_variable, "VP-C12")
     cid = charge_obj(made.body).get("id")
@@ -139,7 +139,7 @@ def test_vp_c12_delete_of_charge_cancelled(claim, created_charges, sub_variable)
 @write_test
 @pytest.mark.contract(claim="VP-C13")
 def test_vp_c13_filter_status_pending(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (Listar Charges, parametro status).
+    """[CLAIM:VP-C13] Doc: docs/integrations/virtualpos/resources/charges.md (Listar Charges, parametro status).
     Esperado: status=pendiente devuelve solo cargos pendientes (crea 2, cancela 1, lista con el filtro)."""
     keep = created_charges.create(sub_variable, "VP-C13", days=20)
     drop = created_charges.create(sub_variable, "VP-C13", days=21)
@@ -159,7 +159,7 @@ def test_vp_c13_filter_status_pending(claim, created_charges, sub_variable):
 @write_test
 @pytest.mark.contract(claim="VP-C21")
 def test_vp_c21_charge_date_of_yesterday(claim, created_charges, sub_variable):
-    """Doc: docs/integrations/virtualpos/resources/charges.md (E-078) y errors.md.
+    """[CLAIM:VP-C21] Doc: docs/integrations/virtualpos/resources/charges.md (E-078) y errors.md.
     Esperado: POST con charge_date de ayer responde E-078 (la fecha debe ser >= hoy)."""
     yesterday = (chile_today() - timedelta(days=1)).strftime("%Y-%m-%d")
     resp = created_charges.create(sub_variable, "VP-C21", charge_date=yesterday)
