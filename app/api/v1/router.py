@@ -6,6 +6,7 @@ from app.api.v1.routes import (
     cancellations,
     catalog,
     changes,
+    charges_unified,
     crm,
     dashboard,
     etl,
@@ -41,3 +42,4 @@ api_router.include_router(cancellations.router, prefix="/cancellations")
 api_router.include_router(imports.router, prefix="/imports")
 api_router.include_router(changes.router, prefix="/changes", tags=["Changes"])
 api_router.include_router(dashboard.router, prefix="/dashboard")
+api_router.include_router(charges_unified.router, prefix="/general")
