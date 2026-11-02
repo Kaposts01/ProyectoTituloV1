@@ -3,7 +3,14 @@
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from vp_reports_support import PEPPER, charge_id, payment_row, sub_id, uuid_of, write_report
+from vp_reports_support import (
+    PEPPER,
+    charge_id,
+    payment_row,
+    sub_id,
+    uuid_of,
+    write_report,
+)
 
 from app.core.config import settings
 from app.db.session import engine

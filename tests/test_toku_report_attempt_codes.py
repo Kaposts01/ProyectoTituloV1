@@ -11,7 +11,10 @@ from app.models.core import CoreCharge, CorePayment
 from app.models.toku_channel import TokuTransaction
 from app.models.toku_report import TkReportAttempt, TkReportFile
 from app.services.toku_failed_payments import materialize_failed_toku_payments
-from app.services.toku_rejection_projection import load_report_attempt_codes, project_toku_rejections
+from app.services.toku_rejection_projection import (
+    load_report_attempt_codes,
+    project_toku_rejections,
+)
 from tests.test_charge_recovery import db_session  # noqa: F401  (fixture)
 
 

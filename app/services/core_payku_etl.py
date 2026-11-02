@@ -24,7 +24,12 @@ from app.models.core import (
     CoreSubscription,
     ExternalIdentity,
 )
-from app.models.payku_channel import PaykuClient, PaykuPlan, PaykuSubscription, PaykuTransaction
+from app.models.payku_channel import (
+    PaykuClient,
+    PaykuPlan,
+    PaykuSubscription,
+    PaykuTransaction,
+)
 from app.services.channel_consolidation import _payku_last_transition_date
 from app.services.core_materialization import materialize_core_clients
 from app.services.payku_rejection_codes import payku_subscription_rejection_status
@@ -69,7 +74,7 @@ def _parse_datetime_cl(value: str | None) -> datetime | None:
     except ValueError:
         for fmt in ("%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y"):
             try:
-                parsed = datetime.strptime(raw, fmt)
+                parsed = datetime.strptime(raw, fmt).replace(tzinfo=CHILE_TZ)
                 break
             except ValueError:
                 continue

@@ -37,7 +37,11 @@ from sqlalchemy.orm import Session
 
 from app.models.core import CoreCharge, CorePayment
 from app.models.toku_channel import TokuTransaction
-from app.services.toku_rejection_projection import _parse_ts, _rejection_values, load_report_attempt_codes
+from app.services.toku_rejection_projection import (
+    _parse_ts,
+    _rejection_values,
+    load_report_attempt_codes,
+)
 
 log = logging.getLogger(__name__)
 
