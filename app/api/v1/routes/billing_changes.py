@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
-from app.core.security import require_csrf, require_permissions
+from app.core.security import require_any_permission, require_csrf, require_permissions
 from app.integrations.virtualpos.client import VirtualPOSAPIError
 from app.models.auth import User
 from app.models.billing import (
@@ -52,6 +52,7 @@ from app.services.billing_apply import (
     reduce_stored_error,
 )
 from app.services.billing_plan import plan_to_preview_json
+from app.services.rbac import GENERAL_BILLING_VIEW
 from app.services.write_virtualpos import (
     BillingFlowConflictError,
     ChargeNotFoundError,
@@ -357,7 +358,8 @@ def _apply_json(result: ApplyResult, request: BillingChangeRequest) -> dict[str,
 Db = Annotated[Session, Depends(get_db)]
 Requester = Annotated[User, Depends(require_permissions(svc.PERM_REQUEST))]
 Approver = Annotated[User, Depends(require_permissions(svc.PERM_APPROVE))]
-Viewer = Annotated[User, Depends(require_permissions(svc.PERM_VIEW))]
+# UX-12: la bandeja vive en Operación; `general.billing_changes.view` también da lectura (el permiso VP sigue valiendo).
+Viewer = Annotated[User, Depends(require_any_permission(svc.PERM_VIEW, GENERAL_BILLING_VIEW))]
 PolicyAdmin = Annotated[User, Depends(require_permissions(svc.PERM_POLICY))]
 _CSRF = [Depends(require_csrf)]
 
