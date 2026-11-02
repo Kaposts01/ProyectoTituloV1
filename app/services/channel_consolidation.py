@@ -17,7 +17,18 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select, tuple_
+from sqlalchemy import (
+    String,
+    and_,
+    cast,
+    delete,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -173,7 +184,14 @@ def _upsert_centralized(
     model: type,
     constraint: str,
     rows: list[dict],
+    *,
+    commit: bool = True,
 ) -> int:
+    """Upsert por trozos con eventos de cambio y guarda IS DISTINCT FROM.
+
+    `commit=False` deja el commit al llamador: necesario si el llamador sigue usando la sesion dentro del SAVEPOINT de
+    `_consolidate` (un commit intermedio cierra ese contexto y la siguiente consulta falla).
+    """
     if not rows:
         return 0
     # Asegurar que todas las filas tienen id
@@ -207,7 +225,8 @@ def _upsert_centralized(
         result = db.execute(stmt.returning(model.__table__.c.id))
         _count_written(len(result.all()))
         processed += len(chunk)
-    db.commit()
+    if commit:
+        db.commit()
     return processed
 
 
@@ -665,43 +684,93 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
     return _upsert_centralized(db, Subscription, "uq_subscription_source_external_id", _link_source_records(db, rows, "subscription"))
 
 
+def _tch_changed_transactions(after_id: uuid.UUID | None) -> Any:
+    """TCH-PAR-13: cuotas de `tch_transacciones` cuya fila de `charges` falta o difiere de lo que se consolidaria.
+
+    La comparacion se hace en SQL (un LEFT JOIN contra `charges` por la clave de la cuota): a Python solo llegan las
+    cuotas nuevas o cambiadas, en lotes por id (paginacion por clave, no por OFFSET). Las columnas comparadas son
+    exactamente las que arma `_consolidate_tch_transactions`, asi que el resultado es el mismo que releer todo.
+    """
+    external_id = func.coalesce(TchTransaction.dedupe_key, cast(TchTransaction.id, String))
+    has_source_record = exists(
+        select(SourceRecord.id).where(
+            SourceRecord.source == "tch",
+            SourceRecord.resource_type == "transaction",
+            SourceRecord.external_id == external_id,
+        )
+    )
+    changed = or_(
+        Charge.id.is_(None),
+        Charge.subscription_external_id.is_distinct_from(cast(TchTransaction.file_number, String)),
+        Charge.client_external_id.is_distinct_from(TchSubscription.client_rut),
+        Charge.amount.is_distinct_from(TchTransaction.amount),
+        Charge.currency.is_distinct_from(literal(_TCH_CURRENCY)),
+        Charge.status.is_distinct_from(TchTransaction.status),
+        Charge.charge_date.is_distinct_from(TchTransaction.charge_date),
+        Charge.raw_payload.is_distinct_from(TchTransaction.raw_payload),
+        and_(Charge.source_record_id.is_(None), has_source_record),
+    )
+    stmt = (
+        select(
+            TchTransaction.id, TchTransaction.dedupe_key, TchTransaction.file_number, TchTransaction.amount,
+            TchTransaction.status, TchTransaction.charge_date, TchTransaction.raw_payload,
+            TchTransaction.response_code, TchTransaction.rejection_reason, TchSubscription.client_rut,
+        )
+        .outerjoin(TchSubscription, TchSubscription.file_number == TchTransaction.file_number)
+        .outerjoin(Charge, and_(Charge.source == "tch", Charge.external_id == external_id))
+        .where(changed)
+        .order_by(TchTransaction.id)
+        .limit(_CHUNK)
+    )
+    return stmt.where(TchTransaction.id > after_id) if after_id is not None else stmt
+
+
+_TCH_CURRENCY = "CLP"
+
+
 def _consolidate_tch_transactions(db: Session) -> int:
-    """tch_transacciones → charges (procesadas en chunks por volumen ~150k)."""
+    """tch_transacciones → charges, solo las cuotas nuevas o cambiadas (TCH-PAR-13; ~1,47 M filas en total).
+
+    Devuelve las cuotas leidas (nuevas o cambiadas): una segunda consolidacion sin cargas nuevas lee y escribe 0.
+    """
     # D13: la clave de la cuota es ficha|periodo|cuota; los cobros con la clave antigua que ya no estan en
     # tch_transacciones quedarian duplicados tras la recarga completa.
     pruned = db.execute(delete(Charge).where(legacy_key_filter(Charge, Charge.external_id))).rowcount or 0
     if pruned:
         logger.info("TCH: %d cobros con clave antigua eliminados de charges", pruned)
-        db.commit()
-    # TCH-PAR-12: client_external_id = llave del cliente de la ficha (antes NULL en el 100 % de los cobros TCH).
-    client_by_file = dict(db.execute(select(TchSubscription.file_number, TchSubscription.client_rut)).all())
     total = 0
-    offset = 0
+    last_id: uuid.UUID | None = None
     while True:
-        batch = db.scalars(
-            select(TchTransaction).order_by(TchTransaction.id).offset(offset).limit(_CHUNK)
-        ).all()
+        batch = db.execute(_tch_changed_transactions(last_id)).all()
         if not batch:
             break
         rows = []
-        for t in batch:
+        for t in batch:  # filas de columnas (no entidades ORM): no se acumulan en el mapa de identidad
             rows.append({
                 "source": "tch",
                 "external_id": t.dedupe_key or _s(t.id),
                 "subscription_external_id": _s(t.file_number),
-                "client_external_id": client_by_file.get(t.file_number),
+                # TCH-PAR-12: llave del cliente de la ficha (antes NULL en el 100 % de los cobros TCH).
+                "client_external_id": t.client_rut,
                 "amount": t.amount,
-                "currency": "CLP",
+                "currency": _TCH_CURRENCY,
                 "status": t.status,
                 "charge_date": t.charge_date,
                 "raw_payload": t.raw_payload,
                 REASON_CODE_KEY: t.response_code,  # glosa para el catalogo (SYNC-D-02); no es columna
                 REASON_TEXT_KEY: t.rejection_reason,
             })
-        total += _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "transaction"))
-        offset += _CHUNK
+        last_id = batch[-1].id
+        # Sin commit entre lotes: un commit intermedio cierra el SAVEPOINT de `_consolidate` y el lote siguiente fallaba
+        # ("closed transaction inside context manager") en cuanto habia mas de un lote. Un solo commit al final.
+        total += _upsert_centralized(
+            db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "transaction"), commit=False
+        )
         if len(batch) < _CHUNK:
             break
+    db.commit()
+    if total:
+        logger.info("TCH: %d cuotas nuevas o cambiadas consolidadas", total)
     return total
 
 

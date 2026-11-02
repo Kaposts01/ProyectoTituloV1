@@ -130,6 +130,8 @@ El catálogo de glosas no necesita purga.
 ## Pendientes relacionados
 
 - SYNC-D-05: captura de glosa de VirtualPOS hecha en código (RJ-06, `docs/data/rejection-details.md`); emite `reason_changed` y alimenta el catálogo; detrás de `VP_REJECTION_CAPTURE_ENABLED` (apagada).
-- SYNC-D-07: consolidación incremental y detección de desapariciones (`removed`).
+- SYNC-D-07 / SYNC-O-07: hecha la consolidación diferencial (guarda `IS DISTINCT FROM`: una consolidación repetida sin
+  cambios escribe 0 filas y 0 eventos; lectura diferencial detrás de `CONSOLIDATION_DIFFERENTIAL_ENABLED`). Pendiente la
+  detección de desapariciones (`removed`, SYNC-D-13).
 - Frontend: tarjeta «Qué cambió ayer» sobre este contrato (lo hace otro frente).
 - Tabla `daily_change_summary` y job de las 06:00: opcional, solo si el `GROUP BY` sobre eventos se vuelve lento.
