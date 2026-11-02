@@ -9,6 +9,7 @@ from app.api.v1.routes import (
     crm,
     dashboard,
     etl,
+    events,
     export,
     identity,
     imports,
@@ -41,3 +42,4 @@ api_router.include_router(cancellations.router, prefix="/cancellations")
 api_router.include_router(imports.router, prefix="/imports")
 api_router.include_router(changes.router, prefix="/changes", tags=["Changes"])
 api_router.include_router(dashboard.router, prefix="/dashboard")
+api_router.include_router(events.router, prefix="/events")
