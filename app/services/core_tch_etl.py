@@ -1,9 +1,10 @@
 """Materialize TCH provider tables (tch_*) into Core entities.
 
-Run order: client attributes → subscriptions → payments
+Run order: client attributes → subscriptions → charges (cuotas) → payments
 Idempotent: safe to re-run; uses ON CONFLICT DO NOTHING / DO UPDATE per entity.
 
-TCH has no CoreCharge concept — tch_transacciones map directly to CorePayment.
+TCH-PAR-12: each installment of tch_transacciones (ficha|periodo|cuota, D13) is a CoreCharge with the real period
+(``period_reference``) and its latest attempt is a CorePayment linked through ``charge_id``.
 """
 
 import logging
@@ -11,11 +12,12 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import and_, delete, exists, func, select
+from sqlalchemy import and_, case, delete, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.core import (
+    CoreCharge,
     CoreClientAttribute,
     CorePayment,
     CoreSubscription,
@@ -240,66 +242,174 @@ def _prune_legacy_payments(db: Session) -> int:
     return result.rowcount or 0
 
 
-def _materialize_payments(db: Session) -> int:
-    pruned = _prune_legacy_payments(db)
-    if pruned:
-        log.info("TCH Core ETL: %d pagos con clave antigua eliminados (la clave ahora es ficha|periodo|cuota)", pruned)
-    sub_index: dict[str, uuid.UUID] = {}
-    for row in db.execute(
-        select(CoreSubscription.external_id, CoreSubscription.id).where(
-            CoreSubscription.source == _SOURCE
+def _prune_legacy_charges(db: Session) -> int:
+    result = db.execute(delete(CoreCharge).where(legacy_key_filter(CoreCharge, CoreCharge.external_id)))
+    return result.rowcount or 0
+
+
+_PAGE = 5000  # filas de tch_transacciones por pagina (paginacion por id: memoria acotada con 1,47 M filas)
+
+_TX_COLUMNS = (
+    TchTransaction.id,
+    TchTransaction.file_number,
+    TchTransaction.dedupe_key,
+    TchTransaction.period,
+    TchTransaction.status,
+    TchTransaction.amount,
+    TchTransaction.charge_date,
+    TchTransaction.response_code,
+    TchTransaction.rejection_reason,
+    TchTransaction.previous_rejection_reason,
+    TchTransaction.previous_rejection_at,
+)
+
+_CHARGE_UPDATABLE = (
+    "subscription_id", "period_reference", "due_at", "amount", "currency", "source_status",
+    "latest_rejection_code", "latest_rejection_reason", "latest_rejection_at",
+)
+_PAYMENT_UPDATABLE = (
+    "subscription_id", "charge_id", "source_status", "occurred_at", "amount", "rejection_code", "rejection_reason",
+)
+
+
+def _is_rejected(status: str | None) -> bool:
+    return bool(status) and "RECHAZ" in status.upper()
+
+
+def _period_start(period: str | None) -> datetime | None:
+    return _parse_date(f"{period}-01") if period and len(period) == 7 else None
+
+
+def _charge_row(t, subscription_id: uuid.UUID | None) -> dict:
+    """La cuota TCH como CoreCharge: una por (ficha, periodo real, cuota), con su ultimo estado (D13).
+
+    ``latest_rejection_*``: el rechazo vigente si la cuota esta RECHAZADA; si se pago despues de un rechazo, el
+    rechazo previo (``rechazo_previo*``) para no perder el intento fallido.
+    """
+    rejected = _is_rejected(t.status)
+    return {
+        "id": uuid.uuid4(),
+        "subscription_id": subscription_id,
+        "source": _SOURCE,
+        "external_id": t.dedupe_key,
+        "period_reference": t.period,
+        "due_at": _parse_date(t.charge_date) or _period_start(t.period),
+        "amount": _parse_amount(t.amount),
+        "currency": "CLP",
+        "source_status": t.status,
+        "latest_rejection_code": t.response_code if rejected else None,
+        "latest_rejection_reason": t.rejection_reason if rejected else t.previous_rejection_reason,
+        "latest_rejection_at": _parse_date(t.charge_date if rejected else t.previous_rejection_at),
+    }
+
+
+def _payment_row(t, subscription_id: uuid.UUID | None, charge_id: uuid.UUID | None) -> dict:
+    rejected = _is_rejected(t.status)
+    return {
+        "id": uuid.uuid4(),
+        "source": _SOURCE,
+        "external_id": t.dedupe_key,
+        "subscription_id": subscription_id,
+        "charge_id": charge_id,
+        "source_status": t.status,
+        "occurred_at": _parse_date(t.charge_date),
+        "amount": _parse_amount(t.amount),
+        "currency": "CLP",
+        "rejection_code": t.response_code if rejected else None,
+        "rejection_reason": t.rejection_reason if rejected else None,
+        "rejection_reported_at": None,
+    }
+
+
+def _upsert_changed(db: Session, model, constraint: str, rows: list[dict], columns: tuple[str, ...]) -> None:
+    """INSERT .. ON CONFLICT DO UPDATE que solo reescribe las filas que cambiaron (una segunda corrida no toca nada)."""
+    table = model.__table__
+    for i in range(0, len(rows), _BATCH):
+        ins = insert(model).values(rows[i : i + _BATCH])
+        set_ = {column: ins.excluded[column] for column in columns}
+        set_["updated_at"] = func.now()
+        changed = or_(*(table.c[column].is_distinct_from(ins.excluded[column]) for column in columns))
+        db.execute(ins.on_conflict_do_update(constraint=constraint, set_=set_, where=changed))
+
+
+def _materialize_charges_and_payments(db: Session) -> tuple[int, int]:
+    """TCH-PAR-12: cada cuota de ``tch_transacciones`` es un CoreCharge y su ultimo intento un CorePayment ligado.
+
+    Idempotente: claves estables (``dedupe_key``), upsert que solo toca filas cambiadas y vinculo del pago de rechazo
+    recalculado al final. Las filas se leen por paginas ordenadas por id (no se cargan 1,47 M objetos en memoria).
+    """
+    pruned_payments = _prune_legacy_payments(db)
+    pruned_charges = _prune_legacy_charges(db)
+    if pruned_payments or pruned_charges:
+        log.info(
+            "TCH Core ETL: %d pagos y %d cuotas con clave antigua eliminados (la clave ahora es ficha|periodo|cuota)",
+            pruned_payments,
+            pruned_charges,
         )
-    ):
-        sub_index[row.external_id] = row.id
+    sub_index: dict[str, uuid.UUID] = {
+        row.external_id: row.id
+        for row in db.execute(
+            select(CoreSubscription.external_id, CoreSubscription.id).where(CoreSubscription.source == _SOURCE)
+        )
+    }
 
-    transactions = db.scalars(select(TchTransaction)).all()
+    count_charges = select(func.count()).select_from(CoreCharge).where(CoreCharge.source == _SOURCE)
+    count_payments = select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)
+    charges_before = db.scalar(count_charges) or 0
+    payments_before = db.scalar(count_payments) or 0
 
-    rows = []
     skipped = 0
-    for t in transactions:
-        if not t.dedupe_key:
-            skipped += 1
-            continue
-        sub_id = sub_index.get(str(t.file_number))
-        rows.append({
-            "id": uuid.uuid4(),
-            "source": _SOURCE,
-            "external_id": t.dedupe_key,
-            "subscription_id": sub_id,
-            "charge_id": None,
-            "source_status": t.status,
-            "occurred_at": _parse_date(t.charge_date),
-            "amount": _parse_amount(t.amount),
-            "currency": "CLP",
-            "rejection_code": t.response_code if t.status and "RECHAZ" in t.status.upper() else None,
-            "rejection_reason": t.rejection_reason if t.status and "RECHAZ" in t.status.upper() else None,
-            "rejection_reported_at": None,
-        })
+    last_id = None
+    while True:
+        page_query = select(*_TX_COLUMNS).order_by(TchTransaction.id).limit(_PAGE)
+        if last_id is not None:
+            page_query = page_query.where(TchTransaction.id > last_id)
+        page = db.execute(page_query).all()
+        if not page:
+            break
+        last_id = page[-1].id
+        valid = [t for t in page if t.dedupe_key]
+        skipped += len(page) - len(valid)
+        if valid:
+            charges = [_charge_row(t, sub_index.get(str(t.file_number))) for t in valid]
+            _upsert_changed(db, CoreCharge, "uq_core_charge_source_external_id", charges, _CHARGE_UPDATABLE)
+            charge_ids = dict(
+                db.execute(
+                    select(CoreCharge.external_id, CoreCharge.id).where(
+                        CoreCharge.source == _SOURCE, CoreCharge.external_id.in_([t.dedupe_key for t in valid])
+                    )
+                ).all()
+            )
+            # Con la clave estable una cuota cambia de estado (rechazada -> aceptada) o de monto en reportes
+            # posteriores: el pago refleja el ultimo estado, no el primero.
+            payments = [
+                _payment_row(t, sub_index.get(str(t.file_number)), charge_ids.get(t.dedupe_key)) for t in valid
+            ]
+            _upsert_changed(db, CorePayment, "uq_core_payment_source_external_id", payments, _PAYMENT_UPDATABLE)
+        if len(page) < _PAGE:
+            break
 
     if skipped:
         log.warning("TCH Core ETL: %d transacciones sin dedupe_key omitidas", skipped)
+    _link_rejection_payments(db)
+    return (db.scalar(count_charges) or 0) - charges_before, (db.scalar(count_payments) or 0) - payments_before
 
-    before = db.scalar(select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)) or 0
-    for i in range(0, len(rows), _BATCH):
-        batch = rows[i : i + _BATCH]
-        ins = insert(CorePayment).values(batch)
-        # Con la clave estable una cuota cambia de estado (rechazada -> aceptada) o de monto en reportes posteriores:
-        # el pago debe reflejar el ultimo estado, no quedarse con el primero.
-        db.execute(
-            ins.on_conflict_do_update(
-                constraint="uq_core_payment_source_external_id",
-                set_={
-                    "subscription_id": ins.excluded.subscription_id,
-                    "source_status": ins.excluded.source_status,
-                    "occurred_at": ins.excluded.occurred_at,
-                    "amount": ins.excluded.amount,
-                    "rejection_code": ins.excluded.rejection_code,
-                    "rejection_reason": ins.excluded.rejection_reason,
-                },
-            )
+
+def _link_rejection_payments(db: Session) -> int:
+    """``latest_rejection_payment_id`` = el pago de la cuota si su ultimo estado es un rechazo; NULL si no."""
+    charges, payments = CoreCharge.__table__, CorePayment.__table__
+    wanted = case((charges.c.source_status.ilike("%RECHAZ%"), payments.c.id), else_=None)
+    result = db.execute(
+        charges.update()
+        .where(
+            charges.c.source == _SOURCE,
+            payments.c.source == _SOURCE,
+            payments.c.charge_id == charges.c.id,
+            charges.c.latest_rejection_payment_id.is_distinct_from(wanted),
         )
-    after = db.scalar(select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)) or 0
-    return after - before
+        .values(latest_rejection_payment_id=wanted, updated_at=func.now())
+    )
+    return result.rowcount or 0
 
 
 # ── Punto de entrada ──────────────────────────────────────────────────────────
@@ -318,14 +428,15 @@ def run_tch_core_etl(db: Session) -> dict[str, int]:
     subs = _materialize_subscriptions(db)
     log.info("TCH Core ETL — suscripciones upserted: %d", subs)
 
-    log.info("TCH Core ETL — materializando pagos")
-    payments = _materialize_payments(db)
-    log.info("TCH Core ETL — pagos insertados: %d", payments)
+    log.info("TCH Core ETL — materializando cuotas (core_charges) y pagos")
+    charges, payments = _materialize_charges_and_payments(db)
+    log.info("TCH Core ETL — cuotas insertadas: %d, pagos insertados: %d", charges, payments)
 
     db.commit()
     return {
         "clients_created": clients_created,
         "attributes_inserted": attrs,
         "subscriptions_upserted": subs,
+        "charges_inserted": charges,
         "payments_inserted": payments,
     }
