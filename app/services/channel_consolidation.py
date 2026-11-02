@@ -53,6 +53,7 @@ from app.services.toku_rejection_projection import (
 )
 from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
 from app.services.vp_current_amount import load_current_amount
+from app.services.vp_typed_fields import as_legacy_text
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,8 @@ def _consolidate_vp_clients(db: Session) -> int:
 
 
 def _consolidate_vp_plans(db: Session) -> int:
+    # VP-PAR-13: `vp_*` ya tiene montos y fechas tipados; las tablas `crm` siguen en texto y reciben el texto canonico
+    # (`as_legacy_text`), el mismo que guardaban antes de la migracion 0061.
     rows = []
     for vp in _vp_records(db, VpPlan):
         rows.append({
@@ -252,7 +255,7 @@ def _consolidate_vp_plans(db: Session) -> int:
             "external_id": vp.external_id,
             "name": vp.name,
             "description": vp.description,
-            "amount": vp.amount,
+            "amount": as_legacy_text(vp.amount),
             "currency": vp.currency,
             "plan_type": vp.plan_type,
             "is_active": vp.is_active,
@@ -283,9 +286,9 @@ def _consolidate_vp_subscriptions(db: Session, scope: Scope | None = None) -> in
             "service_id": vp.service_id,
             "status": vp.status,
             "automatic_renewal": vp.automatic_renewal,
-            "suscription_date": vp.suscription_date,
-            "canceled_at": vp.canceled_at,
-            "amount": format(current_amount.normalize(), "f") if current_amount is not None else vp.amount,
+            "suscription_date": as_legacy_text(vp.suscription_date),
+            "canceled_at": as_legacy_text(vp.canceled_at),
+            "amount": format(current_amount.normalize(), "f") if current_amount is not None else as_legacy_text(vp.amount),
             "currency": vp.currency,
             "raw_payload": vp.raw_payload,
         })
@@ -301,10 +304,10 @@ def _consolidate_vp_charges(db: Session, scope: Scope | None = None) -> int:
             "external_id": vp.external_id,
             "subscription_external_id": vp.subscription_external_id,
             "client_external_id": vp.client_external_id,
-            "amount": vp.amount,
+            "amount": as_legacy_text(vp.amount),
             "currency": vp.currency,
             "status": vp.status,
-            "charge_date": vp.charge_date,
+            "charge_date": as_legacy_text(vp.charge_date),
             "raw_payload": vp.raw_payload,
         })
     return _upsert_centralized(db, Charge, "uq_charge_source_external_id", _link_source_records(db, rows, "charge"))
@@ -318,10 +321,10 @@ def _consolidate_vp_payments(db: Session) -> int:
             "external_id": vp.external_id,
             "charge_external_id": vp.charge_external_id,
             "client_external_id": vp.client_external_id,
-            "amount": vp.amount,
+            "amount": as_legacy_text(vp.amount),
             "currency": vp.currency,
             "status": vp.status,
-            "payment_date": vp.payment_date,
+            "payment_date": as_legacy_text(vp.payment_date),
             "raw_payload": vp.raw_payload,
         })
     return _upsert_centralized(db, Payment, "uq_payment_source_external_id", _link_source_records(db, rows, "payment"))

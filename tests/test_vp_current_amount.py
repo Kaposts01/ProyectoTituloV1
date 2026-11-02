@@ -58,10 +58,10 @@ def test_helper_last_paid_processing_future_plan_and_tiebreak(db_session: Sessio
         _vp_sub("vca-e", "100"),
         _vp_charge("vca-e1", "vca-e", "pagado", -10, "7000"),
         _vp_charge("vca-e2", "vca-e", "pagado", -10, "7100"),
-        # f: cargo mas reciente con monto no numerico se descarta
+        # f: cargo mas reciente sin monto numerico se descarta (VP-PAR-13: un "n/a" queda NULL en la columna numeric)
         _vp_sub("vca-f", "100"),
         _vp_charge("vca-f1", "vca-f", "pagado", -20, "2500"),
-        _vp_charge("vca-f2", "vca-f", "pagado", -1, "n/a"),
+        _vp_charge("vca-f2", "vca-f", "pagado", -1, None),
     ])
     db_session.flush()
 

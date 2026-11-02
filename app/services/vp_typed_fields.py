@@ -98,6 +98,29 @@ def date_text(value: Any) -> str | None:
     return parsed.isoformat() if parsed is not None else None
 
 
+def first_amount(*values: Any) -> Decimal | None:
+    """Primer monto convertible (un `0` cuenta: no se usa `or`)."""
+    for value in values:
+        parsed = parse_amount(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def first_timestamp_text(*values: Any) -> str | None:
+    for value in values:
+        if (parsed := timestamp_text(value)) is not None:
+            return parsed
+    return None
+
+
+def first_date_text(*values: Any) -> str | None:
+    for value in values:
+        if (parsed := date_text(value)) is not None:
+            return parsed
+    return None
+
+
 def last4(value: Any) -> str | None:
     text = str(value).strip() if value is not None and not isinstance(value, (bool, dict, list)) else ""
     return text if _LAST4_RE.match(text) else None

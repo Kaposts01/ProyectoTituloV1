@@ -72,6 +72,53 @@ def test_subscription_fields_never_promote_seller_or_invalid_last4() -> None:
     assert subscription_typed_fields({"payment_method": {"last4CardDigit": "12345"}})["card_last4"] is None
 
 
+@pytest.fixture
+def db_session():
+    from sqlalchemy.orm import Session
+
+    from app.db.session import engine
+
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_typed_vp_columns_reach_crm_tables_as_the_same_text(db_session) -> None:
+    """VP-PAR-13: las tablas `crm` (texto) reciben lo mismo que antes de tipar `vp_*`."""
+    from sqlalchemy import select
+
+    from app.models.crm import Charge, Subscription
+    from app.models.vp import VpCharge, VpSubscription
+    from app.services import channel_consolidation as cc
+    from app.services.channel_store import store_vp_resources
+
+    store_vp_resources(db_session, "subscription", [{
+        "id": "l3-sub", "status": "CANCELADA", "suscription_date": "2021-09-08 11:20:31", "canceled_at": "2026-10-29",
+        "amount": 9990}], platform="virtualpos1")
+    store_vp_resources(db_session, "charge", [
+        {"id": "l3-c1", "charge_date": "2026-10-05", "amount": "15000.00", "status": "rechazado"},
+        {"id": "l3-c2", "charge_date": "", "amount": "", "status": "cancelado"},  # sucio: NULL, sin romper el lote
+    ], platform="virtualpos1", subscription_external_id="l3-sub")
+    vp = db_session.scalar(select(VpSubscription).where(VpSubscription.external_id == "l3-sub"))
+    assert (vp.suscription_date, vp.canceled_at, vp.amount) == (
+        datetime(2021, 9, 8, 11, 20, 31), datetime(2026, 10, 29), Decimal("9990"))
+    assert db_session.scalar(select(VpCharge.charge_date).where(VpCharge.external_id == "l3-c2")) is None
+
+    cc._consolidate_vp_subscriptions(db_session, ("virtualpos1", "l3-sub"))
+    cc._consolidate_vp_charges(db_session, ("virtualpos1", "l3-sub"))
+    sub = db_session.scalar(select(Subscription).where(Subscription.external_id == "l3-sub"))
+    assert (sub.suscription_date, sub.canceled_at, sub.amount) == ("2021-09-08 11:20:31", "2026-10-29", "9990")
+    charges = {c.external_id: (c.charge_date, c.amount) for c in db_session.scalars(
+        select(Charge).where(Charge.subscription_external_id == "l3-sub"))}
+    assert charges == {"l3-c1": ("2026-10-05", "15000"), "l3-c2": (None, None)}
+
+
 def test_extractors_include_promoted_columns() -> None:
     sub = extract_vp_subscription({"id": "s1", "payment_method": {"last4CardDigit": "1111"}, "origin": "API"})
     assert (sub["card_last4"], sub["origin"]) == ("1111", "API")

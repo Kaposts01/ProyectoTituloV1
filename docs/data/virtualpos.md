@@ -33,7 +33,7 @@
 | `plan_external_id` | String(255) | FK lógica a `vp_plans.external_id` |
 | `service_id` | String(255) | ID del servicio VP |
 | `status` | String(50) | ACTIVA / SUSCRIBIENDO / CANCELADA / etc. |
-| `suscription_date` | String(50) | Fecha de activación (string ISO) |
+| `suscription_date` | timestamp (sin zona) | Fecha de activación (hora de pared del proveedor; VP-PAR-13) |
 
 Índice parcial `uq_vp_sub_active_plan_client`: previene duplicados activos para el mismo cliente+plan. Ver migración `0036`.
 
@@ -42,7 +42,7 @@
 | Campo | Tipo | Notas |
 |---|---|---|
 | `subscription_external_id` | String(255) | FK lógica al cobro padre |
-| `charge_date` | String(50) | Fecha del cobro (string) |
+| `charge_date` | date | Fecha del cobro (VP-PAR-13) |
 | `status` | String(50) | Estado del cobro |
 
 ### vp_payments — campos clave
@@ -50,7 +50,7 @@
 | Campo | Tipo | Notas |
 |---|---|---|
 | `charge_external_id` | String(255) | FK lógica al cobro. El listado `GET /payments` no lo trae: lo llenan solo cruces exactos (ver «Vínculo pago → cobro»). La sync no lo escribe (VP-PAR-06) |
-| `payment_date` | String(50) | Fecha del pago (string) |
+| `payment_date` | timestamp (sin zona) | Fecha del pago (VP-PAR-13) |
 | `status` | String(50) | Estado del pago |
 
 ## Consolidación VP → Tablas canónicas (`crm.py`)
@@ -137,7 +137,7 @@ el proveedor. `rejection_format.format_rejection_with_code` muestra el motivo co
 
 | ID | Tipo | Descripción |
 |---|---|---|
-| GAP-VP-01 | Tipo de dato | `amount` almacenado como `String` en todas las tablas VP, no como `Numeric`. Conversión numérica ocurre aguas arriba si se necesita. |
+| GAP-VP-01 | Tipo de dato | Cerrado en `vp_*` por VP-PAR-13 (migración `0061`): `amount` es `numeric` y las fechas `timestamp` sin zona / `date`; lo no convertible quedó NULL (original en `raw_payload`). Pendiente: `timestamptz` (requiere decidir la zona horaria de VirtualPOS) y las tablas `crm` (`charges`, `payments`, `subscriptions`, `plans`), que siguen en texto y comparten columnas con Toku, Payku y TCH. |
 | GAP-VP-02 | Identidad (resuelto) | `platform` solo puede tomar `virtualpos1` o `virtualpos2`, las dos cuentas VP. `_VP_PLATFORMS` en `app/services/channel_store.py` lo define y `channel_consolidation.py` lo valida; un valor desconocido se omite con warning. |
 | GAP-VP-03 | Trazabilidad (parcial) | `source_record_id` se rellena en la consolidación mediante `_source_record_ids` / `_link_source_records`. El backfill de filas históricas (`scripts/maintenance/backfill_source_record_ids.py`) está escrito, pero no ejecutado. |
 | GAP-VP-04 | Datos históricos | Datos VirtualPOS históricos tienen limitaciones conocidas en cobertura. Ver Technical Debt. |

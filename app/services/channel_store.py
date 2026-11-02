@@ -36,6 +36,9 @@ from app.services.payku_status import (
 )
 from app.services.payload_sanitization import sanitize_payload
 from app.services.vp_typed_fields import (
+    first_amount,
+    first_date_text,
+    first_timestamp_text,
     payment_typed_fields,
     subscription_typed_fields,
 )
@@ -185,7 +188,7 @@ def extract_vp_plan(p: dict) -> dict:
         "external_id": _str(p, "__external_id", "id", "uuid"),
         "name": _str(p, "name"),
         "description": _str(p, "description"),
-        "amount": _str(p, "amount"),
+        "amount": first_amount(p.get("amount")),
         "currency": _str(p, "currency"),
         "plan_type": _str(p, "type"),
         "is_active": _str(p, "is_active"),
@@ -194,7 +197,12 @@ def extract_vp_plan(p: dict) -> dict:
 
 
 def extract_vp_subscription(p: dict) -> dict:
-    """Columnas de `vp_subscriptions`; tarjeta vigente, alias POS y origen salen de `raw_payload` (VP-PAR-07)."""
+    """Columnas de `vp_subscriptions`; tarjeta vigente, alias POS y origen salen de `raw_payload` (VP-PAR-07).
+
+    VP-PAR-13: el monto va como Decimal y las fechas como texto canonico (`yyyy-mm-dd hh:mm:ss`, Postgres lo convierte
+    a `timestamp`); lo no convertible va como None. Texto y no datetime porque el desempate de `upsert_channel` compara
+    `suscription_date` como texto.
+    """
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid"),
@@ -204,24 +212,25 @@ def extract_vp_subscription(p: dict) -> dict:
         "service_id": _str(p, "service_id"),
         "status": _str(p, "status") or _str(order, "status"),
         "automatic_renewal": _str(p, "automatic_renewal", "renewal"),
-        "suscription_date": _str(p, "suscription_date"),
-        "canceled_at": _str(p, "canceled_at"),
-        "amount": _str(p, "amount") or _str(order, "amount"),
+        "suscription_date": first_timestamp_text(p.get("suscription_date")),
+        "canceled_at": first_timestamp_text(p.get("canceled_at")),
+        "amount": first_amount(p.get("amount"), order.get("amount")),
         "currency": _str(p, "currency") or _str(order, "currency"),
         **subscription_typed_fields(p),
     }
 
 
 def extract_vp_charge(p: dict, subscription_external_id: str | None = None) -> dict:
+    """Columnas de `vp_charges`. VP-PAR-13: monto Decimal y `charge_date` como `yyyy-mm-dd` (columna `date`)."""
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid", "order.uuid"),
         "subscription_external_id": _str(p, "suscription_id", "subscription_id") or subscription_external_id,
         "client_external_id": _str(p, "client_uuid", "client_id"),
-        "amount": _str(p, "amount") or _str(order, "amount"),
+        "amount": first_amount(p.get("amount"), order.get("amount")),
         "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status") or _str(order, "status"),
-        "charge_date": _str(p, "charge_date") or _str(order, "created_at"),
+        "charge_date": first_date_text(p.get("charge_date"), order.get("created_at")),
     }
 
 
@@ -236,16 +245,17 @@ def extract_vp_payment(p: dict) -> dict:
     viene vacia) porque un lote multi-fila exige las mismas claves en todas las filas.
 
     VP-PAR-07: RUT del cliente, `authorized_at` y el primer tramo de `order.deposits` (comision, abono y fecha de
-    abono) se promueven a columnas (`vp_typed_fields.payment_typed_fields`).
+    abono) se promueven a columnas (`vp_typed_fields.payment_typed_fields`). VP-PAR-13: monto Decimal y fechas como
+    texto canonico que Postgres convierte a `timestamp`.
     """
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid", "order.uuid"),
         "client_external_id": _str(p, "client_uuid", "client_id"),
-        "amount": _str(p, "amount") or _str(order, "amount"),
+        "amount": first_amount(p.get("amount"), order.get("amount")),
         "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status") or _str(order, "status"),
-        "payment_date": _str(p, "payment_date") or _str(order, "authorized_at") or _str(order, "created_at"),
+        "payment_date": first_timestamp_text(p.get("payment_date"), order.get("authorized_at"), order.get("created_at")),
         **payment_typed_fields(p),
     }
 
@@ -344,7 +354,7 @@ def extract_payku_plan(p: dict) -> dict:
         "name": _str(p, "name"),
         "code": _str(p, "code"),
         "description": _str(p, "description"),
-        "amount": _str(p, "amount"),
+        "amount": first_amount(p.get("amount")),
         "currency": _str(p, "currency"),
         "status": _str(p, "status"),
         "total_suscription": int(total) if total is not None else None,

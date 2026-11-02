@@ -1,5 +1,12 @@
 """Tablas de canal VirtualPOS (`vp_*`).
 
+Tipos (VP-PAR-13, migracion `20261102_0061`): montos `NUMERIC` sin escala fija (CLP y UF) y fechas como `timestamp`
+SIN zona (la hora de pared que entrega el proveedor; `timestamptz` exige decidir la zona de VirtualPOS), salvo
+`vp_charges.charge_date`, que es una fecha (`yyyy-mm-dd`). `vp_clients` sigue en texto (`birth_date` es dato personal
+y `provider_created_at` no lo usa ningun KPI). Los valores que no se podian convertir quedaron NULL; el original
+sigue en `raw_payload`. Las tablas `crm` (`charges`, `payments`...) siguen en texto: la consolidacion les escribe el
+texto canonico (`vp_typed_fields.as_legacy_text`).
+
 Columnas promovidas desde `raw_payload` (VP-PAR-07, migracion `20261102_0060`): tarjeta vigente, alias POS y origen
 en suscripciones; RUT del cliente, autorizacion, comision y abono en pagos.
 """
@@ -58,7 +65,7 @@ class VpPlan(Base):
     platform: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     plan_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_active: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
@@ -92,9 +99,9 @@ class VpSubscription(Base):
     service_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     automatic_renewal: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    suscription_date: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    canceled_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    suscription_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    canceled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     # VP-PAR-07: tarjeta vigente (`payment_method`), sin PAN ni BIN; solo los ultimos 4.
     card_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -116,10 +123,10 @@ class VpCharge(Base):
     platform: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     subscription_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     client_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
-    charge_date: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    charge_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -134,10 +141,10 @@ class VpPayment(Base):
     platform: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     charge_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     client_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
-    payment_date: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    payment_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     # VP-PAR-07: RUT del cliente (vinculo con la suscripcion en el ETL Core), autorizacion y primer tramo de abono.
     client_social_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     authorized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

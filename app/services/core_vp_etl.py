@@ -18,7 +18,7 @@ payment_rejection_details (RJ-06/RJ-04) and charge payloads that embed the payme
 import logging
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
@@ -36,6 +36,7 @@ from app.models.rejection import PaymentRejectionDetail
 from app.models.vp import VpCharge, VpClient, VpPayment, VpSubscription
 from app.services.core_materialization import materialize_core_clients
 from app.services.vp_current_amount import load_current_amount
+from app.services.vp_typed_fields import parse_amount, parse_date
 
 log = logging.getLogger(__name__)
 
@@ -46,23 +47,14 @@ _DEFAULT_CURRENCY = "CLP"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _parse_date(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        d = datetime.fromisoformat(str(value)[:10])
-        return d.replace(tzinfo=timezone.utc)
-    except (ValueError, TypeError):
-        return None
+def _parse_date(value: object) -> datetime | None:
+    """Dia del valor a medianoche UTC (regla historica del ETL). Desde VP-PAR-13 `vp_*` entrega date/datetime."""
+    day = parse_date(value)
+    return datetime(day.year, day.month, day.day, tzinfo=timezone.utc) if day is not None else None
 
 
-def _parse_amount(value: str | None) -> Decimal | None:
-    if not value:
-        return None
-    try:
-        return Decimal(str(value).strip())
-    except InvalidOperation:
-        return None
+def _parse_amount(value: object) -> Decimal | None:
+    return parse_amount(value)
 
 
 # ── Índices compartidos ───────────────────────────────────────────────────────
