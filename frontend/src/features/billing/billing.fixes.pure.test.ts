@@ -147,6 +147,13 @@ describe("etiqueta tecnica y eventos", () => {
     expect(eventNotes("reintentada", {}).join(" ")).toMatch(/aprobaciones reiniciadas/i);
     expect(() => eventNotes("reintentada", { previous_approvals_count: "mil", to_status: { a: 1 } })).not.toThrow();
   });
+  it("BILL-16: reaprobacion por cambio de categoria de la variacion", () => {
+    const notes = eventNotes("reintentada", { action: "reaprobacion", previous_variation_pct: 21.21, new_variation_pct: 100, to_status: "pendiente", new_approvals_required: 2 }).join(" ");
+    expect(notes).toMatch(/cambió de categoría/);
+    expect(notes).toMatch(/21,21%.*100%/);
+    expect(notes).toMatch(/ahora se requieren 2/);
+    expect(describeBillingError(err(409, { code: "reapproval_required", message: "x" }), "f").message).toMatch(/nueva aprobación/);
+  });
   it("evento de falla muestra la etiqueta tecnica (error / previous_error)", () => {
     expect(eventTechnical({ error: "RuntimeError" })).toEqual([{ label: "Código técnico", code: "RuntimeError" }]);
     expect(eventTechnical({ previous_error: "StuckApplying" })).toEqual([{ label: "Código técnico previo", code: "StuckApplying" }]);

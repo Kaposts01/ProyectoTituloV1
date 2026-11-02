@@ -152,6 +152,12 @@ export function eventNotes(eventType: string, detail: Record<string, unknown> | 
   const d = detail ?? {};
   const notes: string[] = [];
   if (eventType === "reintentada") {
+    if (d.action === "reaprobacion") {
+      const from = num(d.previous_variation_pct);
+      const to = num(d.new_variation_pct);
+      const pcts = from !== null && to !== null ? ` (${formatPct(from)} → ${formatPct(to)})` : "";
+      notes.push(`La variación cambió de categoría al ejecutar${pcts}: se pide una nueva aprobación.`);
+    }
     const before = num(d.previous_approvals_count);
     const beforeOf = num(d.previous_approvals_required);
     const now = num(d.new_approvals_required);

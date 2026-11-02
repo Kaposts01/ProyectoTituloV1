@@ -45,6 +45,7 @@ from app.services.billing_apply import (
     BillingApplyError,
     InvalidRequestStateError,
     PlanDriftError,
+    ReapprovalRequiredError,
     RequestNotFoundError,
     SubscriptionBlockedError,
     SubscriptionBusyError,
@@ -183,6 +184,11 @@ def _http(exc: BaseException) -> NoReturn:
             "plan_drift", "El estado en VirtualPOS cambió desde la aprobación; el plan recalculado difiere del aprobado. "
                           "Revise la diferencia y, si la acepta, reintente con accept_drift=true.",
             diff=exc.diff, new_preview=exc.new_preview, retry_with={"accept_drift": True}))
+    if isinstance(exc, ReapprovalRequiredError):  # GB-AP-13 / BILL-16: nada escrito, la solicitud volvio a pendiente
+        raise HTTPException(409, _detail(
+            "reapproval_required", "La variación cambió de categoría desde la aprobación; la solicitud volvió a "
+                                   "'pendiente' y necesita una nueva aprobación antes de ejecutarse.",
+            request_status="pendiente", approvals_required=exc.new_required))
     if isinstance(exc, InvalidRequestStateError):
         raise HTTPException(409, _detail("invalid_request_state", str(exc), current_status=exc.status))
     if isinstance(exc, svc.RequestStateConflictError):

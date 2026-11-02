@@ -49,6 +49,7 @@ const CODE_MESSAGES: Record<string, string> = {
   stale_session: "Sesión desactualizada: recargue la página.",
   unparseable_charges: "VirtualPOS devolvió cobros que no se pueden interpretar; no se calculó ni escribió nada.",
   provider_error: "VirtualPOS no respondió correctamente y no se escribió nada. Reintente más tarde.",
+  reapproval_required: "La variación del cambio pasó a una categoría que exige más aprobaciones desde que se aprobó. No se escribió nada: la solicitud volvió a «pendiente» y necesita una nueva aprobación.",
 };
 
 const STATUS_MESSAGES: Record<number, string> = {
