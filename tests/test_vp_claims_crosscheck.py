@@ -2,11 +2,13 @@
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("vp_claims_crosscheck", ROOT / "scripts/diagnostics/vp_claims_crosscheck.py")
 cc = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = cc  # dataclasses resuelven el modulo por nombre
 _spec.loader.exec_module(cc)
 
 
