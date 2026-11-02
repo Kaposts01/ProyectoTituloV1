@@ -454,7 +454,8 @@
   "query:offset"
  ],
  "GET /api/v1/sync-runs": [
-  "cookie:crm_access_token"
+  "cookie:crm_access_token",
+  "query:etl_run_id"
  ],
  "GET /api/v1/sync-runs/health": [
   "cookie:crm_access_token"
