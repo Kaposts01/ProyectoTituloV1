@@ -29,7 +29,10 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.services.toku_rejection_projection import project_toku_payment_rejections, project_toku_rejections
+from app.services.toku_rejection_projection import (
+    project_toku_payment_rejections,
+    project_toku_rejections,
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

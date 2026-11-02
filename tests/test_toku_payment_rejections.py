@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.models.crm import Payment
 from app.services import channel_consolidation
-from app.services.toku_rejection_projection import project_toku_payment_rejections, toku_transaction_rejection
+from app.services.toku_rejection_projection import (
+    project_toku_payment_rejections,
+    toku_transaction_rejection,
+)
 from tests.test_charge_recovery import db_session  # noqa: F401  (fixture)
 from tests.test_toku_rejection_projection import _tx, _uid
 
