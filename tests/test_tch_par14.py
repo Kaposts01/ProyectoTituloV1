@@ -17,7 +17,12 @@ from app.models.crm import Client, Subscription
 from app.models.tch import TchClient, TchSubscription
 from app.services import channel_consolidation
 from app.services.core_tch_etl import run_tch_core_etl
-from app.services.tch_rut import check_digit, identity_rut, is_valid_rut, normalize_tch_rut
+from app.services.tch_rut import (
+    check_digit,
+    identity_rut,
+    is_valid_rut,
+    normalize_tch_rut,
+)
 from scripts import etl_tch
 from tests.tch_synthetic import write_report
 
