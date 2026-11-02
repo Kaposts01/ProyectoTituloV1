@@ -59,6 +59,12 @@ _SOURCE = "toku"
 _BATCH = 500
 
 
+def signals_enabled() -> bool:
+    """Bandera `TOKU_REPORT_SIGNALS_ENABLED` (apagada por defecto). Con ella apagada, las senales no se calculan y el
+    recuperador Toku (REC-04) muestra un estado vacio explicito en vez de datos posiblemente viejos."""
+    return bool(settings.toku_report_signals_enabled)
+
+
 def _norm(value: str | None) -> str:
     return (value or "").strip().casefold()
 
