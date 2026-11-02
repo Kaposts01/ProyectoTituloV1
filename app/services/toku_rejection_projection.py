@@ -1,4 +1,5 @@
-"""Proyección de los rechazos de Toku (tk_transactions FAILED) a core_charges.latest_rejection_* (RJ-01).
+"""Proyección de los rechazos de Toku (tk_transactions FAILED) a core_charges.latest_rejection_* (RJ-01)
+y a `payments.rejection_*` canónico por intento (TK-PAR-03, `toku_transaction_rejection`).
 
 Fuente: `tk_transactions.raw_payload` ya guarda el ítem completo de `GET /transactions`:
 `transaction.response_code` (p. ej. `TEPSP1008`), `transaction.original_response_message` (glosa del
@@ -32,6 +33,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.core import CoreCharge
+from app.models.crm import Payment
 from app.models.toku_channel import TokuTransaction
 from app.models.toku_report import TkReportAttempt
 from app.services.rejected_month import CHILE_TZ
@@ -206,4 +208,87 @@ def project_toku_rejections(db: Session, *, apply: bool = True) -> dict[str, Any
         for i in range(0, len(updates), 1000):
             db.execute(update(CoreCharge), updates[i : i + 1000])
     log.info("Toku rechazos: %s", {k: v for k, v in stats.items()})
+    return stats
+
+
+# ── TK-PAR-03: rechazo por intento en `payments` canónico ─────────────────────────────────────────────────────────
+
+
+def toku_transaction_rejection(
+    payload: dict[str, Any] | None,
+    status: str | None,
+    report: ReportAttemptCodes | None = None,
+    *,
+    external_id: str | None = None,
+    created_at_api: str | None = None,
+) -> tuple[str | None, str | None, datetime | None]:
+    """(código, motivo, fecha) del rechazo de UNA transacción de Toku, o (None, None, None).
+
+    Solo para `status == FAILED` (un pago exitoso no tiene rechazo aunque traiga `response_code`). Mismas reglas que
+    `core_charges.latest_rejection_*`: código de la API, si falta el del reporte de Intentos (`report`), si falta `ISO:NN`.
+    Función pura: no consulta la base (el índice del reporte lo carga el llamador una sola vez).
+    """
+    if (status or "").upper() != _FAILED or not isinstance(payload, dict):
+        return None, None, None
+    tx = payload.get("transaction") if isinstance(payload.get("transaction"), dict) else {}
+    intents = payload.get("payment_intents")
+    intent = intents[0] if isinstance(intents, list) and intents and isinstance(intents[0], dict) else {}
+    at = _parse_ts(tx.get("transaction_date")) or _parse_ts(created_at_api)
+    response_code = tx.get("response_code")
+    report_code = None
+    if report is not None and not (response_code and str(response_code).strip()):
+        report_code, _match = report.lookup((external_id, tx.get("id"), intent.get("id")), intent.get("id_invoice"), at)
+    code, reason = _rejection_values(response_code, tx.get("original_response_message"), report_code)
+    if code is None and reason is None:
+        return None, None, None
+    return code, (reason[:500] if reason else None), at
+
+
+def project_toku_payment_rejections(db: Session, *, apply: bool = True) -> dict[str, Any]:
+    """Escribe `payments.rejection_*` de Toku desde `tk_transactions` (backfill sin reconsolidar; TK-PAR-03).
+
+    Idempotente: solo actualiza filas cuyo valor cambia; limpia el rechazo de un pago que ya no es FAILED. Con
+    `apply=False` no escribe (dry-run). No hace commit. Si las columnas no existen (migración 0056 sin aplicar) no
+    escribe nada y lo informa en `skipped`.
+    """
+    stats: dict[str, Any] = {
+        "transactions_total": 0, "payments_without_row": 0, "payments_with_rejection": 0,
+        "payments_updated": 0, "payments_unchanged": 0, "applied": apply, "skipped": None,
+    }
+    report = load_report_attempt_codes(db)
+    try:
+        with db.begin_nested():
+            current = {
+                row.external_id: row
+                for row in db.execute(
+                    select(Payment.id, Payment.external_id, Payment.rejection_code, Payment.rejection_reason,
+                           Payment.rejected_at).where(Payment.source == _SOURCE)
+                )
+            }
+    except SQLAlchemyError as exc:
+        stats["skipped"] = f"payments.rejection_* no disponible ({type(exc).__name__})"
+        log.warning("Toku rechazos en payments: %s; se omite", stats["skipped"])
+        return stats
+    updates: list[dict[str, Any]] = []
+    for ext_id, status, created_at_api, payload in db.execute(
+        select(TokuTransaction.external_id, TokuTransaction.status, TokuTransaction.created_at_api,
+               TokuTransaction.raw_payload)
+    ):
+        stats["transactions_total"] += 1
+        row = current.get(ext_id)
+        if row is None:
+            stats["payments_without_row"] += 1
+            continue
+        values = toku_transaction_rejection(payload, status, report, external_id=ext_id, created_at_api=created_at_api)
+        if values[0] is not None or values[1] is not None:
+            stats["payments_with_rejection"] += 1
+        if (row.rejection_code, row.rejection_reason, row.rejected_at) == values:
+            stats["payments_unchanged"] += 1
+            continue
+        updates.append({"id": row.id, "rejection_code": values[0], "rejection_reason": values[1], "rejected_at": values[2]})
+    stats["payments_updated"] = len(updates)
+    if apply and updates:
+        for i in range(0, len(updates), 1000):
+            db.execute(update(Payment), updates[i : i + 1000])
+    log.info("Toku rechazos en payments: %s", stats)
     return stats

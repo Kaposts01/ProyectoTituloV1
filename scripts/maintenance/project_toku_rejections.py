@@ -1,5 +1,8 @@
 """Proyecta el último rechazo de Toku (tk_transactions FAILED) a core_charges.latest_rejection_* (RJ-01).
 
+Ademas escribe el rechazo de cada intento en `payments.rejection_*` canonico (TK-PAR-03, migracion 0056; claves
+`payments.*` en la salida).
+
 Tambien es el backfill de RJ-11 / TK-PAR-04: los FAILED sin `response_code` toman el codigo del reporte «Intentos de
 pago» ya cargado en `tk_report_attempts` (`codes_from_report_by_*` en la salida). Idempotente: una segunda corrida
 no escribe nada.
@@ -26,7 +29,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.services.toku_rejection_projection import project_toku_rejections
+from app.services.toku_rejection_projection import project_toku_payment_rejections, project_toku_rejections
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -42,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
         if not args.apply:
             db.execute(text("SET TRANSACTION READ ONLY"))
         stats = project_toku_rejections(db, apply=args.apply)
+        # TK-PAR-03: el mismo rechazo por intento en `payments` canónico (requiere la migración 0056).
+        stats.update({f"payments.{k}": v for k, v in project_toku_payment_rejections(db, apply=args.apply).items()})
         if args.apply:
             db.commit()
         else:

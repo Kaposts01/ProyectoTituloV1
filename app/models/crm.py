@@ -93,6 +93,10 @@ class Payment(CanonicalRecord):
     currency: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[str | None] = mapped_column(String(50), index=True)
     payment_date: Mapped[str | None] = mapped_column(String(50))
+    # TK-PAR-03 (migracion 0056): rechazo del intento. Toku: `transaction.response_code` / glosa normalizada.
+    rejection_code: Mapped[str | None] = mapped_column(String(50), index=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PaymentMethod(CanonicalRecord):
