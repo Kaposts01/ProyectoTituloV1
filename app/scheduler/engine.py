@@ -221,7 +221,13 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
 
     # SYNC-O-09: niveles caliente y frio (D10). La tibia es `sync_all_channels` de las 02:00. Detras de SYNC_TIERS_ENABLED
     # (apagada por defecto): con la bandera apagada los dos jobs no hacen nada. La caliente exige ademas las ventanas.
-    from app.scheduler.jobs.sync_tiers import HOT_HOURS, JOB_SYNC_COLD, JOB_SYNC_HOT, sync_cold, sync_hot
+    from app.scheduler.jobs.sync_tiers import (
+        HOT_HOURS,
+        JOB_SYNC_COLD,
+        JOB_SYNC_HOT,
+        sync_cold,
+        sync_hot,
+    )
 
     if not scheduler.get_job(JOB_SYNC_HOT):
         scheduler.add_job(
