@@ -54,8 +54,11 @@ reexportado.
    ```
 
    Todo o nada: si la conciliacion no cuadra se hace ROLLBACK y la base queda como estaba (codigo de salida 3).
-6. **ETL Core de TCH** (re-materializa clientes, atributos, suscripciones y pagos; elimina los pagos y cobros con la
-   clave antigua): `POST /api/v1/etl/core/...` para TCH o `run_tch_core_etl`, y la consolidacion de `charges`.
+6. **ETL Core de TCH** (re-materializa clientes, atributos, suscripciones, cuotas `core_charges` y pagos ligados a su
+   cuota; elimina los pagos y cobros con la clave antigua; retira los atributos `rut` sin verificador valido):
+   `POST /api/v1/etl/core/...` para TCH o `run_tch_core_etl`, y la consolidacion de `charges`. La recarga ya deja un
+   `source_records` por fila `tch_*` (SYNC-D-16), asi que la consolidacion llena `source_record_id`. Sin recarga, el
+   backfill es `scripts\etl_tch.py --backfill-source-records` (dry-run) y luego con `--apply --confirm-database crm`.
 7. **Verificacion.** `python scripts/diagnostics/parity_check.py --channel tch` (solo lectura): los conteos por mes de
    `tch_transacciones` deben coincidir con el control. Revise tambien que las fichas VIGENTES sean ~8.401.
 
