@@ -706,3 +706,10 @@ h1, h2, h3, .eyebrow {
   .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
   .sidebar-search input { min-height: 44px; }
 }
+
+/* ── Vistas unificadas de Cartera (UX-08, UX-09) ── */
+.unified-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 12px; }
+.unified-filter { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-3); }
+.unified-filter-search { min-width: 180px; flex: 1; }
+.unified-totals { margin: 0 0 10px; font-size: 13px; }
+.unified-summary { margin-bottom: 16px; }

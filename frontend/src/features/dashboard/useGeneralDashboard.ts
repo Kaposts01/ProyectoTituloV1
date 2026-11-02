@@ -11,7 +11,7 @@ import type {
 } from "../shared/types";
 
 /** «summary» = Resumen unificado (features/summary); «classic» = vista anterior del dashboard general (transitoria, UX-15). */
-export type GeneralView = "summary" | "classic" | "clients" | "subscriptions" | "report";
+export type GeneralView = "summary" | "classic" | "clients" | "subscriptions" | "charges" | "report";
 export type GeneralClientFilter = "all" | "rut" | "name" | "last_name" | "platform" | "email" | "phone";
 export type GeneralSubscriptionFilter = "all" | "id" | "rut" | "client" | "platform" | "status";
 
