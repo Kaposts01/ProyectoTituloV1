@@ -19,7 +19,9 @@ Guardas (si el proveedor IGNORA el filtro, la lectura se abandona y se hace el r
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -57,9 +59,36 @@ class ReadWindow:
         return (self.end.date() + timedelta(days=1)).isoformat()
 
 
+# SYNC-O-09: el nivel frio fuerza la lectura completa de todos los recursos aunque las ventanas esten encendidas.
+_FORCE_FULL: ContextVar[bool] = ContextVar("sync_force_full_reads", default=False)
+
+
+@contextmanager
+def force_full_reads(enabled: bool = True) -> Iterator[None]:
+    """Dentro del bloque, `plan_window` siempre pide lectura completa (nivel frio, SYNC-O-09)."""
+    token = _FORCE_FULL.set(enabled or _FORCE_FULL.get())
+    try:
+        yield
+    finally:
+        _FORCE_FULL.reset(token)
+
+
+def full_reads_forced() -> bool:
+    return _FORCE_FULL.get()
+
+
+def start_full_reads() -> Token[bool]:
+    """Como `force_full_reads`, para un bloque try/finally largo: devuelve el token para `stop_full_reads`."""
+    return _FORCE_FULL.set(True)
+
+
+def stop_full_reads(token: Token[bool]) -> None:
+    _FORCE_FULL.reset(token)
+
+
 def plan_window(db: Session, source: str, resource: str, now: datetime | None = None) -> ReadWindow | None:
-    """Ventana a leer, o None si toca lectura completa (bandera apagada, sin marca o relectura vencida)."""
-    if not settings.sync_windowed_reads_enabled:
+    """Ventana a leer, o None si toca lectura completa (bandera apagada, sin marca, relectura vencida o nivel frio)."""
+    if not settings.sync_windowed_reads_enabled or _FORCE_FULL.get():
         return None
     now = now or datetime.now(UTC)
     full = sync_cursors.get(db, source, resource, sync_cursors.MODE_FULL)

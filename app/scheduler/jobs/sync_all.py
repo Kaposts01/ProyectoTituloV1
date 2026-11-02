@@ -14,7 +14,7 @@ from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
-from app.services import core_etl_mark, status_events, sync_metrics
+from app.services import core_etl_mark, status_events, sync_metrics, sync_window
 from app.services import tch_report_registry as tch_registry
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_recovery import reconcile_charge_recoveries
@@ -33,6 +33,9 @@ _VIRTUALPOS_PLATFORMS = ("virtualpos1", "virtualpos2")
 # SYNC-O-16: ETL Core por canal (el mismo que /etl/core/{provider}); TCH no entra (se alimenta de reportes).
 _CORE_ETL_RUNNERS = {"virtualpos": run_vp_core_etl, "toku": run_toku_core_etl, "payku": run_payku_core_etl}
 _ALL_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
+# SYNC-O-09: niveles del corredor (D10). La tibia es la corrida de siempre (tier=None).
+TIER_HOT = "hot"
+TIER_COLD = "cold"
 
 
 def channel_is_enabled(channel: str) -> bool:
@@ -107,10 +110,14 @@ def _make_progress_callback(run_id: str, phase: str):
     return callback
 
 
-async def sync_all_channels(run_id: str | None = None, channels: list[str] | None = None) -> None:
+async def sync_all_channels(
+    run_id: str | None = None, channels: list[str] | None = None, tier: str | None = None
+) -> None:
     """Sincroniza los canales indicados y emite progreso al bus SSE.
 
     channels=None → todos los canales (virtualpos1, virtualpos2, toku, payku, tch).
+    tier (SYNC-O-09): None = corrida de siempre (la tibia diaria). "hot" = caliente: sin captura de glosas (la cuota de
+    peticiones es diaria). "cold" = fria: lectura completa forzada, consolidacion completa y TCH aunque no haya carga.
     """
     requested = frozenset(channels) if channels else _ALL_CHANNELS
 
@@ -153,6 +160,10 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
     metrics = RunMetrics(run_id)
     metrics_token = sync_metrics.activate(metrics)
     vp_synced: dict[str, uuid.UUID] = {}  # cuenta VP -> id de su SyncRun (para reconciliar tras la consolidacion final)
+    cold = tier == TIER_COLD
+    full_reads_token = sync_window.start_full_reads() if cold else None  # SYNC-O-09: la fria lee todo
+    if tier:
+        metrics.note("tier", tier)
 
     try:
         # — VirtualPOS VP1 y VP2 —
@@ -236,7 +247,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         # — Captura de glosa de rechazo de VirtualPOS (RJ-06) —: tras sincronizar y ANTES de consolidar, para que el
         # vinculo pago-cobro llegue a `payments`. Apagada por defecto (VP_REJECTION_CAPTURE_ENABLED); auxiliar: un fallo
         # se registra en las metricas y NO cambia el estado del run ni obliga a reintentar el sync.
-        if settings.vp_rejection_capture_enabled and vp_synced:
+        if settings.vp_rejection_capture_enabled and vp_synced and tier != TIER_HOT:
             _update_run(db_run_id, phase="capture_vp_rejections")
             event_bus.emit(run_id, {"type": "phase_start", "phase": "capture_vp_rejections"})
             for platform in vp_synced:
@@ -280,6 +291,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
                 tch_snapshot = tch_registry.consolidation_snapshot(db)
                 if (
                     channels is None
+                    and not cold
                     and settings.sync_tch_consolidate_only_after_load
                     and not tch_registry.needs_consolidation(db, tch_snapshot)
                 ):
@@ -307,7 +319,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
             with metrics.timed("consolidate_total") as consolidate_info:
                 consolidated = consolidate_to_centralized(
                     db, consolidate_sources, failures=consolidation_failures, timings=consolidation_timings,
-                    run_id=db_run_id,
+                    run_id=db_run_id, **({"differential": False} if cold else {}),
                 )
                 consolidate_info["records"] = consolidated
             for item in consolidation_timings:
@@ -446,5 +458,7 @@ async def sync_all_channels(run_id: str | None = None, channels: list[str] | Non
         event_bus.emit(run_id, {"type": "error", "phase": "fatal", "msg": str(exc)[:500]})
 
     finally:
+        if full_reads_token is not None:
+            sync_window.stop_full_reads(full_reads_token)
         sync_metrics.deactivate(metrics_token)
         event_bus.close_bus(run_id)
