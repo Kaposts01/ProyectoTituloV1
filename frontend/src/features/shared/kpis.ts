@@ -19,7 +19,8 @@ export type ChannelKpis = {
   ltv: number | null;
   /** Ventana sobre la que se calculó el churn («promedio de 3 meses»…); null si el backend no la informa. */
   churnWindowLabel: string | null;
-  rejectedCharges: { count: number | null; amount: number | null };
+  /** `basis`: «cargos» (VirtualPOS, TCH) o «transacciones» (Toku, Payku) según lo que el canal marca como rechazado (UI-29). */
+  rejectedCharges: { count: number | null; amount: number | null; basis?: "cargos" | "transacciones"; basisLabel?: string };
   note?: string;
   /** Solo TCH: recaudo aceptado del último período (reportes Excel oficiales). */
   monthlyCollection?: MonthlyCollection;
@@ -30,7 +31,7 @@ export const TCH_SOURCE_NOTE = "Fuente: reportes Excel oficiales";
 
 export const CHANNEL_KPI_NOTES: Partial<Record<Channel, string>> = {
   payku: `${PAYKU_COVERAGE_NOTE} · MRR desde última transacción success`,
-  toku: "MRR desde suscripciones activas con medio de pago chargeable · Campos específicos de Toku",
+  toku: "MRR desde suscripciones activas efectivas (no eliminadas y con medio de pago cobrable) · Campos específicos de Toku",
   tch: TCH_SOURCE_NOTE,
 };
 
@@ -68,7 +69,12 @@ export function normalizeKpis(channel: Channel, raw: unknown, fallbackChurnLabel
     churnRate: num(k.churn_rate),
     ltv: num(k.ltv),
     churnWindowLabel: label(k.churn_window_label) ?? label(fallbackChurnLabel),
-    rejectedCharges: { count: num(rejected.count), amount: num(rejected.amount) },
+    rejectedCharges: {
+      count: num(rejected.count),
+      amount: num(rejected.amount),
+      ...(rejected.basis === "cargos" || rejected.basis === "transacciones" ? { basis: rejected.basis } : {}),
+      ...(label(rejected.basis_label) ? { basisLabel: label(rejected.basis_label) as string } : {}),
+    },
     note: CHANNEL_KPI_NOTES[channel],
     ...(collection
       ? {

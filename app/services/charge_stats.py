@@ -110,6 +110,44 @@ def rejection_stats_by(
     return {k: v for k, v in out.items() if v["evaluable"] > 0}
 
 
+# Base del KPI `rejected_charges` por canal (UI-29). VirtualPOS y TCH marcan el CARGO como rechazado; Toku y Payku no
+# (la factura de Toku queda UNPAID y Payku solo informa transacciones), asi que ahi se cuentan los intentos rechazados.
+REJECTION_BASIS = {
+    "virtualpos": "cargos",
+    "tch": "cargos",
+    "toku": "transacciones",
+    "payku": "transacciones",
+}
+REJECTION_BASIS_LABELS = {
+    "cargos": "cargos rechazados del mes hasta hoy",
+    "transacciones": "intentos de cobro rechazados del mes hasta hoy (el canal no marca el cargo como rechazado)",
+}
+
+
+def rejected_month_kpi(rows: Iterable[dict[str, Any]], today: date, channel: str) -> dict[str, Any]:
+    """KPI `rejected_charges` del mes en curso (hora de Chile) con la definicion unica de rechazo (UI-29).
+
+    Filas {date, status, count?, amount?}: cuentan solo las de estado rechazado (`charge_outcome`) con fecha del mes de
+    `today` y no posterior a `today`. Devuelve {count, amount, basis, basis_label}; `basis` dice si son cargos o
+    transacciones segun el canal (REJECTION_BASIS).
+    """
+    count = 0
+    amount = 0.0
+    for row in rows:
+        day = parse_charge_date(row.get("date"))
+        if day is None or day > today or (day.year, day.month) != (today.year, today.month):
+            continue
+        if charge_outcome(row.get("status")) != "rejected":
+            continue
+        count += int(row.get("count", 1) or 0)
+        try:
+            amount += float(row.get("amount") or 0)
+        except (TypeError, ValueError):
+            pass
+    basis = REJECTION_BASIS[channel]
+    return {"count": count, "amount": round(amount, 2), "basis": basis, "basis_label": REJECTION_BASIS_LABELS[basis]}
+
+
 def fmt_pct(rate: float | None) -> str:
     """Porcentaje con coma decimal y un decimal ('98,0%'); '—' si no hay denominador."""
     return "—" if rate is None else f"{rate:.1f}".replace(".", ",") + "%"

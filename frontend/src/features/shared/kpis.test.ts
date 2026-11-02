@@ -32,7 +32,7 @@ describe("normalizeKpis", () => {
   it("agrega notas solo para payku y tch", () => {
     expect(normalizeKpis("payku", {}).note).toBe("Cobertura histórica no certificada · MRR desde última transacción success");
     expect(normalizeKpis("tch", {}).note).toBe("Fuente: reportes Excel oficiales");
-    expect(normalizeKpis("toku", {}).note).toBe("MRR desde suscripciones activas con medio de pago chargeable · Campos específicos de Toku");
+    expect(normalizeKpis("toku", {}).note).toBe("MRR desde suscripciones activas efectivas (no eliminadas y con medio de pago cobrable) · Campos específicos de Toku");
     expect(normalizeKpis("virtualpos", {}).note).toBeUndefined();
   });
 

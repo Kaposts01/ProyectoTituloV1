@@ -35,6 +35,7 @@ from app.services.charge_stats import (
     charge_rejection_stats,
     fmt_pct,
     is_future_charge,
+    rejected_month_kpi,
     rejection_stats_by,
 )
 from app.services.payku_sync import sync_payku
@@ -420,8 +421,11 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
         .group_by(CCharge.source, charge_period_col, CCharge.status)
     ).all():
         month = _month(period)
-        if month and charge_outcome(raw_status) != "excluded":
-            cs = "pagada" if _general_transaction_status(raw_status) == "Aceptadas" else "rechazada"
+        # UI-28: solo pagados y rechazados (charge_stats); pendientes, cancelados y estados desconocidos no son
+        # «rechazada» (antes todo lo que no era pagado caia en rechazada).
+        outcome = charge_outcome(raw_status)
+        if month and outcome in ("paid", "rejected"):
+            cs = "pagada" if outcome == "paid" else "rechazada"
             charge_months[(*month, source_labels[source], cs)]["count"] += count
             charge_months[(*month, source_labels[source], cs)]["amount"] += _amount(total_amount)
 
@@ -436,8 +440,9 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     else:
         for period, raw_status, count, total_amount in tch_months:
             month = _month(period)
-            if month:
-                cs = "pagada" if _general_transaction_status(raw_status) == "Aceptadas" else "rechazada"
+            outcome = charge_outcome(raw_status)
+            if month and outcome in ("paid", "rejected"):
+                cs = "pagada" if outcome == "paid" else "rechazada"
                 charge_months[(*month, "TCH", cs)]["count"] += count
                 charge_months[(*month, "TCH", cs)]["amount"] += _amount(total_amount)
 
@@ -445,11 +450,11 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
     payment_months: defaultdict[tuple[int, int, str, str], dict[str, float]] = defaultdict(lambda: {"count": 0, "amount": 0})
 
     for source, period, raw_status, count, total_amount in online_months:
-        outcome = _general_transaction_status(raw_status)
-        if outcome in ("Aceptadas", "Rechazadas"):
+        outcome = charge_outcome(raw_status)  # misma clasificacion que los cargos (UI-28)
+        if outcome in ("paid", "rejected"):
             month = _month(period)
             if month:
-                cs = "pagada" if outcome == "Aceptadas" else "rechazada"
+                cs = "pagada" if outcome == "paid" else "rechazada"
                 payment_months[(*month, source_labels[source], cs)]["count"] += count
                 payment_months[(*month, source_labels[source], cs)]["amount"] += _amount(total_amount)
 
@@ -463,11 +468,11 @@ def _compute_general_dashboard(db: Session) -> dict[str, Any]:
                 payment_months[(*month, "TCH", "rechazada")]["amount"] += _amount(control.rejected_amount)
     else:
         for period, raw_status, count, total_amount in tch_months:
-            outcome = _general_transaction_status(raw_status)
-            if outcome in ("Aceptadas", "Rechazadas"):
+            outcome = charge_outcome(raw_status)
+            if outcome in ("paid", "rejected"):
                 month = _month(period)
                 if month:
-                    cs = "pagada" if outcome == "Aceptadas" else "rechazada"
+                    cs = "pagada" if outcome == "paid" else "rechazada"
                     payment_months[(*month, "TCH", cs)]["count"] += count
                     payment_months[(*month, "TCH", cs)]["amount"] += _amount(total_amount)
 
@@ -2668,7 +2673,12 @@ def _vp_centralized_dashboard(source: str, db: Session) -> dict[str, Any]:
         for (yr, mo), bkts in sorted(rej_by_month.items())
         for st, v in sorted(bkts.items())
     ]
-    extended["kpis"]["rejected_charges"] = _rejected_current_month(extended["rejected_charges_monthly"])
+    # UI-29: definicion unica (charge_stats), sin cargos con fecha posterior a hoy.
+    extended["kpis"]["rejected_charges"] = rejected_month_kpi(
+        ({"date": _cd, "status": "rechazado", "amount": _amt} for _cd, _amt, _rp in rej_charge_rows),
+        rejected_month.now_chile().date(),
+        "virtualpos",
+    )
 
     return {
         "source": source,
@@ -2708,6 +2718,23 @@ def _month_coverage_gaps(entries: list[dict[str, Any]]) -> list[dict[str, int]]:
         if (year, month) < last and (year, month) not in present:
             gaps.append({"year": year, "month": month})
     return gaps
+
+
+def _payment_rejected_month_kpi(db: Session, source: str) -> dict[str, Any]:
+    """`rejected_charges` de Toku/Payku: transacciones rechazadas del mes hasta hoy (UI-29, charge_stats)."""
+    today = rejected_month.now_chile().date()
+    month_start = today.replace(day=1).isoformat()
+    day = func.substring(CPayment.payment_date, 1, 10)
+    rows = db.execute(
+        select(day, CPayment.status, func.count(), func.coalesce(func.sum(
+            case((CPayment.amount.op("~")(r"^\d+(\.\d+)?$"), cast(CPayment.amount, Numeric)), else_=0)
+        ), 0))
+        .where(CPayment.source == source, day >= month_start, day <= today.isoformat())
+        .group_by(day, CPayment.status)
+    ).all()
+    return rejected_month_kpi(
+        ({"date": d, "status": st, "count": n, "amount": float(amt)} for d, st, n, amt in rows), today, source
+    )
 
 
 def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
@@ -2834,6 +2861,7 @@ def _toku_centralized_dashboard(db: Session) -> dict[str, Any]:
         "active_subscribers": len(active_subscriptions),
         "active_clients": active_clients,
         "arpu": round(mrr / active_clients, 0) if active_clients else None,
+        "rejected_charges": _payment_rejected_month_kpi(db, "toku"),
     })
     return {
         "source": "toku",
@@ -2934,6 +2962,7 @@ def _payku_centralized_dashboard(db: Session) -> dict[str, Any]:
         ).all()
     ]
     extended = _payku_extended_data(records, sub_tx_rows)
+    extended["kpis"]["rejected_charges"] = _payment_rejected_month_kpi(db, "payku")
     dated_series = (
         activity
         + extended.get("transactions_monthly", [])
