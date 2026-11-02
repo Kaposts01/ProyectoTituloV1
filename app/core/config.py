@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     # y estado reporte > API. Apagada por defecto: el recuperador todavia no las lee (REC-04).
     toku_report_signals_enabled: bool = False
     toku_report_firm_unpaid_days: int = 7  # dias sin intento para que una cuota fallida quede «en firme» (DEC-16)
+    # SYNC-D-10: reintentos de lectura (red, 429, 5xx) con `Retry-After`; ninguna espera supera este tope (segundos).
+    http_retry_max_delay_seconds: float = 30
+    # SYNC-D-10: reintento del job `retry_failed_channels`. Tope de corridas fallidas por canal y dia (Chile) antes de rendirse;
+    # si la sync principal sigue corriendo, se pospone `sync_retry_defer_minutes` hasta `sync_retry_max_deferrals` veces.
+    sync_retry_max_failures_per_day: int = 3
+    sync_retry_defer_minutes: int = 30
+    sync_retry_max_deferrals: int = 6
+    # VP-PAR-11: paridad diaria reportes PAT vs base (solo lectura, resultado al log). APAGADA por defecto.
+    vp_parity_check_enabled: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""

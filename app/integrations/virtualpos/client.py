@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 from typing import Any, Self
@@ -7,6 +6,7 @@ import httpx
 
 from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
+from app.integrations.http_retry import send_with_retries
 from app.integrations.virtualpos.auth import build_signature
 
 _ERROR_CODE_RE = re.compile(r"^E-\d{3}$")
@@ -219,13 +219,7 @@ class VirtualPOSClient:
         return await self._get(f"/v3/charge/{charge_id}/retry", retry=False)
 
     async def _get(self, path: str, params: dict[str, Any] | None = None, *, retry: bool = True) -> Any:
-        attempts = settings.virtualpos_read_retries + 1 if retry else 1
-        for attempt in range(attempts):
-            try:
-                response = await self._client.get(path, params=params)
-                break
-            except (httpx.ReadTimeout, httpx.ReadError, httpx.ConnectError):
-                if attempt == attempts - 1:
-                    raise
-                await asyncio.sleep(2**attempt)
+        # SYNC-D-10: red caida, 429 y 5xx transitorio se reintentan (con Retry-After y tope); `retry=False` = un solo intento.
+        retries = settings.virtualpos_read_retries if retry else 0
+        response = await send_with_retries(lambda: self._client.get(path, params=params), retries=retries)
         return _decode(response, lenient=True)

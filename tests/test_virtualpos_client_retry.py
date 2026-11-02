@@ -32,7 +32,7 @@ def _no_sleep(monkeypatch):
     async def _instant(_seconds):
         return None
 
-    monkeypatch.setattr("app.integrations.virtualpos.client.asyncio.sleep", _instant)
+    monkeypatch.setattr("app.integrations.http_retry.asyncio.sleep", _instant)
     monkeypatch.setattr(settings, "virtualpos_read_retries", 2)
 
 

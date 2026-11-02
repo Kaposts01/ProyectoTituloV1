@@ -3,7 +3,7 @@ import asyncio
 import httpx
 
 from app.core.config import settings
-from app.integrations.payku import client as payku_client
+from app.integrations import http_retry
 from app.integrations.payku.auth import build_sign
 from app.integrations.payku.client import PaykuClient
 
@@ -33,7 +33,7 @@ def test_payku_client_retries_read_timeout(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(settings, "payku_read_retries", 1)
-    monkeypatch.setattr(payku_client.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(http_retry.asyncio, "sleep", no_sleep)
     http_client = PaykuTimeoutThenSuccessClient()
     client = PaykuClient()
     original_client = client._client
