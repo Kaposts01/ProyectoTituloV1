@@ -11,7 +11,10 @@ from app.models.crm import Charge
 from app.models.status_change import StatusChangeEvent
 from app.models.tch import TchSubscription, TchTransaction
 from app.services import channel_consolidation
-from app.services.channel_consolidation import _consolidate_tch_transactions, consolidate_to_centralized
+from app.services.channel_consolidation import (
+    _consolidate_tch_transactions,
+    consolidate_to_centralized,
+)
 
 
 @pytest.fixture
