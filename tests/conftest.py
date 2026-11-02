@@ -149,3 +149,27 @@ def _assert_test_database():
     if not TEST_DB_NAME_RE.fullmatch(str(current)) or current != expected:
         pytest.exit("[guarda de BD de tests] el engine de la app no apunta a la base '*_test' esperada.", returncode=2)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _billing_pilot_allowlist_open(request, monkeypatch):
+    """BILL-09: la allowlist del piloto (vacia = todo bloqueado) se abre para los tests que no la prueban.
+
+    Los tests de la allowlist piden el fixture `real_pilot_allowlist` y ven el comportamiento real
+    (`BILLING_PILOT_ALLOWLIST` fijada por el propio test con monkeypatch)."""
+    if "real_pilot_allowlist" in request.fixturenames:
+        yield
+        return
+    from app.services import billing_requests
+
+    monkeypatch.setattr(billing_requests, "is_pilot_allowlisted", lambda platform, subscription_external_id: True)
+    yield
+
+
+@pytest.fixture
+def real_pilot_allowlist(monkeypatch):
+    """Usa la allowlist real; parte vacia (todo bloqueado) salvo que el test la fije."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "billing_pilot_allowlist", "")
+    yield

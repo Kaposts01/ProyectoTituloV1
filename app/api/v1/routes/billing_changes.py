@@ -266,6 +266,8 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(422, _detail(exc.code, str(exc), policy_code=exc.policy_code))
     if isinstance(exc, svc.InvalidRequestFieldsError | svc.CommentRequiredError):
         raise HTTPException(422, _detail(exc.code, str(exc)))
+    if isinstance(exc, svc.NotInPilotAllowlistError):  # BILL-09: mensaje fijo, sin eco de la allowlist
+        raise HTTPException(403, _detail(exc.code, str(exc)))
     if isinstance(exc, svc.NotApproverError | svc.SelfApprovalNotAllowedError | svc.NotAllowedError):
         raise HTTPException(403, _detail(exc.code, str(exc)))
     if isinstance(exc, BillingApplyError):  # cualquier otro error tipado de aplicacion: nunca 500
@@ -356,7 +358,9 @@ def _detail_json(db: Session, r: BillingChangeRequest) -> dict[str, Any]:
 
 def _policy_json(p: BillingPolicy) -> dict[str, Any]:
     return {**svc.policy_values(p), "updated_by_user_id": str(p.updated_by_user_id) if p.updated_by_user_id else None,
-            "updated_at": _iso(p.updated_at)}
+            "updated_at": _iso(p.updated_at),
+            # BILL-09: solo lectura (se define por BILLING_PILOT_ALLOWLIST, no por la API). Ids de suscripcion, sin PII.
+            "pilot_allowlist": [f"{pl}:{sub}" for pl, sub in sorted(svc.pilot_allowlist())]}
 
 
 def _audit_json(a: BillingPolicyAudit, names: dict[uuid.UUID, str]) -> dict[str, Any]:
