@@ -186,6 +186,9 @@
   "query:query",
   "query:status"
  ],
+ "GET /api/v1/imports/toku-reports/status": [
+  "cookie:crm_access_token"
+ ],
  "GET /api/v1/payments": [
   "cookie:crm_access_token",
   "query:limit",
