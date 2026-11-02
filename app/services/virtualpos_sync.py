@@ -12,6 +12,7 @@ from app.integrations.virtualpos.client import VirtualPOSAPIError, VirtualPOSCli
 from app.models.sync_run import SyncRun
 from app.services import sync_cursors
 from app.services.channel_consolidation import consolidate_to_centralized
+from app.services.channel_removals import detect_removals
 from app.services.channel_store import _VP_PLATFORMS, store_vp_resources
 from app.services.charge_recovery import reconcile_charge_recoveries
 from app.services.payload_sanitization import sanitize_payload
@@ -304,6 +305,8 @@ async def sync_virtualpos(
                     db, platform, resource_type, mode, started_at=started_at, records_seen=seen_count,
                     requests_made=requests,
                 )
+            # SYNC-D-13: las suscripciones se leen siempre completas (sin ventana); llegar aqui = lectura completa.
+            detect_removals(db, platform, seen_since=subs_started, complete=True, run_id=run.id)
             run.status = "completed"
             run.resource_stats = stats
             if skipped_subscriptions:

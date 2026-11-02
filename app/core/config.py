@@ -104,6 +104,12 @@ class Settings(BaseSettings):
     targeted_reconcile_pause_seconds: float = 1.0
     targeted_reconcile_due_days: int = 5  # cobro programado en los ultimos N dias
     targeted_reconcile_rejection_days: int = 15  # rechazo reciente = cobro rechazado de los ultimos N dias
+    # SYNC-D-13: bajas por desaparicion. Tras una sync COMPLETA y exitosa de suscripciones, las que no se vieron quedan con
+    # `removed_at` en su tabla de canal y un evento `removed`. Si las desaparecidas superan el umbral (proporcion de las
+    # conocidas O cantidad absoluta) se aborta sin marcar nada y se alerta (probable error del proveedor). APAGADA por defecto.
+    sync_removal_detection_enabled: bool = False
+    sync_removal_max_ratio: float = 0.05
+    sync_removal_max_count: int = 100
     # SYNC-D-08: alertas de fallos de sincronizacion por correo (job cada 15 min). APAGADA por defecto. Todo se define SOLO
     # por variable de entorno; `ALERT_EMAIL_TO` (lista separada por comas) es obligatorio: si falta, no se envia nada.
     alerts_enabled: bool = False

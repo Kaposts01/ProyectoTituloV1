@@ -271,6 +271,23 @@ register_condition_provider("cancellation_stuck", _stuck_cancellations,
 register_condition_provider("billing_stuck", _stuck_billing, _fixed("Cambios de cobro", "solicitudes de cobro atascadas"))
 
 
+def _removal_conditions(db: Session, now: datetime) -> list[Condition]:
+    # Importacion perezosa: channel_removals importa este modulo.
+    from app.services.channel_removals import removal_abort_conditions
+
+    return removal_abort_conditions(db, now)
+
+
+def _removal_describe(source: str) -> tuple[str, str]:
+    from app.services.channel_removals import describe_removal_abort
+
+    return describe_removal_abort(source)
+
+
+# SYNC-D-13: la deteccion de bajas por desaparicion aborto por superar el umbral (probable error del proveedor).
+register_condition_provider("removal_aborted", _removal_conditions, _removal_describe)
+
+
 def evaluate_conditions(db: Session, now: datetime) -> list[Condition]:
     """Condiciones activas ahora, de todas las fuentes registradas. Solo lectura; sin datos personales."""
     found: list[Condition] = []
