@@ -209,6 +209,72 @@ class TchMonthlyCollection(Base):
     )
 
 
+class TchMandateFlow(Base):
+    """TCH-PAR-10: hojas FLUJO MANDATOS CANT y FLUJO MANDATOS MONTO (vigentes, altas y bajas por entidad y mes).
+
+    Una fila por (periodo, entidad, concepto); CANT llena `cantidad` y MONTO llena `monto`. "El ultimo reporte gana".
+    `tipo` clasifica el rotulo del concepto: vigentes, altas, bajas u otro. Solo agregados: sin datos personales.
+    """
+
+    __tablename__ = "tch_flujo_mandatos"
+    __table_args__ = (UniqueConstraint("periodo", "entidad", "concepto", name="uq_tch_flujo_mandatos_clave"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    period: Mapped[str] = mapped_column("periodo", String(7), nullable=False, index=True)  # YYYY-MM
+    entity: Mapped[str] = mapped_column("entidad", String(150), nullable=False)
+    concept: Mapped[str] = mapped_column("concepto", String(150), nullable=False)
+    kind: Mapped[str] = mapped_column("tipo", String(10), nullable=False)
+    count: Mapped[int | None] = mapped_column("cantidad", Integer, nullable=True)
+    amount: Mapped[str | None] = mapped_column("monto", String(20), nullable=True)
+    source_file: Mapped[str] = mapped_column("archivo_origen", String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class TchRejectionReason(Base):
+    """TCH-PAR-10: hojas RECHAZOS (motivo de rechazo de mandato) y ENT RECHAZOS (motivos por entidad), por reporte.
+
+    `hoja` = RECHAZOS o ENT RECHAZOS; `entidad` vacia cuando la hoja no abre por entidad. Solo agregados.
+    """
+
+    __tablename__ = "tch_rechazos_motivo"
+    __table_args__ = (
+        UniqueConstraint("reporte_periodo", "hoja", "entidad", "motivo", name="uq_tch_rechazos_motivo_clave"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    report_period: Mapped[str] = mapped_column("reporte_periodo", String(7), nullable=False, index=True)
+    sheet: Mapped[str] = mapped_column("hoja", String(20), nullable=False)
+    entity: Mapped[str] = mapped_column("entidad", String(150), nullable=False, server_default="")
+    reason: Mapped[str] = mapped_column("motivo", String(255), nullable=False)
+    count: Mapped[int | None] = mapped_column("cantidad", Integer, nullable=True)
+    amount: Mapped[str | None] = mapped_column("monto", String(20), nullable=True)
+    source_file: Mapped[str] = mapped_column("archivo_origen", String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class TchReportKpi(Base):
+    """TCH-PAR-10: hoja KPI del reporte (rotulo -> valor numerico), una fila por (reporte_periodo, indicador)."""
+
+    __tablename__ = "tch_kpi_reporte"
+    __table_args__ = (UniqueConstraint("reporte_periodo", "indicador", name="uq_tch_kpi_reporte_clave"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    report_period: Mapped[str] = mapped_column("reporte_periodo", String(7), nullable=False, index=True)
+    indicator: Mapped[str] = mapped_column("indicador", String(255), nullable=False)
+    value: Mapped[str | None] = mapped_column("valor", String(30), nullable=True)
+    source_file: Mapped[str] = mapped_column("archivo_origen", String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class TchFileLoad(Base):
     """SYNC-O-08: registro de reportes Excel TCH cargados, por sha256 del contenido (antes en `source_records`).
 

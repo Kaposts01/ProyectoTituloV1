@@ -34,9 +34,12 @@ from app.models.tch import (
     TchBank,
     TchClient,
     TchCostCenter,
+    TchMandateFlow,
     TchMandateType,
     TchMonthlyCollection,
     TchOrigin,
+    TchRejectionReason,
+    TchReportKpi,
     TchSubscription,
     TchTransaction,
 )
@@ -601,6 +604,338 @@ def _transform_monthly_collection(source: "Path | ReportBook") -> list[dict]:
             "archivo_origen": filepath.name,
         })
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Tablas de control adicionales (TCH-PAR-10): FLUJO MANDATOS, RECHAZOS, ENT RECHAZOS, KPI
+# ---------------------------------------------------------------------------
+# Lectores tolerantes: buscan rotulos (meses en el encabezado, "Motivo", "Cantidad", "Monto") en vez de posiciones
+# fijas. Si una hoja no tiene la forma esperada se omite con un aviso y la carga sigue: estas tablas son controles
+# agregados y nunca deben hacer fallar la carga de mandatos y cargos. Solo guardan rotulos y numeros: un rotulo con
+# forma de RUT o de correo se descarta.
+
+SHEET_FLOW_COUNT = "FLUJO MANDATOS CANT"
+SHEET_FLOW_AMOUNT = "FLUJO MANDATOS MONTO"
+SHEET_REJECTION_REASONS = "RECHAZOS"
+SHEET_ENTITY_REJECTIONS = "ENT RECHAZOS"
+SHEET_KPI = "KPI"
+
+_PERIOD_HEADER = re.compile(r"^[A-Z]{3,10}\.?[\s\-/']*\d{2,4}$")
+_LOOKS_PERSONAL = re.compile(r"@|\b\d{1,2}\.?\d{3}\.?\d{3}-[\dK]\b", re.IGNORECASE)
+
+
+def _plain_upper(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().upper().strip()
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
+
+
+def _control_label(value: Any, max_len: int = 150) -> str | None:
+    """Rotulo de una celda de control: texto no vacio, espacios colapsados, sin forma de RUT ni de correo."""
+    if not isinstance(value, str):
+        return None
+    text = re.sub(r"\s+", " ", value).strip()
+    if not text or _LOOKS_PERSONAL.search(text):
+        return None
+    return text[:max_len]
+
+
+def _header_period(value: Any) -> str | None:
+    """Mes de una celda de encabezado ("ENE 21", "SEPT 2026", fecha). Mas estricto que _norm_period para no leer
+    meses dentro de palabras ("INDICADOR 2025")."""
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m")
+    if isinstance(value, str):
+        text = _plain_upper(value)
+        if _PERIOD_HEADER.match(text) or re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", text):
+            return _norm_period(text)
+    return None
+
+
+def _control_cells(book: ReportBook, sheet: str) -> list[list[Any]] | None:
+    if not book.has_sheet(sheet):
+        return None
+    try:
+        return book.cells(sheet)
+    except (OSError, ValueError) as exc:
+        log.warning("  No se pudo leer hoja '%s': %s", sheet, type(exc).__name__)
+        return None
+
+
+def _flow_kind(label: str) -> str:
+    text = _plain_upper(label)
+    if "VIGENTE" in text:
+        return "vigentes"
+    if any(word in text for word in ("ALTA", "NUEV", "INGRES", "NVO")):
+        return "altas"
+    if any(word in text for word in ("BAJA", "ELIMIN", "ELI ")):
+        return "bajas"
+    return "otro"
+
+
+def _flow_values(book: ReportBook, sheet: str, cutoff: str | None) -> dict[tuple[str, str, str], Any]:
+    """(periodo, entidad, concepto) -> valor crudo de una hoja FLUJO MANDATOS.
+
+    Encabezado: la primera fila (de las 15 primeras) con al menos dos meses. A la izquierda del primer mes van los
+    rotulos: dos o mas rotulos = entidad y concepto; uno solo = concepto (si es vigentes/altas/bajas) de la ultima
+    entidad vista, o entidad de una hoja de un solo concepto. Una fila con rotulo y sin numeros es un titulo de
+    seccion (entidad). Se omiten los meses posteriores al reporte y los posteriores al ultimo mes con datos.
+    """
+    cells = _control_cells(book, sheet)
+    if not cells:
+        return {}
+    try:
+        header_index = periods = None
+        for index, row in enumerate(cells[:15]):
+            found = {column: period for column, value in enumerate(row) if (period := _header_period(value))}
+            if len(found) >= 2:
+                header_index, periods = index, found
+                break
+        if header_index is None or not periods:
+            log.warning("  Hoja '%s' sin encabezado de meses reconocible: se omite", sheet)
+            return {}
+        first_period_column = min(periods)
+        section: str | None = None
+        values: dict[tuple[str, str, str], Any] = {}
+        for row in cells[header_index + 1:]:
+            labels = [label for value in row[:first_period_column] if (label := _control_label(value))]
+            numbers = {
+                period: row[column]
+                for column, period in periods.items()
+                if column < len(row) and _is_number(row[column])
+            }
+            if not labels:
+                continue
+            if not numbers:
+                section = labels[0]
+                continue
+            if len(labels) >= 2:
+                entity, concept = labels[0], " / ".join(labels[1:])[:150]
+                section = entity
+            elif _flow_kind(labels[0]) != "otro":
+                entity, concept = section or "TOTAL", labels[0]
+            else:
+                entity, concept = labels[0], section or "TOTAL"
+            for period, value in numbers.items():
+                values[(period, entity, concept)] = value
+        with_data = [key[0] for key, value in values.items() if value]
+        limits = [p for p in (cutoff, max(with_data) if with_data else None) if p]
+        limit = min(limits) if limits else None
+        return {key: value for key, value in values.items() if limit is None or key[0] <= limit}
+    finally:
+        book.release(sheet)
+
+
+def _transform_mandate_flow(book: ReportBook, cutoff: str | None) -> list[dict]:
+    """Filas de tch_flujo_mandatos desde FLUJO MANDATOS CANT (cantidad) y FLUJO MANDATOS MONTO (monto)."""
+    counts = _flow_values(book, SHEET_FLOW_COUNT, cutoff)
+    amounts = _flow_values(book, SHEET_FLOW_AMOUNT, cutoff)
+    rows = []
+    for key in sorted(counts.keys() | amounts.keys()):
+        period, entity, concept = key
+        rows.append({
+            "periodo": period,
+            "entidad": entity,
+            "concepto": concept,
+            "tipo": _flow_kind(concept),
+            "cantidad": _norm_count(counts.get(key)),
+            "monto": _norm_amount(amounts.get(key)),
+            "archivo_origen": book.path.name[:255],
+        })
+    return rows
+
+
+def _find_header_column(header: list[Any], *words: str, skip: tuple[int, ...] = ()) -> int | None:
+    for column, value in enumerate(header):
+        label = _control_label(value)
+        if column not in skip and label and any(word in _plain_upper(label) for word in words):
+            return column
+    return None
+
+
+_ENTITY_HEADERS = {"ENTIDAD", "ENTIDADRECAUDADORA", "BANCO", "BANCOINSTITUCION", "INSTITUCION", "ENTIDADBANCO"}
+
+
+def _transform_rejection_reasons(book: ReportBook, sheet: str, report_period: str | None) -> list[dict]:
+    """Filas de tch_rechazos_motivo desde RECHAZOS o ENT RECHAZOS.
+
+    Encabezado: la primera fila (de las 20 primeras) con una celda "Motivo". Formas reconocidas:
+    * columnas "Cantidad"/"N°" y "Monto" (y opcionalmente "Entidad"/"Banco");
+    * matriz motivo x entidad: cada columna a la derecha del motivo es una entidad con su cantidad;
+    * bloques por entidad: una fila con rotulo en la columna del motivo y sin numeros fija la entidad siguiente.
+    Se omiten las filas TOTAL y las que no traen numeros.
+    """
+    if not report_period:
+        if book.has_sheet(sheet):
+            log.warning("  Hoja '%s' omitida: no se pudo determinar el mes del reporte", sheet)
+        return []
+    cells = _control_cells(book, sheet)
+    if not cells:
+        return []
+    try:
+        header_index = reason_column = None
+        for index, row in enumerate(cells[:20]):
+            column = _find_header_column(row, "MOTIVO")
+            if column is not None:
+                header_index, reason_column = index, column
+                break
+        if header_index is None or reason_column is None:
+            log.warning("  Hoja '%s' sin columna 'Motivo' reconocible: se omite", sheet)
+            return []
+        header = cells[header_index]
+        skip = (reason_column,)
+        # Columna de entidad solo con un rotulo generico ("Entidad", "Banco/Institucion"): un rotulo como "Banco
+        # Estado" es una entidad de la matriz, no el nombre de la columna.
+        entity_column = next(
+            (
+                column for column, value in enumerate(header)
+                if column != reason_column and (label := _control_label(value))
+                and re.sub(r"[^A-Z]", "", _plain_upper(label)) in _ENTITY_HEADERS
+            ),
+            None,
+        )
+        count_column = _find_header_column(header, "CANT", "NRO", "NUMERO", "CASOS", skip=skip)
+        amount_column = _find_header_column(header, "MONTO", skip=skip)
+        matrix_columns: dict[int, str] = {}
+        if entity_column is None and count_column is None and amount_column is None:
+            for column in range(reason_column + 1, len(header)):
+                label = _control_label(header[column])
+                if label and not _plain_upper(label).startswith("TOTAL"):
+                    matrix_columns[column] = label
+        out: dict[tuple[str, str], dict] = {}
+        current_entity = ""
+        for row in cells[header_index + 1:]:
+            reason = _control_label(row[reason_column] if reason_column < len(row) else None, 255)
+            if not reason or "MOTIVO" in _plain_upper(reason):
+                continue
+            if _plain_upper(reason).startswith("TOTAL"):
+                continue
+            numeric = [row[c] for c in range(reason_column + 1, len(row)) if _is_number(row[c])]
+            if matrix_columns:
+                for column, entity in matrix_columns.items():
+                    if column < len(row) and _is_number(row[column]):
+                        out[(entity, reason)] = {"cantidad": _norm_count(row[column]), "monto": None}
+                continue
+            if not numeric:
+                if entity_column is None:
+                    current_entity = reason[:150]  # titulo de bloque por entidad
+                continue
+            if entity_column is not None:
+                current_entity = _control_label(row[entity_column] if entity_column < len(row) else None) or current_entity
+            count = row[count_column] if count_column is not None and count_column < len(row) else None
+            amount = row[amount_column] if amount_column is not None and amount_column < len(row) else None
+            if count_column is None and amount_column is None:
+                count = numeric[0]
+                amount = numeric[1] if len(numeric) > 1 else None
+            out[(current_entity, reason)] = {
+                "cantidad": _norm_count(count) if _is_number(count) else None,
+                "monto": _norm_amount(amount) if _is_number(amount) else None,
+            }
+        return [
+            {
+                "reporte_periodo": report_period,
+                "hoja": sheet,
+                "entidad": entity,
+                "motivo": reason,
+                **measures,
+                "archivo_origen": book.path.name[:255],
+            }
+            for (entity, reason), measures in sorted(out.items())
+        ]
+    finally:
+        book.release(sheet)
+
+
+def _kpi_value(value: Any) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{float(value):.6f}".rstrip("0").rstrip(".")
+
+
+def _transform_kpi(book: ReportBook, report_period: str | None) -> list[dict]:
+    """Filas de tch_kpi_reporte: por fila, el primer rotulo y el primer numero a su derecha.
+
+    Una fila con rotulo y sin numero es un titulo de seccion y se antepone ("Seccion / Indicador"). Un indicador
+    repetido se numera ("Indicador (2)").
+    """
+    if not report_period:
+        if book.has_sheet(SHEET_KPI):
+            log.warning("  Hoja '%s' omitida: no se pudo determinar el mes del reporte", SHEET_KPI)
+        return []
+    cells = _control_cells(book, SHEET_KPI)
+    if not cells:
+        return []
+    try:
+        section: str | None = None
+        out: dict[str, str] = {}
+        for row in cells:
+            label_column = next((c for c, v in enumerate(row) if _control_label(v)), None)
+            if label_column is None:
+                continue
+            label = _control_label(row[label_column])
+            number = next((v for v in row[label_column + 1:] if _is_number(v)), None)
+            if number is None:
+                section = label
+                continue
+            indicator = f"{section} / {label}" if section else label
+            indicator = indicator[:240]
+            name, suffix = indicator, 2
+            while name in out:
+                name, suffix = f"{indicator} ({suffix})", suffix + 1
+            out[name] = _kpi_value(number)
+        return [
+            {"reporte_periodo": report_period, "indicador": name, "valor": value, "archivo_origen": book.path.name[:255]}
+            for name, value in out.items()
+        ]
+    finally:
+        book.release(SHEET_KPI)
+
+
+def _upsert_control_rows(db, model, rows: list[dict], constraint: str, measures: tuple[str, ...]) -> int:
+    """Upsert "el ultimo reporte gana"; una medida ausente en el reporte nuevo no borra la que ya habia."""
+    if not rows:
+        return 0
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    table = model.__table__
+    statement = pg_insert(model).values([{"id": uuid.uuid4(), **row} for row in rows])
+    updates = {name: func.coalesce(statement.excluded[name], table.c[name]) for name in measures}
+    updates["archivo_origen"] = statement.excluded.archivo_origen
+    updates["updated_at"] = func.now()
+    db.execute(statement.on_conflict_do_update(constraint=constraint, set_=updates))
+    db.flush()
+    return len(rows)
+
+
+def _load_control_tables(db, book: ReportBook, report_period: str | None) -> dict[str, int]:
+    """TCH-PAR-10: carga FLUJO MANDATOS, RECHAZOS, ENT RECHAZOS y KPI. Un fallo aqui solo deja un aviso."""
+    counts = {"flujo_mandatos": 0, "rechazos_motivo": 0, "kpi": 0}
+    try:
+        with db.begin_nested():
+            counts["flujo_mandatos"] = _upsert_control_rows(
+                db, TchMandateFlow, _transform_mandate_flow(book, report_period),
+                "uq_tch_flujo_mandatos_clave", ("cantidad", "monto"),
+            )
+            reasons = _transform_rejection_reasons(book, SHEET_REJECTION_REASONS, report_period)
+            reasons += _transform_rejection_reasons(book, SHEET_ENTITY_REJECTIONS, report_period)
+            counts["rechazos_motivo"] = _upsert_control_rows(
+                db, TchRejectionReason, reasons, "uq_tch_rechazos_motivo_clave", ("cantidad", "monto"),
+            )
+            counts["kpi"] = _upsert_control_rows(
+                db, TchReportKpi, _transform_kpi(book, report_period), "uq_tch_kpi_reporte_clave", ("valor",),
+            )
+    except Exception as exc:  # los controles agregados nunca hacen fallar la carga del reporte
+        log.warning("  Tablas de control adicionales omitidas: %s", type(exc).__name__)
+        return {"flujo_mandatos": 0, "rechazos_motivo": 0, "kpi": 0}
+    return counts
+
+
+def _content_period(transaction_rows: list[dict]) -> str | None:
+    """Mes del reporte desde su contenido: el ultimo "Cuota Mes" de las hojas CARGOS."""
+    periods = [row["periodo"] for row in transaction_rows if row.get("origen") == ORIGIN_CHARGE and row.get("periodo")]
+    return max(periods) if periods else None
 
 
 # ---------------------------------------------------------------------------
@@ -1499,7 +1834,7 @@ def backfill_source_records(db, *, apply: bool) -> dict[str, int]:
 def _clear_tch_data(db) -> None:
     """Rebuild the local TCH projection from the complete report history."""
     report_registry.clear(db)
-    for model in (TchMonthlyCollection, TchTransaction, TchSubscription, TchClient, TchCostCenter, TchOrigin, TchMandateType, TchBank):
+    for model in (TchMandateFlow, TchRejectionReason, TchReportKpi, TchMonthlyCollection, TchTransaction, TchSubscription, TchClient, TchCostCenter, TchOrigin, TchMandateType, TchBank):
         db.query(model).delete()
     db.flush()
 
@@ -1598,6 +1933,15 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
     n_transactions = _load_transactions(db, transaction_rows, report_name)
     file_totals["trans"] = n_transactions
     log.info(f"  Transacciones: {n_transactions}")
+
+    # TCH-PAR-10: tablas de control adicionales. Mes del reporte: el del nombre o, si el nombre no lo trae, el del
+    # contenido (ultimo "Cuota Mes" de CARGOS).
+    control_period = report_period or _content_period(transaction_rows)
+    file_totals["periodo_reporte"] = control_period
+    control_counts = _load_control_tables(db, book, control_period)
+    file_totals["controles_extra"] = control_counts
+    if any(control_counts.values()):
+        log.info("  Controles adicionales: " + ", ".join(f"{k}={v}" for k, v in control_counts.items()))
 
     future_months = _purge_future_collection(db)
     if future_months:
