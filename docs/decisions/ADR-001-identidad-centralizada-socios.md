@@ -133,3 +133,5 @@ Preserva aislamiento y es simple de operar, pero duplica socios, impide una vist
 ## Nota: TCH y RUT como identificador de proveedor (2026-10-25)
 
 En el canal `tch`, el RUT normalizado funciona como ID de proveedor solo dentro de ese canal. No sirve como clave de identidad entre proveedores. Cambiar esa clave requeriría migrar datos. Esta nota documenta la tensión; no modifica la decisión aceptada ni cambia el código.
+
+Aplicación (TCH-PAR-14, 2026-11-02): la llave del canal se conserva; un documento sin forma de RUT se aísla con el prefijo `EXT-` en vez de colapsar con otros, y solo un RUT con dígito verificador correcto sale del canal como señal de identidad (atributo `rut` en `core_client_attributes` y `social_id` en las tablas centralizadas). Detalle en `docs/data/tch.md` y `app/services/tch_rut.py`. No cambia la decisión aceptada.

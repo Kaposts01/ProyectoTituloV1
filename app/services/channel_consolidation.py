@@ -46,6 +46,7 @@ from app.services.status_events import (
     event_context,
     pop_reason_hints,
 )
+from app.services.tch_rut import identity_rut
 from app.services.toku_report_lifecycle import chile_date_iso, report_product_dates
 from app.services.vp_current_amount import load_current_amount
 
@@ -559,7 +560,7 @@ def _consolidate_tch_clients(db: Session) -> int:
             "email": None,
             "phone_number": None,
             "status": "active",
-            "social_id": t.rut,
+            "social_id": identity_rut(t.rut),  # TCH-PAR-14: solo un RUT valido es senal de identidad
             "gender_id": None,
             "birth_date": t.birth_date,
             "provider_created_at": None,
@@ -576,8 +577,8 @@ def _consolidate_tch_subscriptions(db: Session) -> int:
         rows.append({
             "source": "tch",
             "external_id": _s(t.file_number),
-            "client_external_id": None,
-            "client_social_id": t.client_rut,
+            "client_external_id": t.client_rut,  # TCH-PAR-12: llave del cliente en el canal (external_id de clients)
+            "client_social_id": identity_rut(t.client_rut),
             "plan_external_id": None,
             "service_id": None,
             "status": t.status,
@@ -599,6 +600,8 @@ def _consolidate_tch_transactions(db: Session) -> int:
     if pruned:
         logger.info("TCH: %d cobros con clave antigua eliminados de charges", pruned)
         db.commit()
+    # TCH-PAR-12: client_external_id = llave del cliente de la ficha (antes NULL en el 100 % de los cobros TCH).
+    client_by_file = dict(db.execute(select(TchSubscription.file_number, TchSubscription.client_rut)).all())
     total = 0
     offset = 0
     while True:
@@ -613,7 +616,7 @@ def _consolidate_tch_transactions(db: Session) -> int:
                 "source": "tch",
                 "external_id": t.dedupe_key or _s(t.id),
                 "subscription_external_id": _s(t.file_number),
-                "client_external_id": None,
+                "client_external_id": client_by_file.get(t.file_number),
                 "amount": t.amount,
                 "currency": "CLP",
                 "status": t.status,

@@ -223,6 +223,39 @@ def _monthly_collection_kpis(controls: list[TchMonthlyCollection]) -> dict | Non
     }
 
 
+_ISO_DATE = r"^\d{4}-\d{2}-\d{2}$"
+_ACTIVATION_FALLBACKS = (
+    ("fecha_activacion", TchSubscription.activation_date),
+    ("fecha_primer_cobro", TchSubscription.first_charge_date),
+    ("fecha_entrega_banco", TchSubscription.bank_delivery_date),
+)
+ACTIVATION_SOURCE_NOTE = (
+    "Desde julio de 2025 el reporte TCH ya no trae la fecha de activación del mandato. Para esas altas se usa la "
+    "fecha del primer cobro del mandato actual y, si falta, la de entrega al banco."
+)
+
+
+def _effective_activation_date():
+    """Fecha del alta (ISO): activacion; si falta, primer cobro; si falta, entrega al banco; NULL sin ninguna."""
+    return case(
+        *((column.op("~")(_ISO_DATE), column) for _, column in _ACTIVATION_FALLBACKS),
+        else_=None,
+    )
+
+
+def _activation_sources(db) -> dict:
+    """Cuantas altas salen de cada fecha (TCH-PAR-17): explica el corte de la fuente en el dashboard."""
+    source = case(
+        *((column.op("~")(_ISO_DATE), literal(name)) for name, column in _ACTIVATION_FALLBACKS),
+        else_=literal("sin_fecha"),
+    )
+    counts = dict(db.execute(select(source, func.count()).select_from(TchSubscription).group_by(source)).all())
+    result: dict = {name: int(counts.get(name, 0)) for name, _ in _ACTIVATION_FALLBACKS}
+    result["sin_fecha"] = int(counts.get("sin_fecha", 0))
+    result["nota"] = ACTIVATION_SOURCE_NOTE
+    return result
+
+
 @router.get("/summary", dependencies=[Depends(require_permissions("tch.dashboard.view"))], tags=["TCH"])
 def tch_summary() -> dict:
     """KPIs generales del canal TCH."""
@@ -245,7 +278,10 @@ def tch_summary() -> dict:
             (TchSubscription.peso_equivalent.op("~")(r"^\d+(\.\d+)?$"), cast(TchSubscription.peso_equivalent, Numeric)),
             else_=0,
         )
-        activation_period = func.substring(TchSubscription.activation_date, 1, 7)
+        # TCH-PAR-17: desde jul-2025 el reporte ya no trae "Fecha Activacion". Para no perder las altas se usa, en
+        # orden, la fecha de activacion, la del primer cobro del mandato actual y la de entrega al banco.
+        activation_effective = _effective_activation_date()
+        activation_period = func.substring(activation_effective, 1, 7)
         transactions_source = "recaudacion_mensual" if controls else "transacciones"
         if controls:
             total_accepted = sum(control.accepted_count for control in controls)
@@ -295,11 +331,12 @@ def tch_summary() -> dict:
                     func.count(),
                     func.coalesce(func.sum(subscription_amount), 0),
                 )
-                .where(TchSubscription.activation_date.op("~")(r"^\d{4}-\d{2}-\d{2}$"))
+                .where(activation_effective.isnot(None))
                 .group_by(activation_period)
                 .order_by(activation_period)
             ).all()
         )
+        activation_sources = _activation_sources(db)
         deletion_period = func.substring(TchSubscription.deletion_date, 1, 7)
         monthly_cancellations = _monthly_statuses(
             db.execute(
@@ -418,6 +455,7 @@ def tch_summary() -> dict:
             "transacciones_mensuales": monthly_transactions,
             "transacciones_fuente": transactions_source,
             "activaciones_mensuales": monthly_activations,
+            "activaciones_fuente": activation_sources,
             "bajas_mensuales": monthly_cancellations,
             "active_subs_monthly": active_subs_monthly,
             "churn_rate_monthly": churn_rate_monthly,

@@ -44,6 +44,8 @@ from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import tch_report_registry as report_registry
 from app.services.core_tch_etl import normalize_tch_currency
 from app.services.payload_sanitization import sanitize_payload
+from app.services.tch_rut import normalize_tch_rut
+from app.services.tch_source_records import sync_tch_source_records
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,18 +65,14 @@ def _safe_error_message(exc: Exception) -> str:
 # ---------------------------------------------------------------------------
 
 def _norm_rut(val: Any) -> str | None:
+    """Llave del cliente TCH (TCH-PAR-14): formato ``12.345.678-5`` o, si no tiene forma de RUT, ``EXT-...`` aislado.
+
+    Ver ``app/services/tch_rut.py``: el verificador NO cambia la llave; solo decide si el RUT sale del canal como
+    senal de identidad.
+    """
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
-    rut = re.sub(r"[^\dKk-]", "", str(val).strip().upper())
-    if not rut:
-        return None
-    if "-" not in rut:
-        rut = rut[:-1] + "-" + rut[-1]
-    try:
-        number_part, dv = rut.split("-", 1)
-        return f"{int(number_part):,}".replace(",", ".") + f"-{dv}"
-    except Exception:
-        return str(val).strip()[:20] or None
+    return normalize_tch_rut(val)
 
 
 def _norm_date(val: Any) -> str | None:
@@ -303,42 +301,207 @@ SHEET_COLLECTION_HISTORY_CAN = "HISTORICO RECAUDACION CAN"
 SHEET_COLLECTION_HISTORY_FLOW = "HISTORICO RECAUDACION FLUJO"
 
 
-def _read_sheet(filepath: Path, sheet: str) -> pd.DataFrame | None:
+class ReportBook:
+    """Un reporte TCH abierto UNA vez (TCH-PAR-16).
+
+    Antes cada ``pd.read_excel`` reabria el libro (10 MB, 33 hojas) y volvia a parsear la hoja: hasta tres lecturas
+    por hoja de detalle (encabezado estandar, sondeo y relectura con el encabezado detectado) y dos por TABLAS.
+    Ahora el libro se abre una sola vez con openpyxl en modo ``read_only`` (el mismo modo que usa pandas), cada hoja
+    se recorre una sola vez y los DataFrame con distintos encabezados se arman en memoria desde esas celdas, con el
+    mismo parser de pandas (``TextParser``): el resultado es identico al de ``pd.read_excel``.
+
+    Las celdas de una hoja se guardan solo hasta ``release`` (memoria acotada a la hoja en curso).
+    """
+
+    def __init__(self, filepath: Path) -> None:
+        from openpyxl import load_workbook
+
+        self.path = Path(filepath)
+        # Mismas opciones que pandas (engine openpyxl): sin estilos en memoria y con valores calculados.
+        self._book = load_workbook(self.path, read_only=True, data_only=True, keep_links=False)
+        self._cells: dict[str, list[list[Any]]] = {}
+        self.sheet_reads: dict[str, int] = {}  # cuantas veces se recorrio cada hoja (pruebas de rendimiento)
+
+    def __enter__(self) -> "ReportBook":
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._cells.clear()
+        self._book.close()
+
+    @property
+    def sheet_names(self) -> list[str]:
+        return list(self._book.sheetnames)
+
+    @staticmethod
+    def _convert_cell(cell: Any) -> Any:
+        """Igual que el lector openpyxl de pandas: vacio -> "", error -> NaN, numero entero -> int."""
+        from openpyxl.cell.cell import TYPE_ERROR, TYPE_NUMERIC
+
+        if cell.value is None:
+            return ""
+        if cell.data_type == TYPE_ERROR:
+            return float("nan")
+        if cell.data_type == TYPE_NUMERIC:
+            as_int = int(cell.value)
+            return as_int if as_int == cell.value else float(cell.value)
+        return cell.value
+
+    def _sheet_cells(self, sheet: str) -> list[list[Any]]:
+        cached = self._cells.get(sheet)
+        if cached is not None:
+            return cached
+        if sheet not in self._book.sheetnames:
+            raise ValueError(f"Worksheet named '{sheet}' not found")
+        worksheet = self._book[sheet]
+        worksheet.reset_dimensions()
+        self.sheet_reads[sheet] = self.sheet_reads.get(sheet, 0) + 1
+        data: list[list[Any]] = []
+        last_with_data = -1
+        for number, row in enumerate(worksheet.rows):
+            values = [self._convert_cell(cell) for cell in row]
+            while values and values[-1] == "":
+                values.pop()
+            if values:
+                last_with_data = number
+            data.append(values)
+        data = data[: last_with_data + 1]
+        if data:
+            width = max(len(row) for row in data)
+            data = [row + [""] * (width - len(row)) for row in data]
+        self._cells[sheet] = data
+        return data
+
+    def cells(self, sheet: str) -> list[list[Any]]:
+        """Celdas crudas de la hoja (solo lectura; se recorre la hoja una vez y queda en memoria hasta ``release``)."""
+        return self._sheet_cells(sheet)
+
+    def has_sheet(self, sheet: str) -> bool:
+        return sheet in self._book.sheetnames
+
+    def frame(self, sheet: str, header: int | list[int] | None = None) -> pd.DataFrame:
+        """DataFrame de la hoja con el encabezado pedido, como ``pd.read_excel(path, sheet_name=..., header=...)``."""
+        from pandas.io.parsers import TextParser
+
+        cells = self._sheet_cells(sheet)
+        if not cells:
+            return pd.DataFrame()
+        data = [list(row) for row in cells]  # el relleno del encabezado multinivel modifica las filas
+        if isinstance(header, list) and len(header) == 1:
+            header = header[0]
+        if isinstance(header, list):
+            if max(header) > len(data) - 1:
+                raise ValueError(f"header index {max(header)} exceeds maximum index {len(data) - 1} of data.")
+            control = [True] * len(data[0])
+            for index in header:
+                data[index], control = _fill_multiindex_header(data[index], control)
+        return TextParser(data, header=header, skip_blank_lines=False).read()
+
+    def release(self, sheet: str) -> None:
+        self._cells.pop(sheet, None)
+
+
+def _fill_multiindex_header(row: list[Any], control: list[bool]) -> tuple[list[Any], list[bool]]:
+    """Rellena hacia la derecha los rotulos de grupo vacios (celdas combinadas), igual que pandas en ``read_excel``."""
+    last = row[0]
+    for i in range(1, len(row)):
+        if not control[i]:
+            last = row[i]
+        if row[i] == "" or row[i] is None:
+            row[i] = last
+        else:
+            control[i] = False
+            last = row[i]
+    return row, control
+
+
+def _as_book(source: "Path | ReportBook") -> tuple["ReportBook", bool]:
+    """(libro, lo_abri_yo): acepta un ReportBook ya abierto o una ruta (compatibilidad con llamadas antiguas)."""
+    if isinstance(source, ReportBook):
+        return source, False
+    return ReportBook(Path(source)), True
+
+
+_STANDARD_HEADER = [5, 6]  # filas 6 y 7 del Excel: rotulos de grupo y de columna; datos desde la fila 8
+
+
+def _detect_header_rows(cells: list[list[Any]], scan_rows: int = 20, scan_cols: int = 15) -> list[int] | None:
+    """Filas del encabezado (grupo, columna) segun donde empiezan los datos: las dos filas sobre el primer numero de
+    ficha. Busca el rotulo "Ficha" en las primeras filas/columnas y, bajo el, la primera celda numerica positiva.
+    None si la hoja no tiene ese rotulo (p. ej. VIGENTES de dic-2023, tabla numerica sin cartera)."""
+    label = None
+    for i, row in enumerate(cells[:scan_rows]):
+        for j, value in enumerate(row[:scan_cols]):
+            if isinstance(value, str) and "FICHA" in value.upper():
+                label = (i, j)
+                break
+        if label:
+            break
+    if label is None:
+        return None
+    label_row, column = label
+    for i in range(label_row + 1, min(len(cells), label_row + 6)):
+        value = cells[i][column] if column < len(cells[i]) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and value > 0:
+            return [i - 2, i - 1] if i >= 2 else None
+    return None
+
+
+def _read_sheet(source: "Path | ReportBook", sheet: str) -> pd.DataFrame | None:
     """
     Lee una hoja TCH con headers multinivel.
     Intenta header=[5,6] primero (estándar); si no encuentra 'ficha/dues',
     busca la fila que contiene 'FICHA DUES' y usa las dos anteriores como headers.
+    La hoja se recorre una sola vez aunque haga falta el sondeo (TCH-PAR-16).
     """
+    book, owned = _as_book(source)
     try:
-        df = pd.read_excel(filepath, sheet_name=sheet, header=[5, 6])
-        df = df.dropna(how="all")
-        cols_str = " ".join(str(c).lower() for c in df.columns)
-        if "ficha" in cols_str or "mandato" in cols_str:
-            return df
-    except Exception as exc:
-        log.warning(f"  No se pudo leer hoja '{sheet}': {exc}")
+        if not book.has_sheet(sheet):
+            log.warning(f"  No se pudo leer hoja '{sheet}': no existe en el reporte")
+            return None
+        try:
+            header = _STANDARD_HEADER
+            detected = _detect_header_rows(book.cells(sheet))
+            if detected and detected != _STANDARD_HEADER:
+                # Layout B (cierre dic-2022): el bloque de encabezado viene una fila mas abajo. Con [5, 6] la fila de
+                # rotulos de columna quedaba como primer dato y no se encontraban el RUT ni los bloques mensuales.
+                header = detected
+                log.info(f"  Encabezado de '{sheet}' detectado en filas {detected[0]}-{detected[1]} (layout desplazado)")
+            df = book.frame(sheet, header=header)
+            df = df.dropna(how="all")
+            cols_str = " ".join(str(c).lower() for c in df.columns)
+            if "ficha" in cols_str or "mandato" in cols_str:
+                return df
+        except Exception as exc:
+            log.warning(f"  No se pudo leer hoja '{sheet}': {type(exc).__name__}")
+            return None
+
+        # Fallback: buscar la fila más baja que contenga 'FICHA DUES'
+        try:
+            raw = book.frame(sheet, header=None)
+            header_row = None
+            for i in range(len(raw)):
+                row_str = " ".join(str(v).upper() for v in raw.iloc[i] if not (isinstance(v, float) and pd.isna(v)))
+                if "FICHA" in row_str and ("DUES" in row_str or "MANDATO" in row_str):
+                    header_row = i
+                    # No hacer break: queremos la fila más baja con esos datos
+            if header_row is not None:
+                # Usar las 3 filas anteriores como headers (puede variar; intentar -2,-1,0)
+                h0 = max(0, header_row - 2)
+                df2 = book.frame(sheet, header=list(range(h0, header_row + 1)))
+                df2 = df2.dropna(how="all")
+                log.info(f"  Headers detectados en filas {h0}-{header_row} (fallback)")
+                return df2
+        except Exception as exc:
+            log.warning(f"  Error en fallback de lectura '{sheet}': {type(exc).__name__}")
         return None
-
-    # Fallback: buscar la fila más baja que contenga 'FICHA DUES'
-    try:
-        raw = pd.read_excel(filepath, sheet_name=sheet, header=None)
-        header_row = None
-        for i in range(len(raw)):
-            row_str = " ".join(str(v).upper() for v in raw.iloc[i] if not (isinstance(v, float) and pd.isna(v)))
-            if "FICHA" in row_str and ("DUES" in row_str or "MANDATO" in row_str):
-                header_row = i
-                # No hacer break: queremos la fila más baja con esos datos
-        if header_row is not None:
-            # Usar las 3 filas anteriores como headers (puede variar; intentar -2,-1,0)
-            h0 = max(0, header_row - 2)
-            df2 = pd.read_excel(filepath, sheet_name=sheet, header=list(range(h0, header_row + 1)))
-            df2 = df2.dropna(how="all")
-            log.info(f"  Headers detectados en filas {h0}-{header_row} (fallback)")
-            return df2
-    except Exception as exc:
-        log.warning(f"  Error en fallback de lectura '{sheet}': {exc}")
-
-    return None
+    finally:
+        book.release(sheet)
+        if owned:
+            book.close()
 
 
 def _report_sort_key(filepath: Path) -> tuple[int, int, int, str]:
@@ -379,12 +542,21 @@ def _historical_period_columns(df: pd.DataFrame) -> dict[int, str]:
     return periods
 
 
-def _historical_revenue_values(filepath: Path, sheet: str) -> dict[str, tuple[str, str]]:
+def _historical_revenue_values(source: "Path | ReportBook", sheet: str) -> dict[str, tuple[str, str]]:
     try:
-        df = pd.read_excel(filepath, sheet_name=sheet, header=None)
-    except (OSError, ValueError) as exc:
-        log.warning("  No se pudo leer hoja '%s': %s", sheet, exc)
+        book, owned = _as_book(source)
+    except OSError as exc:
+        log.warning("  No se pudo abrir el reporte: %s", type(exc).__name__)
         return {}
+    try:
+        df = book.frame(sheet, header=None)
+    except (OSError, ValueError) as exc:
+        log.warning("  No se pudo leer hoja '%s': %s", sheet, type(exc).__name__)
+        return {}
+    finally:
+        book.release(sheet)
+        if owned:
+            book.close()
     total_rows = _historical_total_rows(df)
     if total_rows is None:
         log.warning("  No se encontraron totales en hoja '%s'", sheet)
@@ -399,9 +571,15 @@ def _historical_revenue_values(filepath: Path, sheet: str) -> dict[str, tuple[st
     return values
 
 
-def _transform_monthly_collection(filepath: Path) -> list[dict]:
-    amounts = _historical_revenue_values(filepath, SHEET_COLLECTION_HISTORY_FLOW)
-    counts = _historical_revenue_values(filepath, SHEET_COLLECTION_HISTORY_CAN)
+def _transform_monthly_collection(source: "Path | ReportBook") -> list[dict]:
+    book, owned = _as_book(source)
+    try:
+        amounts = _historical_revenue_values(book, SHEET_COLLECTION_HISTORY_FLOW)
+        counts = _historical_revenue_values(book, SHEET_COLLECTION_HISTORY_CAN)
+    finally:
+        if owned:
+            book.close()
+    filepath = book.path
     periods = sorted(amounts.keys() & counts.keys())
     # Las hojas de control traen meses futuros en cero (hasta 2027-12). El corte es el ultimo mes
     # cerrado: el mes que nombra el reporte, sin pasar del ultimo mes con cobros en el propio control.
@@ -822,25 +1000,34 @@ def _transform_charge_history(df: pd.DataFrame, file_name: str) -> list[dict]:
 # Transformaciones — TABLAS (catálogo de bancos)
 # ---------------------------------------------------------------------------
 
-def _transform_banks_from_tables(filepath: Path) -> list[dict]:
-    """Lee la hoja TABLAS y extrae el catálogo de instituciones."""
+def _transform_banks_from_tables(source: "Path | ReportBook") -> list[dict]:
+    """Lee la hoja TABLAS y extrae el catálogo de instituciones (la hoja se recorre una sola vez)."""
     try:
-        df = pd.read_excel(filepath, sheet_name=SHEET_TABLES, header=None)
+        book, owned = _as_book(source)
     except Exception:
         return []
+    try:
+        try:
+            df = book.frame(SHEET_TABLES, header=None)
+        except Exception:
+            return []
 
-    # Buscar fila que contenga la cabecera de entidades
-    header_row = None
-    for i, row in df.iterrows():
-        vals = [str(v).strip().upper() for v in row if not (isinstance(v, float) and pd.isna(v))]
-        if any("NOMBRE" in v for v in vals) and any("COD" in v for v in vals):
-            header_row = i
-            break
+        # Buscar fila que contenga la cabecera de entidades
+        header_row = None
+        for i, row in df.iterrows():
+            vals = [str(v).strip().upper() for v in row if not (isinstance(v, float) and pd.isna(v))]
+            if any("NOMBRE" in v for v in vals) and any("COD" in v for v in vals):
+                header_row = i
+                break
 
-    if header_row is None:
-        return []
+        if header_row is None:
+            return []
 
-    df_banks = pd.read_excel(filepath, sheet_name=SHEET_TABLES, header=header_row)
+        df_banks = book.frame(SHEET_TABLES, header=header_row)
+    finally:
+        book.release(SHEET_TABLES)
+        if owned:
+            book.close()
     df_banks = df_banks.dropna(how="all")
 
     col_first_name = _find_col(df_banks, "nombre")
@@ -1280,6 +1467,35 @@ def _unique_reports_by_sha256(files: list[Path]) -> tuple[list[Path], list[Path]
     return unique, skipped
 
 
+def _register_source_records(db) -> dict[str, int]:
+    """SYNC-D-16: un ``source_record`` por fila ``tch_*`` (idempotente; ver app/services/tch_source_records.py).
+
+    No se borran en ``_clear_tch_data``: las filas centralizadas los referencian por ``source_record_id`` y, como las
+    claves son estables, una recarga completa reutiliza los mismos registros.
+    """
+    created = sync_tch_source_records(db)
+    if any(created.values()):
+        log.info("  source_records TCH nuevos: %s", ", ".join(f"{k}={v}" for k, v in created.items()))
+    return created
+
+
+def backfill_source_records(db, *, apply: bool) -> dict[str, int]:
+    """Backfill SYNC-D-16 de lo ya cargado: registra las filas ``tch_*`` sin ``source_record``.
+
+    Idempotente: una segunda ejecucion no crea nada. Con ``apply=False`` (dry-run) cuenta y hace ROLLBACK.
+    """
+    try:
+        created = sync_tch_source_records(db)
+        if apply:
+            db.commit()
+        else:
+            db.rollback()
+        return created
+    except Exception:
+        db.rollback()
+        raise
+
+
 def _clear_tch_data(db) -> None:
     """Rebuild the local TCH projection from the complete report history."""
     report_registry.clear(db)
@@ -1298,22 +1514,31 @@ def _process_file(filepath: Path, db) -> dict:
 
     file_totals = {"archivo": report_name, "sus_ins": 0, "sus_upd": 0, "trans": 0, "controles": 0, "err": 0}
     file_numbers: set[int] = set()  # fichas presentes en el reporte (VIGENTES + ELIMINADOS + RECHAZADOS)
-    has_portfolio = False
     file_totals["fichas"] = file_numbers
 
+    # TCH-PAR-16: el libro se abre una sola vez y cada hoja se recorre una sola vez.
+    with ReportBook(filepath) as book:
+        return _process_book(book, db, file_totals, file_numbers)
+
+
+def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int]) -> dict:
+    filepath = book.path
+    report_name = filepath.name
+    has_portfolio = False
+
     # --- Catálogo de bancos desde hoja TABLAS ---
-    bank_rows = _transform_banks_from_tables(filepath)
+    bank_rows = _transform_banks_from_tables(book)
     n_banks = _load_bank_catalog(db, bank_rows)
     if n_banks:
         log.info(f"  Bancos nuevos: {n_banks}")
 
-    control_rows = _load_monthly_collection(db, _transform_monthly_collection(filepath))
+    control_rows = _load_monthly_collection(db, _transform_monthly_collection(book))
     file_totals["controles"] = control_rows
     if control_rows:
         log.info(f"  Controles mensuales: {control_rows}")
 
     # --- VIGENTES ---
-    df_active = _read_sheet(filepath, SHEET_ACTIVE)
+    df_active = _read_sheet(book, SHEET_ACTIVE)
     if df_active is not None:
         rows_active = _transform_subscriptions(df_active, "VIGENTE")
         transaction_rows = _transform_charge_history(df_active, report_name)
@@ -1329,7 +1554,7 @@ def _process_file(filepath: Path, db) -> dict:
         transaction_rows = []
 
     # --- ELIMINADOS ---
-    df_deleted = _read_sheet(filepath, SHEET_DELETED)
+    df_deleted = _read_sheet(book, SHEET_DELETED)
     if df_deleted is not None:
         rows_deleted = _transform_subscriptions(df_deleted, "ELIMINADA")
         transaction_rows += _transform_charge_history(df_deleted, report_name)
@@ -1341,7 +1566,7 @@ def _process_file(filepath: Path, db) -> dict:
         log.info(f"  ELIMINADOS: {i} nuevas, {u} actualizadas, {e} errores")
 
     # --- RECHAZADOS (mandatos) ---
-    df_rejected_mandates = _read_sheet(filepath, SHEET_REJECTED_MANDATES)
+    df_rejected_mandates = _read_sheet(book, SHEET_REJECTED_MANDATES)
     if df_rejected_mandates is not None:
         rows_rejected_mandates = _transform_subscriptions(df_rejected_mandates, "RECHAZADA")
         # Sin historial: los mandatos de esta hoja nunca cobraron (TCH-PAR-04).
@@ -1357,11 +1582,11 @@ def _process_file(filepath: Path, db) -> dict:
 
     # --- CARGOS --- (primero los rechazados: si la misma cuota figura tambien aceptada en el reporte, la aceptada
     # se aplica despues, es el estado final, y el rechazo queda como atributo `rechazo_previo*`).
-    df_rejected = _read_sheet(filepath, SHEET_REJECTED_CHARGES)
+    df_rejected = _read_sheet(book, SHEET_REJECTED_CHARGES)
     if df_rejected is not None:
         transaction_rows += _transform_transactions(df_rejected, "RECHAZADA", report_name)
 
-    df_accepted = _read_sheet(filepath, SHEET_ACCEPTED_CHARGES)
+    df_accepted = _read_sheet(book, SHEET_ACCEPTED_CHARGES)
     if df_accepted is not None:
         transaction_rows += _transform_transactions(df_accepted, "ACEPTADA", report_name)
 
@@ -1528,6 +1753,7 @@ def reload_full(
         if latest:
             cancellations = _apply_implicit_cancellations(db, latest["fichas"])
             log.info(f"Bajas implicitas (ausentes de {latest['archivo']}): {cancellations}")
+        _register_source_records(db)
         result = reconcile(db, tolerance_month, tolerance_total, exclude_months=exclude_months)
         active_count = db.scalar(select(func.count()).select_from(TchSubscription).where(TchSubscription.status == "VIGENTE")) or 0
         committed = apply and result.ok
@@ -1604,6 +1830,7 @@ def import_incremental_file(filepath: Path, run_id=None) -> int:
         if _is_latest_report(latest_loaded, _report_period(filepath)):
             cancellations = _apply_implicit_cancellations(db, totals["fichas"])
             log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")
+        _register_source_records(db)
         _finish_run(db, run, total)
         _close_cancellations_from_report(db)
         return total
@@ -1632,6 +1859,11 @@ def _build_parser() -> argparse.ArgumentParser:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--folder", help="Carpeta con archivos .xlsx (procesa todos)")
     group.add_argument("--file", help="Archivo .xlsx individual")
+    group.add_argument(
+        "--backfill-source-records",
+        action="store_true",
+        help="SYNC-D-16: registra en source_records las filas tch_* ya cargadas (dry-run salvo --apply)",
+    )
     parser.add_argument("--mode", choices=["full", "incremental"], default="incremental")
     parser.add_argument("--dry-run", action="store_true", help="(modo full, por defecto) reconstruye y hace ROLLBACK")
     parser.add_argument("--apply", action="store_true", help="(modo full) confirma la recarga si la conciliacion cuadra")
@@ -1642,8 +1874,33 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _main_backfill(args) -> None:
+    """``--backfill-source-records``: dry-run por defecto; ``--apply`` exige ``--confirm-database`` con el nombre exacto."""
+    if args.apply and args.dry_run:
+        log.error("--apply y --dry-run son excluyentes")
+        sys.exit(2)
+    database_name = engine.url.database
+    if args.apply and args.confirm_database != database_name:
+        log.error("--apply exige --confirm-database con el nombre exacto de la base destino (%s)", database_name)
+        sys.exit(2)
+    db = SessionLocal()
+    try:
+        created = backfill_source_records(db, apply=args.apply)
+    finally:
+        db.close()
+    summary = ", ".join(f"{k}={v}" for k, v in created.items())
+    if args.apply:
+        log.info("Backfill source_records TCH CONFIRMADO en '%s': %s", database_name, summary)
+    else:
+        log.info("Dry-run backfill source_records TCH en '%s' (ROLLBACK): se crearian %s", database_name, summary)
+
+
 def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
+
+    if args.backfill_source_records:
+        _main_backfill(args)
+        return
 
     full = args.mode == "full"
     if (args.apply or args.dry_run or args.confirm_database) and not full:
@@ -1735,6 +1992,7 @@ def main(argv: list[str] | None = None) -> None:
                 log.info(f"  Bajas implicitas (ausentes del reporte): {cancellations}")
             total += t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             log.info(f"  [{file_name.name}] sus={t['sus_ins']}+{t['sus_upd']} trans={t['trans']} err={t['err']}")
+        _register_source_records(db)
         _finish_run(db, db.get(EtlRun, run_id), total)
         _close_cancellations_from_report(db)
         log.info(f"ETL completado. Total procesados: {total}")
