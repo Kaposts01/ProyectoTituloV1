@@ -6,6 +6,7 @@ from app.services.payku_rejection_codes import payku_rejection_category
 from app.services.rejection_format import (
     channel_of_source,
     format_rejection_reason,
+    format_rejection_with_code,
     not_reported_label,
 )
 from app.services.vp_rejection_codes import VP_REJECTION_LABELS
@@ -89,3 +90,20 @@ def test_unknown_source_falls_back_to_raw_then_code_then_generic() -> None:
     assert format_rejection_reason("tch", None, None) == "No informado"
     assert not_reported_label("toku") == "No informado por Toku"
     assert not_reported_label(None) == "No informado"
+
+
+def test_virtualpos_acquirer_code_documented_in_repo_has_label() -> None:
+    # VP-PAR-05: -2122 tiene glosa documentada (payments.md); los demas -2xxx usan la glosa del proveedor.
+    assert format_rejection_reason("virtualpos1", "-2122", None) == "Violación de seguridad (adquirente)"
+    assert format_rejection_reason("virtualpos2", "-2119", "Excede saldo maximo") == "Excede saldo maximo"
+    assert format_rejection_reason("virtualpos2", "-2119", None) == "-2119"
+
+
+def test_format_with_code_appends_provider_code() -> None:
+    # VP-PAR-03: el motivo legible se muestra con el codigo tal como esta guardado.
+    assert format_rejection_with_code("virtualpos1", "-8", "x") == "Tarjeta expirada (código -8)"
+    assert format_rejection_with_code("virtualpos2", "-2119", "Excede saldo maximo") == "Excede saldo maximo (código -2119)"
+    assert format_rejection_with_code("virtualpos1", "-2119", None) == "-2119"
+    assert format_rejection_with_code("toku", "1019", None) == "Tarjeta bloqueada (código 1019)"
+    assert format_rejection_with_code("virtualpos1", None, None) == "No informado por VirtualPOS"
+    assert format_rejection_with_code("payku", "  ", "Rubro no autorizado.") == "Rubro no autorizado"
