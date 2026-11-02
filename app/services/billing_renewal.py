@@ -31,7 +31,9 @@ Reglas (cada una con su escenario)
   genera igual, solo marcada. (El proveedor se sincroniza por plataforma, no por suscripcion: la antiguedad es la de la plataforma.)
 - Robustez: se procesa por lotes (`BATCH_SIZE`) con commit por lote y un SAVEPOINT por registro; un registro malo se cuenta en
   `errors` y NO tumba el lote. Log agregado sin PII (solo ids internos de marca y contadores).
-- JB-20 (allowlist del piloto) NO esta implementado en el proyecto (no existe tal lista/bandera): el chequeo revisa todas las marcas.
+- JB-20 / BILL-09 (allowlist del piloto): solo se revisan las marcas de suscripciones de `BILLING_PILOT_ALLOWLIST`; las
+  demas se omiten sin tocar nada (contador `not_allowlisted`). Allowlist vacia = no se revisa ninguna. Una tarea abierta
+  de una suscripcion que salio de la allowlist queda como esta (la reversion GB-PI-07 la cierra a mano).
 - Rechazo con comentario (JB-32, BILL-15): un aprobador puede rechazar una tarea abierta/vencida sin solicitud de renovacion
   abierta. La tarea se cierra como `no_aplica` con `close_reason` = "Rechazada por <usuario>: <comentario>" (sin migracion: el
   CHECK de estados no admite otro). La marca SIGUE activa hasta el fin del horizonte (los cobros del CRM aun pendientes
@@ -91,6 +93,7 @@ class RenewalCheckResult:
     unsynced: int = 0  # marcas cuya suscripcion aun no esta sincronizada (ni vp_subscriptions ni subscriptions): se omiten
     rejected_skipped: int = 0  # horizonte con tarea rechazada (JB-32): no se reabre tarea
     rejected_retired: int = 0  # horizonte rechazado ya terminado: la marca se desactiva (JB-32)
+    not_allowlisted: int = 0  # marcas activas fuera de la allowlist del piloto (JB-20 / BILL-09): se omiten
     errors: int = 0  # registros que fallaron (aislados por SAVEPOINT)
 
     def merge(self, other: RenewalCheckResult) -> None:
@@ -267,6 +270,9 @@ def run_renewal_check(db: Session, now: datetime | None = None) -> RenewalCheckR
         marks = db.scalars(select(VpCalendarMark).where(VpCalendarMark.id.in_(chunk)).order_by(VpCalendarMark.id)).all()
         for mark in marks:
             mark_id = mark.id
+            if not br.is_pilot_allowlisted(mark.platform, mark.subscription_external_id):  # JB-20 / BILL-09
+                result.not_allowlisted += 1
+                continue
             try:
                 with db.begin_nested():
                     result.merge(_process_mark(db, mark, today=today, now_utc=now_utc, threshold=threshold,

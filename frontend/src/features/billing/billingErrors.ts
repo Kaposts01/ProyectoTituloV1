@@ -24,6 +24,7 @@ const POLICY_MESSAGES: Record<string, string> = {
 const CODE_MESSAGES: Record<string, string> = {
   subscription_busy: "Otra operación está modificando esta suscripción. Espere unos segundos y reintente.",
   subscription_blocked: "La suscripción tiene cobros pendientes de conciliación; no se puede modificar hasta resolverlos.",
+  not_in_pilot_allowlist: "La suscripción no está en el piloto de cambios de cobro. Solo las suscripciones del piloto admiten solicitudes, aprobaciones y aplicación.",
   invalid_request_state: "La solicitud cambió de estado mientras la revisaba. Actualice la bandeja y vuelva a intentarlo.",
   open_request_exists: "Ya existe una solicitud abierta para esta suscripción. Resuélvala o retírela antes de crear otra.",
   request_expired: "La solicitud expiró y ya no se puede aprobar.",

@@ -3,7 +3,8 @@ import { refreshCsrfToken } from "../shared/utils";
 import { renewalAlertPath, renewalPath, type RenewalFilters } from "./billingRenewal";
 import { listPath, type InboxFilters, type InboxTab } from "./billingQuery";
 import type {
-  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, Policy, PolicyAuditList, PolicyPatch, PreviewResponse, RenewalTask, RenewalTaskList, RequesterList,
+  ApplyResponse, BillingList, BillingRequestDetail, ChangeBody, ConsistencyReport, ManagedResolution, Policy, PolicyAuditList, PolicyPatch,
+  PreviewResponse, ReconciliationQueue, RenewalTask, RenewalTaskList, RequesterList,
 } from "./types";
 
 const BASE = "/api/v1/billing";
@@ -72,3 +73,10 @@ export const fetchRenewalAlertCount = () => getJson<RenewalTaskList>(renewalAler
 /** Rechaza una tarea de renovación abierta o vencida con comentario obligatorio (JB-32). */
 export const rejectRenewalTask = (id: string, comment: string) =>
   mutate(() => postJson<RenewalTask>(`${BASE}/renewal-tasks/${enc(id)}/reject`, { comment }));
+
+/** BILL-10: controles de consistencia calculados al momento (solo lectura) y cola de reconciliación. */
+export const fetchConsistency = () => getJson<ConsistencyReport>(`${BASE}/consistency`);
+export const fetchReconciliationQueue = () => getJson<ReconciliationQueue>(`${BASE}/reconciliation-queue`);
+/** Resuelve a mano un cobro del CRM en conciliación (no llama a VirtualPOS): comentario obligatorio. */
+export const resolveManagedCharge = (id: string, resolution: ManagedResolution, comment: string) =>
+  mutate(() => postJson<{ id: string; status: string }>(`${BASE}/reconciliation-queue/managed-charges/${enc(id)}/resolve`, { resolution, comment }));

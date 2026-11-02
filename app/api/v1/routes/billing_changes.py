@@ -37,6 +37,7 @@ from app.models.billing import (
     BillingPolicyAudit,
     BillingRenewalTask,
 )
+from app.services import billing_consistency as consistency_svc
 from app.services import billing_renewal as renewal_svc
 from app.services import billing_requests as svc
 from app.services.billing_apply import (
@@ -142,6 +143,22 @@ class RenewalRejectBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     comment: str = Field(min_length=1, max_length=renewal_svc.REJECT_COMMENT_MAX)
+
+    @field_validator("comment")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("El comentario es obligatorio y no puede estar vacío.")
+        return value
+
+
+class ResolveManagedChargeBody(BaseModel):
+    """Resolucion manual de un cobro del CRM en conciliacion (GB-CS-09): lo verificado a mano en VirtualPOS."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resolution: Literal["vigente", "cancelado"]
+    comment: str = Field(min_length=1, max_length=2000)
 
     @field_validator("comment")
     @classmethod
@@ -266,6 +283,14 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(422, _detail(exc.code, str(exc), policy_code=exc.policy_code))
     if isinstance(exc, svc.InvalidRequestFieldsError | svc.CommentRequiredError):
         raise HTTPException(422, _detail(exc.code, str(exc)))
+    if isinstance(exc, svc.DoublePendingBlockedError):  # GB-CS-03 (BILL-10)
+        raise HTTPException(409, _detail(exc.code, str(exc)))
+    if isinstance(exc, svc.ManagedChargeNotFoundError):
+        raise HTTPException(404, _detail(exc.code, str(exc)))
+    if isinstance(exc, svc.ManagedChargeStateError):
+        raise HTTPException(409, _detail(exc.code, str(exc), current_status=exc.current_status))
+    if isinstance(exc, svc.NotInPilotAllowlistError):  # BILL-09: mensaje fijo, sin eco de la allowlist
+        raise HTTPException(403, _detail(exc.code, str(exc)))
     if isinstance(exc, svc.NotApproverError | svc.SelfApprovalNotAllowedError | svc.NotAllowedError):
         raise HTTPException(403, _detail(exc.code, str(exc)))
     if isinstance(exc, BillingApplyError):  # cualquier otro error tipado de aplicacion: nunca 500
@@ -356,7 +381,9 @@ def _detail_json(db: Session, r: BillingChangeRequest) -> dict[str, Any]:
 
 def _policy_json(p: BillingPolicy) -> dict[str, Any]:
     return {**svc.policy_values(p), "updated_by_user_id": str(p.updated_by_user_id) if p.updated_by_user_id else None,
-            "updated_at": _iso(p.updated_at)}
+            "updated_at": _iso(p.updated_at),
+            # BILL-09: solo lectura (se define por BILLING_PILOT_ALLOWLIST, no por la API). Ids de suscripcion, sin PII.
+            "pilot_allowlist": [f"{pl}:{sub}" for pl, sub in sorted(svc.pilot_allowlist())]}
 
 
 def _audit_json(a: BillingPolicyAudit, names: dict[uuid.UUID, str]) -> dict[str, Any]:
@@ -565,6 +592,43 @@ def reject_renewal_task(task_id: uuid.UUID, body: RenewalRejectBody, current_use
     except _HANDLED as exc:
         raise _http(exc) from None
     return _task_json(task)
+
+
+# ----------------------------- consistencia y reconciliacion (BILL-10) -----------------------------
+
+
+@router.get("/consistency", tags=TAGS)
+def get_billing_consistency(_user: Viewer, db: Db) -> dict:
+    """Controles GB-CS-02..14 calculados al momento con los datos locales (SOLO LECTURA: no escribe nada)."""
+    try:
+        return consistency_svc.run_consistency_checks(db).as_dict()
+    finally:
+        db.rollback()
+
+
+@router.get("/reconciliation-queue", tags=TAGS)
+def get_reconciliation_queue(_user: Viewer, db: Db) -> dict:
+    """Cola de reconciliacion (GB-CS-09): solicitudes, cobros del CRM y write_runs en conciliacion. Cada uno bloquea."""
+    try:
+        items = consistency_svc.reconciliation_queue(db)
+    finally:
+        db.rollback()
+    return {"items": [i.as_dict() for i in items], "total": len(items),
+            "stale": sum(1 for i in items if i.stale)}
+
+
+@router.post("/reconciliation-queue/managed-charges/{managed_id}/resolve", dependencies=_CSRF, tags=TAGS)
+def resolve_reconciliation_managed_charge(
+    managed_id: uuid.UUID, body: ResolveManagedChargeBody, current_user: Approver, db: Db,
+) -> dict:
+    """Marca resuelto un cobro del CRM en conciliacion tras verificarlo a mano (no llama a VirtualPOS). Queda trazado."""
+    try:
+        row = svc.resolve_managed_charge(db, managed_id, current_user, body.resolution, body.comment)
+    except _HANDLED as exc:
+        raise _http(exc) from None
+    return {"id": str(row.id), "charge_id": row.charge_id, "platform": row.platform,
+            "subscription_external_id": row.subscription_external_id, "month": row.month, "status": row.status,
+            "request_id": str(row.request_id) if row.request_id else None}
 
 
 # ----------------------------- politica -----------------------------

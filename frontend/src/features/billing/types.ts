@@ -177,3 +177,39 @@ export type RenewalTask = {
   close_reason: string | null;
 };
 export type RenewalTaskList = { items: RenewalTask[]; total: number; limit: number; offset: number };
+
+/** BILL-10: controles de consistencia GB-CS-02..14 (solo lectura) y cola de reconciliación (GB-CS-09). */
+export type ConsistencySeverity = "P0" | "P1" | "P2";
+export type ConsistencyFinding = {
+  scenario: string;
+  code: string;
+  severity: ConsistencySeverity;
+  platform: string;
+  subscription_external_id: string;
+  month: string | null;
+  blocks: boolean;
+  detail: Record<string, unknown>;
+};
+export type ConsistencyReport = {
+  generated_at: string;
+  today: string;
+  ok: boolean;
+  subscriptions_checked: number;
+  counts: Record<string, number>;
+  by_severity: Record<string, number>;
+  findings: ConsistencyFinding[];
+};
+export type ReconciliationKind = "request" | "managed_charge" | "write_run";
+export type ReconciliationItem = {
+  kind: ReconciliationKind;
+  id: string;
+  platform: string;
+  subscription_external_id: string;
+  since: string | null;
+  request_id: string | null;
+  charge_id: string | null;
+  month: string | null;
+  stale: boolean;
+};
+export type ReconciliationQueue = { items: ReconciliationItem[]; total: number; stale: number };
+export type ManagedResolution = "vigente" | "cancelado";

@@ -124,6 +124,13 @@ class Settings(BaseSettings):
     sync_retry_max_deferrals: int = 6
     # VP-PAR-11: paridad diaria reportes PAT vs base (solo lectura, resultado al log). APAGADA por defecto.
     vp_parity_check_enabled: bool = False
+    # BILL-09 (GB-JB-20): allowlist del piloto de la Opcion A. Lista separada por comas de `plataforma:suscripcion`
+    # (`virtualpos1:sub_123`); un id sin plataforma cuenta como `virtualpos1`. VACIA = ninguna suscripcion pasa por la
+    # Opcion A (solicitudes, aprobacion, aplicacion y chequeo de renovacion quedan bloqueados).
+    billing_pilot_allowlist: str = ""
+    # BILL-10: controles diarios de consistencia de la Opcion A (GB-CS-02..14), SOLO LECTURA, resultado al log.
+    # APAGADA por defecto.
+    billing_consistency_check_enabled: bool = False
     # VirtualPOS cuenta 1 (sandbox/producción)
     virtualpos_base_url: str = ""
     virtualpos_api_key: str = ""

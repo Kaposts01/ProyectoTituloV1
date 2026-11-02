@@ -60,6 +60,9 @@
  "GET /api/v1/billing/changes/{}/events": [
   "cookie:crm_access_token"
  ],
+ "GET /api/v1/billing/consistency": [
+  "cookie:crm_access_token"
+ ],
  "GET /api/v1/billing/policy": [
   "cookie:crm_access_token"
  ],
@@ -67,6 +70,9 @@
   "cookie:crm_access_token",
   "query:limit",
   "query:offset"
+ ],
+ "GET /api/v1/billing/reconciliation-queue": [
+  "cookie:crm_access_token"
  ],
  "GET /api/v1/billing/renewal-tasks": [
   "cookie:crm_access_token",
@@ -553,6 +559,9 @@
   "cookie:crm_access_token"
  ],
  "POST /api/v1/billing/changes/{}/withdraw": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/billing/reconciliation-queue/managed-charges/{}/resolve": [
   "cookie:crm_access_token"
  ],
  "POST /api/v1/billing/renewal-tasks/{}/reject": [

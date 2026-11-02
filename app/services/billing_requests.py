@@ -33,13 +33,18 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.models.auth import Role, User
 from app.models.billing import (
     EVENT_APPROVED,
     EVENT_AUTO_APPROVED,
     EVENT_EXPIRED,
+    EVENT_NEEDS_RECONCILIATION,
     EVENT_REJECTED,
     EVENT_WITHDRAWN,
+    MANAGED_CANCELLED,
+    MANAGED_CREATED,
+    MANAGED_NEEDS_RECONCILIATION,
     PLATFORMS,
     REQUEST_TYPES,
     STATUS_APPLYING,
@@ -55,8 +60,10 @@ from app.models.billing import (
     BillingPolicy,
     BillingPolicyAudit,
     VpCalendarMark,
+    VpManagedCharge,
 )
 from app.services import billing_apply as ba
+from app.services import billing_consistency as bc
 from app.services.billing_apply import (
     ApplyResult,
     InvalidRequestStateError,
@@ -198,6 +205,68 @@ class PolicyValidationError(BillingRequestError):
     def __init__(self, code: str, message: str) -> None:
         self.policy_code = code
         super().__init__(message)
+
+
+class DoublePendingBlockedError(BillingRequestError):
+    """GB-CS-03 (BILL-10): un mes con dos pendientes (datos de la ultima sync) bloquea nuevos cambios hasta resolverlo."""
+
+    code = "subscription_double_pending"
+
+    def __init__(self) -> None:
+        super().__init__("La suscripción tiene un mes con dos cobros pendientes (posible doble cobro, GB-CS-03); "
+                         "resuélvalo en VirtualPOS antes de pedir cambios.")
+
+
+class NotInPilotAllowlistError(BillingRequestError):
+    """BILL-09 / GB-JB-20: la suscripcion no esta en la allowlist del piloto (vacia = todas bloqueadas)."""
+
+    code = "not_in_pilot_allowlist"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "La suscripción no está en la allowlist del piloto de cambios de cobro: solo las suscripciones del "
+            "piloto admiten solicitudes, aprobaciones y aplicación (BILLING_PILOT_ALLOWLIST).")
+
+
+# ----------------------------- allowlist del piloto (BILL-09) -----------------------------
+
+
+def pilot_allowlist() -> frozenset[tuple[str, str]]:
+    """Pares (plataforma, suscripcion) de `BILLING_PILOT_ALLOWLIST`. Entradas invalidas se ignoran (fail-closed).
+
+    Formato: `plataforma:suscripcion` separados por comas; un id sin plataforma cuenta como `virtualpos1`. Se lee en
+    cada llamada (los tests y una recarga de configuracion la cambian sin reiniciar el modulo)."""
+    out: set[tuple[str, str]] = set()
+    for raw in (settings.billing_pilot_allowlist or "").split(","):
+        entry = raw.strip()
+        if not entry:
+            continue
+        platform, sep, sub = entry.partition(":")
+        if not sep:
+            platform, sub = "virtualpos1", entry
+        try:
+            platform = normalize_platform(platform)
+        except InvalidRequestFieldsError:
+            log.warning("BILLING_PILOT_ALLOWLIST: entrada con plataforma invalida ignorada")
+            continue
+        sub = sub.strip()
+        if sub:
+            out.add((platform, sub))
+    return frozenset(out)
+
+
+def is_pilot_allowlisted(platform: str, subscription_external_id: str) -> bool:
+    """True solo si la suscripcion esta en la allowlist del piloto. Allowlist vacia = False para todas."""
+    try:
+        key = (normalize_platform(platform), (subscription_external_id or "").strip())
+    except InvalidRequestFieldsError:
+        return False
+    return key in pilot_allowlist()
+
+
+def ensure_pilot_allowlisted(platform: str, subscription_external_id: str) -> None:
+    if not is_pilot_allowlisted(platform, subscription_external_id):
+        raise NotInPilotAllowlistError()
 
 
 # ----------------------------- politica -----------------------------
@@ -493,6 +562,7 @@ async def prepare_request(db: Session, params: RequestParams, *, now: datetime |
     p.subscription_external_id = p.subscription_external_id.strip()
     today = ba._chile_now(now).date()
     _validate_params(p, today)
+    ensure_pilot_allowlisted(p.platform, p.subscription_external_id)  # BILL-09: antes de leer el proveedor
     state = ba._subscription_state(db, p.platform, p.subscription_external_id)
     if state is None:
         raise SubscriptionUnknownError("Suscripción no encontrada.")
@@ -500,6 +570,8 @@ async def prepare_request(db: Session, params: RequestParams, *, now: datetime |
         raise SubscriptionNotActiveError(state[0])
     if ba.is_subscription_blocked(db, p.platform, p.subscription_external_id):
         raise SubscriptionBlockedError("La suscripción tiene cobros en conciliación pendiente; resuélvalo antes de pedir cambios.")
+    if bc.has_double_pending(db, p.platform, p.subscription_external_id, today):  # GB-CS-03 (BILL-10)
+        raise DoublePendingBlockedError()
 
     policy = get_policy(db)
     amount = p.new_amount
@@ -570,6 +642,7 @@ async def create_request(
 ) -> BillingChangeRequest:
     """Crea la solicitud (estado `pendiente`, o `aprobada` si se autoaprueba). Lee el proveedor; no escribe en el."""
     p_platform = normalize_platform(params.platform)
+    ensure_pilot_allowlisted(p_platform, params.subscription_external_id)  # BILL-09
     existing = find_open_request(db, p_platform, (params.subscription_external_id or "").strip())
     if existing is not None:
         raise OpenRequestExistsError(existing.id, existing.status)
@@ -657,6 +730,9 @@ def approve(db: Session, request_id: uuid.UUID, actor: User, comment: str | None
         _expire_one(db, req, when)
         db.commit()
         raise RequestExpiredError()
+    if not is_pilot_allowlisted(req.platform, req.subscription_external_id):  # BILL-09: pudo salir de la allowlist
+        db.rollback()
+        raise NotInPilotAllowlistError()
     policy = _require_approver(db, actor, req.id, "approve")
     is_self = actor.id == req.requested_by_user_id
     if is_self and not policy.self_approval_enabled:  # AP-01 / AP-26: se evalua al aprobar
@@ -758,6 +834,9 @@ def reopen(db: Session, request_id: uuid.UUID, actor: User, comment: str | None,
         db.rollback()
         raise RequestStateConflictError(req.status, REOPENABLE_STATUSES)
     policy = _require_approver(db, actor, req.id, "reopen")
+    if not is_pilot_allowlisted(req.platform, req.subscription_external_id):  # BILL-09
+        db.rollback()
+        raise NotInPilotAllowlistError()
     if ba.is_subscription_blocked(db, req.platform, req.subscription_external_id, exclude_request=req.id):
         db.rollback()
         raise SubscriptionBlockedError("La suscripción tiene cobros en conciliación pendiente de otra solicitud.")
@@ -834,7 +913,85 @@ async def apply_request(
     if req is None:
         raise RequestNotFoundError(str(request_id))
     _require_approver(db, actor, request_id, "apply")
+    # BILL-09: si la suscripcion salio de la allowlist (reversion del piloto, GB-PI-07) no se escribe nada en el proveedor;
+    # la solicitud sigue `aprobada` y puede retirarse o volver a aplicarse si se reincorpora.
+    ensure_pilot_allowlisted(req.platform, req.subscription_external_id)
     return await ba.apply_change_request(db, request_id, actor_user_id=actor.id, now=now, accept_drift=accept_drift)
+
+
+# ----------------------------- cola de reconciliacion (BILL-10, GB-CS-09) -----------------------------
+
+# Resolucion manual de un cobro del CRM en `requiere_conciliacion`, tras verificarlo a mano en VirtualPOS (8.6 del doc):
+# `vigente` = el cobro existe y debe quedar (vuelve a `creado`); `cancelado` = ya no existe / se cancelo en el panel.
+MANAGED_RESOLUTIONS = {"vigente": MANAGED_CREATED, "cancelado": MANAGED_CANCELLED}
+# Solo con la solicitud ya cerrada o en conciliacion: nunca mientras se decide o se aplica (no interfiere con apply).
+RESOLVABLE_REQUEST_STATUSES = (STATUS_NEEDS_RECONCILIATION, STATUS_FAILED, "ejecutada", "no_ejecutable")
+
+
+class ManagedChargeNotFoundError(BillingRequestError):
+    code = "managed_charge_not_found"
+
+    def __init__(self) -> None:
+        super().__init__("Cobro del CRM no encontrado.")
+
+
+class ManagedChargeStateError(BillingRequestError):
+    code = "managed_charge_not_in_reconciliation"
+
+    def __init__(self, current: str, message: str | None = None) -> None:
+        self.current_status = current
+        super().__init__(message or f"El cobro está en estado {current!r}; solo se resuelve uno en conciliación.")
+
+
+def resolve_managed_charge(
+    db: Session, managed_id: uuid.UUID, actor: User, resolution: str, comment: str | None, *, now: datetime | None = None,
+) -> VpManagedCharge:
+    """CS-09: un aprobador vigente marca como resuelto un cobro del CRM en `requiere_conciliacion` (comentario obligatorio).
+
+    NO llama al proveedor: solo registra lo verificado a mano. Toma el lock de la suscripcion (el mismo de `apply`, sin
+    cambiarlo) para no cruzarse con una aplicacion en curso. Traza: evento `requiere_conciliacion` en la solicitud de
+    origen con `detail.action = "conciliada"` (el CHECK de `event_type` no admite otro tipo; no se usa `reintentada`
+    porque reinicia la ronda de aprobaciones)."""
+    text = _clean_comment(comment, required=True)
+    if resolution not in MANAGED_RESOLUTIONS:
+        raise InvalidRequestFieldsError(f"resolution debe ser una de: {', '.join(MANAGED_RESOLUTIONS)}.")
+    row = db.get(VpManagedCharge, managed_id)
+    if row is None:
+        raise ManagedChargeNotFoundError()
+    _require_approver(db, actor, managed_id, "resolve_managed_charge")
+    platform, sub = row.platform, row.subscription_external_id
+    db.rollback()
+    with ba.subscription_lock(db, platform, sub):
+        locked = db.scalar(select(VpManagedCharge).where(VpManagedCharge.id == managed_id)
+                           .with_for_update().execution_options(populate_existing=True))
+        if locked is None:
+            db.rollback()
+            raise ManagedChargeNotFoundError()
+        if locked.status != MANAGED_NEEDS_RECONCILIATION:
+            status = locked.status
+            db.rollback()
+            raise ManagedChargeStateError(status)
+        origin = db.get(BillingChangeRequest, locked.request_id) if locked.request_id else None
+        if origin is None:
+            db.rollback()
+            raise ManagedChargeStateError(locked.status, "El cobro no tiene solicitud de origen: resuélvalo con soporte "
+                                                         "(control GB-CS-14).")
+        if origin.status not in RESOLVABLE_REQUEST_STATUSES:
+            status = origin.status
+            db.rollback()
+            raise ManagedChargeStateError(status, f"La solicitud de origen está en estado {status!r}; espere a que "
+                                                  "termine o quede en conciliación antes de resolver el cobro.")
+        previous = locked.status
+        locked.status = MANAGED_RESOLUTIONS[resolution]
+        if resolution == "cancelado":
+            locked.cancelled_at = _utc(now)
+        _event(db, origin.id, EVENT_NEEDS_RECONCILIATION, actor.id, {
+            "action": "conciliada", "charge_id": locked.charge_id, "month": locked.month, "from_status": previous,
+            "to_status": locked.status, "resolution": resolution, "comment": text})
+        db.commit()
+    log.info("billing: cobro %s conciliado (%s) por usuario %s", managed_id, resolution, actor.id)
+    db.refresh(locked)
+    return locked
 
 
 # ----------------------------- consulta -----------------------------
@@ -912,12 +1069,16 @@ __all__ = [
     "PERM_VIEW",
     "BillingRequestError",
     "CommentRequiredError",
+    "DoublePendingBlockedError",
     "DuplicateApproverError",
     "InvalidRequestFieldsError",
     "InvalidRequestStateError",
+    "ManagedChargeNotFoundError",
+    "ManagedChargeStateError",
     "NoChangesError",
     "NotAllowedError",
     "NotApproverError",
+    "NotInPilotAllowlistError",
     "OpenRequestExistsError",
     "PlanInvalidError",
     "PolicyValidationError",
@@ -935,22 +1096,26 @@ __all__ = [
     "approve",
     "create_request",
     "effective_approver_ids",
+    "ensure_pilot_allowlisted",
     "expire_pending_requests",
     "find_open_request",
     "get_events",
     "get_policy",
     "get_request",
     "is_approver",
+    "is_pilot_allowlisted",
     "list_policy_audit",
     "list_requesters",
     "list_requests",
     "normalize_platform",
+    "pilot_allowlist",
     "policy_effective_approvers",
     "policy_values",
     "prepare_request",
     "reject",
     "reopen",
     "required_approvals",
+    "resolve_managed_charge",
     "update_policy",
     "usernames",
     "withdraw",

@@ -21,6 +21,9 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import text
+
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.sync_run import SyncRun
 
@@ -30,6 +33,9 @@ JOB_BILLING_RENEWAL = "billing_renewal_check"
 JOB_BILLING_EXPIRE = "billing_expire_requests"
 JOB_BILLING_SWEEP = "billing_sweep_applying"
 BILLING_JOB_IDS = (JOB_BILLING_RENEWAL, JOB_BILLING_EXPIRE, JOB_BILLING_SWEEP)
+# BILL-10: controles de consistencia (GB-CS-02..14). Fuera de BILLING_JOB_IDS: no se lanza a mano desde el panel ni
+# escribe en `sync_runs`; solo lee (transaccion READ ONLY) y deja el resultado en el log, como la paridad VP-PAR-11.
+JOB_BILLING_CONSISTENCY = "billing_consistency_check"
 
 SWEEP_OLDER_THAN_MINUTES = 30
 
@@ -157,3 +163,37 @@ async def billing_expire_requests(run_id: str | None = None) -> None:
 async def billing_sweep_applying(run_id: str | None = None) -> None:
     """Pasa a `requiere_conciliacion` las solicitudes atascadas en `aplicando` (proceso caído). Idempotente."""
     await asyncio.to_thread(_sweep_sync, run_id)
+
+
+def _consistency_sync():
+    from app.services import billing_consistency
+
+    db = SessionLocal()
+    try:
+        db.execute(text("SET TRANSACTION READ ONLY"))  # garantia dura: el control no puede escribir
+        return billing_consistency.run_consistency_checks(db)
+    finally:
+        db.rollback()
+        db.close()
+
+
+async def billing_consistency_check() -> None:
+    """Controles diarios de consistencia (BILL-10). Detras de BILLING_CONSISTENCY_CHECK_ENABLED (apagada por defecto).
+
+    Resultado al log sin PII (codigos, severidades y cantidades): WARNING si hay hallazgos, INFO si todo cuadra. Los
+    hallazgos que bloquean (CS-03, CS-09) ya bloquean por si mismos en la creacion de solicitudes; aqui solo se alerta."""
+    if not settings.billing_consistency_check_enabled:
+        return
+    try:
+        report = await asyncio.to_thread(_consistency_sync)
+    except Exception as exc:  # noqa: BLE001 - un tick fallido no debe tumbar el scheduler
+        logger.warning("billing_consistency_check: fallo (%s)", type(exc).__name__)
+        return
+    if report.ok:
+        logger.info("billing_consistency_check: OK (%d suscripciones gestionadas revisadas).", report.subscriptions_checked)
+        return
+    logger.warning(
+        "billing_consistency_check: %d hallazgo(s) en %d suscripciones revisadas; severidad=%s codigos=%s bloqueadas=%d",
+        len(report.findings), report.subscriptions_checked, report.by_severity(), report.counts(),
+        len({(f.platform, f.subscription_external_id) for f in report.findings if f.blocks}),
+    )
