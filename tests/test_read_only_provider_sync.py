@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
+from app.integrations import http_retry
 from app.integrations.toku import client as toku_client
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
@@ -100,7 +101,7 @@ def test_toku_client_retries_read_timeout(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(toku_client.settings, "toku_read_retries", 1)
-    monkeypatch.setattr(toku_client.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(http_retry.asyncio, "sleep", no_sleep)
     http_client = TokuTimeoutThenSuccessClient()
     client = toku_client.TokuClient()
     original_client = client._client
