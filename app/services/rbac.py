@@ -65,7 +65,13 @@ PERMISSIONS: dict[str, str] = {
     "general.recovery.toku.view": "Ver la pestaña Toku del Recuperador general",
     "general.recovery.tch.view": "Ver la pestaña TCH del Recuperador general (solo lectura)",
     "general.billing_changes.view": "Ver Cambios de cobro en Operación",
+    "webhooks.manage": "Ver la salud de los webhooks y reprocesar eventos fallidos",
 }
+
+# RT-14: panel de salud de webhooks. Permiso de administracion (no termina en `.view`, asi que soporte y ejecutivo no lo
+# heredan). Sin migracion: `seed_permissions` (bootstrap_admin o scripts/maintenance/seed_roles.py) lo crea y lo da al rol
+# `admin`.
+WEBHOOKS_MANAGE = "webhooks.manage"
 
 # --- Operación general (UX-12, REC-04, REC-06) ----------------------------------------------------------------------
 # El Recuperador vive en /general/recuperador con una pestaña por canal; cada pestaña tiene su propio permiso y su API

@@ -39,6 +39,15 @@
  "GET /api/v1/admin/users": [
   "cookie:crm_access_token"
  ],
+ "GET /api/v1/admin/webhooks/events": [
+  "cookie:crm_access_token",
+  "query:limit",
+  "query:source",
+  "query:status"
+ ],
+ "GET /api/v1/admin/webhooks/health": [
+  "cookie:crm_access_token"
+ ],
  "GET /api/v1/auth/me": [
   "cookie:crm_access_token"
  ],
@@ -160,6 +169,11 @@
  ],
  "GET /api/v1/etl/runs/{}": [
   "cookie:crm_access_token"
+ ],
+ "GET /api/v1/events/stream": [
+  "cookie:crm_access_token",
+  "header:Last-Event-ID",
+  "query:last_event_id"
  ],
  "GET /api/v1/export/{}": [
   "cookie:crm_access_token",
@@ -525,6 +539,9 @@
   "cookie:crm_access_token"
  ],
  "POST /api/v1/admin/users": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/admin/webhooks/requeue": [
   "cookie:crm_access_token"
  ],
  "POST /api/v1/auth/login": [],
