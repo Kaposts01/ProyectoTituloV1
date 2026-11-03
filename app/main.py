@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1.router import api_router
 from app.api.v1.routes import (
     auth,
+    health,
     system,
     webhooks_payku,
     webhooks_toku,
@@ -16,7 +17,11 @@ from app.api.v1.routes import (
 )
 from app.core.config import settings, warn_unguarded_dev_writes
 from app.core.log_redaction import install_access_log_redaction
-from app.scheduler.engine import get_scheduler, register_jobs
+from app.scheduler.engine import (
+    get_scheduler,
+    install_heartbeat_listener,
+    register_jobs,
+)
 
 logger = logging.getLogger(__name__)
 install_access_log_redaction()  # RT-08: el access log de uvicorn no debe imprimir el token `?k=` de Payku
@@ -103,6 +108,7 @@ async def lifespan(app: FastAPI):
         return
     sched = get_scheduler()
     register_jobs(sched)
+    install_heartbeat_listener(sched)  # d139c: ultimo job exitoso para /api/v1/health/heartbeat
     sched.start()
     logger.info("Scheduler iniciado.")
     yield
@@ -113,6 +119,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0", openapi_tags=OPENAPI_TAGS, lifespan=lifespan)
 app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(system.router, prefix="/api/v1/system", tags=["System"])
+app.include_router(health.router, prefix="/api/v1/health", tags=["health"])  # d139c: sin sesion, sin datos personales
 app.include_router(webhooks_toku.router, prefix="/api/v1")
 app.include_router(webhooks_virtualpos.router, prefix="/api/v1")
 app.include_router(webhooks_payku.router, prefix="/api/v1")
