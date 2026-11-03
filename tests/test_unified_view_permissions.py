@@ -94,7 +94,7 @@ def _login(monkeypatch, suffix: str, perms: list[str]) -> TestClient:
 
 def test_migration_0064_chain_and_rules_match_rbac() -> None:
     mig = _migration()
-    assert mig.revision == "20261102_0064" and mig.down_revision == "20261102_0061"
+    assert mig.revision == "20261102_0064" and mig.down_revision == "20261102_0066"
     assert mig.GRANT_RULES == rbac.UNIFIED_VIEW_GRANT_RULES
     assert {code: rbac.PERMISSIONS[code] for code in mig.PERMISSIONS} == mig.PERMISSIONS
     assert set(mig.PERMISSIONS) == NEW_CODES
@@ -117,7 +117,7 @@ def test_migration_0064_grants_by_data_and_downgrade_removes(db_session: Session
     mig = _migration()
     rbac.seed_permissions(db_session)
     db_session.flush()
-    mig.revoke(db_session.connection())  # como una base en 0061
+    mig.revoke(db_session.connection())  # como una base en 0066
     subs = list(rbac.UNIFIED_VIEW_GRANT_RULES[rbac.GENERAL_SUBSCRIPTIONS_VIEW])
     charges = list(rbac.UNIFIED_VIEW_GRANT_RULES[rbac.GENERAL_CHARGES_VIEW])
     full = _role(db_session, subs + charges)
