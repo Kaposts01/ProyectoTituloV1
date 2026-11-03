@@ -6,7 +6,7 @@ Mismo esqueleto seguro que `billing_apply` (Opcion A):
    `approved -> applying` (UPDATE condicional).
 3. Estado revalidado contra la suscripcion real (si ya esta dada de baja y aun no se detuvo desde aqui: `not_executable`).
 4. Orden: DETENER la suscripcion -> CANCELAR cobros pendientes (por `charge_id` / anulando invoices) -> medio de pago
-   (solo tarea manual registrada: VirtualPOS no tiene API, Toku queda pendiente de decision, Payku sin validar Q-09).
+   (se CONSERVA, d105/MGT-11: paso manual con tarea `payment_method_retained`; VirtualPOS no tiene API).
    Cada paso se verifica releyendo el proveedor (`refresh_subscription`). Parada en el PRIMER fallo.
 5. Fallo sin efecto previo -> `failed` (reintentable tras `reopen`); fallo con pasos ya hechos (bajas irreversibles) ->
    `requires_reconciliation` con `requires_reconciliation = true` y la lista de pasos hechos. `reopen` conserva los pasos
@@ -37,6 +37,7 @@ from app.models.cancellation import SubscriptionCancellationRequest
 from app.models.write_run import WriteRun
 from app.services import billing_apply as ba
 from app.services import cancellation_requests as cr
+from app.services import manual_tasks as mt
 from app.services import write_payku as wp
 from app.services import write_toku as wt
 from app.services import write_virtualpos as wv
@@ -48,9 +49,12 @@ PROVIDER_STEPS = ("stop_subscription", "cancel_pending_charges", "payment_method
 TCH_STEPS = ("register_internal", "bank_mandate")
 EFFECT_STEPS = frozenset({"stop_subscription", "cancel_pending_charges", "register_internal"})
 STEP_EVENT = {"done": "step_completed", "failed": "step_failed", "manual": "step_manual"}
+# MGT-11 (d105): el medio de pago SE CONSERVA en todos los canales. VirtualPOS no tiene API; en Toku y Payku el CRM no lo
+# borra por decision del usuario. El paso queda `manual` y crea una tarea manual (`payment_method_retained`) para la
+# trazabilidad y para poder revertir la decision.
 PAYMENT_METHOD_CODE = {
     "virtualpos1": "VP_NO_PAYMENT_METHOD_API", "virtualpos2": "VP_NO_PAYMENT_METHOD_API",
-    "toku": "TOKU_PAYMENT_METHOD_DECISION_PENDING", "payku": "PAYKU_CARD_DELETE_Q09_UNVALIDATED",
+    "toku": "TOKU_PAYMENT_METHOD_RETAINED", "payku": "PAYKU_PAYMENT_METHOD_RETAINED",
 }
 STUCK_APPLYING_MINUTES = 30
 
@@ -502,7 +506,7 @@ async def _execute(ctx: _Ctx, now: datetime | None) -> CancellationApplyResult:
         if current is not None and current.get("status") in ("done", "manual"):
             continue  # idempotencia: lo hecho no se repite
         if name == "payment_method":
-            out = _Outcome("manual", PAYMENT_METHOD_CODE[channel], {"task": "remove_payment_method_manually"})
+            out = _payment_method_outcome(ctx)
         else:
             out = await runners[name](ctx)
         _record_step(ctx, name, out)
@@ -524,12 +528,24 @@ async def _execute(ctx: _Ctx, now: datetime | None) -> CancellationApplyResult:
                                    write_run_id=ctx.run.id if ctx.run else None)
 
 
+def _payment_method_outcome(ctx: _Ctx) -> _Outcome:
+    code = PAYMENT_METHOD_CODE[ctx.channel]
+    task = mt.ensure_task(ctx.db, mt.TASK_PAYMENT_METHOD, ctx.channel, ctx.sub, actor=ctx.actor,
+                          cancellation_request_id=ctx.req.id, assigned_to=ctx.req.requested_by_user_id,
+                          detail={"code": code, "decision": "retained"})
+    return _Outcome("manual", code, {"task": "payment_method_retained", "manual_task_id": str(task.id)})
+
+
 def _execute_tch(ctx: _Ctx) -> CancellationApplyResult:
     """TCH no tiene API de escritura: la solicitud aprobada queda «en tramite» (`pending_external`) y el mandato lo
-    tramita una persona en el banco (tarea manual). Se cierra con `close_tch_cancellations_from_report`."""
+    revoca a mano un ejecutivo (no Tesoreria; d107), que CONFIRMA en el CRM que lo hizo (tarea `tch_bank_mandate`, con
+    responsable = solicitante por defecto). Se cierra con `close_tch_cancellations_from_report` (Excel)."""
     _record_step(ctx, "register_internal", _Outcome("done", None, {"channel": "tch"}))
+    task = mt.ensure_task(ctx.db, mt.TASK_TCH_MANDATE, "tch", ctx.sub, actor=ctx.actor, cancellation_request_id=ctx.req.id,
+                          assigned_to=ctx.req.requested_by_user_id, detail={"code": "TCH_BANK_MANDATE_OUTSIDE_CRM"})
     _record_step(ctx, "bank_mandate", _Outcome("manual", "TCH_BANK_MANDATE_OUTSIDE_CRM",
-                                               {"task": "revoke_bank_mandate_manually"}))
+                                               {"task": "revoke_bank_mandate_manually",
+                                                "manual_task_id": str(task.id)}))
     ctx.req.status = "pending_external"
     ctx.req.requires_reconciliation = False
     ctx.req.error_message = None
@@ -558,7 +574,9 @@ def close_tch_cancellations_from_report(db: Session, *, now: datetime | None = N
         req.status = "completed"
         req.executed_at = datetime.now(UTC)
         req.error_message = None
-        _event(db, req.id, "closed_by_report", None, {"source": "tch_report", "subscription_status": status})
+        task_verified = mt.verify_tch_mandate_task(db, req.id, now=now)  # MGT-13: la tarea del mandato queda verificada
+        _event(db, req.id, "closed_by_report", None, {"source": "tch_report", "subscription_status": status,
+                                                      "manual_task_verified": task_verified})
         closed.append(req.id)
     db.commit()
     return closed

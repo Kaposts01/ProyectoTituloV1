@@ -6,6 +6,7 @@ de fecha y hace timeout en datos históricos.
 """
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,6 +21,8 @@ from app.services.payload_sanitization import sanitize_payload
 from app.services.read_only_provider_sync import safe_error_message, store_records
 from app.services.sync_metrics import resource_timer
 from app.services.sync_progress import ProgressCallback
+
+log = logging.getLogger(__name__)
 
 SOURCE = "payku"
 _PER_PAGE = 100
@@ -160,4 +163,20 @@ async def sync_payku(
         db.commit()
         raise
 
+    _verify_manual_amount_tasks(db)
     return run
+
+
+def _verify_manual_amount_tasks(db: Session) -> None:
+    """MGT-14 (d108): cierra las tareas manuales de cambio de monto cuyo monto nuevo ya trajo esta sincronizacion.
+    Fuera del bloque de la sync: un fallo aqui NUNCA marca la sincronizacion como fallida (solo se registra)."""
+    from app.services.manual_tasks import verify_payku_amount_tasks
+
+    try:
+        closed = verify_payku_amount_tasks(db)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        log.warning("payku: no se pudo verificar las tareas de monto (%s)", type(exc).__name__)
+        return
+    if closed:
+        log.info("payku: %d tarea(s) de cambio de monto verificadas por la sincronizacion", len(closed))

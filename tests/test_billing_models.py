@@ -137,7 +137,7 @@ def test_pending_plus_executed_allowed_and_new_pending_after_close(db_session: S
     [
         {"status": "inexistente"},
         {"request_type": "otro"},
-        {"platform": "toku"},
+        {"platform": "payku"},  # MGT-12: toku ya es valida en la bandeja; payku no
         {"new_amount": Decimal("0")},
         {"horizon_months": 0},
         {"new_charge_day": 32, "request_type": "change_date"},

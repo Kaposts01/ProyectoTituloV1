@@ -67,6 +67,8 @@ PERMISSIONS: dict[str, str] = {
     "general.recovery.payku.view": "Ver la pestaña Payku del Recuperador general (solo lectura)",
     "general.billing_changes.view": "Ver Cambios de cobro en Operación",
     "webhooks.manage": "Ver la salud de los webhooks y reprocesar eventos fallidos",
+    "subscriptions.manual_tasks.view": "Ver tareas manuales de suscripciones (medios de pago, mandatos TCH, montos de Payku)",
+    "subscriptions.manual_tasks.confirm": "Confirmar, asignar y descartar tareas manuales de suscripciones",
 }
 
 # RT-14: panel de salud de webhooks. Permiso de administracion (no termina en `.view`, asi que soporte y ejecutivo no lo
@@ -117,6 +119,19 @@ CANCELLATION_ROLE_GRANTS: dict[str, frozenset[str]] = {
     "soporte": frozenset({CANCELLATION_VIEW}),
     "ejecutivo": frozenset({CANCELLATION_VIEW}),
     COORDINATOR_ROLE_NAME: frozenset({CANCELLATION_VIEW}),
+}
+
+# --- Tareas manuales de suscripcion (MGT-11/13/14) ------------------------------------------------------------------
+# Migracion 20261102_0066. Confirmar (d107: la accion manual la hace un ejecutivo, otro o el mismo, y la confirma con su
+# usuario y fecha) queda en admin y jefatura: el rol `ejecutivo` del codigo es SOLO lectura (D12) y solo ve.
+MANUAL_TASKS_VIEW = "subscriptions.manual_tasks.view"
+MANUAL_TASKS_CONFIRM = "subscriptions.manual_tasks.confirm"
+MANUAL_TASK_ROLE_GRANTS: dict[str, frozenset[str]] = {
+    "admin": frozenset({MANUAL_TASKS_VIEW, MANUAL_TASKS_CONFIRM}),
+    JEFATURA_ROLE_NAME: frozenset({MANUAL_TASKS_VIEW, MANUAL_TASKS_CONFIRM}),
+    "soporte": frozenset({MANUAL_TASKS_VIEW}),
+    "ejecutivo": frozenset({MANUAL_TASKS_VIEW}),
+    COORDINATOR_ROLE_NAME: frozenset({MANUAL_TASKS_VIEW}),
 }
 
 SUPPORT_ROLE_NAME = "soporte"
@@ -192,10 +207,14 @@ def ensure_cancellation_grants(db: Session) -> dict[str, int]:
     """Agrega los permisos de baja (`CANCELLATION_ROLE_GRANTS`) a los roles que YA existen; nunca crea roles ni quita
     permisos. Idempotente. Equivale a la migracion 20261029_0050 y sirve para roles creados despues de aplicarla
     (p. ej. `jefatura` o `coordinador`). Devuelve {rol_existente: permisos_agregados}."""
-    wanted = {code for codes in CANCELLATION_ROLE_GRANTS.values() for code in codes}
+    grants: dict[str, set[str]] = {}
+    for source in (CANCELLATION_ROLE_GRANTS, MANUAL_TASK_ROLE_GRANTS):  # 0066: tareas manuales, misma regla
+        for role_name, codes in source.items():
+            grants.setdefault(role_name, set()).update(codes)
+    wanted = {code for codes in grants.values() for code in codes}
     by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted))).all()}
     added: dict[str, int] = {}
-    for role_name, codes in CANCELLATION_ROLE_GRANTS.items():
+    for role_name, codes in grants.items():
         role = db.scalar(select(Role).where(Role.name == role_name))
         if role is None:
             continue

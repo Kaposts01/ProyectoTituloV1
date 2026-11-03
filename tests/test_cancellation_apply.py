@@ -322,7 +322,7 @@ def test_toku_success_pauses_voids_and_never_deletes(db_session, providers) -> N
     req = _reload(db_session, req)
     assert _step_status(req) == {
         "stop_subscription": ("done", None), "cancel_pending_charges": ("done", None),
-        "payment_method": ("manual", "TOKU_PAYMENT_METHOD_DECISION_PENDING"),
+        "payment_method": ("manual", "TOKU_PAYMENT_METHOD_RETAINED"),
     }
     assert req.steps[0]["mode"] == "paused" and req.steps[1]["voided"] == 2
     assert REFRESH.calls == [("toku", "sub_tk1")]  # cada paso verificado releyendo el proveedor
@@ -437,7 +437,7 @@ def test_payku_success_deletes_once_verifies_and_registers_manual_card_task(db_s
     req = _reload(db_session, req)
     assert _step_status(req) == {
         "stop_subscription": ("done", None), "cancel_pending_charges": ("done", None),
-        "payment_method": ("manual", "PAYKU_CARD_DELETE_Q09_UNVALIDATED"),
+        "payment_method": ("manual", "PAYKU_PAYMENT_METHOD_RETAINED"),
     }
     assert req.options["confirm_irreversible"] is True
     assert REFRESH.calls == [("payku", "sus_pk1")]

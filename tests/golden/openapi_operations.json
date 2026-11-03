@@ -274,6 +274,26 @@
  "GET /api/v1/imports/toku-reports/status": [
   "cookie:crm_access_token"
  ],
+ "GET /api/v1/manual-tasks": [
+  "cookie:crm_access_token",
+  "query:assigned_to",
+  "query:cancellation_request_id",
+  "query:channel",
+  "query:limit",
+  "query:offset",
+  "query:status",
+  "query:subscription_id",
+  "query:task_type"
+ ],
+ "GET /api/v1/manual-tasks/assignees": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/manual-tasks/tch-export": [
+  "cookie:crm_access_token"
+ ],
+ "GET /api/v1/manual-tasks/{}": [
+  "cookie:crm_access_token"
+ ],
  "GET /api/v1/payments": [
   "cookie:crm_access_token",
   "query:limit",
@@ -720,6 +740,18 @@
   "cookie:crm_access_token"
  ],
  "POST /api/v1/imports/virtualpos-reports": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/manual-tasks/payku-amount": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/manual-tasks/{}/assign": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/manual-tasks/{}/confirm": [
+  "cookie:crm_access_token"
+ ],
+ "POST /api/v1/manual-tasks/{}/dismiss": [
   "cookie:crm_access_token"
  ],
  "POST /api/v1/recovery/card-change-links/{}": [

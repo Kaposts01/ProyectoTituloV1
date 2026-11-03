@@ -32,6 +32,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.session import Base
 
 PLATFORMS = ("virtualpos1", "virtualpos2")
+# Plataformas de la BANDEJA de cambios de cobro (MGT-12, d106): Toku reutiliza la bandeja y los aprobadores solo para
+# `change_amount`. Cobros gestionados, marcas de calendario y tareas de renovacion siguen siendo solo VirtualPOS.
+REQUEST_PLATFORMS = (*PLATFORMS, "toku")
 REQUEST_TYPES = ("change_amount", "change_date", "renew_calendar", "one_off_charge")
 # Estados de una solicitud de cambio de cobro. El VALOR guardado en la base es español (D38, no se migra); el NOMBRE
 # de la constante va en inglés.
@@ -118,7 +121,7 @@ class BillingChangeRequest(Base):
     __table_args__ = (
         CheckConstraint(_in("request_type", REQUEST_TYPES), name="ck_bcr_request_type"),
         CheckConstraint(_in("status", REQUEST_STATUSES), name="ck_bcr_status"),
-        CheckConstraint(_in("platform", PLATFORMS), name="ck_bcr_platform"),
+        CheckConstraint(_in("platform", REQUEST_PLATFORMS), name="ck_bcr_platform"),
         CheckConstraint("horizon_months BETWEEN 1 AND 60", name="ck_bcr_horizon"),
         CheckConstraint("new_amount IS NULL OR new_amount > 0", name="ck_bcr_new_amount_positive"),
         CheckConstraint("new_charge_day IS NULL OR new_charge_day BETWEEN 1 AND 31", name="ck_bcr_new_charge_day"),
