@@ -1,4 +1,4 @@
-import type { MonthlyStatusEntry } from "../../MonthlyStatusChart";
+import type { MonthlyStatusEntry } from "../shared/monthly";
 
 /** Filtro de la gráfica: «all» suma todo; «paid» y «rejected» se traducen al valor del backend (`charge_status`). */
 export type ChargeFilter = "all" | "paid" | "rejected";

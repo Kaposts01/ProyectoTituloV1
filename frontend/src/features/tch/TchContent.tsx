@@ -2,12 +2,11 @@ import { label, labelOr } from "../../i18n/label";
 import { ChannelChart } from "../../components/ChannelChart";
 import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
 import { KpiCard } from "../../components/KpiCard";
-import { MonthlyGrowthChart, MonthlyChurnChart } from "../../MonthlyStatusChart";
 import { Metric } from "../dashboard/Metric";
 import { OperationalAlerts } from "../dashboard/OperationalAlerts";
-import { activationVsChurnChart, statusStackedChart, tchSourceNote } from "../dashboard/channelCharts";
+import { activationVsChurnChart, churnRateChart, netGrowthChart, statusStackedChart, tchSourceNote } from "../dashboard/channelCharts";
 import { normalizeKpis } from "../shared/kpis";
-import { aggregateChurn, defaultYear } from "../shared/utils";
+import { defaultYear } from "../shared/utils";
 import { ExportButton } from "../shared/ExportButton";
 import { tchExportTarget } from "../shared/exportMapping";
 import type { TchRouteView } from "../../routes";
@@ -130,7 +129,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
           <KpiCard label="Tasa de rechazo" value={tchSummary.transactions.rejectionRatePct} format="percent" caption="Rechazadas / total" emptyCaption="Sin base para calcular" />
         </section>
         <div className="dashboard-section-heading dashboard-section-heading-compact"><div><p className="eyebrow">CARTERA</p><h3>Salud de suscripciones</h3></div></div>
-        <ChannelKpiStrip kpis={normalizeKpis("tch", tchSummary.kpis, tchSummary.churnWindowLabel)} ariaLabel="KPIs financieros TCH" />
+        <ChannelKpiStrip kpis={normalizeKpis("tch", tchSummary.kpis, tchSummary.churnWindowLabel)} churnHistory={tchSummary.churnRateMonthly} ariaLabel="KPIs financieros TCH" />
         <div className="dashboard-section-heading dashboard-section-heading-charts"><div><p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p><h3>Lectura mensual</h3></div></div>
         <section className="extended-charts">
           {(() => {
@@ -139,7 +138,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
             return tx.rows.length ? (
               <article className="panel">
                 <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Transacciones mensuales</h3></div></div>
-                <ChannelChart series={tx.series} data={tx.rows} kind="stacked" mode={tchMode} year={tchYear} legend ariaLabel="Gráfico de transacciones mensuales de TCH por estado" />
+                <ChannelChart series={tx.series} data={tx.rows} kind="stacked" mode={tchMode} year={tchYear} legend showDataToggle ariaLabel="Gráfico de transacciones mensuales de TCH por estado" />
                 {note ? <p className="muted-copy">{note}</p> : null}
               </article>
             ) : null;
@@ -149,29 +148,30 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
             return ab.rows.length ? (
               <article className="panel">
                 <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas vs bajas</h3></div></div>
-                <ChannelChart series={ab.series} data={ab.rows} kind="grouped" mode={tchMode} year={tchYear} legend ariaLabel="Gráfico de altas y bajas mensuales de suscripciones TCH" />
+                <ChannelChart series={ab.series} data={ab.rows} kind="diverging" mode={tchMode} year={tchYear} legend showDataToggle ariaLabel="Gráfico de altas (arriba) y bajas (abajo) mensuales de suscripciones TCH" />
               </article>
             ) : null;
           })()}
-          {tchSummary.monthlyActivations?.length && tchSummary.monthlyCancellations?.length ? (
-            <>
+          {(() => {
+            const net = netGrowthChart(tchSummary.monthlyActivations, tchSummary.monthlyCancellations, tchMode);
+            return tchSummary.monthlyActivations?.length && tchSummary.monthlyCancellations?.length && net.rows.length ? (
               <article className="panel">
                 <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
-                <MonthlyGrowthChart
-                  activations={tchSummary.monthlyActivations}
-                  cancellations={aggregateChurn(tchSummary.monthlyCancellations)}
-                  year={tchYear}
-                  mode={tchMode}
-                />
+                <ChannelChart series={net.series} data={net.rows} kind="waterfall" mode={tchMode} year={net.rows.some((r) => r.year === tchYear) ? tchYear : null} legend showDataToggle ariaLabel="Waterfall del crecimiento neto mensual de TCH (altas menos bajas)" />
+                <p className="muted-copy">Cada barra es altas menos bajas del mes, desde el acumulado del mes anterior del período.</p>
               </article>
-            </>
-          ) : null}
-          {tchSummary.churnRateMonthly.length ? (
-            <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
-              <MonthlyChurnChart data={tchSummary.churnRateMonthly} year={tchYear} />
-            </article>
-          ) : null}
+            ) : null;
+          })()}
+          {(() => {
+            const churn = churnRateChart(tchSummary.churnRateMonthly);
+            return churn.rows.length ? (
+              <article className="panel">
+                <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
+                <ChannelChart series={churn.series} data={churn.rows} kind="line" mode="percent" year={churn.rows.some((r) => r.year === tchYear) ? tchYear : null} showDataToggle ariaLabel="Gráfico del churn mensual de TCH en porcentaje" />
+                <p className="muted-copy">Bajas del mes ÷ socios al inicio del mes (misma definición en todos los canales).</p>
+              </article>
+            ) : null;
+          })()}
         </section>
         {can?.("sync_runs.view") ? <TchFileLoadsPanel /> : null}
         <OperationalAlerts alerts={tchSummary.alerts ?? []} />

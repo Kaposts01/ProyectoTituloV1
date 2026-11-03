@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { AlertWire } from "../dashboard/alertAdapter";
-import type { MonthlyEntry, MonthlyStatusEntry } from "../../MonthlyStatusChart";
+import type { MonthlyEntry, MonthlyStatusEntry } from "./monthly";
 
 export type SyncRun = { status: string; records_processed: number; started_at?: string | null; finished_at?: string | null };
 export type SourceSummary = {

@@ -7,7 +7,7 @@ import { normalizeStatus, statusColor, statusKindColor, STATUS_KINDS } from "./s
 import { chartStatusColor } from "./chartColors";
 import { pivotByStatus } from "./components/chartRows";
 import { StatusBars } from "./features/dashboard/StatusBars";
-import { MonthlyStatusChart } from "./MonthlyStatusChart";
+import { seriesStackedChart } from "./features/dashboard/channelCharts";
 
 const barProps = vi.hoisted(() => [] as Record<string, unknown>[]);
 
@@ -118,18 +118,23 @@ describe("mismo estado, mismo color en barra, gráfico apilado y leyenda", () =>
     expect(seg.style.background || seg.style.backgroundColor).toBe("var(--status-paid)");
   });
 
-  it("MonthlyStatusChart colorea barras por estado con el mismo token que la barra de estados", () => {
-    barProps.length = 0;
-    render(
-      <MonthlyStatusChart mode="count" year={null} data={[
-        { year: 2026, month: 1, status: "PAGADO", count: 3, amount: 1 },
-        { year: 2026, month: 1, status: "CANCELADO", count: 2, amount: 1 },
-      ]} />,
-    );
-    const fills = barProps.map((p) => p.fill);
+  it("el apilado del dashboard general colorea por estado con el mismo token que la barra de estados (VIZ-07)", () => {
+    const { series } = seriesStackedChart([
+      { year: 2026, month: 1, status: "PAGADO", count: 3, amount: 1 },
+      { year: 2026, month: 1, status: "CANCELADO", count: 2, amount: 1 },
+    ], "count");
+    const fills = series.map((p) => p.color);
     expect(fills).toContain("var(--status-paid)");
     expect(fills).toContain("var(--status-neutral)");
     expect(fills).not.toContain("#DC2626");
+  });
+
+  it("el apilado por canal usa color y rótulo de canal, no de estado", () => {
+    const { series } = seriesStackedChart([
+      { year: 2026, month: 1, status: "VirtualPOS", count: 3, amount: 1 },
+      { year: 2026, month: 1, status: "TCH", count: 2, amount: 1 },
+    ], "count");
+    expect(series.map((s) => [s.label, s.color])).toEqual([["TCH", "var(--series-3)"], ["VirtualPOS", "var(--series-1)"]]);
   });
 
   it("los colores de CANAL siguen aparte (no se mezclan con estados)", () => {

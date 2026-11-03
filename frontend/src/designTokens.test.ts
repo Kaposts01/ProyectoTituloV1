@@ -322,7 +322,9 @@ describe("D27 superficies, primario y accion en azul-gris y azul (claro y oscuro
   it("los gráficos de canal usan tokens --series-N, no hex fijos", () => {
     const chartColors = readFileSync("src/chartColors.ts", "utf8");
     expect(chartColors).not.toMatch(/#[0-9a-f]{6}/i);
-    expect(readFileSync("src/MonthlyStatusChart.tsx", "utf8")).not.toMatch(/#[0-9a-f]{6}/i);
+    for (const f of ["src/components/ChannelChart.tsx", "src/components/RankingChart.tsx", "src/features/dashboard/channelCharts.ts"]) {
+      expect(readFileSync(f, "utf8"), f).not.toMatch(/#[0-9a-f]{6}/i);
+    }
   });
 });
 
