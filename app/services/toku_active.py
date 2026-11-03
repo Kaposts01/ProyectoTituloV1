@@ -1,17 +1,19 @@
 """«Suscripcion activa efectiva» de Toku (DEC-18, TK-13): la UNICA base de MRR, ARPU y suscriptores activos de Toku.
 
-Criterio (en este orden):
+Criterio (en este orden; regla vigente desde d118 opcion c, 2026-11-02):
 
+0. **Pausadas y sin estado fuera**: una suscripcion con estado de la API `PAUSED` o vacio (`NULL`/`''`) NO es activa
+   efectiva, haya o no senal del reporte (el reporte no conoce las pausas, y un estado vacio no prueba que este viva).
 1. **Senal del reporte** (`core_subscription_signals`, TK-20; solo con `TOKU_REPORT_SIGNALS_ENABLED=true`): si la
    suscripcion tiene fila, manda
    `is_effectively_active` (= no eliminada en el reporte **y** medio de pago `chargeable`). El reporte gana para estado y
    medio de pago (DEC-23).
 2. **Sin senal, la API**: no eliminada (estado distinto de las bajas de Toku: `cancelled`, `canceled`, `cancelada`,
    `deleted`, `ended`, `deleted_at_source`) **y** con un medio de pago `chargeable` de la API que la lista en
-   `subscription_ids`. Un estado vacio o `PAUSED` cuenta como no eliminada (DEC-18: el estado secundario queda visible,
-   no saca a la suscripcion de las activas).
+   `subscription_ids`.
 
-Antes de TK-13 se exigia `status == 'active'` (dejaba fuera `PAUSED` y los `NULL` de la API) y se ignoraban las senales.
+Historia: antes de TK-13 se exigia `status == 'active'` y se ignoraban las senales; la primera version de TK-13 contaba
+`PAUSED` y el estado vacio como activas; d118 (opcion c) las vuelve a excluir.
 """
 
 from collections.abc import Iterable
@@ -26,9 +28,11 @@ from app.models.toku_report import CoreSubscriptionSignal
 from app.services.status_history import CANCELLATION_STATES
 
 TOKU_DELETED_STATES = frozenset(CANCELLATION_STATES["toku"] | {"deleted_at_source"})
+# d118 (opcion c): estados que nunca cuentan como activa efectiva (el vacio se representa con "").
+TOKU_NOT_ACTIVE_STATES = frozenset({"paused", ""})
 CRITERION_LABEL = (
-    "suscripción activa efectiva: no eliminada y con medio de pago cobrable (DEC-18; "
-    "el reporte de Toku manda cuando existe)"
+    "suscripción activa efectiva: no eliminada, no pausada, con estado y con medio de pago cobrable "
+    "(DEC-18, d118; el reporte de Toku manda cuando existe)"
 )
 
 
@@ -77,9 +81,12 @@ def is_effectively_active(
     external_id: str, status: Any, chargeable_ids: set[str], signals: dict[str, bool]
 ) -> bool:
     """Regla pura (ver el docstring del modulo)."""
+    normalized = str(status or "").strip().lower()
+    if normalized in TOKU_NOT_ACTIVE_STATES:
+        return False
     if external_id in signals:
         return signals[external_id]
-    if str(status or "").strip().lower() in TOKU_DELETED_STATES:
+    if normalized in TOKU_DELETED_STATES:
         return False
     return external_id in chargeable_ids
 

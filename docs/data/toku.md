@@ -164,40 +164,47 @@ Toku sí, desde TK-13, ver más abajo).
 | `last_response_code`, `last_response_severity`, `last_attempt_at` | del último intento fallido / último intento |
 | `report_generated_at`, `computed_at` | fecha de generación del reporte y del cálculo |
 
-### KPIs de Toku: «suscripción activa efectiva» (TK-13, DEC-18)
+### KPIs de Toku: «suscripción activa efectiva» (TK-13, DEC-18; regla vigente: d118, opción c)
 MRR, ARPU, suscriptores activos y clientes activos de Toku usan una sola regla, `app/services/toku_active.py`, en los tres
 lugares que los calculan: dashboard de Toku (`staging._toku_centralized_dashboard`), dashboard general de canales
 (`staging._compute_general_dashboard`, columna Toku de `channels` y `subscriptions`) y resumen de la jefatura
 (`dashboard_general._mrr_by_channel`).
 
+0. **`PAUSED` y estado vacío no cuentan nunca** (d118, opción c, aprobada el 2026-11-02): ni con señal efectiva del
+   reporte, porque el reporte no conoce las pausas y un estado vacío de la API no prueba que la suscripción esté viva.
 1. Si la suscripción tiene fila en `core_subscription_signals` **y** `TOKU_REPORT_SIGNALS_ENABLED=true`, manda
-   `is_effectively_active` (el reporte gana para estado y medio de pago, DEC-23). Con la bandera apagada no se leen señales
-   viejas.
+   `is_effectively_active` (el reporte gana para eliminación y medio de pago, DEC-23). Con la bandera apagada no se leen
+   señales viejas.
 2. Si no: **no eliminada** (estado distinto de `cancelled`, `canceled`, `cancelada`, `deleted`, `ended` y
-   `deleted_at_source`; `PAUSED` y el estado vacío de la API **sí** cuentan) **y** con un medio de pago `chargeable` de la
-   API que la liste en `subscription_ids`.
+   `deleted_at_source`) **y** con un medio de pago `chargeable` de la API que la liste en `subscription_ids`.
 
-Antes se exigía `status = 'active'` y medio `chargeable` de la API, sin mirar el reporte. Cifras con los datos sintéticos de
-`tests/test_toku_effective_active.py` (siete suscripciones, una por caso; montos en CLP):
+Historia: antes de TK-13 se exigía `status = 'active'` y medio `chargeable` de la API, sin mirar el reporte; la primera
+versión de TK-13 contaba `PAUSED` y el estado vacío como activas; d118 las excluye otra vez. Cifras con los datos
+sintéticos de `tests/test_toku_effective_active.py` (siete suscripciones, una por caso; montos en CLP):
 
-| Caso | Estado API | Medio API | Señal del reporte | Antes | Después |
-|---|---|---|---|---|---|
-| a | `ACTIVE` | chargeable | — | cuenta | cuenta |
-| b | `PAUSED` | chargeable | — | no | cuenta |
-| c | vacío | chargeable | — | no | cuenta |
-| d | `ACTIVE` | inactive | — | no | no |
-| e | `CANCELLED` | chargeable | — | no | no |
-| f | `ACTIVE` | chargeable | no efectiva (eliminada en el reporte) | cuenta | no |
-| g | `ACTIVE` | inactive | efectiva (cobrable en el reporte) | no | cuenta |
+| Caso | Estado API | Medio API | Señal del reporte | Antes de TK-13 | TK-13 v1 | d118 (vigente) |
+|---|---|---|---|---|---|---|
+| a | `ACTIVE` | chargeable | — | cuenta | cuenta | cuenta |
+| b | `PAUSED` | chargeable | — | no | cuenta | no |
+| c | vacío | chargeable | — | no | cuenta | no |
+| d | `ACTIVE` | inactive | — | no | no | no |
+| e | `CANCELLED` | chargeable | — | no | no | no |
+| f | `ACTIVE` | chargeable | no efectiva (eliminada en el reporte) | cuenta | no | no |
+| g | `ACTIVE` | inactive | efectiva (cobrable en el reporte) | no | cuenta | cuenta |
 
-| KPI | Antes | Después |
-|---|---|---|
-| Suscripciones activas | 2 | 4 |
-| MRR | 17.000 | 27.000 |
-| ARPU (un cliente por suscripción) | 8.500 | 6.750 |
+| KPI | Antes de TK-13 | TK-13 v1 | d118 (vigente) |
+|---|---|---|---|
+| Suscripciones activas | 2 | 4 | 2 |
+| MRR | 17.000 | 27.000 | 13.000 |
+| ARPU (un cliente por suscripción) | 8.500 | 6.750 | 6.500 |
 
-En los datos reales la diferencia depende de cuántas `PAUSED` o sin estado tienen medio cobrable y de cuántas el reporte
-marca como eliminadas o con otro medio; no se midió contra `crm` ni `crm_sandbox` en este lote.
+Con la bandera de señales apagada (manda la API) el mundo sintético da MRR 17.000 (a y f) con d118, frente a 31.000
+(a, b, c y f) con TK-13 v1.
+
+En los datos reales, según la medición agregada de la auditoría del 2026-10-29 (`parity_toku.md`), la API tenía 518
+suscripciones: 499 `ACTIVE`, 12 `PAUSED` y 7 sin estado. d118 saca del universo elegible esas 19 (12 + 7) frente a TK-13
+v1; cuántas de ellas tenían medio cobrable (y por tanto cuánto baja el MRR) no se midió contra `crm` ni `crm_sandbox` en
+este lote: queda para la próxima medición con permiso del usuario.
 
 Los códigos 1051, 2043 y 2044 vienen del catálogo oficial de Toku (DEC-24) y no están entre los 24 de la hoja de los reportes.
 El corte de «hace N días» es la fecha de generación más reciente de los reportes cargados. Deudas e Intentos deben estar
