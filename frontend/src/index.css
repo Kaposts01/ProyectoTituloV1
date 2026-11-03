@@ -29,6 +29,8 @@
   /* etiquetas de grupo del menu sobre --bg-sidebar (AA >= 4.5:1) */
   --sidebar-label:        #a3adc2;
   --sidebar-label-active: #ffffff;
+  /* titulos de grupo del menu (Cartera, Operacion...): mas claros que los items (>= 4.5:1) */
+  --sidebar-heading:      #e4e8f1;
   /* items, estados y marca del menu azul marino (todo >= 4.5:1; ver designTokens.test.ts) */
   --sidebar-text:         #c3cada;
   --sidebar-text-strong:  #ffffff;
@@ -148,6 +150,7 @@ html[data-theme="dark"] {
   --bg-accent-panel: #182036;
   --sidebar-label:        #9aa5bd;
   --sidebar-label-active: #ffffff;
+  --sidebar-heading:      #dce1ec;
   --sidebar-text:         #b6bfd2;
   --sidebar-text-strong:  #ffffff;
   --sidebar-hover-bg:     rgb(255 255 255 / 8%);

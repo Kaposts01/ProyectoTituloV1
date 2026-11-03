@@ -62,6 +62,13 @@ describe("Sidebar (menú de un solo nivel)", () => {
     setup({ generalView: "report" });
     expect(active()).toEqual(["Reportes"]);
   });
+  it("los títulos de grupo (Cartera, Operación, Sistema) se pintan como encabezado de su grupo", () => {
+    setup();
+    for (const name of ["Cartera", "Operación", "Sistema"]) {
+      const label = within(screen.getByRole("group", { name })).getByText(name);
+      expect(label.className).toBe("sidebar-section-label");
+    }
+  });
   it("el ítem activo lleva aria-current=page", () => {
     setup({ generalView: "subscriptions" });
     expect(screen.getByRole("button", { name: "Suscripciones" })).toHaveAttribute("aria-current", "page");

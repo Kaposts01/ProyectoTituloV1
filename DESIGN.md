@@ -98,7 +98,7 @@ components:
 
 **Light or dark:** Ambos modos definidos. La sidebar siempre en azul marino (#111727 en claro; en oscuro deriva a #0a0f1c, más oscuro que el bg de base). No invertir ingenuamente: el modo oscuro tiene su propia paleta azul-gris, verificada para contraste.
 
-**Sidebar azul marino (D1).** Tonos muestreados píxel a píxel de `docs/dashboardeinspiracion.png`: fondo #111727, ítem activo/campo de búsqueda #242a38. Tokens: `--bg-sidebar`, `--sidebar-text` (#c3cada claro / #b6bfd2 oscuro, ≥ 4,5:1), `--sidebar-text-strong` (#ffffff), `--sidebar-label` (#a3adc2 / #9aa5bd), `--sidebar-hover-bg` (blanco 8 %), `--sidebar-active-bg` (#242a38 claro / #1b2233 oscuro) con `--sidebar-active-text` (#fff, además en peso 700: el activo no depende solo del color), `--sidebar-border`, marca `--sidebar-brand-bg` (#6d3fd0, violeta de la serie 1 oscurecido para texto blanco ≥ 4,5:1). Foco de teclado en el menú: anillo `--series-4` de 2px.
+**Sidebar azul marino (D1).** Tonos muestreados píxel a píxel de `docs/dashboardeinspiracion.png`: fondo #111727, ítem activo/campo de búsqueda #242a38. Tokens: `--bg-sidebar`, `--sidebar-text` (#c3cada claro / #b6bfd2 oscuro, ≥ 4,5:1), `--sidebar-text-strong` (#ffffff), `--sidebar-label` (#a3adc2 / #9aa5bd), `--sidebar-heading` (#e4e8f1 claro / #dce1ec oscuro, 14,6:1: títulos de grupo como Cartera u Operación, más claros que los ítems), `--sidebar-hover-bg` (blanco 8 %), `--sidebar-active-bg` (#242a38 claro / #1b2233 oscuro) con `--sidebar-active-text` (#fff, además en peso 700: el activo no depende solo del color), `--sidebar-border`, marca `--sidebar-brand-bg` (#6d3fd0, violeta de la serie 1 oscurecido para texto blanco ≥ 4,5:1). Foco de teclado en el menú: anillo `--series-4` de 2px.
 
 **Paleta categórica de series (D19).** Derivada de la imagen de inspiración (violeta #7f55da, índigo #434ce6, verde #12b76a, azul #0aa5ec, rosa #ee46bc, índigo apagado #4e5ba6); donde el hex original no daba ≥ 3:1 sobre la superficie blanca se oscureció el tono. Las series son **marcas** (barras, líneas, puntos): ≥ 3:1 sobre `--bg-surface`; el texto de leyendas y ejes usa `--text-1/-2`, nunca el color de serie.
 
@@ -155,7 +155,7 @@ Sidebar fijo de 220px, azul marino (D1). Contenido principal fluid, max-width 11
 **Navegación del menú: UN SOLO NIVEL con grupos (UX-05, D29, 2026-10-29).** Sin submenús ni expandibles por proveedor. Estructura, de arriba abajo:
 
 1. **Encabezado:** marca (`Sx SynkmetriX`, lleva a Resumen), el **indicador global de salud de sincronización** (un punto con el peor nivel de los canales + texto «Todo sincronizado / Sincronización atrasada / Error de sincronización / Sin datos de sincronización»; al abrirlo muestra el detalle por canal con su texto «hace N h»; usa `GET /api/v1/sync-runs/health`; sin datos no se pinta) y el **buscador** (campo que filtra los ítems del menú por rótulo o grupo, sin tildes ni mayúsculas; con texto activo despliega las coincidencias del detalle por canal).
-2. **Grupos** (etiqueta 9px/600/uppercase en `--sidebar-label`; ítems planos de 13px, sin sangría):
+2. **Grupos** (título 11px/700/uppercase en Cabinet Grotesk y `--sidebar-heading`, con separador de 1px `--sidebar-border` y 16px + 10px de aire entre grupos; ítems planos de 13px, sin sangría):
    - *(sin etiqueta)* **Resumen** (`/central/resumen`)
    - **Cartera:** Socios (`/central/clientes`, clientes consolidados), Suscripciones (`/central/suscripciones`, consolidadas)
    - **Operación:** Recuperador (`/virtualpos/recuperador-socios`), Cambios de cobro (`/general/cambios-de-cobro`), Bajas (`/general/bajas`, con el permiso `subscriptions.cancellation.view`)
@@ -204,7 +204,7 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 **Alert banner:** Solo para estados que requieren acción. Warning bg + border + icono de info. Texto breve, link "Ver →" a la derecha.
 
-**Sidebar:** Siempre fondo `--bg-sidebar` (azul marino). Un solo nivel: etiquetas de grupo no interactivas (9px / 600 / uppercase / `--sidebar-label`) e ítems con hover `--sidebar-hover-bg`. Item activo en `--sidebar-active-bg` + `--sidebar-active-text` + peso 700 + `aria-current` (no `--accent`). Buscador sobre `--sidebar-active-bg`. Indicador global de salud en el encabezado (punto + texto). Grupo transitorio «Detalle por canal» plegado y rotulado. Footer con tema, perfil y salir. Ver Layout.
+**Sidebar:** Siempre fondo `--bg-sidebar` (azul marino). Un solo nivel: títulos de grupo no interactivos (11px / 700 / uppercase / Cabinet Grotesk / `--sidebar-heading`, separador `--sidebar-border` entre grupos) e ítems con hover `--sidebar-hover-bg`. Item activo en `--sidebar-active-bg` + `--sidebar-active-text` + peso 700 + `aria-current` (no `--accent`). Buscador sobre `--sidebar-active-bg`. Indicador global de salud en el encabezado (punto + texto). Grupo transitorio «Detalle por canal» plegado y rotulado. Footer con tema, perfil y salir. Ver Layout.
 
 **KPI card (v2).** Superficie normal con borde sutil (sin borde lateral de color, sin cards anidadas). Etiqueta, valor en JetBrains Mono (`—` con texto accesible «sin datos» si no hay dato), `delta` vs mes anterior con flecha y color semántico, chip de meta, barra de progreso hacia la meta (con `role="progressbar"` y texto «X % de la meta»), sparkline opcional (decorativo, `aria-hidden`; la tendencia va en texto). Variantes: `normal` y `destacada` rellena (máx. 1–2 por pantalla). Churn (D20): tarjeta con chip, meta y sparkline, no velocímetro.
 
@@ -287,6 +287,7 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 | 2026-11-02 | DEC-36: altas en azul (`--flow-in`) y bajas en naranja (`--flow-out`) | Decisión del usuario; par seguro para daltonismo y distinto de los estados rechazado (rojo) y cancelado (gris). Cierra UI-33 |
 | 2026-11-02 | DEC-37/DEC-38: churn con la misma definición en los cuatro canales (D31) y tarjeta D20 sin meta | Decisión del usuario; el chip dice «sin meta» hasta que existan metas |
 | 2026-11-02 | DEC-39: borrado `MonthlyStatusChart.tsx` (incluye `TransactionsVsSubscriptionsChart`, con doble eje Y, y `MonthlySimpleChart`) | Decisión del usuario; código muerto o reemplazado por la familia `ChannelChart` |
+| 2026-11-02 | Títulos de grupo del menú resaltados: de 9px/800 `--sidebar-label` (7,9:1) a 11px/700 Cabinet Grotesk `--sidebar-heading` (14,6:1), con separador sutil y más aire arriba | Pedido del usuario tras revisar el sandbox («a los títulos como Cartera y Operación los resaltaría más»). Ancho de 220px sin cambios |
 | 2026-10-21 | Estados UI especificados en tabla (tabla Interaction States) | Empty states son features: OperationalAlerts con null-return → estado positivo con warmth |
 
 ## Design Review Completion Summary
