@@ -1,13 +1,15 @@
 """UX-09: Cobros unificados de los canales (cargos y pagos), paginados en SQL y con la definicion unica de rechazo.
 
-* `GET /general/charges`: cobros de VirtualPOS (cargos), Toku (deudas) y TCH (transacciones), la misma fuente de
-  «cobro» por canal que la exportacion (EXP-03). Payku no tiene cobros propios: sus intentos estan en pagos.
+* `GET /general/charges`: cobros de VirtualPOS (cargos), Toku (deudas), Payku (ciclos de cobro `p_cycles`, PK-06,
+  cuando existen; d124 b) y TCH (transacciones), la misma fuente de «cobro» por canal que la exportacion (EXP-03).
 * `GET /general/payments`: pagos/transacciones de VirtualPOS, Toku y Payku.
 * `GET /general/charges/summary`: tasa de rechazo por canal con `charge_stats` (universo unico, UI-22/UI-29).
 * `.../statuses`: estados presentes (para el filtro de estado), sin el filtro de estado activo.
 
-Permisos: cada canal exige su permiso de VISTA de siempre (`virtualpos.charges.view`, `toku.invoices.view`,
-`tch.transacciones.view`, `*.payments/transactions.view`); sin ninguno, 403. El filtro de canal es del servidor.
+Permisos (d124 opcion c): `general.charges.view` da todos los canales de cobros y pagos. Sin el (compatibilidad mientras
+la migracion 20261102_0064 no este aplicada, o roles parciales) cada canal exige su permiso de VISTA de siempre
+(`virtualpos.charges.view`, `toku.invoices.view`, `payku.transactions.view`, `tch.transacciones.view`,
+`*.payments/transactions.view`); sin ninguno, 403. El filtro de canal es del servidor (`export_queries.select_specs`).
 """
 
 from __future__ import annotations

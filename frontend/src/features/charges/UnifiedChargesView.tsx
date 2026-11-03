@@ -150,7 +150,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
               canPii={can("export.pii")}
             />
           </UnifiedFilterBar>
-          {tab === "charges" ? <p className="muted-copy">Payku no tiene cobros propios: sus intentos de cobro están en la pestaña Pagos.</p> : null}
+          {tab === "charges" ? <p className="muted-copy">Payku aparece con sus ciclos de cobro cuando existen; cada intento de cobro está en la pestaña Pagos.</p> : null}
           {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
           {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
           {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}

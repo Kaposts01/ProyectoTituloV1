@@ -34,6 +34,7 @@ from app.models.crm import Charge as CCharge
 from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription as CSub
+from app.models.payku_channel import PaykuCycle as PkCycle
 from app.models.payku_channel import PaykuTransaction as PkTx
 from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.services.charge_stats import (
@@ -436,6 +437,41 @@ def _charges_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     return stmt.where(*conds).order_by(t.id)
 
 
+def _charges_payku_cycles(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+    """Payku (d124 b, PK-06): los ciclos de cobro (`p_cycles`) son sus cobros. Sin ciclos cargados no aporta filas.
+
+    Estado = `status_normalized` (taxonomia comun: paid/rejected/pending/cancelled...) con respaldo en el crudo, para
+    que el resultado normalizado (`outcome`) y la tasa de rechazo usen la misma definicion que los demas canales.
+    Payku no da glosa de rechazo por ciclo: `rejection_reason` queda vacio.
+    """
+    c = PkCycle
+    status = func.coalesce(func.nullif(c.status_normalized, ""), c.status)
+    cols = [
+        literal("payku").label("channel"), c.external_id.label("charge_id"), c.subscription_id.label("subscription_id"),
+        status.label("status"), c.cycle_day.label("charge_date"), func.substr(c.cycle_day, 1, 7).label("period"),
+        c.amount_paid.label("amount"), literal("CLP").label("currency"), null().label("rejection_reason"),
+    ]
+    if pii:
+        sub, cli = aliased(CSub), aliased(CClient)
+        stmt = (
+            select(*cols, func.coalesce(sub.client_social_id, cli.social_id).label("rut"),
+                   _name(cli.first_name, cli.last_name).label("name"))
+            .select_from(c)
+            .outerjoin(sub, and_(sub.source == "payku", sub.external_id == c.subscription_id))
+            .outerjoin(cli, and_(cli.source == "payku", cli.external_id == sub.client_external_id))
+        )
+    else:
+        stmt = select(*cols, null().label("rut"), null().label("name"))
+    search = _search(f, {"id": c.external_id, "subscription_id": c.subscription_id, "status": status})
+    conds = _common_conditions(f, status, c.cycle_day, c.amount_paid)
+    outcome = outcome_condition(status, f.outcome)
+    if outcome is not None:
+        conds.append(outcome)
+    if search is not None:
+        conds.append(search)
+    return stmt.where(*conds).order_by(c.external_id)
+
+
 # ----------------------------------------------------------------------------- pagos
 
 
@@ -489,6 +525,7 @@ ENTITY_SPECS: dict[str, tuple[ChannelSpec, ...]] = {
     "cobros": (
         ChannelSpec("virtualpos", "virtualpos.charges.view", ("virtualpos1", "virtualpos2"), _charges_cclient),
         ChannelSpec("toku", "toku.invoices.view", ("toku",), _charges_cclient),
+        ChannelSpec("payku", "payku.transactions.view", ("payku",), _charges_payku_cycles),
         ChannelSpec("tch", "tch.transacciones.view", ("tch",), _charges_tch),
     ),
     "pagos": (
@@ -497,6 +534,23 @@ ENTITY_SPECS: dict[str, tuple[ChannelSpec, ...]] = {
         ChannelSpec("payku", "payku.transactions.view", ("payku",), _payments_cclient),
     ),
 }
+
+
+# d124 (opcion c): permiso general de la vista unificada por entidad. Quien lo tiene ve TODOS los canales de la entidad;
+# sin el, cada canal sigue exigiendo su permiso de vista (compatibilidad; ver rbac.UNIFIED_VIEW_GRANT_RULES).
+GENERAL_VIEW_PERMISSIONS: dict[str, str] = {
+    "suscripciones": "general.subscriptions.view",
+    "cobros": "general.charges.view",
+    "pagos": "general.charges.view",
+}
+
+
+def effective_permissions(entity: str, permissions: set[str]) -> set[str]:
+    """Permisos con los que se evalua la entidad: con el permiso general se suman los de vista de todos sus canales."""
+    general = GENERAL_VIEW_PERMISSIONS.get(entity)
+    if general and general in permissions:
+        return set(permissions) | {spec.permission for spec in ENTITY_SPECS[entity]}
+    return set(permissions)
 
 
 def entity_channels(entity: str) -> tuple[str, ...]:
@@ -508,8 +562,10 @@ def select_specs(entity: str, channel: str | None, permissions: set[str]) -> tup
     """Resuelve (spec, fuentes) permitidas. Devuelve (lista, hubo_canal_denegado).
 
     `canal` puede ser un canal concreto (`virtualpos1`, `toku`...), `virtualpos` (ambas cuentas) o None (todos).
-    Un canal pedido explicitamente pero sin permiso de vista se reporta como denegado (403 en la ruta).
+    Un canal pedido explicitamente pero sin permiso de vista se reporta como denegado (403 en la ruta). El permiso
+    general de la entidad (`GENERAL_VIEW_PERMISSIONS`, d124) equivale a tener el de vista de todos sus canales.
     """
+    permissions = effective_permissions(entity, permissions)
     wanted: list[tuple[ChannelSpec, tuple[str, ...]]] = []
     denied = False
     for spec in ENTITY_SPECS[entity]:

@@ -66,6 +66,8 @@ PERMISSIONS: dict[str, str] = {
     "general.recovery.tch.view": "Ver la pestaña TCH del Recuperador general (solo lectura)",
     "general.recovery.payku.view": "Ver la pestaña Payku del Recuperador general (solo lectura)",
     "general.billing_changes.view": "Ver Cambios de cobro en Operación",
+    "general.subscriptions.view": "Ver Suscripciones unificadas de todos los canales (Cartera)",
+    "general.charges.view": "Ver Cobros y pagos unificados de todos los canales (Cartera)",
     "webhooks.manage": "Ver la salud de los webhooks y reprocesar eventos fallidos",
 }
 
@@ -96,6 +98,24 @@ GENERAL_GRANT_RULES: dict[str, tuple[str, ...]] = {
 # alterar la regla de la 0052 (su prueba compara la migracion con `GENERAL_GRANT_RULES`).
 PAYKU_RECOVERY_GRANT_RULES: dict[str, tuple[str, ...]] = {
     RECOVERY_PAYKU_VIEW: ("virtualpos.recovery.view", "payku.subscriptions.view"),
+}
+
+# --- Vistas unificadas de Cartera (UX-08, UX-09; d124 opcion c) ------------------------------------------------------
+# `general.subscriptions.view` y `general.charges.view` dan la vista unificada de TODOS los canales (Suscripciones;
+# Cobros y Pagos). Los permisos de vista por canal siguen valiendo (compatibilidad mientras la migracion 20261102_0064
+# no este aplicada, y para roles que solo ven algunos canales): sin el permiso general, cada canal exige el suyo.
+# La 0064 los otorga por datos a los roles que ya tienen TODOS los permisos de canal equivalentes, asi que nadie gana
+# acceso a datos que no veia.
+GENERAL_SUBSCRIPTIONS_VIEW = "general.subscriptions.view"
+GENERAL_CHARGES_VIEW = "general.charges.view"
+UNIFIED_VIEW_GRANT_RULES: dict[str, tuple[str, ...]] = {
+    GENERAL_SUBSCRIPTIONS_VIEW: (
+        "virtualpos.subscriptions.view", "toku.subscriptions.view", "payku.subscriptions.view", "tch.suscripciones.view",
+    ),
+    GENERAL_CHARGES_VIEW: (
+        "virtualpos.charges.view", "toku.invoices.view", "tch.transacciones.view",
+        "virtualpos.payments.view", "toku.transactions.view", "payku.transactions.view",
+    ),
 }
 
 # --- Baja de suscripciones multicanal (MGT-16) ---------------------------------------------------------------------
@@ -209,10 +229,10 @@ def ensure_cancellation_grants(db: Session) -> dict[str, int]:
 
 
 def ensure_general_grants(db: Session) -> dict[str, int]:
-    """Equivale a las migraciones 20261102_0052 y 20261102_0055 (pestaña Payku): otorga cada permiso `general.*` a los roles existentes que ya tienen todos
+    """Equivale a las migraciones 20261102_0052, 20261102_0055 (pestaña Payku) y 20261102_0064 (vistas unificadas): otorga cada permiso `general.*` a los roles existentes que ya tienen todos
     los permisos de su regla (`GENERAL_GRANT_RULES`). Nunca crea roles ni quita permisos. Idempotente.
     Devuelve {rol: permisos_agregados} solo de los roles que recibieron alguno."""
-    rules = {**GENERAL_GRANT_RULES, **PAYKU_RECOVERY_GRANT_RULES}
+    rules = {**GENERAL_GRANT_RULES, **PAYKU_RECOVERY_GRANT_RULES, **UNIFIED_VIEW_GRANT_RULES}
     by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(rules))).all()}
     added: dict[str, int] = {}
     for role in db.scalars(select(Role)).all():
