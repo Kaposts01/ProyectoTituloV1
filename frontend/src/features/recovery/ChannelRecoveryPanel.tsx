@@ -4,12 +4,12 @@ import { labelOr, tryLabel } from "../../i18n/label";
 import { text } from "../shared/utils";
 import { clpOrDash } from "./format";
 import {
-  CHANNEL_RECOVERY, EMPTY_CHANNEL_FILTERS, EMPTY_REASON_TEXT, channelListPath,
+  CHANNEL_RECOVERY, EMPTY_CHANNEL_FILTERS, EMPTY_REASON_TEXT, channelListPath, visibleColumns,
   type ChannelFilters, type ChannelView, type ReadOnlyChannel, type RecoveryColumn,
 } from "./channelRecoveryViews";
 
 type Row = Record<string, unknown>;
-type Page = { items: Row[]; total: number; offset: number; limit: number; empty_reason?: string | null };
+type Page = { items: Row[]; total: number; offset: number; limit: number; empty_reason?: string | null; pii_included?: boolean };
 
 const PAGE_SIZE = 50;
 const REASONS: { value: string; label: string }[] = [
@@ -66,6 +66,7 @@ export function ChannelRecoveryPanel({ channel }: { channel: ReadOnlyChannel }) 
   }
 
   const shown = applied?.view ?? view;
+  const columns = visibleColumns(shown, page?.pii_included);
   const emptyText = page?.empty_reason ? EMPTY_REASON_TEXT[page.empty_reason] ?? "Sin registros." : "Sin registros para los filtros seleccionados.";
 
   return (
@@ -98,17 +99,17 @@ export function ChannelRecoveryPanel({ channel }: { channel: ReadOnlyChannel }) 
       {error ? <p className="error-message">{error}</p> : null}
       {page && applied ? <>
         <section className="panel recovery-table"><div className="table-wrap"><table>
-          <thead><tr>{shown.columns.map((column) => <th key={column.key}>{column.header}</th>)}</tr></thead>
+          <thead><tr>{columns.map((column) => <th key={column.key}>{column.header}</th>)}</tr></thead>
           <tbody>
             {page.items.map((row, index) => (
               <tr key={`${String(row.charge_id ?? row.subscription_id ?? "")}-${index}`}>
-                {shown.columns.map((column) => {
+                {columns.map((column) => {
                   const { content, mono } = cell(row, column);
                   return <td key={column.key} className={mono ? "mono" : undefined} data-raw-text={column.kind === "reason" ? true : undefined}>{content}</td>;
                 })}
               </tr>
             ))}
-            {page.items.length === 0 ? <tr><td colSpan={shown.columns.length}>{emptyText}</td></tr> : null}
+            {page.items.length === 0 ? <tr><td colSpan={columns.length}>{emptyText}</td></tr> : null}
           </tbody>
         </table></div></section>
         <div className="recovery-pagination">

@@ -184,6 +184,20 @@ export const CHANNEL_RECOVERY: Record<ReadOnlyChannel, ChannelRecoveryConfig> = 
   payku: PAYKU_RECOVERY,
 };
 
+/** Columnas de datos personales (d119, opción b): el backend las llena solo con el permiso de clientes del canal. */
+export const PII_COLUMNS: RecoveryColumn[] = [
+  { key: "rut", header: "RUT", kind: "id" },
+  { key: "name", header: "Nombre", kind: "text" },
+];
+
+/** Columnas a mostrar: con `pii_included` se agregan RUT y Nombre tras la suscripción o ficha; sin él, quedan ocultas. */
+export function visibleColumns(view: ChannelView, piiIncluded: boolean | null | undefined): RecoveryColumn[] {
+  if (!piiIncluded) return view.columns;
+  const at = view.columns.findIndex((column) => column.key === "subscription_id");
+  const index = at < 0 ? 0 : at + 1;
+  return [...view.columns.slice(0, index), ...PII_COLUMNS, ...view.columns.slice(index)];
+}
+
 /** Texto del estado vacío que explica POR QUÉ no hay filas (`empty_reason` del backend). */
 export const EMPTY_REASON_TEXT: Record<string, string> = {
   signals_disabled:

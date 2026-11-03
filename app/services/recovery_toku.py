@@ -13,7 +13,8 @@ Vistas
   (`empty_reason="signals_disabled"`) en vez de señales posiblemente viejas; encendida y sin señales calculadas,
   `empty_reason="no_signals"`.
 
-Sin datos personales: solo IDs externos, montos, fechas, estados y códigos. Paginación y filtros en SQL.
+Datos personales (d119, opción b): `rut` y `name` solo con el permiso de clientes de Toku (`recovery_pii`); sin él van en
+`null`. El resto: IDs externos, montos, fechas, estados y códigos. Paginación y filtros en SQL.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.models.core import CoreCharge, CoreSubscription
 from app.models.toku_report import CoreSubscriptionSignal
 from app.services.charge_stats import PAID_STATES
+from app.services.recovery_pii import attach_people
 from app.services.rejection_format import format_rejection_reason
 from app.services.toku_report_signals import signals_enabled
 
@@ -63,7 +65,7 @@ def _result(items: list[dict], total: int, offset: int, limit: int, empty_reason
     return {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": empty_reason}
 
 
-def cancelled(db: Session, start: date | None, end: date | None, offset: int, limit: int) -> dict:
+def cancelled(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
     query = (
         select(CoreSubscription, CoreSubscriptionSignal.payment_method_status)
         .outerjoin(CoreSubscriptionSignal, CoreSubscriptionSignal.subscription_id == CoreSubscription.id)
@@ -90,10 +92,10 @@ def cancelled(db: Session, start: date | None, end: date | None, offset: int, li
             "last_payment_status": sub.last_payment_status,
             "payment_method_status": pm_status,
         })
-    return _result(items, total, offset, limit)
+    return attach_people(db, SOURCE, _result(items, total, offset, limit), include_pii)
 
 
-def rejected(db: Session, start: date | None, end: date | None, offset: int, limit: int) -> dict:
+def rejected(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
     query = (
         select(CoreCharge, CoreSubscription.external_id)
         .outerjoin(CoreSubscription, CoreSubscription.id == CoreCharge.subscription_id)
@@ -122,12 +124,12 @@ def rejected(db: Session, start: date | None, end: date | None, offset: int, lim
         }
         for charge, sub_external_id in rows
     ]
-    return _result(items, total, offset, limit)
+    return attach_people(db, SOURCE, _result(items, total, offset, limit), include_pii)
 
 
-def recoverable(db: Session, reason: str | None, offset: int, limit: int) -> dict:
+def recoverable(db: Session, reason: str | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
     if not signals_enabled():
-        return _result([], 0, offset, limit, "signals_disabled")
+        return attach_people(db, SOURCE, _result([], 0, offset, limit, "signals_disabled"), include_pii)
     query = (
         select(CoreSubscriptionSignal, CoreSubscription.amount, CoreSubscription.currency)
         .join(CoreSubscription, CoreSubscription.id == CoreSubscriptionSignal.subscription_id)
@@ -156,4 +158,4 @@ def recoverable(db: Session, reason: str | None, offset: int, limit: int) -> dic
         }
         for signal, amount, currency in rows
     ]
-    return _result(items, total, offset, limit, empty_reason)
+    return attach_people(db, SOURCE, _result(items, total, offset, limit, empty_reason), include_pii)
