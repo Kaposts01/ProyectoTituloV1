@@ -1,6 +1,7 @@
 import { fillMonths, pivotByStatus, STATUS_PALETTE, type ChannelChartRow, type PivotSeries, type StatusEntry } from "../../components/chartRows";
 import type { ChannelChartAnnotation } from "../../components/ChannelChart";
 import { TCH_SOURCE_NOTE } from "../shared/kpis";
+import { FLOW_IN_COLOR, FLOW_OUT_COLOR } from "../../chartColors";
 
 export type ChartMode = "count" | "amount";
 export type ChartProps = { rows: ChannelChartRow[]; series: PivotSeries[] };
@@ -10,7 +11,6 @@ type StatusValue = MonthValue & { status?: string | null };
 const ym = (y: number, m: number) => y * 12 + (m - 1);
 const toYm = (id: number) => ({ year: Math.floor(id / 12), month: (id % 12) + 1 });
 const ACTIVATIONS_COLOR = STATUS_PALETTE[0];
-const CANCELLATIONS_COLOR = "var(--status-rejected)"; // rojo semántico; DEC-36 (altas/bajas) sigue abierta
 const NEUTRAL_COLOR = STATUS_PALETTE[1];
 
 const valueOf = (entry: MonthValue, mode: ChartMode): number => Number(entry[mode] ?? 0) || 0;
@@ -57,8 +57,8 @@ export function activationVsChurnChart(
   mode: ChartMode,
 ): ChartProps {
   const series = [
-    { key: "activations", label: "Altas", color: ACTIVATIONS_COLOR },
-    { key: "cancellations", label: "Bajas", color: CANCELLATIONS_COLOR },
+    { key: "activations", label: "Altas", color: FLOW_IN_COLOR },
+    { key: "cancellations", label: "Bajas", color: FLOW_OUT_COLOR },
   ];
   const a = sumByMonth(activations, mode);
   const c = sumByMonth(churn, mode);

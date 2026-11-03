@@ -95,6 +95,10 @@
   --series-muted:    #f5eaff; /* barras no seleccionadas / relleno de area */
   --chart-ref:       #2b3350; /* linea de referencia punteada (meta) */
   --chart-grid:      var(--border-subtle);
+  /* altas y bajas (DEC-36): azul y naranja neutros, no verde/rojo de estado; par seguro para daltonismo.
+     --flow-in tambien es el tramo positivo de un waterfall o de barras divergentes, --flow-out el negativo. */
+  --flow-in:         var(--series-4);
+  --flow-out:        #c2410c;
   --progress-track:  #e4e8f1;
   --progress-fill:   var(--series-1);
 
@@ -198,6 +202,7 @@ html[data-theme="dark"] {
   --series-6:        #8b97d6;
   --series-muted:    #2a2350;
   --chart-ref:       #cbd3e6;
+  --flow-out:        #f39a4a;
   --progress-track:  #243040;
   --chip-ok-bg:      #0d2b1a;
   --chip-ok-text:    #4ecf8a;
