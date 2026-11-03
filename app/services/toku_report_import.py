@@ -33,6 +33,8 @@ Reglas
 * Contadores: rows_total (filas con datos), rows_new, rows_updated, rows_skipped (invalidas + duplicadas, por
   motivo en `skip_reasons`), mas `rows_stale` (filas no aplicadas por ser el archivo mas viejo que el dato
   guardado; no se persiste en `tk_report_files`). total = new + updated + skipped + stale.
+* Clientes (d126): al cargar un reporte de Clientes se completa `clients.status` de Toku SOLO donde la API lo dejo
+  vacio (`deleted` si tiene Fecha de Eliminacion, si no `active`; ver `toku_client_status`). Manda la API.
 * Los errores de formato (`ReportFormatError`, `UnsupportedReportError`) se levantan antes de crear la fila de
   `tk_report_files` (aun no hay tipo valido); TK-19 deberia mapearlos a 422.
 """
@@ -75,6 +77,7 @@ from app.models.toku_report import (
     TkReportSettlement,
 )
 from app.services.read_only_provider_sync import safe_error_message
+from app.services.toku_client_status import project_report_status
 from app.services.toku_report_parser import (
     MissingPepperError,
     ParsedReport,
@@ -145,6 +148,8 @@ class ImportSummary:
     catalog_skipped: int = 0
     extra_columns: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    # d126: clientes Toku con `status` vacio que el reporte de Clientes completo (manda la API).
+    clients_status_filled: int = 0
 
 
 @dataclass(frozen=True)
@@ -443,6 +448,8 @@ def import_report(
             summary.skip_reasons = dict(parsed.stats.skip_reasons)
             if meta.report_type == "productos":
                 summary.resolved_later = resolve_subscriptions(db, commit=False)
+            if meta.report_type == "clientes":
+                summary.clients_status_filled = project_report_status(db)
             db.execute(
                 update(TkReportFile)
                 .where(TkReportFile.id == file_id)
