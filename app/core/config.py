@@ -115,6 +115,13 @@ class Settings(BaseSettings):
     targeted_reconcile_rejection_days: int = 15  # rechazo reciente = cobro rechazado de los ultimos N dias
     # SYNC-O-15: intentos de una orden de `refresh_queue` (la consume la reconciliacion dirigida) antes de quedar `failed`.
     refresh_queue_max_attempts: int = 5
+    # EXP-06 (d114 b): exportacion en segundo plano. Con mas de N filas el front pide un job (POST /export/{e}/jobs) en vez
+    # del streaming directo; el archivo queda en `export_job_dir` (vacio = carpeta temporal del sistema) y caduca a las
+    # `export_job_ttl_hours` horas. Maximo de jobs vivos (en cola o corriendo) por usuario.
+    export_background_threshold_rows: int = 50000
+    export_job_ttl_hours: int = 24
+    export_job_dir: str = ""
+    export_job_max_active_per_user: int = 2
     # SYNC-D-13: bajas por desaparicion. Tras una sync COMPLETA y exitosa de suscripciones, las que no se vieron quedan con
     # `removed_at` en su tabla de canal y un evento `removed`. Si las desaparecidas superan el umbral (proporcion de las
     # conocidas O cantidad absoluta) se aborta sin marcar nada y se alerta (probable error del proveedor). APAGADA por defecto.

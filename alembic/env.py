@@ -42,12 +42,18 @@ from app.models.crm import (  # noqa: F401
     Subscription,
 )
 from app.models.etl_run import EtlRun  # noqa: F401
+from app.models.export_job import ExportJob  # noqa: F401
 from app.models.payku_channel import (  # noqa: F401
     PaykuClient,
     PaykuCycle,
     PaykuPlan,
     PaykuSubscription,
     PaykuTransaction,
+)
+from app.models.payku_report import (  # noqa: F401
+    PkReportFile,
+    PkReportSettlement,
+    PkReportTransaction,
 )
 from app.models.refresh_queue import RefreshQueueItem  # noqa: F401
 from app.models.rejection import PaymentRejectionDetail  # noqa: F401

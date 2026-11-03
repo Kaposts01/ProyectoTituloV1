@@ -1,17 +1,41 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { getBlob, getJson, saveBlob } from "../../api";
+import { getBlob, getJson, postJson, saveBlob } from "../../api";
 import type { ExportEntity, ExportParams } from "./exportMapping";
 import { EXPORT_VOLUME_WARNING_ROWS, exportErrorMessage } from "./exportSupport";
 
 type Scope = "view" | "all";
-type CountResponse = { entity: string; rows: number; canales: string[]; include_pii: boolean };
+type CountResponse = {
+  entity: string;
+  rows: number;
+  canales: string[];
+  include_pii: boolean;
+  /** EXP-06: la exportación completa supera el umbral y se genera en segundo plano. */
+  background?: boolean;
+  background_threshold?: number;
+};
+type ExportJob = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed" | "expired";
+  rows_written: number | null;
+  file_name: string | null;
+  download_url: string | null;
+};
 type Phase =
   | { kind: "idle" }
   | { kind: "menu" }
   | { kind: "counting"; scope: Scope }
-  | { kind: "confirm"; scope: Scope; total: number; includePii: boolean }
+  | { kind: "confirm"; scope: Scope; total: number; includePii: boolean; background: boolean }
   | { kind: "downloading"; scope: Scope; total: number }
+  | { kind: "background"; total: number; status: ExportJob["status"] }
   | { kind: "done"; filename: string; total: number };
+
+/** Intervalo de consulta del estado de un job en segundo plano (ms). */
+export const EXPORT_JOB_POLL_MS = 2000;
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("aborted", "AbortError")); }, { once: true });
+  });
 
 const ENTITY_LABEL: Record<ExportEntity, string> = {
   clientes: "clientes",
@@ -59,7 +83,7 @@ export function ExportButton({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const busy = phase.kind === "counting" || phase.kind === "downloading";
+  const busy = phase.kind === "counting" || phase.kind === "downloading" || phase.kind === "background";
   const open = phase.kind === "menu" || phase.kind === "confirm" || phase.kind === "counting";
 
   const buildQuery = useCallback(
@@ -135,7 +159,7 @@ export function ExportButton({
       const count = await getJson<CountResponse>(`/api/v1/export/${entity}/count?${buildQuery(scope, true)}`, controller.signal);
       if (controller.signal.aborted) return;
       const total = scope === "all" ? count.rows : Math.max(0, Math.min(viewWindow.limit, 1000, count.rows - viewWindow.offset));
-      setPhase({ kind: "confirm", scope, total, includePii: Boolean(count.include_pii) });
+      setPhase({ kind: "confirm", scope, total, includePii: Boolean(count.include_pii), background: scope === "all" && Boolean(count.background) });
     } catch (err) {
       if (controller.signal.aborted) return;
       setError(exportErrorMessage(err));
@@ -164,6 +188,38 @@ export function ExportButton({
     }
   }
 
+  /** EXP-06: listado grande. Encola el job, consulta su estado y descarga el archivo al terminar. */
+  async function downloadInBackground(total: number) {
+    setError(null);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setPhase({ kind: "background", total, status: "queued" });
+    try {
+      let job = await postJson<ExportJob>(`/api/v1/export/${entity}/jobs?${buildQuery("all", true)}`);
+      while (!controller.signal.aborted && (job.status === "queued" || job.status === "running")) {
+        setPhase({ kind: "background", total, status: job.status });
+        await sleep(EXPORT_JOB_POLL_MS, controller.signal);
+        job = await getJson<ExportJob>(`/api/v1/export/jobs/${job.id}`, controller.signal);
+      }
+      if (controller.signal.aborted) return;
+      if (job.status !== "completed" || !job.download_url) {
+        throw new Error(job.status === "expired" ? "La exportación caducó. Vuelve a generarla." : "El servidor no pudo generar la exportación. Inténtalo de nuevo.");
+      }
+      const { blob, filename } = await getBlob(job.download_url, controller.signal);
+      if (controller.signal.aborted) return;
+      const name = filename ?? job.file_name ?? `${entity}${canal ? `-${canal}` : ""}.csv`;
+      saveBlob(blob, name);
+      setPhase({ kind: "done", filename: name, total: job.rows_written ?? total });
+      triggerRef.current?.focus();
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setError(exportErrorMessage(err));
+      setPhase({ kind: "idle" });
+      triggerRef.current?.focus();
+    }
+  }
+
   const panelId = `${uid}-panel`;
   const piiHint =
     canPii === undefined
@@ -182,15 +238,18 @@ export function ExportButton({
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         aria-busy={busy}
-        disabled={phase.kind === "downloading"}
+        disabled={phase.kind === "downloading" || phase.kind === "background"}
         onClick={toggleMenu}
       >
-        <span aria-hidden="true">{phase.kind === "downloading" ? "…" : "↓"}</span>{" "}
-        {phase.kind === "downloading" ? "Exportando…" : label}
+        <span aria-hidden="true">{phase.kind === "downloading" || phase.kind === "background" ? "…" : "↓"}</span>{" "}
+        {phase.kind === "downloading" || phase.kind === "background" ? "Exportando…" : label}
       </button>
       <span className="export-status" role="status" aria-live="polite">
         {phase.kind === "done" ? `Descargado ${phase.filename} (${fmt(phase.total)} filas).` : ""}
         {phase.kind === "downloading" ? `Preparando el archivo de ${ENTITY_LABEL[entity]}…` : ""}
+        {phase.kind === "background"
+          ? `Generando en segundo plano el archivo de ${ENTITY_LABEL[entity]} (${fmt(phase.total)} filas)${phase.status === "running" ? "…" : ", en cola…"} Puedes seguir trabajando en esta pantalla.`
+          : ""}
       </span>
       {error && !open ? <p className="export-error" role="alert">{error}</p> : null}
       {open ? (
@@ -231,6 +290,11 @@ export function ExportButton({
                   ? "El archivo incluirá datos personales (RUT, nombre y contacto). Trátalo con cuidado."
                   : "El archivo no incluirá datos personales."}
               </p>
+              {phase.background ? (
+                <p className="export-note" role="status">
+                  Por su tamaño, el archivo se genera en segundo plano y se descarga solo al terminar. Queda disponible por tiempo limitado.
+                </p>
+              ) : null}
               {phase.scope === "all" && phase.total > EXPORT_VOLUME_WARNING_ROWS ? (
                 <p className="export-warning" role="alert">
                   Es un archivo muy grande ({fmt(phase.total)} filas): la descarga puede tardar varios minutos y pesar cientos
@@ -250,9 +314,11 @@ export function ExportButton({
                   type="button"
                   className="export-confirm"
                   disabled={phase.total === 0}
-                  onClick={() => void download(phase.scope, phase.total)}
+                  onClick={() => void (phase.background ? downloadInBackground(phase.total) : download(phase.scope, phase.total))}
                 >
-                  {phase.scope === "all" && phase.total > EXPORT_VOLUME_WARNING_ROWS ? "Descargar de todos modos" : "Descargar CSV"}
+                  {phase.background
+                    ? "Generar en segundo plano"
+                    : phase.scope === "all" && phase.total > EXPORT_VOLUME_WARNING_ROWS ? "Descargar de todos modos" : "Descargar CSV"}
                 </button>
                 <button type="button" className="export-cancel" onClick={close}>Cancelar</button>
               </div>
