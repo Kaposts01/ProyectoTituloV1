@@ -146,7 +146,7 @@ def test_toku_recoverable_is_explicitly_empty_when_flag_is_off(db_session: Sessi
 
     monkeypatch.setattr(settings, "toku_report_signals_enabled", False)
     off = recovery_toku.recoverable(db_session, None, 0, 50)
-    assert off == {"items": [], "total": 0, "offset": 0, "limit": 50, "empty_reason": "signals_disabled"}
+    assert off == {"items": [], "total": 0, "offset": 0, "limit": 50, "empty_reason": "signals_disabled", "pii_included": False}
 
     monkeypatch.setattr(settings, "toku_report_signals_enabled", True)
     on = recovery_toku.recoverable(db_session, "blocked_card", 0, 500)

@@ -68,7 +68,7 @@ Sin cambios: los otros 34 endpoints, el catálogo de errores (111 códigos, E-00
 - Contenido de `formData` y endpoint de backend del Quick Checkout.
 
 - **Motivo de rechazo de un Charge:** el Objeto Charge no lo trae. Solo se obtiene vía `payment.order.uuid` → `GET /v3/payment/{uuid}/attempts`. Falta confirmar que un cargo rechazado incluye `payment.order.uuid` (el ejemplo de *Recuperar Charge* no trae `payment`).
-- **Códigos del adquirente** en `authorization_attempts_cards[].response_code` (ej. `-2122` Klap) no tienen catálogo oficial.
+- **Códigos del adquirente** en `authorization_attempts_cards[].response_code` (ej. `-2122` Klap) no tienen catálogo oficial. Decisión d120 (2026-11-02, cierre de VP-PAR-05): el CRM solo etiqueta `-2122` (glosa documentada en `payments.md`); para los otros 11 códigos `-2xxx` vistos en los reportes PAT muestra la glosa del proveedor o, si no viene, el código tal cual (`app/services/vp_rejection_codes.py`).
 - **Reintentos automáticos** ("hasta 3, configurable") y **cambio de tarjeta automático**: no se explica cómo funcionan ni cómo interactúan con `/retry`.
 - **Link de cambio de tarjeta:** duración, envío al socio, callback al cambiar la tarjeta y efecto sobre los cargos rechazados: no documentados.
 - **Edición de suscripción:** no existe un endpoint para editar `suscription.client` ni el `plan_id`. Tampoco se documenta si editar el Client se propaga a la suscripción (prueba en Postman: `03 · Editar socio` → ES-4).

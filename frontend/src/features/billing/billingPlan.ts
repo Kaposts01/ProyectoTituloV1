@@ -38,6 +38,7 @@ const COVERED_DEFAULT = "Mes cubierto";
 const MANUAL_REVIEW_REASONS: Record<string, string> = {
   older_than_window: "fuera de la ventana de recuperación automática",
   replacement_outside_month: "el cobro de reemplazo caería en otro mes",
+  only_cancelled_charges: "el mes solo tiene cobros cancelados",
 };
 /** Motivo de revisión manual por código estable; texto fijo si el código es desconocido (nunca el valor del servidor). */
 export function manualReviewReason(code: string | null | undefined): string {
@@ -50,6 +51,7 @@ const WARNING_TEXTS: Record<string, string> = {
   multiple_pending: "El mes tiene más de un cobro pendiente; revise cuál corresponde.",
   foreign_manual_kept: "Hay un cobro manual ajeno al CRM: no se toca.",
   pending_same_month: "El mes ya tiene un cobro pendiente; el cobro puntual convive con él.",
+  month_without_charge: "El mes no tenía ningún cobro: se crea uno nuevo.",
 };
 const ERROR_TEXTS: Record<string, string> = {
   invalid_amount: "El monto debe ser un entero positivo.",

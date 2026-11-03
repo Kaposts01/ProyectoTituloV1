@@ -702,18 +702,19 @@ def test_11_unknown_status_message_has_no_provider_value():
     assert "ZZ-SECRETO" not in json.dumps(preview) and issue["month"] == "2026-11" and issue["message"]
 
 
-def _preview_with_replacement_outside_month():
+def _preview_with_manual_review():
     inp = PlanInput(request_type="change_amount", subscription_external_id="s", platform="virtualpos1", new_amount=1000,
-                    charge_day=30, effective_month="2026-10", horizon_months=2, today=date(2026, 10, 31),
+                    charge_day=29, effective_month="2026-09", horizon_months=3, today=date(2026, 10, 31),
                     charges=(_charge("c1", date(2026, 10, 30), 900, "pendiente"), _charge("c2", date(2026, 11, 30), 900, "pendiente"),
                              _charge("c3", date(2026, 11, 29), 900, "ZZ-RAW")))
     return build_plan(inp)
 
 
 def test_11_manual_review_reason_is_a_stable_code_and_drift_tolerates_kept_due_today():
-    plan = _preview_with_replacement_outside_month()
+    plan = _preview_with_manual_review()
     preview = plan_to_preview_json(plan)
-    assert [m["reason"] for m in preview["manual_review"]] == ["replacement_outside_month"]
+    # DEC-30 (BILL-18): ya no hay replacement_outside_month; septiembre (32 dias) queda fuera de la ventana
+    assert [m["reason"] for m in preview["manual_review"]] == ["older_than_window"]
     assert all(set(i) == {"code", "message", "month"} for i in preview["warnings"] + preview["errors"])
     old = {k: v for k, v in preview.items() if k != "kept_due_today"}  # una solicitud creada antes de la tanda 1
     new = {**preview, "kept_due_today": ["2026-10"]}
@@ -721,11 +722,11 @@ def test_11_manual_review_reason_is_a_stable_code_and_drift_tolerates_kept_due_t
 
 
 def test_11_detail_api_exposes_the_stable_reasons(w):
-    plan = _preview_with_replacement_outside_month()
+    plan = _preview_with_manual_review()
     rid = w.create("requester")["id"]
     req = w.db.get(BillingChangeRequest, uuid.UUID(rid))
     req.plan_preview = {**plan_to_preview_json(plan), "kept_due_today": ["2026-10"]}
     w.db.commit()
     got = w.get("admin1", f"/changes/{rid}").json()["plan_preview"]
-    assert got["manual_review"][0]["reason"] == "replacement_outside_month" and got["kept_due_today"] == ["2026-10"]
+    assert got["manual_review"][0]["reason"] == "older_than_window" and got["kept_due_today"] == ["2026-10"]
     assert "ZZ-RAW" not in json.dumps(got)

@@ -77,9 +77,10 @@ def test_status_unknown_is_blocking_with_warning() -> None:
 def test_window_31_vs_32_days_and_date_of_tomorrow() -> None:
     # charge_day 10 -> dia 10 de cada mes. Hoy 2026-11-10.
     # Oct 10 esta 31 dias atras (borde incluido); Sep 10 esta 61 dias atras.
-    # Tanda 1: el reemplazo debe caer en SU mes; 'manana' (11-nov) ya no es octubre -> revision manual.
+    # DEC-30 (BILL-18): el reemplazo se fecha manana (11-nov) y queda atribuido a octubre por su internal_code.
     r = build_amount_change_plan(_inp(charge_day=10, effective_month="2026-10", horizon_months=1))
-    assert not r.create and r.manual_review[0].reason == "replacement_outside_month"
+    assert not r.manual_review
+    assert [(a.month, a.charge_date, a.internal_code) for a in r.create] == [("2026-10", date(2026, 11, 11), "sub-1-202610-7000")]
     r32 = build_amount_change_plan(_inp(charge_day=9, effective_month="2026-10", horizon_months=1))
     assert not r32.create and r32.manual_review[0].days_overdue == 32 and r32.noop is False
     r31 = build_amount_change_plan(_inp(charge_day=10, effective_month="2026-11", horizon_months=1))
@@ -102,11 +103,11 @@ def test_today_in_chile_time_crossing_of_midnight_utc(monkeypatch) -> None:
     assert r.create[0].charge_date == date(2026, 11, 11)  # manana en Chile, no el 12
 
 
-def test_varios_months_overdue_only_the_month_current_replaces() -> None:
-    # (antes se espaciaban un dia; con la fecha acotada a su mes solo cabe el mes en curso: ver test_billing_plan_tanda1)
+def test_varios_months_overdue_are_spaced_one_day() -> None:
+    # DEC-30 (BILL-18): vuelve el espaciado de JB-09 (octubre manana, noviembre pasado manana).
     r = build_amount_change_plan(_inp(charge_day=10, effective_month="2026-10", horizon_months=2))
-    assert [a.charge_date for a in r.create] == [date(2026, 11, 11)]
-    assert [m.month for m in r.manual_review] == ["2026-10"]
+    assert [(a.month, a.charge_date) for a in r.create] == [("2026-10", date(2026, 11, 11)), ("2026-11", date(2026, 11, 12))]
+    assert not r.manual_review
 
 
 def test_manual_preexisting_of_the_crm_cancels_and_foreign_stays_intact() -> None:

@@ -8,8 +8,15 @@ Reglas clave:
 - Mes con cobro pagado/procesando/rechazado (o estado desconocido, conservador) = cubierto (CO-06..08, RZ-28).
 - Solo se cancelan pendientes automaticos (sin internal_code) o manuales del CRM (is_crm), dentro del
   horizonte. Manuales ajenos y automaticos posteriores al horizonte quedan intactos (CO-14, hallazgo 2).
-- Ventana de 31 dias (JB-03..06): fecha del mes ya pasada hace <= window_days -> reemplazo con fecha de
-  manana (Chile); mas antigua -> manual_review. Varios meses atrasados se espacian un dia (JB-09).
+- Ventana de 31 dias (JB-03..06, DEC-30 opcion A, BILL-18): fecha del mes ya pasada hace <= window_days y sin
+  cobro pagado/procesando/rechazado -> reemplazo con fecha de MANANA (Chile) aunque manana caiga en el mes
+  siguiente; mas antigua -> manual_review. Varios meses atrasados se espacian un dia (JB-09) y el reemplazo
+  nunca cae el mismo dia que otro cobro del horizonte.
+- Atribucion por internal_code (DEC-30): cada cobro cuenta para el mes de su `internal_code`
+  `{sub}-{YYYYMM}-{monto}[-dDD]` y no para el de su fecha (`charge_month`). Sin codigo del CRM, manda la fecha.
+  Asi el reemplazo de octubre fechado el 1 de noviembre cubre octubre y no duplica noviembre.
+- Mes sin cobro vivo (DEC-29): si solo tiene cobros cancelados ajenos al CRM -> manual_review
+  `only_cancelled_charges`; si no tiene ningun cobro -> se crea con aviso `month_without_charge`.
 - charge_day 29-31 se ajusta al ultimo dia del mes (CO-24): feb 2027 -> 28, feb 2028 -> 29.
 - internal_code determinista `{sub}-{YYYYMM}-{amount}`; en cambio de fecha lleva sufijo `-d{DD}` (ver nota
   en `_code`): sin el, el codigo coincidiria con el del cobro viejo y write_virtualpos lo "adoptaria".
@@ -50,6 +57,30 @@ def is_cancelled_status(status: Any) -> bool:
 
 def is_one_off_code(internal_code: str | None) -> bool:
     return bool(internal_code and _ONE_OFF_CODE.search(internal_code))
+
+
+_CODE_MONTH = re.compile(r"(\d{4})(\d{2})-\d+(?:-d\d{2})?")
+
+
+def code_month(internal_code: str | None, subscription_external_id: str) -> str | None:
+    """Mes de origen 'YYYY-MM' de un `internal_code` regular del CRM `{sub}-{YYYYMM}-{monto}[-dDD]` (DEC-30).
+    None si el codigo no es de esta suscripcion, no sigue el patron o es de un cobro puntual."""
+    if not internal_code or is_one_off_code(internal_code):
+        return None
+    prefix = f"{subscription_external_id}-"
+    if not internal_code.startswith(prefix):
+        return None
+    m = _CODE_MONTH.fullmatch(internal_code[len(prefix):])
+    if m is None or not 1 <= int(m.group(2)) <= 12:
+        return None
+    return f"{m.group(1)}-{m.group(2)}"
+
+
+def charge_month(charge: PlanCharge, subscription_external_id: str) -> str:
+    """Mes al que se atribuye un cobro: el de su internal_code del CRM o, si no lo tiene, el de su fecha (DEC-30)."""
+    return code_month(charge.internal_code, subscription_external_id) or charge.month
+
+
 COVERING_STATES = frozenset({"pagado", "procesando", "rechazado"})
 _COVER_ALIASES = {"paid": "pagado", "processing": "procesando", "rejected": "rechazado"}
 
@@ -259,7 +290,9 @@ def _resolve_charge_day(inp: PlanInput, today: date) -> int | None:
         return inp.new_charge_day
     if inp.charge_day is not None:
         return inp.charge_day
-    live = [c for c in inp.charges if c.state not in CANCELLED_STATES and not c.is_puntual]
+    sub = inp.subscription_external_id
+    # sin puntuales ni reemplazos de ventana (fechados fuera del mes de su internal_code, DEC-30)
+    live = [c for c in inp.charges if c.state not in CANCELLED_STATES and not c.is_puntual and charge_month(c, sub) == c.month]
     paid = [c for c in live if _COVER_ALIASES.get(c.state, c.state) in ("pagado", "procesando") and c.charge_date <= today]
     pool = paid or live
     return max(pool, key=lambda c: c.charge_date).charge_date.day if pool else None
@@ -283,11 +316,19 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
     last_key = horizon_keys[-1]
     amount = inp.new_amount
 
+    sub = inp.subscription_external_id
     by_month: dict[str, list[PlanCharge]] = {}
+    foreign_cancelled: set[str] = set()  # meses con algun cobro cancelado que no creo el CRM (DEC-29)
     for c in inp.charges:
+        cm = charge_month(c, sub)  # atribucion por internal_code (DEC-30)
         if c.state in CANCELLED_STATES:
+            if not c.is_crm and not c.is_puntual:
+                foreign_cancelled.add(cm)
             continue
-        by_month.setdefault(c.month, []).append(c)
+        by_month.setdefault(cm, []).append(c)
+    # Fechas ya ocupadas por otro cobro del horizonte: un reemplazo de ventana no cae el mismo dia (JB-09, E-087).
+    taken = {month_date(h, day) for h in horizon}
+    taken |= {c.charge_date for cs_ in by_month.values() for c in cs_ if c.state in PENDING_STATES}
 
     warnings: list[PlanIssue] = []
     covered: list[CoveredMonth] = []
@@ -296,11 +337,17 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
     kept_today: list[str] = []
     creates: list[PlanAction] = []
     cancel_plan: list[tuple[str, PlanCharge]] = []
-    shifted = 0  # cuantos reemplazos de ventana ya usaron 'manana' (espaciado JB-09)
+    next_free = tomorrow  # primera fecha libre para un reemplazo de ventana (espaciado JB-09)
 
     for ym in horizon:
         key = _fmt(ym)
         cs = by_month.get(key, [])
+        if not cs:  # DEC-29: mes sin ningun cobro vivo
+            if key in foreign_cancelled:
+                target0 = month_date(ym, day)
+                review.append(ManualReviewMonth(key, target0, max((today - target0).days, 0), "only_cancelled_charges"))
+                continue
+            warnings.append(_issue("month_without_charge", "El mes no tiene ningún cobro: se crea uno nuevo.", key))
         blocking = [c for c in cs if c.state not in PENDING_STATES]
         if blocking:
             covered.append(CoveredMonth(key, _cover_reason(blocking[0].state),
@@ -340,11 +387,13 @@ def _plan_months(inp: PlanInput, mode: Literal["amount", "date"], start: tuple[i
                 if overdue > inp.window_days:
                     review.append(ManualReviewMonth(key, target, overdue))
                     continue  # sin create => no se cancela nada de ese mes
-                cdate = tomorrow + timedelta(days=shifted)
-                if (cdate.year, cdate.month) != ym:  # el reemplazo debe caer en SU mes (de lo contrario duplicaria el siguiente)
-                    review.append(ManualReviewMonth(key, target, overdue, "replacement_outside_month"))
-                    continue
-                shifted += 1
+                # DEC-30 (opcion A): manana (Chile) aunque caiga en el mes siguiente; el internal_code lleva el mes
+                # de ORIGEN y la atribucion por codigo evita que cuente como un segundo cobro del mes siguiente.
+                cdate = next_free
+                while cdate in taken:
+                    cdate += timedelta(days=1)
+                taken.add(cdate)
+                next_free = cdate + timedelta(days=1)
             else:
                 cdate = target
             code = _code(inp.subscription_external_id, key, amount, cdate.day if mode == "date" else None)
@@ -431,7 +480,7 @@ def build_renewal_plan(inp: PlanInput) -> PlanResult:
     errs = _validate(inp)
     if errs:
         return _failed(inp, errs)
-    crm_months = [c.month for c in inp.charges if c.is_crm and not c.is_puntual and c.state not in CANCELLED_STATES]
+    crm_months = [charge_month(c, inp.subscription_external_id) for c in inp.charges if c.is_crm and not c.is_puntual and c.state not in CANCELLED_STATES]
     if not crm_months:
         return _failed(inp, [_issue("no_crm_calendar", "Sin cobros del CRM: la suscripcion no tiene calendario modificado.")])
     start = _add_months(_parse_month(max(crm_months)), 1)
@@ -537,6 +586,8 @@ __all__ = [
     "build_one_off_plan",
     "build_plan",
     "build_renewal_plan",
+    "charge_month",
+    "code_month",
     "is_cancelled_status",
     "is_one_off_code",
     "is_pending_status",

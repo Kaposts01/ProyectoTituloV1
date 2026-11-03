@@ -11,7 +11,7 @@ vi.mock("../../api", () => ({
 
 import { legacyRedirectPath, parseRoute, routePath } from "../../routes";
 import { canOpenBilling, visibleMenu } from "../../navigation";
-import { channelListPath, CHANNEL_RECOVERY, EMPTY_CHANNEL_FILTERS } from "./channelRecoveryViews";
+import { channelListPath, CHANNEL_RECOVERY, EMPTY_CHANNEL_FILTERS, visibleColumns } from "./channelRecoveryViews";
 import { GeneralRecoveryPage } from "./GeneralRecoveryPage";
 import { canOpenRecovery, visibleRecoveryTabs } from "./recoveryChannels";
 
@@ -99,6 +99,37 @@ describe("GeneralRecoveryPage (RBAC por pestaña)", () => {
     expect(within(row).getByText("Impago")).toBeTruthy();
     expect(within(row).getByText("$5.000").className).toContain("mono");
     expect(within(row).getByText("Fondos insuficientes")).toBeTruthy();
+  });
+});
+
+describe("RUT y nombre (d119)", () => {
+  const row = { subscription_id: "sub_9", status: "deleted_at_source", amount: 5000, currency: "CLP", rut: "11.111.111-1", name: "Ana Prueba" };
+
+  it("con pii_included muestra RUT y Nombre tras la suscripción", async () => {
+    getJson.mockResolvedValueOnce({ items: [row], total: 1, offset: 0, limit: 50, empty_reason: null, pii_included: true });
+    render(<GeneralRecoveryPage can={only("general.recovery.toku.view")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar" }));
+    const tr = (await screen.findByText("sub_9")).closest("tr") as HTMLElement;
+    expect(within(tr).getByText("11.111.111-1").className).toContain("mono");
+    expect(within(tr).getByText("Ana Prueba")).toBeTruthy();
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers.slice(0, 3)).toEqual(["Suscripción", "RUT", "Nombre"]);
+  });
+
+  it("sin pii_included no hay columnas de datos personales", async () => {
+    getJson.mockResolvedValueOnce({ items: [{ ...row, rut: null, name: null }], total: 1, offset: 0, limit: 50, empty_reason: null, pii_included: false });
+    render(<GeneralRecoveryPage can={only("general.recovery.toku.view")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("sub_9");
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).not.toContain("RUT");
+    expect(headers).not.toContain("Nombre");
+  });
+
+  it("visibleColumns ubica las columnas tras la ficha de TCH", () => {
+    const [deleted] = CHANNEL_RECOVERY.tch.views;
+    expect(visibleColumns(deleted, true).slice(0, 3).map((c) => c.key)).toEqual(["subscription_id", "rut", "name"]);
+    expect(visibleColumns(deleted, false)).toBe(deleted.columns);
   });
 });
 

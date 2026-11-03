@@ -99,6 +99,19 @@ def test_virtualpos_acquirer_code_documented_in_repo_has_label() -> None:
     assert format_rejection_reason("virtualpos2", "-2119", None) == "-2119"
 
 
+def test_vp_par_05_closed_only_documented_acquirer_codes_have_labels() -> None:
+    # d120 (opcion b): los -2xxx sin glosa documentada conservan la del proveedor; no se inventan etiquetas.
+    from app.services.vp_rejection_codes import (
+        VP_ACQUIRER_REJECTION_LABELS,
+        VP_REJECTION_LABELS,
+    )
+
+    assert set(VP_ACQUIRER_REJECTION_LABELS) == {"-2122"}
+    assert {c for c in VP_REJECTION_LABELS if c.startswith("-2") and len(c) == 5} == {"-2122"}
+    for code in ("-2121", "-2133", "-2150", "-2152"):
+        assert format_rejection_reason("virtualpos1", code, "Glosa del proveedor") == "Glosa del proveedor"
+
+
 def test_format_with_code_appends_provider_code() -> None:
     # VP-PAR-03: el motivo legible se muestra con el codigo tal como esta guardado.
     assert format_rejection_with_code("virtualpos1", "-8", "x") == "Tarjeta expirada (código -8)"

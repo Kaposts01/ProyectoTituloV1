@@ -35,6 +35,7 @@ from app.services.rbac import (
     permission_codes,
 )
 from app.services.read_only_provider_sync import safe_error_message
+from app.services.recovery_pii import can_view_pii
 from app.services.rejection_format import format_rejection_reason
 from app.services.vp_current_amount import load_current_amount
 from app.services.write_virtualpos import (
@@ -737,33 +738,34 @@ def expired_card_charges(db: Annotated[Session, Depends(get_db)], filters: Filte
 
 # --- Recuperador general: pestañas Toku (REC-04) y TCH (REC-06). Solo lectura; cada pestaña exige su permiso. --------
 # Lo de arriba (VirtualPOS, `_SOURCES`) no cambia.
-TokuViewer = [Depends(require_permissions(RECOVERY_TOKU_VIEW))]
-TchViewer = [Depends(require_permissions(RECOVERY_TCH_VIEW))]
+# d119 (opcion b): RUT y nombre solo con el permiso de datos personales del canal (`recovery_pii.can_view_pii`).
+TokuUser = Annotated[User, Depends(require_permissions(RECOVERY_TOKU_VIEW))]
+TchUser = Annotated[User, Depends(require_permissions(RECOVERY_TCH_VIEW))]
 
 
-@router.get("/toku/cancelled", dependencies=TokuViewer, tags=["Recovery"])
-def toku_cancelled(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_toku.cancelled(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+@router.get("/toku/cancelled", tags=["Recovery"])
+def toku_cancelled(db: Annotated[Session, Depends(get_db)], user: TokuUser, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_toku.cancelled(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit, include_pii=can_view_pii(user, "toku"))
 
 
-@router.get("/toku/rejected", dependencies=TokuViewer, tags=["Recovery"])
-def toku_rejected(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_toku.rejected(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+@router.get("/toku/rejected", tags=["Recovery"])
+def toku_rejected(db: Annotated[Session, Depends(get_db)], user: TokuUser, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_toku.rejected(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit, include_pii=can_view_pii(user, "toku"))
 
 
-@router.get("/toku/recoverable", dependencies=TokuViewer, tags=["Recovery"])
-def toku_recoverable(db: Annotated[Session, Depends(get_db)], reason: Literal["blocked_card", "expired_card", "streak"] | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_toku.recoverable(db, reason, offset, limit)
+@router.get("/toku/recoverable", tags=["Recovery"])
+def toku_recoverable(db: Annotated[Session, Depends(get_db)], user: TokuUser, reason: Literal["blocked_card", "expired_card", "streak"] | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_toku.recoverable(db, reason, offset, limit, include_pii=can_view_pii(user, "toku"))
 
 
-@router.get("/tch/deleted", dependencies=TchViewer, tags=["Recovery"])
-def tch_deleted(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_tch.deleted(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+@router.get("/tch/deleted", tags=["Recovery"])
+def tch_deleted(db: Annotated[Session, Depends(get_db)], user: TchUser, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_tch.deleted(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit, include_pii=can_view_pii(user, "tch"))
 
 
-@router.get("/tch/rejected", dependencies=TchViewer, tags=["Recovery"])
-def tch_rejected(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_tch.rejected(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+@router.get("/tch/rejected", tags=["Recovery"])
+def tch_rejected(db: Annotated[Session, Depends(get_db)], user: TchUser, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_tch.rejected(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit, include_pii=can_view_pii(user, "tch"))
 
 
 class RetryItem(BaseModel):
@@ -828,19 +830,19 @@ async def create_card_change_link(subscription_id: str, db: Annotated[Session, D
 # --- Recuperador general: pestaña Payku (REC-05). Solo lectura; exige su propio permiso. Cobertura limitada: Payku sin
 # sandbox, validar despues (DEC-10). ---------------------------------------------------------------------------------
 
-PaykuViewer = [Depends(require_permissions(RECOVERY_PAYKU_VIEW))]
+PaykuUser = Annotated[User, Depends(require_permissions(RECOVERY_PAYKU_VIEW))]
 
 
-@router.get("/payku/cancelled", dependencies=PaykuViewer, tags=["Recovery"])
-def payku_cancelled(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_payku.cancelled(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+@router.get("/payku/cancelled", tags=["Recovery"])
+def payku_cancelled(db: Annotated[Session, Depends(get_db)], user: PaykuUser, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_payku.cancelled(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit, include_pii=can_view_pii(user, "payku"))
 
 
-@router.get("/payku/suspended", dependencies=PaykuViewer, tags=["Recovery"])
-def payku_suspended(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_payku.suspended(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+@router.get("/payku/suspended", tags=["Recovery"])
+def payku_suspended(db: Annotated[Session, Depends(get_db)], user: PaykuUser, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_payku.suspended(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit, include_pii=can_view_pii(user, "payku"))
 
 
-@router.get("/payku/rejected", dependencies=PaykuViewer, tags=["Recovery"])
-def payku_rejected(db: Annotated[Session, Depends(get_db)], date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
-    return recovery_payku.rejected(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit)
+@router.get("/payku/rejected", tags=["Recovery"])
+def payku_rejected(db: Annotated[Session, Depends(get_db)], user: PaykuUser, date_from: str | None = None, date_to: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)) -> dict:
+    return recovery_payku.rejected(db, _date(date_from, "date_from"), _date(date_to, "date_to"), offset, limit, include_pii=can_view_pii(user, "payku"))

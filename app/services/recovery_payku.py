@@ -14,7 +14,8 @@ Vistas
 * **rejected** (cobros rechazados): `core_payments` de Payku cuya transaccion tiene estado comun `rejected`; si el
   pago esta enlazado a un ciclo (`core_charges`, PK-06) se muestra su periodo. Filtro sobre `occurred_at`.
 
-Sin datos personales (ids de Payku, montos y estados). Paginacion y filtros en SQL.
+Datos personales (d119, opcion b): `rut` y `name` solo con el permiso de clientes de Payku (`recovery_pii`); sin el
+van en `null`. El resto: ids de Payku, montos y estados. Paginacion y filtros en SQL.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.models.core import CoreCharge, CorePayment, CoreSubscription
 from app.models.payku_channel import PaykuSubscription, PaykuTransaction
+from app.services.recovery_pii import attach_people
 from app.services.rejection_format import format_rejection_reason
 
 SOURCE = "payku"
@@ -56,7 +58,8 @@ def _page(db: Session, query, offset: int, limit: int) -> tuple[list[Any], int]:
     return db.execute(query.offset(offset).limit(limit)).all(), total
 
 
-def _subscriptions(db: Session, common_status: str, start: date | None, end: date | None, offset: int, limit: int) -> dict:
+def _subscriptions(db: Session, common_status: str, start: date | None, end: date | None, offset: int, limit: int,
+                   include_pii: bool) -> dict:
     query = (
         select(CoreSubscription, PaykuSubscription.status_normalized)
         .join(PaykuSubscription, PaykuSubscription.external_id == CoreSubscription.external_id)
@@ -83,18 +86,19 @@ def _subscriptions(db: Session, common_status: str, start: date | None, end: dat
         }
         for sub, normalized in rows
     ]
-    return {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None}
+    return attach_people(db, SOURCE, {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None},
+                         include_pii)
 
 
-def cancelled(db: Session, start: date | None, end: date | None, offset: int, limit: int) -> dict:
-    return _subscriptions(db, "cancelled", start, end, offset, limit)
+def cancelled(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
+    return _subscriptions(db, "cancelled", start, end, offset, limit, include_pii)
 
 
-def suspended(db: Session, start: date | None, end: date | None, offset: int, limit: int) -> dict:
-    return _subscriptions(db, "suspended", start, end, offset, limit)
+def suspended(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
+    return _subscriptions(db, "suspended", start, end, offset, limit, include_pii)
 
 
-def rejected(db: Session, start: date | None, end: date | None, offset: int, limit: int) -> dict:
+def rejected(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
     query = (
         select(CorePayment, CoreSubscription.external_id, CoreCharge.period_reference)
         .join(PaykuTransaction, PaykuTransaction.external_id == CorePayment.external_id)
@@ -123,4 +127,5 @@ def rejected(db: Session, start: date | None, end: date | None, offset: int, lim
         }
         for payment, sub_external_id, period in rows
     ]
-    return {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None}
+    return attach_people(db, SOURCE, {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None},
+                         include_pii)

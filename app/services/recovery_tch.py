@@ -8,7 +8,8 @@ Vistas
   `core_tch_etl`). El filtro de fechas es sobre `occurred_at`.
 
 TCH no define todavía qué es «recuperable» (no hay señales como las de Toku): esa vista no existe aquí y la interfaz
-lo dice. Sin datos personales (la clave del pago es ficha|periodo|cuota). Paginación y filtros en SQL: TCH tiene más de
+lo dice. Datos personales (d119, opción b): `rut` y `name` solo con el permiso de clientes de TCH (`recovery_pii`);
+sin él van en `null` (la clave del pago es ficha|periodo|cuota). Paginación y filtros en SQL: TCH tiene más de
 un millón de pagos, nada se arma en memoria.
 """
 
@@ -21,6 +22,7 @@ from sqlalchemy import Date, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.core import CorePayment, CoreSubscription
+from app.services.recovery_pii import attach_people
 from app.services.rejection_format import format_rejection_reason
 
 SOURCE = "tch"
@@ -50,7 +52,7 @@ def _page(db: Session, query, offset: int, limit: int) -> tuple[list[Any], int]:
     return db.execute(query.offset(offset).limit(limit)).all(), total
 
 
-def deleted(db: Session, start: date | None, end: date | None, offset: int, limit: int) -> dict:
+def deleted(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
     query = (
         select(CoreSubscription)
         .where(
@@ -74,10 +76,11 @@ def deleted(db: Session, start: date | None, end: date | None, offset: int, limi
             "currency": sub.currency,
             "last_payment_status": sub.last_payment_status,
         })
-    return {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None}
+    return attach_people(db, SOURCE, {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None},
+                         include_pii)
 
 
-def rejected(db: Session, start: date | None, end: date | None, offset: int, limit: int) -> dict:
+def rejected(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
     query = (
         select(CorePayment, CoreSubscription.external_id)
         .outerjoin(CoreSubscription, CoreSubscription.id == CorePayment.subscription_id)
@@ -103,4 +106,5 @@ def rejected(db: Session, start: date | None, end: date | None, offset: int, lim
         }
         for payment, sub_external_id in rows
     ]
-    return {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None}
+    return attach_people(db, SOURCE, {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None},
+                         include_pii)

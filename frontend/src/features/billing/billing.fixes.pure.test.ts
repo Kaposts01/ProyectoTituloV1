@@ -132,7 +132,7 @@ describe("codigos de error nuevos de /billing", () => {
 
 describe("textos del plan por codigo", () => {
   it("avisos conocidos", () => {
-    for (const c of ["unknown_status", "multiple_pending", "foreign_manual_kept", "due_today_kept", "pending_same_month"]) {
+    for (const c of ["unknown_status", "multiple_pending", "foreign_manual_kept", "due_today_kept", "pending_same_month", "month_without_charge"]) {
       const t = planIssueText(c, "warning");
       expect(t).not.toBe("Aviso del plan no reconocido.");
       expect(t).not.toContain(c);
@@ -148,6 +148,7 @@ describe("textos del plan por codigo", () => {
   it("manual_review.reason por codigo y fijo si desconocido", () => {
     expect(manualReviewReason("replacement_outside_month")).toMatch(/otro mes/);
     expect(manualReviewReason("older_than_window")).toMatch(/ventana/);
+    expect(manualReviewReason("only_cancelled_charges")).toMatch(/cancelados/);
     expect(manualReviewReason("x 12.345.678-9")).toBe("Motivo no reconocido");
     const rows = buildPlanRows({ manual_review: [{ month: "2026-04", target_date: "2026-04-05", days_overdue: 9, reason: "replacement_outside_month" }, { month: "2026-05", target_date: "2026-05-05", days_overdue: 3, reason: "raro 99" }] });
     expect(rows[0].note).not.toContain("replacement_outside_month");

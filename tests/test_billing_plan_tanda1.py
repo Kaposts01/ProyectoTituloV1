@@ -36,36 +36,46 @@ def _month_of(a) -> str:
     return a.charge_date.strftime("%Y-%m")
 
 
-def test_replacement_that_falls_in_the_month_next_goes_a_review_manual() -> None:
-    """Hoy 31-oct, octubre atrasado: 'manana' (1-nov) ya es noviembre -> octubre a revision, noviembre sin duplicado."""
+def test_replacement_that_falls_in_the_month_next_is_attributed_by_internal_code() -> None:
+    """DEC-30 (BILL-18): hoy 31-oct, octubre atrasado: el reemplazo se fecha manana (1-nov) con el codigo de OCTUBRE;
+    noviembre conserva su propio cobro y, tras aplicar, no hay duplicado en noviembre."""
     today = date(2026, 10, 31)
     ch = [_auto(0, date(2026, 10, 15)), _auto(1, date(2026, 11, 15))]
     r = build_amount_change_plan(_inp(charges=ch, today=today, effective_month="2026-10", horizon_months=2))
-    assert [m.month for m in r.manual_review] == ["2026-10"]
-    assert [a.month for a in r.create] == ["2026-11"]
-    assert all(_month_of(a) == a.month for a in r.create)  # ninguna fecha cruza de mes
-    assert [a.charge_id for a in r.cancel] == ["a1"]  # el pendiente de octubre no se toca
+    assert not r.manual_review
+    assert [(a.month, a.charge_date, a.internal_code) for a in r.create] == [
+        ("2026-10", date(2026, 11, 1), "sub-1-202610-7000"), ("2026-11", date(2026, 11, 15), "sub-1-202611-7000")]
+    assert [a.charge_id for a in r.cancel] == ["a0", "a1"]  # el vencido de octubre tambien se cancela (JB-08)
     # tras aplicar: el estado resultante es consistente (sin acciones nuevas, sin duplicado en noviembre)
-    applied = [ch[0], PlanCharge("n1", "pendiente", r.create[0].charge_date, 7000, r.create[0].internal_code, True)]
+    applied = [replace_status(ch[0]), replace_status(ch[1])] + [
+        PlanCharge(f"n{i}", "pendiente", a.charge_date, 7000, a.internal_code, True) for i, a in enumerate(r.create)]
     again = build_amount_change_plan(_inp(charges=applied, today=today, effective_month="2026-10", horizon_months=2))
-    assert not again.create and not again.cancel and again.unchanged == ("2026-11",)
+    assert not again.create and not again.cancel and again.unchanged == ("2026-10", "2026-11")
 
 
-def test_varios_months_overdue_only_the_of_the_month_current_replaces() -> None:
-    """Hoy 10-nov, dia 10: octubre (ya cerrado) a revision; noviembre se reemplaza dentro de noviembre."""
+def replace_status(c: PlanCharge, status: str = "cancelado") -> PlanCharge:
+    return PlanCharge(c.charge_id, status, c.charge_date, c.amount, c.internal_code, c.is_crm, c.is_one_off)
+
+
+def test_varios_months_overdue_are_spaced_from_tomorrow() -> None:
+    """Hoy 10-nov, dia 10: octubre (31 dias) se fecha manana; noviembre (vence hoy) pasado manana (JB-09)."""
     r = build_amount_change_plan(_inp(charge_day=10, effective_month="2026-10", horizon_months=3))
-    assert [m.month for m in r.manual_review] == ["2026-10"]
-    assert [(a.month, a.charge_date) for a in r.create] == [("2026-11", date(2026, 11, 11)), ("2026-12", date(2026, 12, 10))]
-    assert all(_month_of(a) == a.month for a in r.create)
+    assert not r.manual_review
+    assert [(a.month, a.charge_date) for a in r.create] == [
+        ("2026-10", date(2026, 11, 11)), ("2026-11", date(2026, 11, 12)), ("2026-12", date(2026, 12, 10))]
+    assert [bp.code_month(a.internal_code, SUB) for a in r.create] == ["2026-10", "2026-11", "2026-12"]
 
 
-def test_last_day_of_the_month_the_replacement_no_crosses_a_other_month() -> None:
+def test_last_day_of_the_month_the_replacement_crosses_to_tomorrow() -> None:
     r = build_amount_change_plan(_inp(charge_day=30, today=date(2026, 11, 30), horizon_months=1,
                                       charges=[_auto(0, date(2026, 11, 30))]))
-    # el pendiente de HOY no se toca (item 4); sin pendiente, el reemplazo (1-dic) cruzaria de mes -> revision
+    # el pendiente de HOY no se toca (item 4)
     assert not r.create and not r.cancel
+    # sin pendiente: el reemplazo se fecha manana (1-dic) y queda atribuido a noviembre por su internal_code
     r2 = build_amount_change_plan(_inp(charge_day=30, today=date(2026, 11, 30), horizon_months=1))
-    assert [m.month for m in r2.manual_review] == ["2026-11"] and not r2.create
+    assert not r2.manual_review
+    assert [(a.month, a.charge_date, a.internal_code) for a in r2.create] == [
+        ("2026-11", date(2026, 12, 1), "sub-1-202611-7000")]
 
 
 # ----------------------------- 2. cobros puntuales -----------------------------
