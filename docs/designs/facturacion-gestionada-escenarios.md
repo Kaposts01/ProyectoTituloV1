@@ -313,7 +313,7 @@ Configuración actual (decisión 2026-10-28): aprobadores = rol admin; autoaprob
 
 ## 8. Operación de la opción A (estado al 2026-11-02, BILL-13)
 
-Guía para quien opera los cambios de cobro. Describe el código vigente (`app/services/billing_requests.py`, `billing_apply.py`, `billing_renewal.py`, `write_virtualpos.py`, `app/api/v1/routes/billing_changes.py`, `app/scheduler/jobs/billing_jobs.py`). Lo pendiente de la tanda 1b (reemplazo fuera del mes original, DEC-30) queda en BILL-18 y no se describe aquí.
+Guía para quien opera los cambios de cobro. Describe el código vigente (`app/services/billing_requests.py`, `billing_apply.py`, `billing_renewal.py`, `write_virtualpos.py`, `app/api/v1/routes/billing_changes.py`, `app/scheduler/jobs/billing_jobs.py`). Tanda 1b (BILL-18, DEC-30 opción A): el reemplazo de un mes atrasado (31 días o menos, sin cobro pagado, procesando o rechazado) se fecha mañana en hora de Chile aunque mañana caiga en el mes siguiente; plan, verificación, marca y controles de consistencia atribuyen cada cobro a su mes por el `internal_code` `{sub}-{YYYYMM}-{monto}` (`billing_plan.charge_month`; en los controles, `vp_managed_charges.month`). Varios reemplazos se espacian un día y no caen en la fecha regular de otro mes (JB-09). Un mes con solo cobros cancelados ajenos al CRM va a revisión manual (`only_cancelled_charges`) y un mes sin ningún cobro se crea con el aviso `month_without_charge` (DEC-29). El motivo `replacement_outside_month` ya no se genera.
 
 ### 8.1 Banderas y ambientes
 

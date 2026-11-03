@@ -18,7 +18,11 @@ mantiene su transaccion abierta durante toda la aplicacion (los servicios de esc
 `xact` sobre la sesion principal se soltaria en el primer commit). La transicion aprobada->aplicando es un UPDATE
 condicional (AP-14). Estado incierto (timeout) -> nunca se reintenta a ciegas: se relee el proveedor (RZ-31).
 
-`retry_charge` no usa este lock: tiene su propio lock por cargo (BILL-14, RZ-30); RA-27 queda para otra fase.
+`retry_charge` tiene su propio lock por cargo (BILL-14, RZ-30) y ademas comparte este lock por suscripcion (RA-27, ver
+`write_virtualpos.retry_charge`): un reintento y un cambio aprobado no corren a la vez sobre la misma suscripcion.
+
+Ventana de 31 dias (DEC-30, BILL-18): el reemplazo de un mes atrasado se fecha manana (Chile) aunque caiga en el mes
+siguiente; plan, verificacion y marca atribuyen cada cobro a su mes por el `internal_code` (`billing_plan.charge_month`).
 
 Reaprobacion (GB-AP-13, BILL-16): al ejecutar se recalcula la variacion; si la doble aprobacion esta encendida y la
 variacion paso a una categoria que exige mas aprobaciones que las obtenidas, la solicitud vuelve a `pendiente` (evento
@@ -75,6 +79,7 @@ from app.services.billing_plan import (
     PlanInput,
     PlanResult,
     build_plan,
+    charge_month,
     is_cancelled_status,
     norm_state,
     plan_to_preview_json,
@@ -896,8 +901,8 @@ async def _verify(ctx: _Ctx, inp: PlanInput, plan: PlanResult) -> tuple[list[str
     if vplan.create or vplan.cancel:
         problems.append("quedan acciones pendientes: " + ", ".join(sorted({a.month for a in vplan.create + vplan.cancel})))
     own = set(ctx.created_ids) | _own_managed_ids(ctx.db, ctx.req.id)
-    double = sorted({c.month for c in charges if c.charge_id in own and c.state in PENDING_STATES
-                     and c.month in {cm.month for cm in vplan.covered}})
+    double = sorted({charge_month(c, ctx.sub) for c in charges if c.charge_id in own and c.state in PENDING_STATES
+                     and charge_month(c, ctx.sub) in {cm.month for cm in vplan.covered}})
     if double:  # mes cubierto (pagado/procesando/rechazado) que ademas tiene un pendiente creado por esta solicitud
         problems.append("meses cubiertos con un cobro nuevo pendiente (doble cobro): " + ", ".join(double))
     skip = {c.month for c in vplan.covered} | {m.month for m in vplan.manual_review} | set(vplan.kept_due_today)
@@ -912,14 +917,14 @@ def _upsert_mark(ctx: _Ctx, inp: PlanInput, charges: list[PlanCharge]) -> dict[s
     crm = [c for c in charges if c.is_crm and not c.is_puntual and c.state in PENDING_STATES]  # sin puntuales
     if not crm:
         return None
-    last = max(crm, key=lambda c: c.charge_date)
+    last = max(crm, key=lambda c: (charge_month(c, ctx.sub), c.charge_date))  # mes de origen (DEC-30)
     day = inp.new_charge_day or inp.charge_day or max({c.charge_date.day for c in crm}, key=lambda d: sum(c.charge_date.day == d for c in crm))
     mark = ctx.db.scalar(select(VpCalendarMark).where(
         VpCalendarMark.platform == ctx.platform, VpCalendarMark.subscription_external_id == ctx.sub))
     if mark is None:
         mark = VpCalendarMark(platform=ctx.platform, subscription_external_id=ctx.sub)
         ctx.db.add(mark)
-    mark.last_scheduled_month = _month(last.charge_date)
+    mark.last_scheduled_month = charge_month(last, ctx.sub)
     mark.last_scheduled_date = last.charge_date
     mark.scheduled_amount = Decimal(inp.new_amount)
     mark.charge_day = day

@@ -41,7 +41,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -204,6 +204,16 @@ def _is_active(status: str | None) -> bool:
 # ----------------------------- controles por suscripcion -----------------------------
 
 
+def _attribute(charges: list[_LocalCharge], origin: dict[str, str]) -> list[_LocalCharge]:
+    """DEC-30 (BILL-18): un cobro del CRM cuenta para el mes de su `internal_code` (guardado en `vp_managed_charges.month`),
+    no para el de su fecha. El reemplazo de un mes atrasado fechado al mes siguiente no es un doble pendiente de ese mes."""
+    out = []
+    for c in charges:
+        month = origin.get(c.charge_id)
+        out.append(replace(c, month=month) if month and month != c.month else c)
+    return out
+
+
 def _pending_by_month(charges: list[_LocalCharge], one_off: set[str]) -> dict[str, list[_LocalCharge]]:
     out: dict[str, list[_LocalCharge]] = defaultdict(list)
     for c in charges:
@@ -231,10 +241,12 @@ def has_double_pending(db: Session, platform: str, sub: str, today: date | None 
     charges = _local_charges(db, {(platform, sub)}).get((platform, sub), [])
     if not charges:
         return False
-    managed = list(db.execute(select(VpManagedCharge.charge_id, VpManagedCharge.internal_code, VpManagedCharge.request_id)
+    managed = list(db.execute(select(VpManagedCharge.charge_id, VpManagedCharge.internal_code, VpManagedCharge.request_id,
+                                     VpManagedCharge.month)
                               .where(VpManagedCharge.platform == platform, VpManagedCharge.subscription_external_id == sub)))
-    one_off_reqs = _one_off_request_ids(db, {r for _c, _i, r in managed if r is not None})
-    one_off = {c for c, code, r in managed if is_one_off_code(code) or r in one_off_reqs}
+    one_off_reqs = _one_off_request_ids(db, {r for _c, _i, r, _m in managed if r is not None})
+    one_off = {c for c, code, r, _m in managed if is_one_off_code(code) or r in one_off_reqs}
+    charges = _attribute(charges, {c: m for c, _i, _r, m in managed if m})
     return bool(_double_pending(platform, sub, charges, one_off, today))
 
 
@@ -245,6 +257,7 @@ def _check_subscription(
 ) -> list[Finding]:
     out: list[Finding] = []
     one_off = {m.charge_id for m in managed if is_one_off_code(m.internal_code) or m.request_id in one_off_reqs}
+    charges = _attribute(charges, {m.charge_id: m.month for m in managed if m.month})
     by_id = {c.charge_id: c for c in charges}
     current = _month(today)
 

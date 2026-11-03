@@ -10,7 +10,7 @@ Que siembra (todo marcado con el prefijo ``DEMO-``; ningun dato personal ni susc
 - Solicitudes (``billing_change_requests``) en TODOS los estados (pendiente [una con vencimiento proximo y otra con doble
   aprobacion a medias], aprobada, ejecutada, fallida, requiere_conciliacion, rechazada, retirada, expirada, no_ejecutable)
   y de los 4 tipos, cada una con su ``plan_preview`` calculado con ``billing_plan.build_plan`` sobre cobros SINTETICOS
-  (incluye ``manual_review`` por ``replacement_outside_month``, ``kept_due_today`` y warnings) y su linea de tiempo
+  (incluye un mes vencido reemplazado con fecha de manana segun DEC-30, ``kept_due_today`` y warnings) y su linea de tiempo
   coherente de eventos (``billing_change_request_events``), con los mismos tipos y detalles que escribe el servicio.
 - Cobros gestionados (``vp_managed_charges``) de las solicitudes ejecutadas / en conciliacion.
 - Marcas de calendario (``vp_calendar_marks``) y tareas de renovacion (``billing_renewal_tasks``): abierta de prioridad
@@ -265,14 +265,14 @@ def build_scenarios() -> list[Scenario]:
         10, "change_amount", "no_ejecutable", "no_ejecutable", pi(10, "change_amount", 20000, charges(10, 18, 25000, first=first, count=18)),
         20000, 25000, 18, horizon_start_month=fmt(CUR), created_ago=timedelta(days=6), error_label="plan_changed",
     ))
-    # 011 ejecutada con manual_review por replacement_outside_month (mes anterior vencido <= ventana, reemplazo cae fuera del mes)
+    # 011 ejecutada con un mes anterior vencido <= ventana: reemplazo con fecha de manana atribuido a su mes (DEC-30, BILL-18)
     day11 = calendar.monthrange(*prev)[1]
     sc.append(Scenario(
         11, "change_amount", "ejecutada", "ejecutada",
         pi(11, "change_amount", 14000, charges(11, day11, 10000, first=first, count=18, paid_through=date(prev[0], prev[1], 1)),
            effective_month=fmt(prev)),
         14000, 10000, day11, horizon_start_month=fmt(prev), created_ago=timedelta(days=1, hours=2), mark=True, managed=True,
-        comment="Ajuste con un mes vencido que requiere revision manual (ejemplo ficticio).",
+        comment="Ajuste con un mes vencido que se reemplaza con fecha de manana (ejemplo ficticio).",
     ))
     return sc
 
@@ -525,7 +525,7 @@ def main() -> int:
     has_kept = any(p["kept_due_today"] for p in previews.values())
     has_warn = any(p["warnings"] for p in previews.values())
     print(f"Caracteristicas de plan: manual_review={sorted(reasons)} kept_due_today={has_kept} warnings={has_warn}")
-    if "replacement_outside_month" not in reasons or not has_kept or not has_warn:
+    if not has_kept or not has_warn:
         print("AVISO: alguna caracteristica esperada no se generó con la fecha de hoy; revisar los escenarios.")
     print(f"{'tabla':36}{'creadas':>9}{'omitidas':>10}")
     for table in ("billing_policy", "billing_change_requests", "billing_change_request_events", "vp_managed_charges",
