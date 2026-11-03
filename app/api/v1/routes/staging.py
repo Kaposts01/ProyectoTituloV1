@@ -40,6 +40,7 @@ from app.models.tch import (
     TchTransaction,
 )
 from app.services import rejected_month
+from app.services.channel_churn import CHURN_WINDOW_LABEL, unified_churn_rate
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_stats import (
     PENDING_DASHBOARD_STATES,
@@ -1345,11 +1346,10 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         cum_active = max(0, cum_active + activated - cancelled)
         active_subs_monthly_series.append({"year": month[0], "month": month[1], "count": cum_active})
 
-    # KPI churn: promedio de los últimos 3 meses con actividad
-    # None si no hay base (ninguna suscripcion con alta); 0.0 si hay base pero sin bajas recientes.
-    recent_rates = [e["rate"] for e in churn_rate_monthly_series[-3:] if e["rate"] > 0]
+    # KPI churn unificado (DEC-37/D31): bajas del mes en curso (Chile) / socios al cierre del mes anterior.
+    # None si no hay base (ninguna suscripcion con alta); 0.0 si hay base pero sin bajas en el mes.
     has_base = any(int(v["count"]) for by_status in activation_by_month.values() for v in by_status.values())
-    churn_rate: float | None = (round(sum(recent_rates) / len(recent_rates), 1) if recent_rates else 0.0) if has_base else None
+    churn_rate: float | None = unified_churn_rate(churn_rate_monthly_series, has_base=has_base)
     ltv = _ltv(arpu, churn_rate)
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
@@ -1374,7 +1374,7 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         "active_clients": active_clients,
         "arpu": arpu,
         "churn_rate": churn_rate,
-        "churn_window_label": "promedio de 3 meses",
+        "churn_window_label": CHURN_WINDOW_LABEL,
         "ltv": ltv,
     }
     ch_flat   = _flatten_by_status(charges_monthly)
@@ -1457,10 +1457,9 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
     active_clients = len(active_customers) or active_subs  # sin piso artificial
     arpu = round(mrr / active_clients, 0) if active_clients else None
     total_subs = sum(1 for r in records if r.resource_type == "subscription")
-    total_churned = sum(int(v["count"]) for v in churn_by_month.values())
-    # Acumulado historico: bajas totales / suscripciones totales (distinto del promedio de 3 meses de VirtualPOS).
-    churn_rate: float | None = round(total_churned / total_subs * 100, 1) if total_subs > 0 else None
-    ltv = _ltv(arpu, churn_rate)
+    # El churn (DEC-37) se calcula mas abajo, desde la serie mensual, con la definicion unificada.
+    churn_rate: float | None = None
+    ltv: float | None = None
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1484,7 +1483,7 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         "active_clients": active_clients,
         "arpu": arpu,
         "churn_rate": churn_rate,
-        "churn_window_label": "acumulado histórico",
+        "churn_window_label": CHURN_WINDOW_LABEL,
         "ltv": ltv,
     }
     inv_flat   = _flatten_by_status(invoices_monthly)
@@ -1516,6 +1515,9 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             "month": entry["month"],
             "rate": round(100 * cancelled / active_at_start, 1) if active_at_start > 0 else 0.0,
         })
+
+    kpis["churn_rate"] = unified_churn_rate(churn_rate_monthly_toku, has_base=total_subs > 0)
+    kpis["ltv"] = _ltv(arpu, kpis["churn_rate"])
 
     tx_flat = _flatten_by_status(transactions_monthly)
     return {
@@ -1627,10 +1629,9 @@ def _payku_extended_data(
     active_clients = len(active_ruts) or arpu_subs
     arpu = round(mrr / active_clients, 0) if active_clients else None
     total_subs = sum(1 for r in records if r.resource_type == "subscription")
-    total_churned = sum(int(values["count"]) for statuses in churn_by_month.values() for values in statuses.values())
-    # Acumulado historico: bajas totales / suscripciones totales.
-    churn_rate: float | None = round(total_churned / total_subs * 100, 1) if total_subs > 0 else None
-    ltv = _ltv(arpu, churn_rate)
+    # El churn (DEC-37) se calcula mas abajo, desde la serie mensual, con la definicion unificada.
+    churn_rate: float | None = None
+    ltv: float | None = None
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1654,7 +1655,7 @@ def _payku_extended_data(
         "active_clients": active_clients,
         "arpu": arpu,
         "churn_rate": churn_rate,
-        "churn_window_label": "acumulado histórico",
+        "churn_window_label": CHURN_WINDOW_LABEL,
         "ltv": ltv,
     }
     tx_flat   = _flatten_by_status(transactions_monthly)
@@ -1675,6 +1676,8 @@ def _payku_extended_data(
         })
         active_count = max(0, active_count + activated - cancelled)
         active_subs_monthly_payku.append({"year": month[0], "month": month[1], "count": active_count})
+    kpis["churn_rate"] = unified_churn_rate(churn_rate_monthly_payku, has_base=total_subs > 0)
+    kpis["ltv"] = _ltv(arpu, kpis["churn_rate"])
 
     return {
         "kpis": kpis,

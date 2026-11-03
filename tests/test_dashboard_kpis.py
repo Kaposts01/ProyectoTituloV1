@@ -62,7 +62,9 @@ def test_etl_run_returns_410_with_auth_and_csrf_and_creates_no_run(monkeypatch) 
 
 # -- (b) Toku ------------------------------------------------------------------
 
-def test_toku_dashboard_active_subscribers_and_churn_exclude_non_chargeable(db_session) -> None:
+def test_toku_dashboard_active_subscribers_and_churn_exclude_non_chargeable(db_session, monkeypatch) -> None:
+    # Churn unificado (DEC-37): KPI del mes en curso; se fija «hoy» en el mes de la baja de prueba.
+    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2099, 3, 25, tzinfo=ZoneInfo("America/Santiago")))
     before = staging._toku_centralized_dashboard(db_session)
     db_session.add_all([
         Subscription(source="toku", external_id="kpi-active-ok", client_external_id="kpi-c1",
@@ -88,7 +90,10 @@ def test_toku_dashboard_active_subscribers_and_churn_exclude_non_chargeable(db_s
     assert act.get("CANCELLED") == 1
     churn = [r for r in after["churn_monthly"] if (r["year"], r["month"]) == (2099, 3)]
     assert sum(r["count"] for r in churn) == 1
-    assert 0 < after["kpis"]["churn_rate"] <= 100
+    # DEC-37: el KPI es el punto del mes en curso de la serie mensual (bajas / activas al inicio del mes).
+    march = next(r["rate"] for r in after["churn_rate_monthly"] if (r["year"], r["month"]) == (2099, 3))
+    assert after["kpis"]["churn_rate"] == march
+    assert 0 <= after["kpis"]["churn_rate"] <= 100
 
 
 # -- (c) Payku -----------------------------------------------------------------
