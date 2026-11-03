@@ -55,6 +55,7 @@ from app.services.billing_apply import (
 )
 from app.services.billing_plan import plan_to_preview_json
 from app.services.rbac import GENERAL_BILLING_VIEW
+from app.services.toku_amount_apply import TokuWritesDisabledError
 from app.services.write_virtualpos import (
     BillingFlowConflictError,
     ChargeNotFoundError,
@@ -293,6 +294,8 @@ def _http(exc: BaseException) -> NoReturn:
         raise HTTPException(403, _detail(exc.code, str(exc)))
     if isinstance(exc, svc.NotApproverError | svc.SelfApprovalNotAllowedError | svc.NotAllowedError):
         raise HTTPException(403, _detail(exc.code, str(exc)))
+    if isinstance(exc, TokuWritesDisabledError):  # MGT-12: bandera de Toku apagada; la solicitud sigue aprobada
+        raise HTTPException(403, _detail("writes_disabled", "Las escrituras a Toku están deshabilitadas.", channel="toku"))
     if isinstance(exc, BillingApplyError):  # cualquier otro error tipado de aplicacion: nunca 500
         raise HTTPException(409, _detail("billing_apply_error", "No se pudo aplicar el cambio; revise el estado de la solicitud."))
     if isinstance(exc, _PROVIDER_ERRORS):
@@ -404,6 +407,7 @@ def _apply_json(result: ApplyResult, request: BillingChangeRequest) -> dict[str,
         "write_run_id": str(result.write_run_id) if result.write_run_id else None,
         "drift_accepted": result.drift_accepted,
         "plan_summary": (plan_to_preview_json(result.plan).get("summary") if result.plan is not None else None),
+        "toku": result.toku,  # MGT-12: cuotas actualizadas y omitidas (in_progress); None en VirtualPOS
     }
 
 
@@ -452,7 +456,7 @@ def list_change_requests(
     _user: Viewer,
     db: Db,
     status: Annotated[list[StatusLiteral] | None, Query()] = None,
-    platform: Literal["virtualpos1", "virtualpos2"] | None = None,
+    platform: Literal["virtualpos1", "virtualpos2", "toku"] | None = None,
     subscription_id: Annotated[str | None, Query(max_length=255)] = None,
     request_type: RequestType | None = None,
     requested_by: uuid.UUID | None = None,

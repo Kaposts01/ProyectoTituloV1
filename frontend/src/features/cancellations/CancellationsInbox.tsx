@@ -9,13 +9,18 @@ import { describeCancellationError } from "./cancellationErrors";
 import { channelText, reasonText, statusText } from "./cancellationLabels";
 import { CHANNELS, EMPTY_CANCELLATION_FILTERS, TAB_STATUSES, type CancellationFilters, type CancellationTab } from "./cancellationsQuery";
 import { RequestCancellationDialog } from "./RequestCancellationDialog";
+import { ChangeAmountDialog } from "./ChangeAmountDialog";
+import { ManualTasksPanel } from "./ManualTasksPanel";
+import { PERM_BILLING_REQUEST, PERM_MANUAL_TASKS_VIEW } from "./manualTasks";
 import { PERM_CANCELLATION_REQUEST, type CancellationChannel, type CancellationDetail, type CancellationList, type CancellationStatus } from "./types";
 import "../billing/billing.css";
 import "./cancellations.css";
 
 const PAGE_SIZE = 25;
-const TAB_LABELS: Record<CancellationTab, string> = { pending: "Pendientes", running: "En ejecución", history: "Historial" };
-const TAB_KEYS = Object.keys(TAB_LABELS) as CancellationTab[];
+/** Pestañas de la bandeja: las tres de solicitudes y, con su permiso, «Tareas manuales» (MGT-11/13/14). */
+type InboxTab = CancellationTab | "tasks";
+const TAB_LABELS: Record<InboxTab, string> = { pending: "Pendientes", running: "En ejecución", history: "Historial", tasks: "Tareas manuales" };
+const REQUEST_TABS: CancellationTab[] = ["pending", "running", "history"];
 const EMPTY_COPY: Record<CancellationTab, string> = {
   pending: "No hay solicitudes de baja pendientes con estos filtros.",
   running: "No hay bajas en ejecución ni en seguimiento con estos filtros.",
@@ -36,7 +41,10 @@ function lastPageOffset(total: number): number {
 }
 
 export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Props) {
-  const [tab, setTab] = useState<CancellationTab>("pending");
+  const [tab, setTab] = useState<InboxTab>("pending");
+  const TAB_KEYS: InboxTab[] = can(PERM_MANUAL_TASKS_VIEW) ? [...REQUEST_TABS, "tasks"] : REQUEST_TABS;
+  const listTab: CancellationTab = tab === "tasks" ? "pending" : tab;
+  const [changingAmount, setChangingAmount] = useState(false);
   const [draft, setDraft] = useState<CancellationFilters>(EMPTY_CANCELLATION_FILTERS);
   const [applied, setApplied] = useState<CancellationFilters>(EMPTY_CANCELLATION_FILTERS);
   const [offset, setOffset] = useState(0);
@@ -46,13 +54,14 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
   const [reloadKey, setReloadKey] = useState(0);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const tabRefs = useRef<Partial<Record<CancellationTab, HTMLButtonElement | null>>>({});
+  const tabRefs = useRef<Partial<Record<InboxTab, HTMLButtonElement | null>>>({});
 
   // La carga se deriva de la clave de la consulta: mientras el resultado guardado no sea el de la consulta vigente, se está cargando.
   const requestKey = `${tab}|${applied.status}|${applied.channel}|${offset}|${reloadKey}`;
   useEffect(() => {
+    if (tab === "tasks") return undefined; // la pestaña de tareas manuales carga su propia lista
     let alive = true;
-    api.fetchCancellations(tab, applied, offset, PAGE_SIZE).then((data) => {
+    api.fetchCancellations(listTab, applied, offset, PAGE_SIZE).then((data) => {
       if (!alive) return;
       // Se actuó sobre el último ítem de la última página: la página pedida quedó vacía pero hay datos. Se reposiciona.
       const back = lastPageOffset(data.total);
@@ -67,14 +76,14 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
       setResult((prev) => ({ key: requestKey, data: prev.data, error: message }));
     });
     return () => { alive = false; };
-  }, [tab, applied, offset, requestKey]);
+  }, [tab, listTab, applied, offset, requestKey]);
 
   const loading = result.key !== requestKey;
   const data = result.data;
   const error = result.key === requestKey ? result.error : null;
   const reload = () => setReloadKey((k) => k + 1);
 
-  function changeTab(next: CancellationTab) {
+  function changeTab(next: InboxTab) {
     if (next === tab) return;
     setTab(next);
     setOffset(0);
@@ -97,7 +106,7 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
 
   function onTabKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     const at = TAB_KEYS.indexOf(tab);
-    let next: CancellationTab | null = null;
+    let next: InboxTab | null = null;
     if (event.key === "ArrowRight") next = TAB_KEYS[(at + 1) % TAB_KEYS.length];
     else if (event.key === "ArrowLeft") next = TAB_KEYS[(at - 1 + TAB_KEYS.length) % TAB_KEYS.length];
     else if (event.key === "Home") next = TAB_KEYS[0];
@@ -142,7 +151,10 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
           <p className="eyebrow">Operación</p>
           <h1>Bajas</h1>
         </div>
-        {can(PERM_CANCELLATION_REQUEST) ? <button className="bx-btn bx-btn-primary" onClick={() => { setNotice(null); setCreating(true); }}>Solicitar baja</button> : null}
+        <div className="cx-topbar-actions">
+          {can(PERM_BILLING_REQUEST) ? <button className="bx-btn bx-btn-ghost" onClick={() => { setNotice(null); setChangingAmount(true); }}>Cambiar monto</button> : null}
+          {can(PERM_CANCELLATION_REQUEST) ? <button className="bx-btn bx-btn-primary" onClick={() => { setNotice(null); setCreating(true); }}>Solicitar baja</button> : null}
+        </div>
       </div>
 
       <div className="bx-tabs" role="tablist" aria-label="Vistas de bajas" onKeyDown={onTabKeyDown}>
@@ -157,13 +169,16 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
       </div>
 
       <div aria-live="polite">{notice ? <Notice tone="ok" live>{notice}</Notice> : null}</div>
+      {tab === "tasks" ? (
+        <div role="tabpanel" id="cx-tabpanel" aria-labelledby="cx-tab-tasks"><ManualTasksPanel can={can} /></div>
+      ) : (
       <div role="tabpanel" id="cx-tabpanel" aria-labelledby={`cx-tab-${tab}`}>
         <form className="bx-filters" onSubmit={applyFilters} aria-label="Filtros de bajas">
           <FiltersPanel activeCount={activeFilterCount}>
             <label>Estado
               <select value={draft.status} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value as CancellationStatus | "" }))}>
                 <option value="">Todos</option>
-                {TAB_STATUSES[tab].map((s) => <option key={s} value={s}>{statusText(s)}</option>)}
+                {TAB_STATUSES[listTab].map((s) => <option key={s} value={s}>{statusText(s)}</option>)}
               </select>
             </label>
             <label>Canal
@@ -185,13 +200,13 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
         ) : null}
 
         <p className="bx-sr" role="status" aria-live="polite">
-          {loading ? "Cargando solicitudes de baja…" : data ? `${total} solicitudes en ${TAB_LABELS[tab].toLowerCase()}.` : ""}
+          {loading ? "Cargando solicitudes de baja…" : data ? `${total} solicitudes en ${TAB_LABELS[listTab].toLowerCase()}.` : ""}
         </p>
 
         {loading && !data ? <p className="muted-copy">Cargando solicitudes de baja…</p> : null}
         {data && items.length === 0 && total === 0 && !error ? (
           <div className="bx-notice">
-            <p style={{ margin: "0 0 8px" }}>{EMPTY_COPY[tab]}</p>
+            <p style={{ margin: "0 0 8px" }}>{EMPTY_COPY[listTab]}</p>
             {can(PERM_CANCELLATION_REQUEST) && tab === "pending"
               ? <button className="bx-btn bx-btn-ghost" onClick={() => { setNotice(null); setCreating(true); }}>Solicitar baja</button>
               : <button className="bx-btn bx-btn-ghost" onClick={clearFilters}>Limpiar filtros</button>}
@@ -236,8 +251,9 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
           </div>
         ) : null}
       </div>
+      )}
 
-      {selectedId ? (
+      {selectedId && tab !== "tasks" ? (
         <CancellationDetailView
           key={selectedId} id={selectedId} focusToken={focusToken} reloadToken={reloadKey}
           renderActions={(detail, reloadDetail) => (
@@ -245,6 +261,7 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
           )}
         />
       ) : null}
+      {changingAmount ? <ChangeAmountDialog onClose={() => setChangingAmount(false)} onDone={(message) => { setChangingAmount(false); setNotice(message); }} /> : null}
       {creating ? <RequestCancellationDialog onClose={() => setCreating(false)} onCreated={onCreated} onOpenExisting={openExisting} /> : null}
     </main>
   );

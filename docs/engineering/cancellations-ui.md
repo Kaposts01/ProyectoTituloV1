@@ -82,3 +82,8 @@ Sigue el runbook [`docs/operations/sandbox-testing-and-decisions.md`](../operati
 3. Con `ejecutivo` o `soporte`: la pantalla se ve sin botones de acción.
 4. Con un usuario no admin: en las listas y fichas de suscripción no hay botones directos de baja, solo el texto hacia «Solicitar baja».
 5. Toku comparte host entre sandbox y producción: solo suscripciones `TEST-` en la lista permitida, y con el usuario. Payku está bloqueado en sandbox. TCH se prueba con el Excel sintético: la baja queda «En trámite» hasta cargar el siguiente.
+
+## 7. Tanda L4-BAJAS (MGT-11 a MGT-15)
+
+- `manualTasks.ts`, `ManualTasksPanel.tsx`, `ChangeAmountDialog.tsx`: pestaña «Tareas manuales» (con `subscriptions.manual_tasks.view`; confirmar/descartar/CSV con `.confirm`) y botón «Cambiar monto» (con `virtualpos.billing_changes.request`). Textos nuevos en `i18n/es.ts` (`manualTaskType`, `manualTaskStatus`, `manualTaskError` y entradas de `cancellationManual`), solo agregados.
+- Pruebas: `cancellations.amount.test.tsx`. Los puntos «Exportación de TCH», «Eliminación de medios de pago» y «Cambio de monto por canal» del §5 quedan cubiertos (ver `docs/designs/baja-cascada.md` §6).

@@ -182,6 +182,7 @@ class ApplyResult:
     write_run_id: uuid.UUID | None = None
     plan: PlanResult | None = None
     drift_accepted: dict[str, Any] | None = None
+    toku: dict[str, Any] | None = None  # MGT-12: resumen del cambio de monto de Toku (cuotas actualizadas/omitidas)
 
 
 @dataclass

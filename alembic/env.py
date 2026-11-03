@@ -42,6 +42,10 @@ from app.models.crm import (  # noqa: F401
     Subscription,
 )
 from app.models.etl_run import EtlRun  # noqa: F401
+from app.models.manual_task import (  # noqa: F401
+    SubscriptionManualTask,
+    SubscriptionManualTaskEvent,
+)
 from app.models.payku_channel import (  # noqa: F401
     PaykuClient,
     PaykuCycle,

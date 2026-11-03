@@ -135,3 +135,26 @@ TCH: `close_tch_cancellations_from_report` cierra (`completed`, evento `closed_b
 2. Correr `scripts/maintenance/seed_roles.py` en `crm`: crea `ejecutivo` (con `subscriptions.cancellation.view`), agrega la vista a `soporte`, los tres permisos a `admin` y, **si ya existen**, los permisos de baja a `jefatura` y `coordinador` (nunca crea roles ni quita permisos). La migración 0050 hace lo mismo para los roles existentes al aplicarse. **Verificar** que existan `jefatura` y `coordinador`; si no existen, créelos desde el panel de roles y vuelva a correr `seed_roles.py`.
 3. Informar a las jefaturas que las bajas se piden en `/cancellations` (la pantalla llega con MGT-15) y que el botón directo de baja es solo para admin.
 4. Decidir: responsable bancario y plazo de la baja TCH, eliminación de medios de pago de Toku, y si se registran los jobs de expiración y barrido.
+
+## 6. Tanda 3 (ola 4, lote L4-BAJAS): MGT-11 a MGT-15
+
+Decisiones del usuario del 2026-11-02: d105 (medios de pago se conservan), d106 (monto de Toku por la bandeja de cambios de cobro), d107 (baja TCH: CSV sin PAN + Excel; la ejecuta un ejecutivo, no Tesorería, con paso de confirmación) y d108 (monto de Payku: tarea manual verificada por la sync).
+
+### 6.1 Tareas manuales (`subscription_manual_tasks`, migración `20261102_0066`)
+- Tipos: `payment_method_retained` (MGT-11), `tch_bank_mandate` (MGT-13), `payku_amount_change` (MGT-14). Estados: `pending → confirmed → verified`, `pending → verified` (la fuente externa lo ve antes) y `pending|confirmed → dismissed` (motivo obligatorio). Una sola abierta por (tipo, canal, suscripción).
+- Confirmar deja `confirmed_by_user_id` y `confirmed_at` (CHECK de base) y un evento inmutable (`billing_audit_immutable()`). Lo hace el responsable u otra persona (`by_assignee` en el evento). Responsable por defecto: el solicitante; se reasigna con `/assign`.
+- `cancellation_request_id` es referencia blanda (sin FK) para que la 0051 siga siendo reversible por sí sola.
+- Permisos: `subscriptions.manual_tasks.view` (admin, jefatura, soporte, ejecutivo, coordinador) y `subscriptions.manual_tasks.confirm` (admin, jefatura). El rol `ejecutivo` del código sigue siendo solo lectura (D12): si el usuario quiere que los ejecutivos confirmen, basta asignarles el permiso de confirmación.
+- API `/api/v1/manual-tasks`: `GET` (filtros), `GET /assignees`, `GET /{id}`, `POST /{id}/confirm|assign|dismiss`, `POST /payku-amount`, `GET /tch-export`.
+
+### 6.2 Por tarea
+- **MGT-11**: el paso `payment_method` sigue `manual` y crea la tarea `payment_method_retained`; códigos `TOKU_PAYMENT_METHOD_RETAINED` y `PAYKU_PAYMENT_METHOD_RETAINED` (VirtualPOS conserva `VP_NO_PAYMENT_METHOD_API`). La vista previa dice `reason = retained`. Nada se borra en el proveedor.
+- **MGT-12**: `billing_change_requests.platform` admite `toku` (solo `change_amount`). Misma creación, aprobación, retiro, reapertura y allowlist del piloto (`BILLING_PILOT_ALLOWLIST` acepta `toku:<id>`). Ejecutor `toku_amount_apply.apply_toku_amount_change` → `write_toku.apply_amount_change`: `PUT /subscriptions/{id}` y `PUT /invoices/{id}` de las impagas **sin** las `in_progress`, verificación releyendo; fallo de una cuota → compensación (montos anteriores) y `fallida`; compensación o verificación fallidas → `requiere_conciliacion`. Detrás de `TOKU_WRITES_ENABLED` (403 `writes_disabled` con `channel = toku`) y de la guarda dura fuera de producción (solo `TEST-`/allowlist, `precheck_writes`). Solo probado con fakes.
+- **MGT-13**: la baja TCH crea la tarea `tch_bank_mandate`. `GET /manual-tasks/tch-export` entrega el CSV de bajas «en trámite» con lista blanca de columnas (ficha, mandato, banco, tipo, monto, moneda, motivo, fechas, responsable, estado de la tarea): nunca número de cuenta/tarjeta, RUT ni contacto; celdas protegidas contra fórmulas; cada exportación deja evento `exported`. El Excel que trae `fecha_eliminacion` cierra la solicitud y deja la tarea `verified` (con `confirmed_before`).
+- **MGT-14**: `POST /manual-tasks/payku-amount` (permiso `virtualpos.billing_changes.request`) registra la tarea con monto anterior y objetivo. Al final de `sync_payku` (fuera del bloque de la sync: un fallo no la marca fallida) `verify_payku_amount_tasks` cierra las tareas cuyo monto local ya es el pedido.
+- **MGT-15**: en «Bajas», botón «Cambiar monto» (VirtualPOS → «Cambios de cobro»; Toku → solicitud en la bandeja con vista previa obligatoria; Payku → tarea manual; TCH → sin cambio desde el CRM) y pestaña «Tareas manuales» (confirmar, descartar, descargar el CSV de TCH).
+
+### 6.3 Pendiente tras esta tanda
+- MGT-17 (contrato en sandbox) y aprobar en Toku TEST- el cambio de monto con el usuario.
+- La baja de Toku no cierra una solicitud de monto de Toku abierta: queda `no_ejecutable` al aplicarla (la suscripción ya no está activa).
+- `refresh_subscription` y los webhooks de Payku no verifican las tareas de monto (solo la sync completa).

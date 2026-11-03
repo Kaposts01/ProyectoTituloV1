@@ -237,8 +237,9 @@ def build_cascade_preview(db: Session, channel: str, sub: str, options: dict[str
         "payku": "verify_only_no_api", "tch": "not_applicable",
     }[channel]
     payment_reason = {
-        "virtualpos1": "no_api", "virtualpos2": "no_api", "toku": "decision_pending",
-        "payku": "q09_unvalidated", "tch": "bank_mandate_outside_crm",
+        # MGT-11 (d105): en Toku y Payku el medio de pago se conserva (tarea manual de trazabilidad).
+        "virtualpos1": "no_api", "virtualpos2": "no_api", "toku": "retained",
+        "payku": "retained", "tch": "bank_mandate_outside_crm",
     }[channel]
     return {
         "channel": channel,
