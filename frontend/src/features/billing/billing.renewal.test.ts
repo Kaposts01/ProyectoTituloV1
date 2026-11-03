@@ -64,9 +64,9 @@ describe("renovaciones: consulta", () => {
     expect(u.searchParams.get("offset")).toBe("50");
     expect(new URL(renewalPath({ ...EMPTY_RENEWAL_FILTERS, status: "cerrada" }, 0, 25), "http://x").searchParams.getAll("status")).toEqual(["cerrada"]);
   });
-  it("el contador pide solo altas abiertas/vencidas", () => {
+  it("el contador pide todas las tareas abiertas/vencidas, sin filtrar por prioridad (UI-39)", () => {
     const u = new URL(renewalAlertPath(), "http://x");
     expect(u.searchParams.getAll("status")).toEqual(["abierta", "vencida"]);
-    expect(u.searchParams.get("priority")).toBe("alta");
+    expect(u.searchParams.get("priority")).toBeNull();
   });
 });

@@ -140,10 +140,10 @@ describe("renovaciones: lista", () => {
     expect(await screen.findByRole("table", { name: /Tareas de renovación/ })).toBeTruthy();
   });
 
-  it("la pestaña muestra el contador de altas/vencidas con texto accesible", async () => {
+  it("la pestaña muestra el contador de abiertas/vencidas con texto accesible", async () => {
     alertTotal = 3;
     render(<BillingInbox can={canOf(READONLY)} />);
-    expect(await screen.findByRole("tab", { name: /Renovaciones.*3 tareas abiertas o vencidas con prioridad alta/ })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: /Renovaciones.*3 tareas de renovación abiertas o vencidas/ })).toBeTruthy();
   });
 
   it("si falla el contador no rompe la bandeja", async () => {

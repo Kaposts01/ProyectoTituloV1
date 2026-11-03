@@ -1,7 +1,7 @@
 import { setCsrfToken, getJson } from "../../api";
 import { label, tryLabel } from "../../i18n/label";
 import type { AuthSession, RecoveryRow, StagingRecord } from "./types";
-import type { MonthlyEntry, MonthlyStatusEntry } from "../../MonthlyStatusChart";
+import type { MonthlyEntry, MonthlyStatusEntry } from "./monthly";
 
 export const RECORDS_PAGE_SIZE = 100;
 

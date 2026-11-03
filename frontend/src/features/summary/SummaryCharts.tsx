@@ -2,15 +2,15 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ChannelChart, type ChannelChartRow, type ChannelChartSeries } from "../../components/ChannelChart";
 import { ChartRangeSelector } from "../../components/ChartRangeSelector";
 import { filterByRange, type ChartRange } from "../../components/chartRows";
-import { chartStatusColor } from "../../chartColors";
+import { chartStatusColor, FLOW_IN_COLOR, FLOW_OUT_COLOR } from "../../chartColors";
 import { label } from "../../i18n/label";
 import { flowRows, membersRows, parseMonth, revenueRows } from "./summaryChartData";
 import type { UnifiedSummary } from "./summaryTypes";
 
 const MEMBER_SERIES: ChannelChartSeries[] = [{ key: "members", label: "Socios totales (suma por canal)", color: "var(--series-1)" }];
 const FLOW_SERIES: ChannelChartSeries[] = [
-  { key: "activations", label: "Activaciones", color: "var(--series-1)" },
-  { key: "cancellations", label: "Bajas", color: "var(--status-rejected)" },
+  { key: "activations", label: "Activaciones", color: FLOW_IN_COLOR },
+  { key: "cancellations", label: "Bajas", color: FLOW_OUT_COLOR },
 ];
 const NET_SERIES: ChannelChartSeries = { key: "net", label: "Crecimiento neto", color: "var(--series-2)" };
 

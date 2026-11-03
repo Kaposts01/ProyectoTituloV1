@@ -4,7 +4,7 @@
  * `tchTypes.ts`. Tolera valores ausentes: un texto ausente queda en `null` (nunca se inventa un dato), un
  * estado ausente queda en "" y un número de ficha ausente en 0; las listas ausentes quedan vacías.
  */
-import type { MonthlyStatusEntry } from "../../MonthlyStatusChart";
+import type { MonthlyStatusEntry } from "../shared/monthly";
 import { adaptAlerts, type AlertWire } from "../dashboard/alertAdapter";
 import type {
   TchClient, TchClientDetail, TchClientsPage, TchKpis, TchPage, TchSubscription, TchSubscriptionDetail,

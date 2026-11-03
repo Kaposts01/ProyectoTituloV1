@@ -195,8 +195,9 @@ describe("ChannelChart: acumulado vs ritmo vs proyección", () => {
 });
 
 describe("ChannelChart: teclado", () => {
-  it("la superficie del gráfico es alcanzable con Tab (capa de accesibilidad de Recharts)", () => {
+  it("el gráfico es UNA parada de Tab (el contenedor), sin el svg de Recharts como segunda parada", () => {
     const { container } = render(<ChannelChart series={series} data={data} kind="stacked" mode="amount" year={2026} />);
-    expect(container.querySelector("svg.recharts-surface[tabindex='0']")).toBeTruthy();
+    expect(container.querySelectorAll(".chart-plot[tabindex='0']")).toHaveLength(1);
+    expect(container.querySelector("svg.recharts-surface[tabindex='0']")).toBeNull();
   });
 });

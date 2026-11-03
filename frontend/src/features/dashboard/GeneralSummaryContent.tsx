@@ -1,7 +1,10 @@
 import { useMemo } from "react";
 import { label } from "../../i18n/label";
-import { ActivationsVsChurnChart, ChannelKpiChart, MonthlyRevenueChart, MonthlyStatusChart } from "../../MonthlyStatusChart";
-import type { ChannelRow, MonthlyEntry } from "../../MonthlyStatusChart";
+import { ChannelChart, type ChannelChartKind } from "../../components/ChannelChart";
+import { RankingChart } from "../../components/RankingChart";
+import { chartStatusColor } from "../../chartColors";
+import type { MonthlyEntry } from "../shared/monthly";
+import { activationVsChurnWithNet, NET_GROWTH_SERIES, seriesStackedChart, type ChartProps } from "./channelCharts";
 import { defaultYear } from "../shared/utils";
 import type { GeneralDashboard } from "../shared/types";
 import { GeneralKpis } from "./GeneralKpis";
@@ -46,6 +49,20 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
     }
     return [...map.values()];
   })();
+  // VIZ-07: los 8 componentes viejos de MonthlyStatusChart.tsx pasan al sistema único según la matriz KPI a gráfico.
+  const chartYear = (rows: { year: number }[]) => (rows.some((r) => r.year === generalYear) ? generalYear : null);
+  const chart = (props: ChartProps, kind: ChannelChartKind, ariaLabel: string, extra: { overlay?: boolean } = {}) =>
+    props.rows.length ? (
+      <ChannelChart series={props.series} data={props.rows} kind={kind} mode={generalMode} year={chartYear(props.rows)} legend showDataToggle ariaLabel={ariaLabel}
+        overlayLine={extra.overlay ? NET_GROWTH_SERIES : undefined} />
+    ) : <p className="empty-chart">Sin datos para este período.</p>;
+  const flow = activationVsChurnWithNet(generalData.activations_monthly, cancellationsAsEntries, generalMode);
+  const channelRanking = (generalData.channels ?? []).map((c) => ({
+    key: c.source,
+    label: label("channel", c.source),
+    value: generalMode === "amount" ? c.amount : c.accepted,
+    color: chartStatusColor(c.source),
+  }));
   return (
     <>
       <section className="metrics provider-metrics" aria-label="Métricas generales">
@@ -57,27 +74,32 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
       <section className="extended-charts">
         <article className="panel" style={{ gridColumn: "1 / -1" }}>
           <div className="panel-heading"><div><p className="eyebrow">INGRESOS</p><h3>Recaudación mensual por canal</h3></div></div>
-          <MonthlyRevenueChart data={generalData.transactions_effective_monthly} year={generalYear} />
+          {(() => {
+            const paid = seriesStackedChart(applyChargeFilter(generalData.transactions_effective_monthly, "paid"), "amount");
+            return paid.rows.length ? (
+              <ChannelChart series={paid.series} data={paid.rows} kind="stacked" mode="amount" year={chartYear(paid.rows)} legend showDataToggle ariaLabel="Recaudación mensual por canal, barras apiladas" />
+            ) : <p className="empty-chart">Sin datos para este período.</p>;
+          })()}
         </article>
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Altas y bajas por mes</h3></div></div>
-          <ActivationsVsChurnChart activations={generalData.activations_monthly} cancellations={cancellationsAsEntries} year={generalYear} mode={generalMode} />
+          {chart(flow, "diverging", "Altas (arriba) y bajas (abajo) por mes, con la línea de crecimiento neto", { overlay: true })}
         </article>
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">CANALES</p><h3>Comparativa por canal</h3></div></div>
-          <ChannelKpiChart channels={generalData.channels as ChannelRow[]} mode={generalMode} />
+          <RankingChart items={channelRanking} mode={generalMode} valueLabel={generalMode === "amount" ? "Recaudación" : "Transacciones aceptadas"} showDataToggle ariaLabel="Ranking de canales por transacciones aceptadas o recaudación" />
         </article>
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">TRANSACCIONES</p><h3>Estado mensual consolidado</h3></div></div>
-          <MonthlyStatusChart data={generalData.transactions_monthly} mode={generalMode} year={generalYear} />
+          {chart(seriesStackedChart(generalData.transactions_monthly, generalMode), "stacked", "Transacciones mensuales consolidadas por estado")}
         </article>
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Activaciones mensuales por canal</h3></div></div>
-          <MonthlyStatusChart data={generalData.activations_monthly} mode={generalMode} year={generalYear} />
+          {chart(seriesStackedChart(generalData.activations_monthly, generalMode), "stacked", "Activaciones mensuales por canal")}
         </article>
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Bajas mensuales por canal</h3></div></div>
-          <MonthlyStatusChart data={generalData.cancellations_monthly} mode={generalMode} year={generalYear} />
+          {chart(seriesStackedChart(generalData.cancellations_monthly, generalMode), "stacked", "Bajas mensuales por canal")}
         </article>
         <article className="panel">
           <div className="panel-heading">
@@ -90,7 +112,7 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
               ))}
             </div>
           </div>
-          <MonthlyStatusChart data={applyChargeFilter(generalData.debts_monthly, debtFilter)} mode={generalMode} year={generalYear} />
+          {chart(seriesStackedChart(applyChargeFilter(generalData.debts_monthly, debtFilter), generalMode), "stacked", "Deudas mensuales por canal")}
         </article>
         <article className="panel">
           <div className="panel-heading">
@@ -103,7 +125,7 @@ export function GeneralSummaryContent({ general, generalData }: { general: Gener
               ))}
             </div>
           </div>
-          <MonthlyStatusChart data={applyChargeFilter(generalData.transactions_effective_monthly, transactionFilter)} mode={generalMode} year={generalYear} />
+          {chart(seriesStackedChart(applyChargeFilter(generalData.transactions_effective_monthly, transactionFilter), generalMode), "stacked", "Transacciones efectivas por canal")}
         </article>
       </section>
       {alerts.length > 0 && <OperationalAlerts alerts={alerts} />}

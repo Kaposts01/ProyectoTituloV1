@@ -94,7 +94,7 @@ export function renewalPath(filters: RenewalFilters, offset: number, limit: numb
   return `${RENEWAL_BASE}?${p.toString()}`;
 }
 
-/** Contador de la pestaña: tareas abiertas/vencidas de prioridad alta (una vencida siempre es alta). */
+/** Contador de la pestaña (UI-39, d113): TODAS las tareas abiertas o vencidas, de cualquier prioridad. */
 export function renewalAlertPath(): string {
-  return `${RENEWAL_BASE}?status=abierta&status=vencida&priority=alta&limit=1&offset=0`;
+  return `${RENEWAL_BASE}?status=abierta&status=vencida&limit=1&offset=0`;
 }

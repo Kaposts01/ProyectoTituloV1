@@ -1,4 +1,4 @@
-import type { MonthlyStatusEntry } from "../../MonthlyStatusChart";
+import type { MonthlyStatusEntry } from "../shared/monthly";
 import type { Alert } from "../dashboard/alertTypes";
 
 /**

@@ -31,6 +31,7 @@ from app.models.tch import (
 )
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import rejected_month, tch_report_registry
+from app.services.channel_churn import CHURN_WINDOW_LABEL, unified_churn_rate
 from app.services.charge_stats import rejected_month_kpi
 
 router = APIRouter()
@@ -400,19 +401,11 @@ def tch_summary() -> dict:
                 ) or 0
             )
         arpu = round(mrr / active_clients, 0) if active_clients else None
-        # Churn mensual promedio historico: promedio de bajas/mes ÷ subs vigentes hoy.
-        # None sin base (0 vigentes); 0.0 con base pero sin bajas.
-        if not total_active:
-            churn_rate = None
-        elif monthly_cancellations:
-            total_cancellations = sum(e["count"] for e in monthly_cancellations)
-            month_count = len({(e["year"], e["month"]) for e in monthly_cancellations})
-            avg_monthly_cancellations = total_cancellations / month_count if month_count else 0
-            churn_rate = round(avg_monthly_cancellations / total_active * 100, 1)
-        else:
-            churn_rate = 0.0
+        # Churn unificado (DEC-37/D31): bajas del mes en curso (Chile) / socios al cierre del mes anterior, desde la
+        # serie mensual. None sin base (0 vigentes); 0.0 con base pero sin bajas en el mes.
+        churn_rate = unified_churn_rate(churn_rate_monthly, has_base=bool(total_active))
         ltv = round(arpu / (churn_rate / 100), 0) if arpu is not None and churn_rate else None
-        churn_window_label = "promedio mensual histórico"
+        churn_window_label = CHURN_WINDOW_LABEL
 
         latest_run = db.scalar(
             select(EtlRun)

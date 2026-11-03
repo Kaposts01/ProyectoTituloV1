@@ -1,25 +1,22 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { getJson } from "../../api";
-import {
-  MonthlyChurnChart,
-  MonthlyGrowthChart,
-  type MonthlyStatusEntry,
-} from "../../MonthlyStatusChart";
+import type { MonthlyStatusEntry } from "../shared/monthly";
 import { OperationalAlerts } from "./OperationalAlerts";
 import { providerGroups } from "../../navigation";
 import {
   virtualPosMetrics, tokuMetrics, paykuMetrics,
 } from "../shared/constants";
-import { title, defaultYear, aggregateChurn } from "../shared/utils";
+import { title, defaultYear } from "../shared/utils";
 import type { ChannelDashboard } from "../shared/types";
 import { adaptAlertDetailItems, adaptAlerts, type AlertDetailItemWire } from "./alertAdapter";
 import { Metric } from "./Metric";
 import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
-import { ChannelChart } from "../../components/ChannelChart";
+import { ChannelChart, type ChannelChartKind } from "../../components/ChannelChart";
+import { RankingChart } from "../../components/RankingChart";
 import { normalizeKpis, PAYKU_COVERAGE_NOTE, type Channel } from "../shared/kpis";
 import {
-  activationVsChurnChart, activeSubsLineChart, coverageGapAnnotations, monthlyTrendChart,
-  paymentMethodSnapshot, statusStackedChart, tokuCollectionsChart, type ChartProps,
+  activationVsChurnChart, activeSubsLineChart, churnRateChart, coverageGapAnnotations, monthlyTrendChart, netGrowthChart,
+  paymentMethodSnapshot, rankingByStatus, statusStackedChart, tokuCollectionsChart, type ChartProps,
 } from "./channelCharts";
 import { StatusBars } from "./StatusBars";
 import { statusBarResources } from "./statusBarRows";
@@ -79,8 +76,9 @@ export function ChannelDashboardView({
   const isToku = data.source === "toku";
   const isPayku = data.source === "payku";
   const chartYear = (rows: { year: number }[]) => (rows.some((e) => e.year === year) ? year : null);
-  const chart = (props: ChartProps, kind: "bar" | "stacked" | "line" | "grouped", opts: { legend?: boolean; mode?: "count" | "amount"; ariaLabel: string; annotations?: ReturnType<typeof coverageGapAnnotations> }) => (
-    <ChannelChart series={props.series} data={props.rows} kind={kind} mode={opts.mode ?? mode} year={chartYear(props.rows)} legend={opts.legend} ariaLabel={opts.ariaLabel} annotations={opts.annotations} />
+  // Sistema único (VIZ-08): todos los gráficos del canal son ChannelChart con tooltip único, teclado y «Ver datos».
+  const chart = (props: ChartProps, kind: ChannelChartKind, opts: { legend?: boolean; mode?: "count" | "amount" | "percent"; ariaLabel: string; annotations?: ReturnType<typeof coverageGapAnnotations> }) => (
+    <ChannelChart series={props.series} data={props.rows} kind={kind} mode={opts.mode ?? mode} year={chartYear(props.rows)} legend={opts.legend} ariaLabel={opts.ariaLabel} annotations={opts.annotations} showDataToggle />
   );
   const panel = (props: ChartProps, eyebrow: string, heading: string, body: ReactNode, wide = false) =>
     props.rows.length ? (
@@ -91,6 +89,12 @@ export function ChannelDashboardView({
     ) : null;
   const activeSubs = activeSubsLineChart(data.active_subs_monthly);
   const activationsVsCancellations = activationVsChurnChart(data.activation_monthly, data.churn_monthly, mode);
+  const netGrowth = netGrowthChart(data.activation_monthly, data.churn_monthly, mode);
+  const churnSeries = data.source === "virtualpos" && churnSource !== "all"
+    ? (churnSource === "vp1" ? data.churn_rate_monthly_vp1 : data.churn_rate_monthly_vp2) ?? []
+    : data.churn_rate_monthly ?? [];
+  const churnRates = churnRateChart(churnSeries);
+  const rejectedRanking = rankingByStatus(data.rejected_charges_monthly, mode, chartYear(data.rejected_charges_monthly ?? []));
   const gaps = coverageGapAnnotations(data.coverage_gaps);
   const methodSnapshot = paymentMethodSnapshot(data.statuses);
   const metricSections = providerGroups.find((group) => group.sections[0].source === data.source)?.sections ?? [];
@@ -165,7 +169,7 @@ export function ChannelDashboardView({
       {data.kpis ? (
         <>
           <div className="dashboard-section-heading dashboard-section-heading-compact"><div><p className="eyebrow">CARTERA</p><h3>Salud de suscripciones</h3></div></div>
-          <ChannelKpiStrip kpis={normalizeKpis(data.source as Channel, data.kpis, data.churn_window_label)} ariaLabel="KPIs de suscripciones" />
+          <ChannelKpiStrip kpis={normalizeKpis(data.source as Channel, data.kpis, data.churn_window_label)} churnHistory={data.churn_rate_monthly} ariaLabel="KPIs de suscripciones" />
         </>
       ) : null}
       <section className={`channel-workspace${isVirtualPos ? " channel-workspace-status" : ""}`}>
@@ -201,11 +205,16 @@ export function ChannelDashboardView({
       <section className="extended-charts">
         {panel(activeSubs, "SUSCRIPCIONES", "Suscripciones activas acumuladas", chart(activeSubs, "line", { mode: "count", ariaLabel: "Gráfico de suscripciones activas acumuladas" }), isVirtualPos)}
         {(() => { const p = statusStackedChart(data.charges_monthly, mode); return panel(p, "CARGOS", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de cargos mensuales por estado" }), isVirtualPos); })()}
-        {(() => { const p = statusStackedChart(data.rejected_charges_monthly, mode); return panel(p, "CARGOS", "Rechazados por motivo", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de cargos rechazados por motivo" })); })()}
+        {rejectedRanking.some((i) => (i.value ?? 0) > 0) ? (
+          <article className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Rechazados por motivo</h3></div></div>
+            <RankingChart items={rejectedRanking} mode={mode} valueLabel={mode === "amount" ? "Monto rechazado" : "Cargos rechazados"} showDataToggle ariaLabel="Ranking de cargos rechazados por motivo" />
+          </article>
+        ) : null}
         {isVirtualPos ? (() => { const p = statusStackedChart(data.payments_monthly, mode); return panel(p, "TRANSACCIONES", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de transacciones mensuales por estado" })); })() : null}
         {(() => { const p = statusStackedChart(data.invoices_monthly, mode); return panel(p, "FACTURAS", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de facturas mensuales por estado" })); })()}
         {isToku ? (() => { const p = statusStackedChart(data.transactions_monthly, mode); return panel(p, "TRANSACCIONES", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de transacciones mensuales por estado" })); })() : null}
-        {panel(activationsVsCancellations, "SUSCRIPCIONES", "Altas vs bajas", chart(activationsVsCancellations, "grouped", { legend: true, ariaLabel: "Gráfico de altas y bajas mensuales de suscripciones" }))}
+        {panel(activationsVsCancellations, "SUSCRIPCIONES", "Altas vs bajas", chart(activationsVsCancellations, "diverging", { legend: true, ariaLabel: "Gráfico de altas (arriba) y bajas (abajo) mensuales de suscripciones" }))}
         {isToku && methodSnapshot.length ? (
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">MÉTODOS DE PAGO</p><h3>Por estado (foto actual)</h3></div></div>
@@ -213,10 +222,11 @@ export function ChannelDashboardView({
             <p className="muted-copy">Estado a la fecha de la última sincronización; no es una serie mensual.</p>
           </article>
         ) : null}
-        {data.activation_monthly?.length ? (
+        {data.activation_monthly?.length && netGrowth.rows.length ? (
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Crecimiento real mensual</h3></div></div>
-            <MonthlyGrowthChart activations={data.activation_monthly} cancellations={aggregateChurn(data.churn_monthly ?? [])} year={year} mode={mode} />
+            {chart(netGrowth, "waterfall", { legend: true, ariaLabel: "Waterfall del crecimiento neto mensual (altas menos bajas)" })}
+            <p className="muted-copy">Cada barra es altas menos bajas del mes, desde el acumulado del mes anterior del período.</p>
           </article>
         ) : null}
         {isVirtualPos && data.churn_rate_monthly?.length ? (
@@ -229,13 +239,15 @@ export function ChannelDashboardView({
                 <button className={churnSource === "vp2" ? "active" : ""} onClick={() => setChurnSource("vp2")}>VirtualPOS 2</button>
               </div>
             </div>
-            <MonthlyChurnChart data={churnSource === "vp1" ? (data.churn_rate_monthly_vp1 ?? []) : churnSource === "vp2" ? (data.churn_rate_monthly_vp2 ?? []) : data.churn_rate_monthly} year={year} />
+            {churnRates.rows.length ? chart(churnRates, "line", { mode: "percent", ariaLabel: "Gráfico del churn mensual en porcentaje" }) : <p className="empty-chart">Sin datos para el período.</p>}
+            <p className="muted-copy">Bajas del mes ÷ socios al inicio del mes (misma definición en todos los canales).</p>
           </article>
         ) : null}
         {!isVirtualPos && data.churn_rate_monthly?.length ? (
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Churn mensual (%)</h3></div></div>
-            <MonthlyChurnChart data={data.churn_rate_monthly} year={year} />
+            {chart(churnRates, "line", { mode: "percent", ariaLabel: "Gráfico del churn mensual en porcentaje" })}
+            <p className="muted-copy">Bajas del mes ÷ socios al inicio del mes (misma definición en todos los canales).</p>
           </article>
         ) : null}
       </section>

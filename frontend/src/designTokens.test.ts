@@ -232,6 +232,30 @@ describe("D19 paleta de series --series-N", () => {
   });
 });
 
+describe("DEC-36 altas en azul y bajas en naranja", () => {
+  const hue = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return ((h * 60) + 360) % 360;
+  };
+  for (const [name, t] of Object.entries(themesAll)) {
+    it(`${name}: altas y bajas son marcas >= 3:1 sobre la superficie`, () => {
+      const surface = hexOf(t, "--bg-surface");
+      expect(ratio(hexOf(t, "--flow-in"), surface)).toBeGreaterThanOrEqual(3);
+      expect(ratio(hexOf(t, "--flow-out"), surface)).toBeGreaterThanOrEqual(3);
+    });
+    it(`${name}: altas es azul y bajas naranja (no el rojo de rechazo ni el gris de cancelado)`, () => {
+      expect(hue(hexOf(t, "--flow-in"))).toBeGreaterThan(190);
+      expect(hue(hexOf(t, "--flow-in"))).toBeLessThan(215);
+      expect(hue(hexOf(t, "--flow-out"))).toBeGreaterThan(15);
+      expect(hue(hexOf(t, "--flow-out"))).toBeLessThan(40);
+      expect(hexOf(t, "--flow-out")).not.toBe(hexOf(t, "--status-rejected"));
+      expect(hexOf(t, "--flow-out")).not.toBe(hexOf(t, "--status-neutral"));
+    });
+  }
+});
+
 describe("chips de meta, delta y semaforo", () => {
   for (const [name, t] of Object.entries(themesAll)) {
     it(`${name}: chips «en meta / lejos de meta / sin meta» con texto >= 4.5:1`, () => {
@@ -298,7 +322,9 @@ describe("D27 superficies, primario y accion en azul-gris y azul (claro y oscuro
   it("los gráficos de canal usan tokens --series-N, no hex fijos", () => {
     const chartColors = readFileSync("src/chartColors.ts", "utf8");
     expect(chartColors).not.toMatch(/#[0-9a-f]{6}/i);
-    expect(readFileSync("src/MonthlyStatusChart.tsx", "utf8")).not.toMatch(/#[0-9a-f]{6}/i);
+    for (const f of ["src/components/ChannelChart.tsx", "src/components/RankingChart.tsx", "src/features/dashboard/channelCharts.ts"]) {
+      expect(readFileSync(f, "utf8"), f).not.toMatch(/#[0-9a-f]{6}/i);
+    }
   });
 });
 

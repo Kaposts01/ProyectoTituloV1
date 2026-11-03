@@ -206,7 +206,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
             {key === "renewals" && alertCount > 0 ? (
               <>
                 <span className="bx-count mono" aria-hidden="true">{alertCount}</span>
-                <span className="bx-sr"> ({alertCount} {alertCount === 1 ? "tarea abierta o vencida con prioridad alta" : "tareas abiertas o vencidas con prioridad alta"})</span>
+                <span className="bx-sr"> ({alertCount} {alertCount === 1 ? "tarea de renovación abierta o vencida" : "tareas de renovación abiertas o vencidas"})</span>
               </>
             ) : null}
           </button>

@@ -2,9 +2,6 @@ import { cleanup, render } from "@testing-library/react";
 import { cloneElement, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChannelChart } from "./components/ChannelChart";
-import {
-  ActivationsVsChurnChart, MonthlyRevenueChart, MonthlyStatusChart, MonthlySimpleChart, TransactionsVsSubscriptionsChart,
-} from "./MonthlyStatusChart";
 
 type Props = Record<string, unknown>;
 const seen = vi.hoisted(() => ({ Bar: [] as Props[], Line: [] as Props[], Area: [] as Props[], YAxis: [] as Props[], XAxis: [] as Props[], CartesianGrid: [] as Props[] }));
@@ -32,8 +29,6 @@ afterEach(cleanup);
 
 const series = [{ key: "count", label: "Cantidad", color: "#2a7a64" }];
 const one = [{ year: 2025, month: 3, count: 30 }];
-const entries = [{ year: 2026, month: 1, status: "PAGADO", count: 3, amount: 100 }];
-const simple = [{ year: 2026, month: 1, count: 3, amount: 100 }];
 
 describe("ChannelChart: mínimos de gráfico", () => {
   it("limita el ancho de barra para que una sola categoría no ocupe todo el ancho", () => {
@@ -87,42 +82,9 @@ describe("ChannelChart: mínimos de gráfico", () => {
   });
 });
 
-describe("componentes antiguos (dashboard general)", () => {
-  it("MonthlyStatusChart: maxBarSize, eje sin decimales en conteo y rejilla tokenizada", () => {
-    render(<MonthlyStatusChart data={entries} mode="count" year={null} />);
-    expect(seen.Bar[0].maxBarSize).toBeGreaterThan(0);
-    expect(seen.YAxis[0].allowDecimals).toBe(false);
-    expect(seen.CartesianGrid[0].stroke).toBe("var(--border-subtle)");
-  });
-
-  it("MonthlyStatusChart en monto permite decimales", () => {
-    render(<MonthlyStatusChart data={entries} mode="amount" year={null} />);
-    expect(seen.YAxis[0].allowDecimals).not.toBe(false);
-  });
-
-  it("MonthlySimpleChart: maxBarSize y rejilla tokenizada", () => {
-    render(<MonthlySimpleChart data={simple} color="#2563EB" mode="count" year={null} />);
-    expect(seen.Bar[0].maxBarSize).toBeGreaterThan(0);
-    expect(seen.CartesianGrid[0].stroke).toBe("var(--border-subtle)");
-  });
-
-  it("ActivationsVsChurnChart: línea linear, barra acotada, eje sin decimales en conteo", () => {
-    render(<ActivationsVsChurnChart activations={entries} cancellations={simple} year={null} mode="count" />);
-    expect(seen.Line.every((l) => l.type === "linear")).toBe(true);
-    expect(seen.Bar[0].maxBarSize).toBeGreaterThan(0);
-    expect(seen.YAxis[0].allowDecimals).toBe(false);
-  });
-
-  it("TransactionsVsSubscriptionsChart: líneas linear y ejes sin decimales", () => {
-    render(<TransactionsVsSubscriptionsChart payments={entries} activeSubs={simple} collectableSubs={simple} year={null} mode="count" />);
-    expect(seen.Line.length).toBe(2);
-    expect(seen.Line.every((l) => l.type === "linear")).toBe(true);
-    expect(seen.YAxis.every((y) => y.allowDecimals === false)).toBe(true);
-  });
-
-  it("MonthlyRevenueChart: áreas linear y rejilla tokenizada", () => {
-    render(<MonthlyRevenueChart data={[{ year: 2026, month: 1, status: "Toku", count: 1, amount: 5000 }]} year={null} />);
-    expect(seen.Area.every((a) => a.type === "linear")).toBe(true);
-    expect(seen.CartesianGrid[0].stroke).toBe("var(--border-subtle)");
+describe("código muerto borrado (VIZ-06, DEC-39)", () => {
+  it("MonthlyStatusChart.tsx (TransactionsVsSubscriptionsChart, MonthlySimpleChart y los 6 restantes) ya no existe", async () => {
+    const { existsSync } = await import("node:fs");
+    expect(existsSync("src/MonthlyStatusChart.tsx")).toBe(false);
   });
 });
