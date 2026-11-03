@@ -1,7 +1,8 @@
 import { useId, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
-import { buildChartRows, buildCumulativeRows, pctOfTarget, type ChannelChartRow, type ChartRowWithLabel, type CumulativeRow } from "./chartRows";
+import { buildChartRows, buildCumulativeRows, pctOfTarget, type ChannelChartRow, type CumulativeRow } from "./chartRows";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { FLOW_IN_COLOR, FLOW_OUT_COLOR } from "../chartColors";
+import { CUM, fmt, has, NEG, PCT, RANGE, signed, waterfallFill, plotRowsFor } from "./chartModel";
 
 export type { ChannelChartRow };
 export type ChannelChartSeries = { key: string; label: string; color: string };
@@ -18,30 +19,17 @@ export type ChannelChartReference = { value: number; label: string };
  */
 export type ChannelChartKind = "bar" | "stacked" | "line" | "grouped" | "cumulative" | "area" | "diverging" | "stacked100" | "waterfall";
 /** Unidad de las series: conteo, monto en pesos o porcentaje (p. ej. churn mensual). */
-export type ChannelChartMode = "count" | "amount" | "percent";
+import type { ChannelChartMode } from "./chartModel";
+export type { ChannelChartMode };
 
 const MONO = "'JetBrains Mono', 'Courier New', monospace";
 /** Ancho máximo de barra: con una sola categoría la barra no debe ocupar todo el gráfico. */
 const MAX_BAR_SIZE = 56;
 const tick = { fontFamily: MONO, fontSize: 11, fill: "var(--text-2)" };
-const NEG = "__neg_";
-const PCT = "__pct_";
-const RANGE = "__range";
-const CUM = "__cum";
 
 /** Ancho del eje Y según la etiqueta más larga (monoespaciada de 11 px, ~7 px por carácter + holgura), nunca menos de `min`. */
 const AXIS_CHAR_WIDTH = 7;
 const yAxisWidth = (labels: string[], min: number) => Math.max(min, Math.max(0, ...labels.map((l) => l.length)) * AXIS_CHAR_WIDTH + 12);
-
-/** Formato de un valor según la unidad; `—` si no hay dato (nunca 0 inventado). */
-export const fmt = (value: unknown, mode: ChannelChartMode) => {
-  const n = Number(value);
-  if (value === null || value === undefined || !Number.isFinite(n)) return "—";
-  if (mode === "amount") return `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("es-CL")}`;
-  if (mode === "percent") return `${n.toLocaleString("es-CL", { maximumFractionDigits: 1 })} %`;
-  return n.toLocaleString("es-CL");
-};
-const signed = (value: number, mode: ChannelChartMode) => `${value > 0 ? "+" : ""}${fmt(value, mode)}`;
 
 type TooltipEntry = { name?: unknown; value?: unknown; color?: string; dataKey?: unknown; payload?: Record<string, unknown> };
 
@@ -120,44 +108,7 @@ function percentTicks(base: number, max: number): number[] {
   return ticks;
 }
 
-/** Color de una barra del waterfall: sube en azul (--flow-in), baja en naranja (--flow-out); DEC-36. */
-export const waterfallFill = (delta: number) => (delta < 0 ? FLOW_OUT_COLOR : FLOW_IN_COLOR);
-
 type TableModel = { head: string[]; rows: Array<{ id: string; label: string; cells: string[] }> };
-type PlotRow = { year: number; month: number; label: string } & Record<string, unknown>;
-
-const has = (v: unknown) => v !== undefined && v !== null && Number.isFinite(Number(v));
-
-/** Filas que dibuja Recharts para cada tipo (las originales siguen disponibles en la misma fila). */
-export function plotRowsFor(kind: ChannelChartKind, rows: ChartRowWithLabel[], series: ChannelChartSeries[], waterfallStart = 0): PlotRow[] {
-  if (kind === "diverging") {
-    return rows.map((r) => {
-      const out: PlotRow = { ...r };
-      series.slice(1).forEach((s) => { out[`${NEG}${s.key}`] = has(r[s.key]) ? -Math.abs(Number(r[s.key])) : null; });
-      return out;
-    });
-  }
-  if (kind === "stacked100") {
-    return rows.map((r) => {
-      const out: PlotRow = { ...r };
-      const total = series.reduce((a, s) => a + (has(r[s.key]) ? Number(r[s.key]) : 0), 0);
-      series.forEach((s) => { out[`${PCT}${s.key}`] = total > 0 && has(r[s.key]) ? Math.round((Number(r[s.key]) / total) * 1000) / 10 : null; });
-      return out;
-    });
-  }
-  if (kind === "waterfall") {
-    const key = series[0]?.key;
-    let acc = waterfallStart;
-    return rows.map((r) => {
-      const delta = key && has(r[key]) ? Number(r[key]) : 0;
-      const prev = acc;
-      acc += delta;
-      return { ...r, __delta: delta, [CUM]: acc, [RANGE]: [Math.min(prev, acc), Math.max(prev, acc)] } as PlotRow;
-    });
-  }
-  return rows.map((r) => ({ ...r }));
-}
-
 /**
  * Gráfico de evolución mensual (Recharts, DEC-34 A). Ver `ChannelChartKind` para los tipos.
  *

@@ -1,18 +1,12 @@
 import { useId, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ChartTooltipContent, fmt, type ChannelChartMode } from "./ChannelChart";
+import { ChartTooltipContent } from "./ChannelChart";
+import { fmt, rankItems, type ChannelChartMode, type RankingItem } from "./chartModel";
+export type { RankingItem };
 
-export type RankingItem = { key: string; label: string; value: number | null; color?: string };
 
 const MONO = "'JetBrains Mono', 'Courier New', monospace";
 const tick = { fontFamily: MONO, fontSize: 11, fill: "var(--text-2)" };
-
-/** Ítems con dato, ordenados de mayor a menor (empate: por etiqueta); los sin dato no se dibujan. */
-export function rankItems(items: RankingItem[]): RankingItem[] {
-  return items
-    .filter((i) => i.value !== null && Number.isFinite(i.value))
-    .sort((a, b) => (b.value as number) - (a.value as number) || a.label.localeCompare(b.label, "es"));
-}
 
 /**
  * Ranking (matriz KPI a gráfico: canales, motivos de rechazo): barras HORIZONTALES ordenadas de mayor a menor, con

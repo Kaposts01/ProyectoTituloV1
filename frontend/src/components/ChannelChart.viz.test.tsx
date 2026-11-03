@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { cloneElement, type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChannelChart, ChartTooltipContent, fmt, plotRowsFor, waterfallFill } from "./ChannelChart";
+import { ChannelChart, ChartTooltipContent } from "./ChannelChart";
+import { fmt, plotRowsFor, rankItems, waterfallFill } from "./chartModel";
 import { buildChartRows } from "./chartRows";
-import { RankingChart, rankItems } from "./RankingChart";
+import { RankingChart } from "./RankingChart";
 
 // VIZ-03 (porcentajes y teclado), VIZ-04 (variantes) y VIZ-09 (pruebas del sprint). Datos sintéticos.
 vi.mock("recharts", async (importOriginal) => {
