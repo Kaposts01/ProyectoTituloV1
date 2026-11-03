@@ -211,3 +211,17 @@ describe("rutas internas en inglés, URLs en español (paso 18)", () => {
     for (const path of ["/tch/clients", "/tch/transactions", "/admin/users", "/admin/sync"]) expect(parseRoute(path), path).toBeNull();
   });
 });
+
+describe("permisos generales de las vistas unificadas (d124)", () => {
+  const cartera = (can: (p: string) => boolean) => visibleMenu(can).find((g) => g.id === "cartera")?.items.map((i) => i.id) ?? [];
+
+  it("general.subscriptions.view y general.charges.view abren Suscripciones y Cobros por sí solos", () => {
+    expect(cartera(canOnly("general.subscriptions.view"))).toEqual(["subscriptions"]);
+    expect(cartera(canOnly("general.charges.view"))).toEqual(["charges"]);
+  });
+
+  it("los permisos de canal siguen abriendo las vistas (compatibilidad)", () => {
+    expect(cartera(canOnly("toku.subscriptions.view"))).toContain("subscriptions");
+    expect(cartera(canOnly("payku.transactions.view"))).toContain("charges");
+  });
+});

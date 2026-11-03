@@ -50,7 +50,7 @@ from app.models.toku_channel import (
     TokuTransaction,
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
-from app.services import sync_cursors
+from app.services import sync_cursors, toku_client_status
 from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
 from app.services.core_tch_etl import _resolve_currency as _resolve_tch_currency
@@ -423,6 +423,11 @@ def _consolidate_toku_clients(db: Session) -> int:
             "cards": [],
             "raw_payload": t.raw_payload,
         })
+    # d126 (TK-PAR-07): manda la API; si deja el estado vacio, lo completa el reporte de Clientes.
+    statuses = toku_client_status.report_statuses(
+        db, [row["external_id"] for row in rows if toku_client_status.is_blank(row["status"])]
+    )
+    rows = [toku_client_status.fill_blank_status(row, statuses) for row in rows]
     return _upsert_centralized(db, Client, "uq_client_source_external_id", _link_source_records(db, rows, "customer"))
 
 

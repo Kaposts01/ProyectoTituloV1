@@ -49,9 +49,10 @@ Para saber si el CSV llevará columnas personales, el frontend puede leer `inclu
   |---|---|---|---|---|
   | clientes | `virtualpos.clients.view` | `toku.customers.view` | `payku.clients.view` | `tch.clientes.view` |
   | suscripciones | `virtualpos.subscriptions.view` | `toku.subscriptions.view` | `payku.subscriptions.view` | `tch.suscripciones.view` |
-  | cobros | `virtualpos.charges.view` | `toku.invoices.view` | no aplica | `tch.transacciones.view` |
+  | cobros | `virtualpos.charges.view` | `toku.invoices.view` | `payku.transactions.view` (ciclos `p_cycles`, d124 b) | `tch.transacciones.view` |
   | pagos | `virtualpos.payments.view` | `toku.transactions.view` | `payku.transactions.view` | no aplica (en TCH cada transacción es un cobro) |
 
+- Vistas unificadas (d124, opción c; migración `20261102_0064`): `general.subscriptions.view` equivale al permiso de vista de suscripciones de los cuatro canales, y `general.charges.view` al de cobros y pagos de todos los canales (en la vista y en la exportación). Sin el permiso general, cada canal sigue exigiendo el suyo (compatibilidad mientras la migración no esté aplicada y para roles parciales). La migración los otorga solo a los roles que ya tenían todos los permisos de canal equivalentes.
 - Incluir columnas con datos personales: además `export.pii`. La migración `20261029_0044` lo asigna solo a `admin` y `jefatura`. `soporte`, `ejecutivo` y `coordinador` exportan sin esas columnas. **La migración la aplica el usuario** (ningún agente corre Alembic); hasta entonces nadie, salvo quien reciba el permiso a mano, exporta con datos personales (`seed_permissions` ya se lo da a `admin` al sembrar).
 
 ## Columnas por entidad
@@ -106,3 +107,12 @@ Sin botón: planes de VirtualPOS y Payku y métodos de pago de Toku (no existen 
 
 Filtros que el contrato no puede expresar (búsqueda por RUT en cobros y pagos, campos de monto o fecha como texto, estado secundario, una segunda búsqueda de texto de VirtualPOS, montos en clientes) no se envían: el botón los lista en un aviso antes de confirmar y el archivo sale sin ellos. El botón se oculta solo si el usuario no tiene el permiso de vista de la tabla «Permisos» para ese canal y entidad. El permiso `export.pii` solo sirve de pista (texto del menú); el backend decide.
 
+## Exportación en segundo plano (EXP-06, d114 opción b)
+
+Para listados completos grandes. `GET /export/{entidad}/count` agrega `background` (true si las filas superan `EXPORT_BACKGROUND_THRESHOLD_ROWS`, 50.000 por defecto) y `background_threshold`. Con `background=true`, el botón «Exportar» (solo en «Todo el listado») ofrece «Generar en segundo plano» y:
+
+1. `POST /export/{entidad}/jobs` (mismos parámetros que la exportación, `X-CSRF-Token`; 202) crea el job con los mismos permisos de vista y la misma regla de `export.pii`. Máximo `EXPORT_JOB_MAX_ACTIVE_PER_USER` (2) jobs en cola o corriendo por usuario: `429 too_many_export_jobs`.
+2. `GET /export/jobs/{id}` devuelve el estado (`queued`, `running`, `completed`, `failed`, `expired`), filas estimadas y escritas, caducidad y `download_url`. `GET /export/jobs` lista los 20 últimos del usuario. Un job ajeno responde 404.
+3. `GET /export/jobs/{id}/download` entrega el CSV (`409 export_job_not_ready` si no terminó; `410 export_job_expired` si caducó).
+
+Reglas: reutiliza las consultas (`export_queries.iter_rows`) y el CSV (`exporter.csv_stream`) de la exportación directa; el archivo se escribe en `EXPORT_JOB_DIR` (vacío = carpeta temporal del sistema) y caduca a las `EXPORT_JOB_TTL_HOURS` (24) horas: se borra el archivo y el job queda `expired` (la limpieza corre al crear, listar, consultar o descargar). La tabla `export_jobs` (migración `20261102_0065`) guarda solo los filtros auditables (`ExportFilters.audit()`: la búsqueda de un campo que puede ser dato personal se reduce a su largo); los logs llevan id, entidad y contadores. La generación y cada descarga quedan en `write_runs` (`export/{entidad}/jobs` y `export/{entidad}/jobs/download`). Los jobs corren en un pool de hilos del proceso: si el servidor se reinicia, un job en curso no se reanuda: a las 2 horas sin terminar queda `failed` (`stale:not_finished`) y libera el cupo.

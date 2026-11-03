@@ -43,6 +43,7 @@
 | `start_date` | String(50) | Fecha de inicio |
 | `end_date` | String(50) | Fecha de término |
 | `amount` | String(50) | Monto actual (puede ser NULL, se rellena con el monto de la última transacción exitosa) |
+| `next_charge_date` | Date | PK-PAR-11 (migración 0065): próxima fecha de cobro; solo la trae el reporte de suscripciones (la API no) |
 
 ### p_transactions — campos clave
 
@@ -52,6 +53,22 @@
 | `status` | String(50) | Estado: `success`, `failed`, etc. |
 | `created_at_api` | String(50) | Timestamp de la transacción |
 | `amount` | String(50) | Monto de la transacción |
+| `commission`, `net_amount` | Numeric(14,2) | PK-PAR-11 (migración 0065): comisión y monto final (neto) del reporte; NULL si el voucher no está en un reporte cargado o se repite en él |
+| `payment_method` | String(50) | PK-PAR-11: medio de pago del consolidado (o tipo de pago de `dataTransacciones`) |
+| `installment_number` | Integer | PK-PAR-11: número de cuota de «Cobro: # n» (del reporte o del `description` del API); solo se completa si está vacío |
+
+## Reportes descargados de Payku (PK-PAR-10, d115 opción b)
+
+`app/services/payku_report_parser.py` y `payku_report_import.py` (sin ruta HTTP ni pantalla todavía). **No hay documentación oficial del formato** en `docs/integrations/payku/`: las firmas se diseñaron con los encabezados medidos en la auditoría del 2026-10-29 (`docs/planning/auditoria-2026-10-29/parity_payku.md`, sección 1) y el parser **valida los encabezados** al abrir (columnas faltantes → error con sus nombres; sin firma reconocible → «tipo no soportado»). Validar con un archivo real antes de cargar en `crm`.
+
+| Hoja (por firma de columnas) | Columnas exigidas | Destino |
+|---|---|---|
+| `dataTransacciones` («Export») | Transacción, Fecha de Transacción, Monto, Comisión, Monto Final (+ Proveedor, Tipo de Pago, Orden, Concepto) | `p_report_transactions` (`source_layout = data_transacciones`) |
+| consolidado «Transacciones» | Identificador/vaucher, Fecha, Monto, Comisión, Monto Final (+ Concepto, Orden, Liquidación, Medio de pago, Débito/Crédito) | `p_report_transactions` (`consolidado`) |
+| consolidado «Liquidaciones» | Liquidación, Monto, Estatus, Fecha Depósito | `p_report_settlements` |
+| `datasubscripciones` | Suscripción ID, Estatus, Próxima Fecha Cobro | proyecta `p_subscriptions.next_charge_date` |
+
+«Monedero» y «Retiros» se ignoran. Datos personales (Nombre/Teléfono/Email Origen, Email, Nombre, Teléfono, 4 últimos dígitos, Orden Externa) nunca se leen; del Concepto solo se guarda si es cuota y su número. Clave de transacción `row_key` = sha256(voucher, orden, fecha, monto), porque en los años antiguos el voucher se repite. Idempotente por `p_report_files(report_type, file_sha256)`. La proyección a `p_transactions` solo usa vouchers únicos en el reporte. Fechas sin zona = hora de Chile; acepta `aaaa-mm-dd`, `dd/mm/aaaa` y `dd-mm-aaaa`.
 
 ## Consolidación Payku → Tablas canónicas
 

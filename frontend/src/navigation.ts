@@ -4,7 +4,7 @@ import { PERM_VIEW as PERM_BILLING_VIEW } from "./features/billing/types";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
 import { canOpenRecovery } from "./features/recovery/recoveryChannels";
 import type { ProviderSection, ProviderSource, TchRouteView } from "./routes";
-import { VIEW_PERMISSIONS, canAny } from "./features/general/unifiedTypes";
+import { GENERAL_VIEW_PERMISSIONS, VIEW_PERMISSIONS, canAny } from "./features/general/unifiedTypes";
 
 export type { ProviderSection, ProviderSource };
 
@@ -73,9 +73,12 @@ const canDashboard: MenuItem["allowed"] = (can) => can("dashboard.view");
 /** Vistas unificadas de Cartera (UX-08..10): `dashboard.view` (como antes) o el permiso de vista de algún canal. La API
  *  filtra las filas por los permisos de vista de cada canal; sin ninguno, la pantalla lo explica. */
 export const canOpenMembers: MenuItem["allowed"] = (can) => can("dashboard.view") || canAny(can, VIEW_PERMISSIONS.members);
-export const canOpenSubscriptions: MenuItem["allowed"] = (can) => can("dashboard.view") || canAny(can, VIEW_PERMISSIONS.subscriptions);
-/** Cobros (UX-09) es nueva: solo con el permiso de vista de cobros o pagos de algún canal. */
-export const canOpenCharges: MenuItem["allowed"] = (can) => canAny(can, VIEW_PERMISSIONS.charges) || canAny(can, VIEW_PERMISSIONS.payments);
+/** Suscripciones (UX-08): permiso general `general.subscriptions.view` (d124) o, por compatibilidad, los de antes. */
+export const canOpenSubscriptions: MenuItem["allowed"] = (can) =>
+  can(GENERAL_VIEW_PERMISSIONS.subscriptions) || can("dashboard.view") || canAny(can, VIEW_PERMISSIONS.subscriptions);
+/** Cobros (UX-09): permiso general `general.charges.view` (d124) o el de vista de cobros o pagos de algún canal. */
+export const canOpenCharges: MenuItem["allowed"] = (can) =>
+  can(GENERAL_VIEW_PERMISSIONS.charges) || canAny(can, VIEW_PERMISSIONS.charges) || canAny(can, VIEW_PERMISSIONS.payments);
 
 /** Permiso general de Cambios de cobro (UX-12). El permiso VirtualPOS sigue valiendo (la API acepta ambos). */
 export const PERM_GENERAL_BILLING_VIEW = "general.billing_changes.view";

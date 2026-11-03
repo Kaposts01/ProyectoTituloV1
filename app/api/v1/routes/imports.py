@@ -179,6 +179,7 @@ def _toku_summary_json(summary: toku_report_import.ImportSummary) -> dict[str, A
         "resolved_later": summary.resolved_later,
         "catalog_codes": summary.catalog_codes,
         "catalog_skipped": summary.catalog_skipped,
+        "clients_status_filled": summary.clients_status_filled,
         "extra_columns_count": len(summary.extra_columns),
         "data_age_days": toku_report_import.data_age_days(summary.generated_at),
         "warnings": warnings,

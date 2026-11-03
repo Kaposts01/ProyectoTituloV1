@@ -3,7 +3,9 @@
 Reemplaza en la pantalla «Suscripciones» a `/staging/dashboard/general/subscriptions` (que carga todo en memoria; el
 endpoint viejo se mantiene sin cambios). Reutiliza las consultas de la exportacion (EXP-03): mismas exclusiones
 (VirtualPOS SUSCRIPCION_FALLIDA, Payku REGISTER, TCH RECHAZADA), mismo «estado secundario» y mismo orden, asi que
-«Exportar» descarga lo que se ve. Cada canal exige su permiso de vista de suscripciones; el filtro es del servidor.
+«Exportar» descarga lo que se ve. Permisos (d124 opcion c): `general.subscriptions.view` da los 4 canales; sin el
+(compatibilidad mientras la migracion 20261102_0064 no este aplicada, o roles parciales) cada canal exige su permiso
+de vista de suscripciones. El filtro es del servidor (`export_queries.select_specs`).
 """
 
 from __future__ import annotations

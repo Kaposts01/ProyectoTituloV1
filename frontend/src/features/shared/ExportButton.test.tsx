@@ -15,7 +15,15 @@ beforeEach(() => {
   saved = [];
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     urls.push(input);
-    const key = input.includes("/count") ? "count" : "download";
+    const key = input.includes("/count")
+      ? "count"
+      : input.includes("/jobs?")
+        ? "createJob"
+        : input.endsWith("/download")
+          ? "download"
+          : input.includes("/export/jobs/")
+            ? "jobStatus"
+            : "download";
     const r = replies[key] ?? { status: 200 };
     const status = r.status ?? 200;
     return {
@@ -222,5 +230,49 @@ describe("filenameFromDisposition", () => {
     expect(filenameFromDisposition("attachment; filename*=UTF-8''a%20b.csv")).toBe("a b.csv");
     expect(filenameFromDisposition(null)).toBeNull();
     expect(filenameFromDisposition("inline")).toBeNull();
+  });
+});
+
+describe("ExportButton en segundo plano (EXP-06)", () => {
+  const job = (status: string, extra: Record<string, unknown> = {}) => ({
+    status: 200,
+    json: { id: "job-1", status, rows_written: 70000, file_name: "cobros-toku-20261102.csv", download_url: status === "completed" ? "/api/v1/export/jobs/job-1/download" : null, ...extra },
+  });
+
+  it("sobre el umbral encola un job con los filtros y descarga al terminar", async () => {
+    replies.count = { status: 200, json: { entity: "cobros", rows: 70000, canales: ["toku"], include_pii: false, background: true, background_threshold: 50000 } };
+    replies.createJob = job("completed");
+    replies.download = { csv: "a,b", disposition: 'attachment; filename="cobros-toku-20261102.csv"' };
+    mount();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Todo el listado/ }));
+    expect(await screen.findByText(/se genera en segundo plano/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Generar en segundo plano" }));
+    await waitFor(() => expect(saved).toEqual(["cobros-toku-20261102.csv"]));
+    const create = new URL(urls[1], "http://x");
+    expect(create.pathname).toBe("/api/v1/export/cobros/jobs");
+    expect(Object.fromEntries(create.searchParams)).toEqual({ status: "PAID", filter_field: "id", query: "abc", canal: "toku" });
+    expect(new URL(urls[2], "http://x").pathname).toBe("/api/v1/export/jobs/job-1/download");
+    expect(await screen.findByText(/Descargado cobros-toku-20261102\.csv \(70\.000 filas\)/)).toBeTruthy();
+  });
+
+  it("«Esta vista» nunca usa el segundo plano", async () => {
+    replies.count = { status: 200, json: { entity: "cobros", rows: 70000, canales: ["toku"], include_pii: false, background: true } };
+    mount();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Esta vista/ }));
+    expect(await screen.findByRole("button", { name: "Descargar CSV" })).toBeTruthy();
+    expect(screen.queryByText(/segundo plano/)).toBeNull();
+  });
+
+  it("un job fallido muestra un error claro y no descarga", async () => {
+    replies.count = { status: 200, json: { entity: "cobros", rows: 70000, canales: ["toku"], include_pii: false, background: true } };
+    replies.createJob = job("failed");
+    mount();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Todo el listado/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Generar en segundo plano" }));
+    expect(await screen.findByText(/no pudo generar la exportación/)).toBeTruthy();
+    expect(saved).toHaveLength(0);
   });
 });

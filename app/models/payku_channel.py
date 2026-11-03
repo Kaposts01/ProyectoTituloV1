@@ -1,7 +1,17 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -64,6 +74,8 @@ class PaykuSubscription(Base):
     # baja por desaparicion (la pone `channel_removals` tras una sync completa; se limpia si la fila reaparece).
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # PK-PAR-11 (migracion 0065): proxima fecha de cobro; solo la trae el reporte de suscripciones de Payku.
+    next_charge_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -84,6 +96,12 @@ class PaykuTransaction(Base):
     status_normalized: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     order_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # PK-PAR-11 (migracion 0065): campos financieros sin equivalente en el API de suscripciones. Comision, neto y medio
+    # de pago los completa el importador de reportes (`payku_report_import`); el numero de cuota sale de «Cobro: # n».
+    commission: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    net_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    installment_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

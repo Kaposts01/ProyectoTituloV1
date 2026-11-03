@@ -77,9 +77,15 @@ export const CHARGE_OUTCOMES: ChargeOutcome[] = ["paid", "rejected", "pending", 
 /** Permisos de vista por canal de cada entidad (los mismos que exige el backend; ver export_queries.ENTITY_SPECS). */
 export const VIEW_PERMISSIONS = {
   subscriptions: ["virtualpos.subscriptions.view", "toku.subscriptions.view", "payku.subscriptions.view", "tch.suscripciones.view"],
-  charges: ["virtualpos.charges.view", "toku.invoices.view", "tch.transacciones.view"],
+  charges: ["virtualpos.charges.view", "toku.invoices.view", "payku.transactions.view", "tch.transacciones.view"],
   payments: ["virtualpos.payments.view", "toku.transactions.view", "payku.transactions.view"],
   members: ["virtualpos.clients.view", "toku.customers.view", "payku.clients.view", "tch.clientes.view"],
+} as const;
+
+/** Permisos generales de las vistas unificadas (d124): dan todos los canales de la entidad. Los de canal siguen valiendo. */
+export const GENERAL_VIEW_PERMISSIONS = {
+  subscriptions: "general.subscriptions.view",
+  charges: "general.charges.view",
 } as const;
 
 export const canAny = (can: (permission: string) => boolean, permissions: readonly string[]): boolean =>
