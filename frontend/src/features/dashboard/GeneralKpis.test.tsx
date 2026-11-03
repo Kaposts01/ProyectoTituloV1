@@ -71,6 +71,19 @@ describe("GeneralKpis", () => {
     expect(screen.queryByText(/Transacciones rechazadas|total del año/)).not.toBeInTheDocument();
   });
 
+  it("UI-31: la tasa usa la ventana de 3 meses del backend, la misma de la alerta global", () => {
+    view({ transactions: { rejection_rate_3m_pct: 12.5 } }, 50, 50);
+    const card = screen.getByText("Tasa de rechazo").closest("article")!;
+    expect(card).toHaveTextContent("12,5%");
+    expect(card).not.toHaveTextContent("50%");
+    expect(card).toHaveTextContent("Últimos 3 meses · rechazados / (pagados + rechazados)");
+  });
+
+  it("UI-31: tasa de 3 meses null (sin cargos en la ventana) es guion aunque haya conteos del año", () => {
+    view({ transactions: { rejection_rate_3m_pct: null } }, 2, 8);
+    expect(noData("Tasa de rechazo")).not.toBeNull();
+  });
+
   it("usa transactions.basis_label del backend si llega", () => {
     view({ transactions: { basis_label: "Cargos al 29-10 (Chile)" } });
     expect(screen.getByText("Cargos al 29-10 (Chile)")).toBeInTheDocument();

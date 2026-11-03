@@ -138,7 +138,7 @@ export type PermGroup = { group: string; permissions: Array<{ code: string; desc
 export type GeneralDashboard = {
   clients: number;
   subscriptions: { active: number; amount: number };
-  transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number | null; basis_label?: string | null };
+  transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number | null; rejection_rate_3m_pct?: number | null; basis_label?: string | null };
   channels: { source: string; clients: number; active_subscriptions: number; accepted: number; amount: number }[];
   years: number[];
   transactions_monthly: MonthlyStatusEntry[];

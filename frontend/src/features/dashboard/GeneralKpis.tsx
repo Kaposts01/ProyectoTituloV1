@@ -1,5 +1,5 @@
 import { KpiCard, KPI_EMPTY_CAPTION } from "../../components/KpiCard";
-import { rejectionRate, type GeneralKpiData } from "./generalKpiData";
+import { cardRejectionRate, REJECTION_WINDOW_CAPTION, type GeneralKpiData } from "./generalKpiData";
 
 const text = (value: unknown): string | null => (typeof value === "string" && value.trim() !== "" ? value.trim() : null);
 
@@ -12,10 +12,11 @@ export function GeneralKpis({ data, rejectedCount, acceptedCount }: {
   const pendingLabel = text(data.pending_payments_label);
   const basis = text(data.transactions?.basis_label);
   const churnWindow = text(data.churn_window_label);
+  const rate = cardRejectionRate(data, rejectedCount, acceptedCount);
   return (
     <section className="metrics kpi-metrics" aria-label="KPIs generales">
       <KpiCard label="Cargos rechazados" value={rejectedCount} format="count" caption={basis ?? "Cargos rechazados hasta hoy · no incluye cancelados"} />
-      <KpiCard label="Tasa de rechazo" value={rejectionRate(rejectedCount, acceptedCount)} format="percent" caption="Tasa de rechazo · rechazados / (pagados + rechazados)" emptyCaption={KPI_EMPTY_CAPTION} />
+      <KpiCard label="Tasa de rechazo" value={rate.value} format="percent" caption={rate.windowed ? REJECTION_WINDOW_CAPTION : "Tasa de rechazo · rechazados / (pagados + rechazados)"} emptyCaption={KPI_EMPTY_CAPTION} />
       <KpiCard
         label={pendingLabel ?? "Pagos pendientes"}
         value={data.pending_payments ?? null}
