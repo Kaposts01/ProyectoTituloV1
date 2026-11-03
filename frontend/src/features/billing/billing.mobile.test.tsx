@@ -156,9 +156,9 @@ describe("contador de la pestana Renovaciones", () => {
   it("texto accesible dice lo que cuenta y el contador es de una linea (clase nowrap)", async () => {
     alertTotal = 2;
     render(<BillingInbox can={can} />);
-    const tab = await screen.findByRole("tab", { name: /Renovaciones.*2 tareas abiertas o vencidas con prioridad alta/ });
+    const tab = await screen.findByRole("tab", { name: /Renovaciones.*2 tareas de renovación abiertas o vencidas/ });
     expect(tab.querySelector(".bx-count")?.textContent).toBe("2");
-    await waitFor(() => expect(tab.querySelector(".bx-sr")?.textContent).toContain("prioridad alta"));
+    await waitFor(() => expect(tab.querySelector(".bx-sr")?.textContent).toContain("tareas de renovación abiertas o vencidas"));
   });
 });
 
