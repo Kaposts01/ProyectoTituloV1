@@ -64,11 +64,15 @@ def test_parse_allowlist_formats_and_fail_closed(real_pilot_allowlist, monkeypat
     """Vacia = nada; `plataforma:sub`, id sin plataforma = virtualpos1, alias vp2; plataformas invalidas se ignoran."""
     assert br.pilot_allowlist() == frozenset()
     assert not br.is_pilot_allowlisted("virtualpos1", SUB)
-    allow(monkeypatch, f" {SUB} , virtualpos2:s2, vp2:s3, toku:s4, :s5, virtualpos1: ,")
+    allow(monkeypatch, f" {SUB} , virtualpos2:s2, vp2:s3, payku:s4, :s5, virtualpos1: ,")
     assert br.pilot_allowlist() == {("virtualpos1", SUB), ("virtualpos2", "s2"), ("virtualpos2", "s3")}
     assert br.is_pilot_allowlisted("vp", SUB) and br.is_pilot_allowlisted("virtualpos2", "s2")
     assert not br.is_pilot_allowlisted("virtualpos2", SUB)  # la plataforma cuenta
-    assert not br.is_pilot_allowlisted("toku", "s4") and not br.is_pilot_allowlisted("virtualpos1", "s5")
+    assert not br.is_pilot_allowlisted("payku", "s4") and not br.is_pilot_allowlisted("virtualpos1", "s5")
+    # MGT-12 (d106): el cambio de monto de Toku usa la misma bandeja y la misma allowlist (fail-closed)
+    assert not br.is_pilot_allowlisted("toku", "s4")
+    allow(monkeypatch, "toku:TEST-s4")
+    assert br.is_pilot_allowlisted("toku", "TEST-s4")
 
 
 def test_setting_is_empty_by_default():

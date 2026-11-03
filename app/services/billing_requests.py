@@ -45,7 +45,7 @@ from app.models.billing import (
     MANAGED_CANCELLED,
     MANAGED_CREATED,
     MANAGED_NEEDS_RECONCILIATION,
-    PLATFORMS,
+    REQUEST_PLATFORMS,
     REQUEST_TYPES,
     STATUS_APPLYING,
     STATUS_APPROVED,
@@ -62,8 +62,11 @@ from app.models.billing import (
     VpCalendarMark,
     VpManagedCharge,
 )
+from app.models.crm import Subscription
+from app.models.toku_channel import TokuInvoice, TokuSubscription
 from app.services import billing_apply as ba
 from app.services import billing_consistency as bc
+from app.services import write_toku as wt
 from app.services.billing_apply import (
     ApplyResult,
     InvalidRequestStateError,
@@ -485,9 +488,94 @@ def normalize_platform(value: str | None) -> str:
         raw = "virtualpos1"
     elif raw in ("vp2",):
         raw = "virtualpos2"
-    if raw not in PLATFORMS:
-        raise InvalidRequestFieldsError(f"platform debe ser una de: {', '.join(PLATFORMS)}.")
+    if raw not in REQUEST_PLATFORMS:
+        raise InvalidRequestFieldsError(f"platform debe ser una de: {', '.join(REQUEST_PLATFORMS)}.")
     return raw
+
+
+# ----------------------------- Toku: cambio de monto (MGT-12, d106) -----------------------------
+
+TOKU_PLATFORM = "toku"
+_TOKU_UNPAID = frozenset({"unpaid", "partially_paid"})
+
+
+def _toku_current(db: Session, sub: str) -> tuple[str | None, int | None] | None:
+    """(estado, monto) de la suscripcion Toku segun la ultima sincronizacion local (central, luego tabla del canal)."""
+    row = db.execute(select(Subscription.status, Subscription.amount).where(
+        Subscription.source == TOKU_PLATFORM, Subscription.external_id == sub).limit(1)).first()
+    if row is None:
+        row = db.execute(select(TokuSubscription.status, TokuSubscription.amount).where(
+            TokuSubscription.external_id == sub).limit(1)).first()
+    if row is None:
+        return None
+    return row[0], wt.amount_value({"amount": row[1]})
+
+
+def _toku_invoice_counts(db: Session, sub: str) -> tuple[list[str], int]:
+    """(impagas a actualizar, en cobro `in_progress` que NO se tocan), de la ultima sincronizacion local."""
+    to_update: list[str] = []
+    in_progress = 0
+    for ext, status, raw in db.execute(select(TokuInvoice.external_id, TokuInvoice.status, TokuInvoice.raw_payload)
+                                       .where(TokuInvoice.subscription_id == sub)):
+        general = str((raw or {}).get("general_status") or status or "").strip().lower()
+        if general not in _TOKU_UNPAID:
+            continue
+        if (raw or {}).get("in_progress"):
+            in_progress += 1
+        else:
+            to_update.append(ext)
+    return sorted(to_update), in_progress
+
+
+def _prepare_toku_amount(db: Session, p: RequestParams, now: datetime | None) -> PreparedRequest:
+    """Vista previa del cambio de monto de Toku: suscripcion activa, monto distinto y cuotas impagas a actualizar."""
+    if p.request_type != "change_amount":
+        raise InvalidRequestFieldsError("En Toku solo se admite change_amount.")
+    if p.new_amount is None or isinstance(p.new_amount, bool) or not isinstance(p.new_amount, int) or p.new_amount <= 0:
+        raise InvalidRequestFieldsError("change_amount requiere new_amount (entero positivo).")
+    if p.new_charge_day is not None or p.new_charge_date is not None or p.task_ref is not None \
+            or p.horizon_start_month is not None:
+        raise InvalidRequestFieldsError("El cambio de monto de Toku no admite día, fecha, horizonte ni tarea.")
+    ensure_pilot_allowlisted(p.platform, p.subscription_external_id)
+    state = _toku_current(db, p.subscription_external_id)
+    if state is None:
+        raise SubscriptionUnknownError("Suscripción no encontrada.")
+    if not ba.is_active_status(state[0]):
+        raise SubscriptionNotActiveError(state[0])
+    previous = state[1]
+    if previous is not None and previous == p.new_amount:
+        raise NoChangesError()
+    invoices, in_progress = _toku_invoice_counts(db, p.subscription_external_id)
+    variation = round((p.new_amount - previous) * 100 / previous, 2) if previous else None
+    policy = get_policy(db)
+    today = ba._chile_now(now).date()
+    preview: dict[str, Any] = {
+        "version": 1, "channel": TOKU_PLATFORM, "request_type": "change_amount",
+        "subscription_external_id": p.subscription_external_id, "noop": False, "create": [], "cancel": [],
+        "covered": [], "manual_review": [], "unchanged": [], "kept_due_today": [], "kept_automatic_after_horizon": [],
+        "warnings": ([{"code": "TOKU_INVOICES_IN_PROGRESS_SKIPPED", "count": in_progress}] if in_progress else []),
+        "errors": [],
+        "summary": {
+            "creates": 0, "cancels": 0, "covered_months": 0, "manual_review_months": 0, "unchanged_months": 0,
+            "affected_charges": len(invoices), "previous_amount": previous, "new_amount": p.new_amount,
+            "amount_delta": (p.new_amount - previous) if previous is not None else None, "total_delta": None,
+            "variation_pct": variation, "horizon_start": today.strftime("%Y-%m"), "horizon_end": None,
+        },
+        "toku": {"invoices_to_update": len(invoices), "invoice_ids": invoices[:20],
+                 "invoices_in_progress_skipped": in_progress, "source": "local_last_sync"},
+    }
+    req = BillingChangeRequest(
+        id=uuid.uuid4(), request_type="change_amount", platform=TOKU_PLATFORM,
+        subscription_external_id=p.subscription_external_id, status=STATUS_PENDING, new_amount=Decimal(p.new_amount),
+        previous_amount=Decimal(previous) if previous is not None else None,
+        horizon_months=int(policy.horizon_months), horizon_start_month=None, plan_preview=preview,
+        rules_snapshot={**policy_values(policy), "plan_external_id": None, "channel": TOKU_PLATFORM},
+        requester_comment=(p.requester_comment or "").strip() or None,
+        approvals_required=required_approvals(policy, subscriptions=1, variation_pct=variation),
+        approvals_count=0, self_approved=False,
+    )
+    return PreparedRequest(request=req, plan=None, preview=preview, policy=policy,  # type: ignore[arg-type]
+                           approvals_required=req.approvals_required)
 
 
 def _add_years(d: date, years: int) -> date:
@@ -560,6 +648,10 @@ async def prepare_request(db: Session, params: RequestParams, *, now: datetime |
     p = params
     p.platform = normalize_platform(p.platform)
     p.subscription_external_id = p.subscription_external_id.strip()
+    if p.platform == TOKU_PLATFORM:
+        if not p.subscription_external_id:
+            raise InvalidRequestFieldsError("subscription_external_id es obligatorio.")
+        return _prepare_toku_amount(db, p, now)
     today = ba._chile_now(now).date()
     _validate_params(p, today)
     ensure_pilot_allowlisted(p.platform, p.subscription_external_id)  # BILL-09: antes de leer el proveedor
@@ -916,6 +1008,10 @@ async def apply_request(
     # BILL-09: si la suscripcion salio de la allowlist (reversion del piloto, GB-PI-07) no se escribe nada en el proveedor;
     # la solicitud sigue `aprobada` y puede retirarse o volver a aplicarse si se reincorpora.
     ensure_pilot_allowlisted(req.platform, req.subscription_external_id)
+    if req.platform == TOKU_PLATFORM:  # MGT-12: ejecutor propio (sin plan de cobros de VirtualPOS)
+        from app.services.toku_amount_apply import apply_toku_amount_change
+
+        return await apply_toku_amount_change(db, request_id, actor_user_id=actor.id, now=now)
     return await ba.apply_change_request(db, request_id, actor_user_id=actor.id, now=now, accept_drift=accept_drift)
 
 
