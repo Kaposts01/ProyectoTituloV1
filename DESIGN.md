@@ -112,8 +112,10 @@ components:
 | `--series-6` | #4e5ba6 (6,23:1) | #8b97d6 (5,43:1) | índigo apagado |
 | `--series-muted` | #f5eaff | #2a2350 | barras no seleccionadas, relleno de área |
 | `--chart-ref` | #2b3350 | #cbd3e6 | línea punteada de meta (≥ 3:1) |
+| `--flow-in` | = `--series-4` (#0b86c9) | = `--series-4` (#38b6f5) | altas; tramo que sube en waterfall y barras divergentes (DEC-36) |
+| `--flow-out` | #c2410c (≥ 3:1) | #f39a4a (≥ 3:1) | bajas; tramo que baja (naranja: no es el rojo de «rechazado» ni el gris de «cancelado») |
 
-Orden de uso: series 1 y 2 primero; 3–6 solo si hay más categorías. Los estados de negocio (pagado/rechazado/pendiente) siguen en `--status-*` (statusColors.ts). Los canales (`chartColors.ts`) usan un mapeo fijo sobre `--series-N`: VirtualPOS `--series-1`, Toku `--series-2`, TCH `--series-3`, Payku `--series-4`; un estado nunca usa un token de serie. Los gráficos antiguos (`MonthlyStatusChart.tsx`) ya no tienen hex fijos: usan `--series-N` para series, `--status-*` para semántica (rojo de bajas/caídas, verde de neto positivo, ámbar de churn) y `--chart-grid`. Con series 1 y 2 en el mismo gráfico, distinguirlas además por leyenda directa o etiqueta (violeta e índigo son cercanos para daltonismo).
+Orden de uso: series 1 y 2 primero; 3–6 solo si hay más categorías. Los estados de negocio (pagado/rechazado/pendiente) siguen en `--status-*` (statusColors.ts). Los canales (`chartColors.ts`) usan un mapeo fijo sobre `--series-N`: VirtualPOS `--series-1`, Toku `--series-2`, TCH `--series-3`, Payku `--series-4`; un estado nunca usa un token de serie. Altas y bajas usan `--flow-in` (azul) y `--flow-out` (naranja) en todos los gráficos (DEC-36), también como tramos positivo y negativo de waterfall y barras divergentes; nunca verde/rojo de estado. `MonthlyStatusChart.tsx` se borró en VIZ-06/VIZ-07 (DEC-39): todos los gráficos son de la familia `ChannelChart`. Con series 1 y 2 en el mismo gráfico, distinguirlas además por leyenda directa o etiqueta (violeta e índigo son cercanos para daltonismo).
 
 **Chips de meta y semáforo.** Tres chips pill con dot + texto (nunca solo color): «en meta» (`--chip-ok-*`, verde), «lejos de meta» (`--chip-off-*`, rojo), «sin meta» (`--chip-none-*`, neutro). Texto ≥ 4,5:1 sobre su fondo en ambos temas. Delta vs período anterior: `--delta-up` / `--delta-down` / `--delta-flat` (texto ≥ 4,5:1 sobre superficie) con flecha ▲ ▼ ▬ y texto «sube/baja/sin cambio». Semáforo semántico: `--status-paid`, `--status-rejected`, `--status-pending` ≥ 3:1 como marca.
 
@@ -208,6 +210,19 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 **Gráficos de evolución.** Barras apiladas por fuente con meta punteada (`--chart-ref`), línea acumulada vs ritmo meta vs proyección, eje en porcentaje cuando se pide, un único tooltip con total y % de la meta, botón «Ver datos» que alterna a una tabla accesible equivalente, selector de rango «Últimos 12 meses / Año / Todo».
 
+**Sistema único de gráficos (sprint VIZ, DEC-34).** Librería: **Recharts 3** (MIT), la única del proyecto; se amplía `ChannelChart` en lugar de sumar otra (DEC-34 A). Medido en el build: `vendor-charts` 408,43 kB (115,07 kB gzip) y `ChannelChart` 18,8 kB (7,1 kB gzip); el sprint no agrega dependencias. Familia:
+
+| Pregunta (matriz KPI a gráfico) | Componente | Uso actual |
+|---|---|---|
+| Tendencia | `ChannelChart` `line` / `area` / `bar` / `stacked` | cobros, cargos por estado, socios, churn mensual (`mode="percent"`) |
+| Ganar o perder socios | `ChannelChart` `diverging` (+ `overlayLine` de neto) | altas arriba en `--flow-in`, bajas abajo en `--flow-out` |
+| Variación del mes | `ChannelChart` `waterfall` | «Crecimiento real mensual» |
+| Reparto de cartera | `ChannelChart` `stacked100` (o tabla si hay más de 6 estados) | disponible |
+| Ranking | `RankingChart` (barras horizontales ordenadas) | canales, motivos de rechazo |
+| Valor con contexto | `KpiCard` / `ChurnKpiCard` | churn sin meta (DEC-38): chip «sin meta», sin barra |
+
+Reglas comunes: tooltip único (`ChartTooltipContent`), valores en JetBrains Mono, «Ver datos» con tabla equivalente, y **teclado**: el gráfico es una sola parada de Tab (el contenedor `.chart-plot`; la capa de Recharts va apagada), ←/→ recorren los meses, Inicio/Fin van al primero y al último, Escape suelta; el mes elegido se marca con una línea `--color-accent` y se lee en una región `aria-live`. El modelo puro vive en `components/chartModel.ts`. No se grafican LTV, salud de sincronización ni alertas.
+
 ## Interaction States
 
 | Componente | Loading | Empty | Error | Success |
@@ -268,6 +283,10 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 | 2026-10-29 | D9: los cambios se avisarán por SSE | Decisión del usuario; sin cambios de diseño por ahora (se implementa aparte) |
 | 2026-10-29 | Chips de meta, delta, tarjeta KPI destacada y gráficos de evolución especificados (UX-01/02/03) | Referencia: tablero de la jefatura. Texto ≥ 4,5:1, marcas ≥ 3:1 |
 | 2026-10-29 | D27: se migran TAMBIÉN las superficies del contenido, el color primario y el color de acción (botones, enlaces, foco) a azul-gris y azul, en claro y oscuro; los gráficos antiguos pasan a `--series-N` | Decisión del usuario, a partir de docs/dashboardeinspiracion.png. Revierte «Dark mode derivado del teal» (2026-10-21) y el primario/acento teal; cierra las dudas abiertas 1, 2 y 5. Texto ≥ 4,5:1 y marcas ≥ 3:1 vigilados por `designTokens.test.ts`. Pendiente: `--accent-primary`/`--accent-secondary` de Staging.css no están definidos (preexistente) y los tonos de `metric-dot` y badges siguen fijos |
+| 2026-11-02 | DEC-34: Recharts 3 como única librería y `ChannelChart` ampliado (porcentaje, teclado, divergente, 100 %, waterfall) más `RankingChart` | Decisión del usuario (ficha d109). Sin dependencias nuevas; ver «Sistema único de gráficos» |
+| 2026-11-02 | DEC-36: altas en azul (`--flow-in`) y bajas en naranja (`--flow-out`) | Decisión del usuario; par seguro para daltonismo y distinto de los estados rechazado (rojo) y cancelado (gris). Cierra UI-33 |
+| 2026-11-02 | DEC-37/DEC-38: churn con la misma definición en los cuatro canales (D31) y tarjeta D20 sin meta | Decisión del usuario; el chip dice «sin meta» hasta que existan metas |
+| 2026-11-02 | DEC-39: borrado `MonthlyStatusChart.tsx` (incluye `TransactionsVsSubscriptionsChart`, con doble eje Y, y `MonthlySimpleChart`) | Decisión del usuario; código muerto o reemplazado por la familia `ChannelChart` |
 | 2026-10-21 | Estados UI especificados en tabla (tabla Interaction States) | Empty states son features: OperationalAlerts con null-return → estado positivo con warmth |
 
 ## Design Review Completion Summary
@@ -313,4 +332,4 @@ Respetar `prefers-reduced-motion`: desactivar todas las transiciones CSS bajo es
 1. ~~Superficies oscuras en teal~~ y 2. ~~acento teal~~: resueltas por D27 (2026-10-29), ver Decisions Log.
 3. ~~Layout con navegación de 2 niveles por proveedor~~: reescrito en UX-05 (un solo nivel, D29), ver Layout y Decisions Log.
 4. Título «hero» grande (DEC-41) y encabezado marino de página (C1/C4/C6 de la auditoría): sin aplicar.
-5. ~~Colores de canal y de MonthlyStatusChart~~: migrados a `--series-N` / `--status-*` (D27). Queda DEC-36 (color de altas/bajas): bajas usa el rojo semántico `--status-rejected`.
+5. ~~Colores de canal y de MonthlyStatusChart~~: migrados a `--series-N` / `--status-*` (D27). ~~DEC-36 (color de altas/bajas)~~: resuelta el 2026-11-02, altas `--flow-in` (azul) y bajas `--flow-out` (naranja).
