@@ -14,6 +14,9 @@
 .cx-search-results button:hover { background: var(--bg-hover); }
 .cx-search-results button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .cx-confirm-box { margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--border-subtle); }
+/* MGT-15: «Cambiar monto» junto a «Solicitar baja» y barra de la pestaña «Tareas manuales». */
+.cx-topbar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cx-task-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 
 @media (max-width: 720px) {
   .cx-search-results button { min-height: 44px; }

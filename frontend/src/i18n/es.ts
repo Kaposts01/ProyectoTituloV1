@@ -574,6 +574,41 @@ export const es = {
     "decision pending": "La decisión sobre esta tarea está pendiente.",
     "q09 unvalidated": "La eliminación de tarjetas no está validada con el proveedor.",
     "bank mandate outside crm": "El mandato se revoca en el banco, fuera del CRM.",
+    // MGT-11 (d105): el medio de pago se conserva y queda una tarea manual de trazabilidad.
+    "payment method retained": "El medio de pago se conserva (decisión de la organización); queda una tarea manual para revisarlo o revertir la decisión.",
+    "toku payment method retained": "El medio de pago de Toku se conserva: el CRM no lo elimina. Queda una tarea manual para su trazabilidad.",
+    "payku payment method retained": "La tarjeta de Payku se conserva: el CRM no la elimina. Queda una tarea manual para su trazabilidad.",
+    retained: "El medio de pago se conserva; queda una tarea manual para su trazabilidad.",
+    "payku amount no api": "Payku no permite cambiar el monto por API: cámbielo en el portal de Payku y confírmelo aquí.",
+  },
+  /** Tipo de tarea manual de suscripción (MGT-11/13/14). */
+  manualTaskType: {
+    "payment method retained": "Medio de pago conservado",
+    "tch bank mandate": "Revocar mandato TCH en el banco",
+    "payku amount change": "Cambiar monto en Payku",
+  },
+  /** Estado de una tarea manual. */
+  manualTaskStatus: {
+    pending: "Pendiente",
+    confirmed: "Confirmada por un ejecutivo",
+    verified: "Verificada y cerrada",
+    dismissed: "Descartada",
+  },
+  /** Errores del API de tareas manuales y del cambio de monto (texto siempre del catálogo, sin eco del servidor). */
+  manualTaskError: {
+    "task not found": "No se encontró la tarea. Puede que ya no exista.",
+    "invalid task state": "La tarea cambió de estado mientras la revisaba. Actualice la lista y vuelva a intentarlo.",
+    "open task exists": "Ya hay una tarea abierta del mismo tipo para esta suscripción.",
+    "open request exists": "Ya existe una solicitud de cambio abierta para esta suscripción.",
+    "no changes": "El monto nuevo es igual al monto vigente.",
+    "assignee not found": "El responsable indicado no existe o no está activo.",
+    "subscription not found": "No se encontró la suscripción indicada en ese canal.",
+    "subscription not active": "La suscripción no está activa; no admite cambios de monto.",
+    "comment required": "El comentario es obligatorio.",
+    "invalid fields": "Alguno de los datos indicados no es válido. Revise el formulario.",
+    "writes disabled": "Las escrituras a este canal están deshabilitadas en este ambiente.",
+    "not in pilot allowlist": "La suscripción no está habilitada para cambios de cobro en este piloto.",
+    forbidden: "No tiene permiso para realizar esta acción.",
   },
   /** Evento de la línea de tiempo de una solicitud de baja. */
   cancellationEvent: {
