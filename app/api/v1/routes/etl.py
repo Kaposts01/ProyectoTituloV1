@@ -79,9 +79,18 @@ def _serialize_run(run: EtlRun) -> dict:
     }
 
 
+def full_sync_status(done: list[str], failed: list[str], consolidation_failures: list[str]) -> str:
+    """Estado final de un full-sync: `completed` solo sin fallos; `partial` con algun canal ok; `failed` si ninguno."""
+    if not failed and not consolidation_failures:
+        return "completed"
+    return "partial" if done else "failed"
+
+
 async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> None:
     """BackgroundTask: sync APIs → source_records → materialización (Pipeline B)."""
     total = 0
+    done: list[str] = []
+    failed: list[str] = []
     try:
         for provider in providers:
             if provider not in _SYNC_FN:
@@ -97,10 +106,12 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
                 try:
                     sync_run = await _SYNC_FN[provider](db)
                     total += sync_run.records_processed or 0
+                    done.append(provider)
                     logger.info("Sync completado %s: %d registros", provider, sync_run.records_processed)
                 finally:
                     db.close()
             except Exception:
+                failed.append(provider)
                 logger.exception("Error en sync de %s", provider)
 
         # Consolidación desde tablas canal → tablas centralizadas
@@ -116,16 +127,22 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
         finally:
             db.close()
 
+        # d139b (audit_sync §0.6): nunca `completed` si fallo la sync de un canal o la consolidacion; `partial` si algun
+        # canal sincronizo, `failed` si ninguno. Misma regla que el job nocturno (`sync_all_channels`).
+        error_parts = []
+        if failed:
+            error_parts.append(f"Canales con error: {', '.join(failed)}")
+        if consolidation_failures:
+            error_parts.append(f"Consolidacion con error: {', '.join(consolidation_failures)}")
         _update_run(
             run_id,
-            status="completed",
+            status=full_sync_status(done, failed, consolidation_failures),
             phase=None,
-            channels_processed=providers,
+            channels_processed=done,
+            channels_failed=failed or None,
             records_upserted=total,
             finished_at=datetime.now(timezone.utc),
-            error_message=(
-                f"Consolidacion con error: {', '.join(consolidation_failures)}" if consolidation_failures else None
-            ),
+            error_message="; ".join(error_parts) or None,
         )
     except Exception:
         logger.exception("Error en full-sync (run_id=%s)", run_id)
