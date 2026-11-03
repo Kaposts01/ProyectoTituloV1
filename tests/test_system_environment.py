@@ -260,7 +260,8 @@ def test_billing_permissions_assigned_to_admin(db) -> None:
 
 
 def test_executive_permissions_view_only_and_no_dangerous() -> None:
-    codes = executive_permission_codes()
+    # d136 (0068): la unica excepcion a «solo `.view`» es confirmar tareas manuales.
+    codes = executive_permission_codes() - {"subscriptions.manual_tasks.confirm"}
     assert codes and all(c.endswith(".view") for c in codes)
     for forbidden in ("export", "create", "cancel", "update", "delete", "manage", "merge", "run", "retry", "switch"):
         assert not any(forbidden in c.split(".") for c in codes), forbidden  # por segmento: ".cancellation.view" no es ".cancel"

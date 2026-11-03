@@ -256,7 +256,8 @@ def _webhook(db, status, hours_ago, source="toku"):
     db.flush()
 
 
-def test_recent_failed_webhook_events_alert_with_counts_only(db_session, smtp):
+def test_recent_failed_webhook_events_alert_with_counts_only(db_session, smtp, monkeypatch):
+    monkeypatch.setattr(settings, "webhook_processor_enabled", True)  # d138: detras de la bandera de webhooks
     _webhook(db_session, "failed", 2)
     _webhook(db_session, "failed", 3)
     _webhook(db_session, "done", 1)
@@ -390,7 +391,8 @@ def test_no_starttls_and_no_login_when_not_configured(db_session, smtp, monkeypa
 # ----------------------------- sin datos personales -----------------------------
 
 
-def test_messages_carry_no_personal_data_and_are_in_spanish(db_session, smtp):
+def test_messages_carry_no_personal_data_and_are_in_spanish(db_session, smtp, monkeypatch):
+    monkeypatch.setattr(settings, "webhook_processor_enabled", True)
     _run(db_session, 3, status="failed", error=f"fallo con {PII_MAIL} y {PII_RUT}")
     _run(db_session, 2, status="failed", error=f"fallo con {PII_MAIL}")
     _webhook(db_session, "failed", 2)

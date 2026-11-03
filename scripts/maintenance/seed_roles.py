@@ -1,5 +1,8 @@
 """Siembra permisos y roles por defecto (soporte, ejecutivo). Idempotente; solo agrega permisos faltantes.
 
+d136: el rol `ejecutivo` recibe los `.view` mas `subscriptions.manual_tasks.confirm` (ver
+`rbac.EXECUTIVE_EXTRA_PERMISSIONS`); en bases ya migradas lo agrega la migracion 20261103_0068.
+
 Uso: PYTHONPATH=. .venv/Scripts/python.exe scripts/maintenance/seed_roles.py
 Usa la base del ambiente activo (APP_ENV / DATABASE_URL). Imprime solo nombres de rol y conteos.
 """

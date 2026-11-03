@@ -141,6 +141,14 @@ class Settings(BaseSettings):
     # RT-13: umbrales de las alertas de webhooks (solo cuentan si las alertas estan encendidas y configuradas).
     alert_webhook_lag_minutes: int = 60  # evento pendiente mas viejo que esto (solo con el procesador encendido)
     alert_webhook_silence_hours: int = 0  # 0 = apagado; >0: canal que ya recibio webhooks y lleva N h sin recibir
+    # d139 (L5-ALERTAS): alertas extra, cada una APAGADA por defecto (d138: con ALERTS_ENABLED=true solo queda activo el
+    # paquete minimo sync_fail, core_lag, billing_* y cancellation_stuck). Ver docs/data/alerts.md.
+    alert_business_enabled: bool = False  # d139d: alertas de negocio de severidad alta (mismos calculos del panel)
+    alert_business_eval_minutes: int = 60  # los calculos del panel son pesados: se reevaluan como maximo cada N min
+    alert_report_age_enabled: bool = False  # d139e: reporte Toku/TCH con mas de REPORT_MAX_AGE_DAYS dias (o sin cargas)
+    alert_write_failed_enabled: bool = False  # d139f: write_runs fallidos (fuera de conciliacion) en las ultimas 24 h
+    # d139c: script externo `scripts/maintenance/heartbeat_check.py`: horas sin sync exitosa que cuentan como «caido».
+    heartbeat_max_sync_age_hours: int = 36
     # RT-11: SSE de cambios de estado (`GET /api/v1/events/stream`).
     events_stream_poll_seconds: float = 5.0  # cada cuanto se relee `status_change_events` (sirve con varios workers)
     events_stream_max_seconds: float = 300.0  # la conexion se cierra y el navegador reconecta (revalida la sesion)

@@ -93,10 +93,11 @@ def _tasks(db, task_type=None):
 # ============================== permisos y migracion ==============================
 
 
-def test_permissions_are_declared_and_executive_stays_read_only() -> None:
+def test_permissions_are_declared_and_executive_only_gains_confirm() -> None:
     assert MANUAL_TASKS_VIEW in PERMISSIONS and MANUAL_TASKS_CONFIRM in PERMISSIONS
     assert MANUAL_TASKS_VIEW in executive_permission_codes()  # lectura por sufijo `.view`
-    assert MANUAL_TASKS_CONFIRM not in executive_permission_codes()  # el rol ejecutivo sigue siendo solo lectura (D12)
+    # d136 (0068): el ejecutivo confirma tareas manuales; es su unico permiso fuera de los `.view`
+    assert {c for c in executive_permission_codes() if not c.endswith(".view")} == {MANUAL_TASKS_CONFIRM}
     assert MANUAL_TASK_ROLE_GRANTS["jefatura"] == {MANUAL_TASKS_VIEW, MANUAL_TASKS_CONFIRM}
     assert MANUAL_TASK_ROLE_GRANTS["coordinador"] == {MANUAL_TASKS_VIEW}
 
@@ -273,7 +274,7 @@ def test_csv_cells_cannot_inject_formulas() -> None:
 
 def test_rbac_view_confirm_and_export(db_session, providers) -> None:
     _req, task, _ = _tch_pending(db_session, 910303)
-    for role in ("ejecutivo", "soporte", "coordinador"):
+    for role in ("soporte", "coordinador"):  # d136: el ejecutivo SI confirma (ver test_executive_confirms_...)
         _, client, h = _client(db_session, role)
         if role != "coordinador":  # el coordinador de make_roles solo ve bajas
             assert client.get(BASE).status_code == 200, role
@@ -302,9 +303,61 @@ def test_assign_and_dismiss_need_valid_input(db_session, providers) -> None:
 
 def test_assignees_lists_only_users_who_can_confirm(db_session, providers) -> None:
     jefa, client, _ = _client(db_session, "jefatura")
-    reader = make_user(db_session, _roles(db_session)["ejecutivo"])
+    reader = make_user(db_session, _roles(db_session)["soporte"])
     ids = {i["id"] for i in client.get(f"{BASE}/assignees").json()["items"]}
     assert str(jefa.id) in ids and str(reader.id) not in ids
+
+
+# ============================== d136: el ejecutivo confirma tareas manuales ==============================
+
+
+def _migration_0068():
+    path = ROOT / "alembic" / "versions" / "20261103_0068_executive_manual_task_confirm.py"
+    spec = importlib.util.spec_from_file_location("mig_0068", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_executive_gains_only_manual_task_confirm() -> None:
+    views = {code for code in PERMISSIONS if code.endswith(".view")}
+    assert executive_permission_codes() - views == {MANUAL_TASKS_CONFIRM}
+    assert views <= executive_permission_codes()  # no pierde nada de lo que veia
+
+
+def test_executive_confirms_a_manual_task_and_nothing_else(db_session, providers) -> None:
+    _req, task, _ = _tch_pending(db_session, 910305)
+    user, client, h = _client(db_session, "ejecutivo")
+    r = client.post(f"{BASE}/{task.id}/confirm", json={"comment": "Revocado en el banco"}, headers=h)
+    assert r.status_code == 200 and r.json()["status"] == "confirmed"
+    assert r.json()["confirmed_by_user_id"] == str(user.id)
+    # Nada mas de lo que ya podia: sin sincronizar, sin ETL, sin solicitar ni aprobar bajas.
+    assert client.post("/api/v1/scheduler/jobs/sync_all_channels/run", json={}, headers=h).status_code == 403
+    assert client.post("/api/v1/etl/full-sync", json={}, headers=h).status_code == 403
+    assert client.post("/api/v1/cancellations", json={}, headers=h).status_code == 403
+    assert client.get(BASE).status_code == 200  # sigue leyendo
+
+
+def test_migration_0068_grants_only_executive_and_is_reversible(db_session) -> None:
+    from billing_requests_support import make_role
+
+    from app.models.auth import Role
+
+    mig = _migration_0068()
+    assert (mig.revision, mig.down_revision) == ("20261103_0068", "20261102_0065")
+    roles = _roles(db_session)
+    executive = make_role(db_session, "ejecutivo", {c for c in PERMISSIONS if c.endswith(".view")})  # estado 0066
+    conn = db_session.connection()
+    mig.grant(conn)
+    mig.grant(conn)  # idempotente
+    db_session.expire_all()
+    codes = {p.code for p in db_session.get(Role, executive.id).permissions}
+    assert MANUAL_TASKS_CONFIRM in codes
+    assert MANUAL_TASKS_CONFIRM not in {p.code for p in db_session.get(Role, roles["soporte"].id).permissions}
+    mig.revoke(conn)
+    db_session.expire_all()
+    assert MANUAL_TASKS_CONFIRM not in {p.code for p in db_session.get(Role, executive.id).permissions}
+    assert db_session.scalar(select(Permission).where(Permission.code == MANUAL_TASKS_CONFIRM)) is not None
 
 
 # ============================== MGT-14: monto de Payku ==============================

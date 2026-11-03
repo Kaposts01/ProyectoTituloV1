@@ -2,7 +2,8 @@
 
 Un chequeo (`run_alert_check`, lo llama el job cada 15 min) evalua condiciones y avisa por correo:
 
-- `sync_fail:<canal>`: canal con 2 o mas corridas fallidas seguidas, o 2 o mas dias sin una sincronizacion exitosa.
+- `sync_fail:<canal>`: canal con 2 o mas corridas fallidas seguidas, o 2 o mas dias sin una sincronizacion exitosa, o
+  (d139a) desde el PRIMER fallo si la ultima corrida de una de sus fuentes fallo por configuracion o credencial.
 - `core_lag:<canal>`: el ETL Core va mas de 24 h detras del ultimo sync exitoso (`core_lag_hours`).
 - `webhook_failed`: eventos de webhook en `failed` en las ultimas 24 h.
 - `webhook_lag`: con el procesador encendido, un evento pendiente lleva mas de `ALERT_WEBHOOK_LAG_MINUTES` (RT-13).
@@ -10,6 +11,11 @@ Un chequeo (`run_alert_check`, lo llama el job cada 15 min) evalua condiciones y
   recibir ninguno (salud del canal; RT-13). Apagada por defecto.
 - `cancellation_stuck`: solicitudes de baja en `requires_reconciliation`, o en `applying` mas de 30 min.
 - `billing_stuck`: solicitudes de cambio de cobro en `requiere_conciliacion`, o en `aplicando` mas de 30 min.
+- Fuentes de otros modulos: `billing_reconciliation` (BILL-22), `removal_aborted` (SYNC-D-13), `report_stale` y
+  `write_failed` (`ops_alerts`, d139e/f) y `business_*` (`business_alerts`, d139d).
+
+d138: cada fuente puede tener su bandera (`enabled`); con solo `ALERTS_ENABLED=true` quedan activas `sync_fail`,
+`core_lag`, `cancellation_stuck`, `billing_stuck` y `billing_reconciliation`. Ver `active_kinds()`.
 
 Deduplicacion: una alerta por condicion y, mientras siga activa, un recordatorio como maximo cada 6 h; al normalizarse
 se avisa «recuperado». El estado va en `source_records` (`source='alert_state'`), sin migracion, como la marca del ETL Core.
@@ -29,6 +35,7 @@ sin datos personales, y sus claves deben empezar por `kind` (`kind` o `kind:<det
 from __future__ import annotations
 
 import logging
+import re
 import smtplib
 import ssl
 from collections.abc import Callable
@@ -42,6 +49,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.core.channel_errors import is_config_or_credential_error
 from app.core.config import settings
 from app.models.billing import (
     STATUS_APPLYING,
@@ -50,6 +58,7 @@ from app.models.billing import (
 )
 from app.models.cancellation import SubscriptionCancellationRequest
 from app.models.source_record import SourceRecord
+from app.models.sync_run import SyncRun
 from app.models.webhook_event import WebhookEvent
 from app.services.webhook_health import queue_health
 
@@ -103,8 +112,22 @@ def _num(value: float) -> str:
     return f"{value:g}"
 
 
+def _config_failed_sources(db: Session, sources: tuple[str, ...]) -> list[str]:
+    """d139a: fuentes cuya ULTIMA corrida terminada fallo por configuracion o credencial. Solo clasifica el texto."""
+    if not sources:
+        return []
+    latest = (
+        select(SyncRun.source, SyncRun.status, SyncRun.error_message)
+        .where(SyncRun.source.in_(sources), SyncRun.status != "running")
+        .distinct(SyncRun.source)
+        .order_by(SyncRun.source, SyncRun.started_at.desc())
+    )
+    return sorted(source for source, status, message in db.execute(latest)
+                  if status == "failed" and is_config_or_credential_error(message))
+
+
 def _sync_conditions(db: Session, now: datetime) -> list[Condition]:
-    from app.api.v1.routes.sync_runs import _compute_health
+    from app.api.v1.routes.sync_runs import _CHANNEL_SOURCES, _compute_health
 
     found: list[Condition] = []
     for item in _compute_health(db, now):
@@ -117,11 +140,20 @@ def _sync_conditions(db: Session, now: datetime) -> list[Condition]:
             parts.append(f"{consecutive} corridas fallidas seguidas")
         if days is not None and int(days) >= MIN_DAYS_WITHOUT_SUCCESS:
             parts.append(f"{int(days)} días sin una sincronización exitosa")
+        # d139a: un error de configuracion o credencial es determinista (reintentar no lo arregla): se avisa desde el
+        # PRIMER fallo. Los demas fallos mantienen el umbral de 2.
+        config_sources = _config_failed_sources(db, _CHANNEL_SOURCES.get(channel) or ())
+        details: list[str] = []
+        if config_sources:
+            if not parts:
+                parts.append("la última corrida falló por un error de configuración o credencial")
+            details.append("Error de configuración o credencial en: " + ", ".join(config_sources)
+                           + ". Se avisa desde el primer fallo; revisar las variables de entorno del canal.")
         if parts:
             state = "en falla" if item.get("status") == "failing" else "degradado"
             found.append(Condition(
                 key=f"sync_fail:{channel}", channel=label, title=f"sincronización de {label} con fallas",
-                text=" y ".join(parts), details=(f"Estado del canal: {state}.",), link=SYNC_LINK))
+                text=" y ".join(parts), details=(f"Estado del canal: {state}.", *details), link=SYNC_LINK))
         lag = item.get("core_lag_hours")
         if lag is not None and float(lag) > CORE_LAG_ALERT_HOURS:  # type: ignore[arg-type]
             found.append(Condition(
@@ -214,6 +246,11 @@ def _webhook_queue_conditions(db: Session, now: datetime) -> list[Condition]:
 
 ConditionFn = Callable[[Session, datetime], list[Condition]]
 DescribeFn = Callable[[str], tuple[str, str]]
+EnabledFn = Callable[[], bool]
+
+
+def _always() -> bool:
+    return True
 
 
 @dataclass(frozen=True)
@@ -221,20 +258,32 @@ class ConditionProvider:
     kind: str
     evaluate: ConditionFn
     describe: DescribeFn
+    enabled: EnabledFn = _always
 
 
 _PROVIDERS: dict[str, ConditionProvider] = {}
 
 
-def register_condition_provider(kind: str, evaluate: ConditionFn, describe: DescribeFn) -> None:
-    """Registra (o reemplaza, si `kind` ya existe) una fuente de condiciones. Ver el docstring del modulo."""
+def register_condition_provider(
+    kind: str, evaluate: ConditionFn, describe: DescribeFn, enabled: EnabledFn | None = None
+) -> None:
+    """Registra (o reemplaza, si `kind` ya existe) una fuente de condiciones. Ver el docstring del modulo.
+
+    `enabled` (opcional) es la bandera propia de la fuente: si devuelve False la fuente no se evalua (d138). Una
+    condicion que ya se aviso y cuya fuente se apaga recibe su aviso de «Recuperado» en el siguiente chequeo.
+    """
     if not kind or ":" in kind:
         raise ValueError("kind debe ser un identificador sin ':'")
-    _PROVIDERS[kind] = ConditionProvider(kind, evaluate, describe)
+    _PROVIDERS[kind] = ConditionProvider(kind, evaluate, describe, enabled or _always)
 
 
 def registered_kinds() -> tuple[str, ...]:
     return tuple(_PROVIDERS)
+
+
+def active_kinds() -> tuple[str, ...]:
+    """Fuentes que se evaluan con la configuracion actual (las apagadas por su bandera no aparecen)."""
+    return tuple(kind for kind, provider in _PROVIDERS.items() if provider.enabled())
 
 
 def _fixed(channel: str, subject: str) -> DescribeFn:
@@ -263,9 +312,16 @@ def _none(_db: Session, _now: datetime) -> list[Condition]:
 # `sync_fail` y `core_lag` salen de una sola lectura de salud (`_sync_conditions`); `core_lag` solo aporta su descripcion.
 register_condition_provider("sync_fail", _sync_conditions, _sync_fail_describe)
 register_condition_provider("core_lag", _none, _core_lag_describe)
-register_condition_provider("webhook_failed", _webhook_conditions, _fixed("Webhooks", "eventos de webhook fallidos"))
-register_condition_provider("webhook_lag", _webhook_queue_conditions, _fixed("Webhooks", "cola de webhooks atrasada"))
-register_condition_provider("webhook_silence", _none, _silence_describe)
+# d138: las alertas de webhooks quedan detras de sus banderas (procesador encendido o umbral de silencio > 0).
+def _webhook_queue_enabled() -> bool:
+    return bool(settings.webhook_processor_enabled) or int(settings.alert_webhook_silence_hours) > 0
+
+
+register_condition_provider("webhook_failed", _webhook_conditions, _fixed("Webhooks", "eventos de webhook fallidos"),
+                            lambda: bool(settings.webhook_processor_enabled))
+register_condition_provider("webhook_lag", _webhook_queue_conditions, _fixed("Webhooks", "cola de webhooks atrasada"),
+                            _webhook_queue_enabled)
+register_condition_provider("webhook_silence", _none, _silence_describe, _webhook_queue_enabled)
 register_condition_provider("cancellation_stuck", _stuck_cancellations,
                             _fixed("Bajas de suscripción", "solicitudes de baja atascadas"))
 register_condition_provider("billing_stuck", _stuck_billing, _fixed("Cambios de cobro", "solicitudes de cobro atascadas"))
@@ -285,14 +341,16 @@ def _removal_describe(source: str) -> tuple[str, str]:
 
 
 # SYNC-D-13: la deteccion de bajas por desaparicion aborto por superar el umbral (probable error del proveedor).
-register_condition_provider("removal_aborted", _removal_conditions, _removal_describe)
+register_condition_provider("removal_aborted", _removal_conditions, _removal_describe,
+                            lambda: bool(settings.sync_removal_detection_enabled))
 
 
 def evaluate_conditions(db: Session, now: datetime) -> list[Condition]:
     """Condiciones activas ahora, de todas las fuentes registradas. Solo lectura; sin datos personales."""
     found: list[Condition] = []
     for provider in list(_PROVIDERS.values()):
-        found.extend(provider.evaluate(db, now))
+        if provider.enabled():
+            found.extend(provider.evaluate(db, now))
     return found
 
 
@@ -334,8 +392,36 @@ def _save_state(db: Session, key: str, payload: dict[str, Any]) -> None:
 # ----------------------------- correo -----------------------------
 
 
+_EMAIL_SHAPE = re.compile(r'^[^@\s,;<>"]+@[^@\s,;<>"]+\.[^@\s,;<>".]+$')
+
+
+def parse_recipients(raw: str | None) -> tuple[list[str], int]:
+    """d140: lista separada por comas (con o sin espacios). Devuelve (validos sin repetir, cantidad de invalidos).
+
+    Todos los validos reciben todas las alertas. Un elemento sin forma de correo se descarta y se cuenta (nunca se
+    imprime). Un repetido se envia una sola vez.
+    """
+    valid: list[str] = []
+    seen: set[str] = set()
+    invalid = 0
+    for part in (raw or "").split(","):
+        address = part.strip()
+        if not address:
+            continue
+        if not _EMAIL_SHAPE.match(address):
+            invalid += 1
+            continue
+        if address.lower() not in seen:
+            seen.add(address.lower())
+            valid.append(address)
+    return valid, invalid
+
+
 def _recipients() -> list[str]:
-    return [r.strip() for r in settings.alert_email_to.split(",") if r.strip()]
+    valid, invalid = parse_recipients(settings.alert_email_to)
+    if invalid:
+        logger.warning("ALERT_EMAIL_TO tiene %d destinatario(s) sin forma de correo: se omiten.", invalid)
+    return valid
 
 
 def _local_time(moment: datetime) -> str:
@@ -395,6 +481,22 @@ def _send(msg: EmailMessage) -> bool:
     except Exception as exc:  # noqa: BLE001 - el correo jamas debe tumbar al llamador
         logger.warning("Alerta no enviada: fallo del SMTP (%s).", type(exc).__name__)
         return False
+
+
+def build_message(kind: str, cond: Condition, since: datetime, now: datetime) -> EmailMessage:
+    """Mensaje con el formato de las alertas (asunto, cuerpo y destinatarios de `ALERT_EMAIL_TO`). Sin enviar."""
+    return _build(kind, cond, cond.key, since, now, _recipients())
+
+
+def send_condition(kind: str, cond: Condition, since: datetime, now: datetime) -> bool:
+    """Envia UN aviso (`new`, `reminder` o `recovered`) por el mismo SMTP de las alertas. Para los scripts de
+    mantenimiento (`send_test_alert.py`, `heartbeat_check.py`). False si falta destinatario o servidor, o si el SMTP
+    falla; nunca lanza. No guarda estado ni mira `ALERTS_ENABLED` (eso lo decide quien llama)."""
+    recipients = _recipients()
+    if not recipients or not settings.alert_smtp_host.strip():
+        logger.warning("Aviso no enviado: falta ALERT_EMAIL_TO o ALERT_SMTP_HOST.")
+        return False
+    return _send(_build(kind, cond, cond.key, since, now, recipients))
 
 
 # ----------------------------- chequeo -----------------------------
@@ -463,5 +565,9 @@ def run_alert_check(db: Session, now: datetime | None = None) -> AlertCheckResul
     return result
 
 
-# BILL-22: fuentes de otros modulos que se registran al importar (al final: dependen de lo definido arriba).
-from app.services import billing_alerts  # noqa: E402,F401
+# BILL-22 y d139: fuentes de otros modulos que se registran al importar (al final: dependen de lo definido arriba).
+from app.services import (  # noqa: E402
+    billing_alerts,  # noqa: F401
+    business_alerts,  # noqa: F401
+    ops_alerts,  # noqa: F401
+)

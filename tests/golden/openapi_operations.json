@@ -280,6 +280,7 @@
   "cookie:crm_access_token",
   "query:canal"
  ],
+ "GET /api/v1/health/heartbeat": [],
  "GET /api/v1/imports/toku-reports/status": [
   "cookie:crm_access_token"
  ],

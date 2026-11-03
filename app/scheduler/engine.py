@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
+from apscheduler.events import EVENT_JOB_EXECUTED
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -13,6 +15,10 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+
+# d139c: ultimo job del scheduler terminado sin excepcion (en memoria; lo lee GET /api/v1/health/heartbeat).
+_last_job_success_at: datetime | None = None
+_listener_installed: set[int] = set()
 
 JOB_SYNC_ALL = "sync_all_channels"
 JOB_SYNC_RETRY = "retry_failed_channels"
@@ -30,6 +36,28 @@ def get_scheduler() -> AsyncIOScheduler:
             timezone="America/Santiago",
         )
     return _scheduler
+
+
+def _on_job_executed(event) -> None:
+    global _last_job_success_at
+    if getattr(event, "exception", None) is None:
+        _last_job_success_at = datetime.now(UTC)
+
+
+def last_job_success_at() -> datetime | None:
+    return _last_job_success_at
+
+
+def scheduler_running() -> bool:
+    """True si el scheduler de este proceso esta corriendo (sin crearlo si no existe)."""
+    return bool(_scheduler is not None and _scheduler.running)
+
+
+def install_heartbeat_listener(scheduler: AsyncIOScheduler) -> None:
+    if id(scheduler) in _listener_installed:
+        return
+    scheduler.add_listener(_on_job_executed, EVENT_JOB_EXECUTED)
+    _listener_installed.add(id(scheduler))
 
 
 def register_jobs(scheduler: AsyncIOScheduler) -> None:

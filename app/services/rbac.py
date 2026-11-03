@@ -143,7 +143,8 @@ CANCELLATION_ROLE_GRANTS: dict[str, frozenset[str]] = {
 
 # --- Tareas manuales de suscripcion (MGT-11/13/14) ------------------------------------------------------------------
 # Migracion 20261102_0066. Confirmar (d107: la accion manual la hace un ejecutivo, otro o el mismo, y la confirma con su
-# usuario y fecha) queda en admin y jefatura: el rol `ejecutivo` del codigo es SOLO lectura (D12) y solo ve.
+# usuario y fecha) quedo en admin y jefatura. d136 (migracion 20261102_0068) agrega `confirm` al rol `ejecutivo`: ver
+# `EXECUTIVE_EXTRA_PERMISSIONS` (esta matriz conserva la de la 0066, que su prueba compara con la migracion).
 MANUAL_TASKS_VIEW = "subscriptions.manual_tasks.view"
 MANUAL_TASKS_CONFIRM = "subscriptions.manual_tasks.confirm"
 MANUAL_TASK_ROLE_GRANTS: dict[str, frozenset[str]] = {
@@ -164,12 +165,16 @@ def support_permission_codes() -> set[str]:
     return {code for code in PERMISSIONS if code.endswith(".view")} | set(SUPPORT_EXTRA_PERMISSIONS)
 
 EXECUTIVE_ROLE_NAME = "ejecutivo"
-EXECUTIVE_ROLE_DESCRIPTION = "Ejecutivo: solo lectura de todos los módulos"
+EXECUTIVE_ROLE_DESCRIPTION = "Ejecutivo: lectura de todos los módulos y confirmación de tareas manuales"
+# d136 (migracion 20261102_0068): el ejecutivo hace la accion manual en el portal y la confirma con su usuario (d107).
+# Es su UNICO permiso fuera de los `.view`.
+EXECUTIVE_EXTRA_PERMISSIONS: tuple[str, ...] = (MANUAL_TASKS_CONFIRM,)
 
 
 def executive_permission_codes() -> set[str]:
-    """Permisos del rol ejecutivo: únicamente los `.view` (nada que escriba, exporte ni reintente)."""
-    return {code for code in PERMISSIONS if code.endswith(".view")}
+    """Permisos del rol ejecutivo: los `.view` mas `subscriptions.manual_tasks.confirm` (d136: confirmar, asignar,
+    descartar y CSV de mandatos TCH de las tareas manuales). Nada mas que escriba, exporte o reintente."""
+    return {code for code in PERMISSIONS if code.endswith(".view")} | set(EXECUTIVE_EXTRA_PERMISSIONS)
 
 
 _RESOURCE_PERMISSIONS = {
