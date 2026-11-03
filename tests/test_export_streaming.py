@@ -31,15 +31,16 @@ def test_page_plan_splits_offset_and_limit_across_channels() -> None:
 def test_select_specs_resolves_channels_and_permissions() -> None:
     all_perms = {s.permission for s in ENTITY_SPECS["cobros"]}
     items, denied = select_specs("cobros", None, all_perms)
-    assert not denied and [src for _s, srcs in items for src in srcs] == ["virtualpos1", "virtualpos2", "toku", "tch"]
+    assert not denied and [src for _s, srcs in items for src in srcs] == ["virtualpos1", "virtualpos2", "toku", "payku", "tch"]
     items, denied = select_specs("cobros", "virtualpos2", all_perms)
     assert not denied and [srcs for _s, srcs in items] == [("virtualpos2",)]
     items, denied = select_specs("cobros", "toku", {"tch.transacciones.view"})
     assert denied and items == []
     items, denied = select_specs("cobros", None, {"tch.transacciones.view"})
     assert not denied and [s.provider for s, _ in items] == ["tch"]
-    items, denied = select_specs("cobros", "payku", all_perms)  # payku no tiene cobros
-    assert items == [] and not denied
+    # d124 (b): los ciclos de Payku (p_cycles) son sus cobros, con el permiso payku.transactions.view
+    items, denied = select_specs("cobros", "payku", all_perms)
+    assert not denied and [s.provider for s, _ in items] == ["payku"]
 
 
 def test_query_uses_server_side_cursor_and_closes_session(monkeypatch) -> None:
