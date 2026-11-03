@@ -188,6 +188,20 @@ describe("D1 menu azul marino: items, estados y marca >= 4.5:1", () => {
       expect(ratio(hexOf(t, "--sidebar-active-bg"), hexOf(t, "--bg-sidebar"))).toBeGreaterThan(1.1);
     });
   }
+  for (const [name, t] of Object.entries(themesAll)) {
+    it(`${name}: titulo de grupo (Cartera, Operacion) >= 4.5:1 y mas claro que los items`, () => {
+      const bg = hexOf(t, "--bg-sidebar");
+      expect(ratio(hexOf(t, "--sidebar-heading"), bg)).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(hexOf(t, "--sidebar-heading"), bg)).toBeGreaterThan(ratio(hexOf(t, "--sidebar-text"), bg));
+    });
+  }
+  it("titulo de grupo resaltado: token, display, 11px/700 y separador entre grupos", () => {
+    expect(finalDecl(allCss, ".sidebar-section-label", "color")).toBe("var(--sidebar-heading)");
+    expect(finalDecl(allCss, ".sidebar-section-label", "font-family")).toBe("var(--font-display)");
+    expect(finalDecl(allCss, ".sidebar-section-label", "font-size")).toBe("11px");
+    expect(finalDecl(allCss, ".sidebar-section-label", "font-weight")).toBe("700");
+    expect(finalDecl(allCss, ".sidebar-group + .sidebar-group", "border-top")).toBe("1px solid var(--sidebar-border)");
+  });
   it("el CSS del menu usa tokens, no colores teal fijos", () => {
     expect(finalDecl(allCss, ".sidebar-item.active", "background")).toBe("var(--sidebar-active-bg)");
     expect(finalDecl(allCss, ".sidebar-item", "color")).toBe("var(--sidebar-text)");
