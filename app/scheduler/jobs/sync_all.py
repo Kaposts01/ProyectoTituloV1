@@ -446,16 +446,21 @@ async def sync_all_channels(
         })
         logger.info("sync_all_channels completado: %d registros en %ds", total_records, duration_s)
 
-    except Exception as exc:
+    except Exception:
         logger.exception("Error fatal en sync_all_channels (run_id=%s)", run_id)
+        # REV-01 (origin/sprint-5/estabilizacion-dashboard 1005a26): el texto de la excepcion puede traer datos del
+        # proveedor; la corrida y el SSE guardan un mensaje generico (el detalle queda en el log) y conservan lo avanzado.
         _update_run(
             db_run_id,
             status="failed",
             phase=None,
-            error_message=str(exc)[:2000],
+            channels_processed=channels_done,
+            channels_failed=channels_failed or None,
+            records_upserted=total_records,
+            error_message="Error durante la sincronización.",
             finished_at=datetime.now(timezone.utc),
         )
-        event_bus.emit(run_id, {"type": "error", "phase": "fatal", "msg": str(exc)[:500]})
+        event_bus.emit(run_id, {"type": "error", "phase": "fatal", "msg": "Error durante la sincronización."})
 
     finally:
         if full_reads_token is not None:

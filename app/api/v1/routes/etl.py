@@ -43,7 +43,8 @@ _SYNC_FN = {
 
 
 class FullSyncRequest(BaseModel):
-    providers: Annotated[list[str], Field(default_factory=lambda: list(_ALL_PROVIDERS))]
+    # REV-01 (origin/sprint-5/estabilizacion-dashboard 1005a26): una lista vacia no lanza una corrida sin canales.
+    providers: Annotated[list[str], Field(default_factory=lambda: list(_ALL_PROVIDERS), min_length=1)]
 
 
 def _get_db() -> Session:
@@ -150,6 +151,10 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
             run_id,
             status="failed",
             phase=None,
+            # REV-01 (1005a26): conserva lo que alcanzo a sincronizar antes del error.
+            channels_processed=done,
+            channels_failed=failed or None,
+            records_upserted=total,
             error_message="Error durante la sincronización.",
             finished_at=datetime.now(timezone.utc),
         )
