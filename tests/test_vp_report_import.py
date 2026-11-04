@@ -248,7 +248,7 @@ def test_rejection_details_use_report_pat_and_core_fields(db_session, tmp_path):
         payment_row(4),  # pagado: nunca genera glosa
     ]
     s = _import(db_session, _csv(tmp_path, "transacciones", rows))
-    assert s.rejections == {"inserted": 3, "markers_replaced": 0, "reasons_new": 2}
+    assert s.rejections == {"inserted": 3, "markers_replaced": 0, "reasons_new": 2, "api_overridden": 0}
     d1, d2, d3 = (_detail(db_session, n) for n in (1, 2, 3))
     assert (d1.source, d1.code, d1.reason, d1.capture_source) == (P1, "-11", "Excede límite de reintentos de rechazo", "report_pat")
     assert d1.payment_external_id == uuid_of(1) and d1.subscription_external_id == sub_id(1)
@@ -259,22 +259,59 @@ def test_rejection_details_use_report_pat_and_core_fields(db_session, tmp_path):
     assert _detail(db_session, 4) is None
 
 
-def test_existing_api_detail_wins_and_markers_are_replaced(db_session, tmp_path):
-    for n in (1, 2):
+def test_report_glosa_wins_over_the_api_and_markers_are_replaced(db_session, tmp_path):
+    """D4/D5 (L7-IMPORT): el PAT es la fuente de verdad; antes mandaba la API y la glosa del reporte se descartaba."""
+    for n in (1, 2, 3, 4):
         _seed_vp(db_session, n, P1)
     db_session.add_all([
+        # distinto pago (la API no trajo el UUID): se agrega la fila del reporte junto a la de la API
         PaymentRejectionDetail(source=P1, charge_external_id=charge_id(1), payment_external_id=None, code="-3",
                                reason="glosa api", capture_source="api_charges"),
         PaymentRejectionDetail(source=P1, charge_external_id=charge_id(2), code="", capture_source="api_charges"),
+        # mismo cobro, pago y codigo: la fila de la API pasa a tener la glosa del reporte
+        PaymentRejectionDetail(source=P1, charge_external_id=charge_id(3), payment_external_id=uuid_of(3), code="-6",
+                               reason="glosa api 3", capture_source="api_charges"),
+        # el reporte no trae glosa (marcador): la glosa real de la API se conserva
+        PaymentRejectionDetail(source=P1, charge_external_id=charge_id(4), code="-8", reason="glosa api 4",
+                               capture_source="api_charges"),
     ])
     db_session.commit()
-    rows = [rejected_payment_row(1, "-3", "glosa del reporte"), rejected_payment_row(2, "-6", "Rechazo general")]
+    rows = [rejected_payment_row(1, "-3", "glosa del reporte"), rejected_payment_row(2, "-6", "Rechazo general"),
+            rejected_payment_row(3, "-6", "glosa del reporte 3"), rejected_payment_row(4, "", "")]
     s = _import(db_session, _csv(tmp_path, "transacciones", rows))
-    d1 = _detail(db_session, 1)
-    assert (d1.capture_source, d1.reason) == ("api_charges", "glosa api")  # la API manda: no se duplica
-    d2s = db_session.scalars(select(PaymentRejectionDetail).where(PaymentRejectionDetail.charge_external_id == charge_id(2))).all()
-    assert [(d.code, d.capture_source) for d in d2s] == [("-6", "report_pat")]  # el marcador se reemplaza
-    assert s.rejections["inserted"] == 1 and s.rejections["markers_replaced"] == 1
+
+    def details(n):
+        return {(d.capture_source, d.code, d.reason) for d in db_session.scalars(
+            select(PaymentRejectionDetail).where(PaymentRejectionDetail.charge_external_id == charge_id(n)))}
+
+    assert details(1) == {("api_charges", "-3", "glosa api"), ("report_pat", "-3", "glosa del reporte")}
+    assert details(2) == {("report_pat", "-6", "Rechazo general")}  # el marcador se reemplaza
+    assert details(3) == {("report_pat", "-6", "glosa del reporte 3")}
+    assert details(4) == {("api_charges", "-8", "glosa api 4")}
+    assert s.rejections["inserted"] == 2 and s.rejections["markers_replaced"] == 1
+    assert s.rejections["api_overridden"] == 1
+    imp.reconcile(db_session)  # idempotente
+    assert details(1) == {("api_charges", "-3", "glosa api"), ("report_pat", "-3", "glosa del reporte")}
+
+
+def test_core_charge_takes_the_report_glosa_even_if_the_api_one_is_newer(db_session, tmp_path):
+    """D4/D5: `core_charges.latest_rejection_*` sale del PAT aunque la glosa de la API tenga fecha posterior."""
+    from app.services.core_vp_etl import _enrich_charges_with_rejections
+
+    _seed_vp(db_session, 1, P1)
+    db_session.add(CoreCharge(source=P1, external_id=charge_id(1), latest_rejection_code="-3",
+                              latest_rejection_reason="glosa api",
+                              latest_rejection_at=datetime(2026, 10, 5, 15, 0, tzinfo=UTC)))
+    db_session.add(PaymentRejectionDetail(source=P1, charge_external_id=charge_id(1), code="-3", reason="glosa api",
+                                          rejected_at=datetime(2026, 10, 5, 15, 0, tzinfo=UTC),
+                                          capture_source="api_charges"))
+    db_session.commit()
+    _import(db_session, _csv(tmp_path, "transacciones", [rejected_payment_row(1, "-11", "glosa del reporte")]))
+    assert _enrich_charges_with_rejections(db_session) == 1
+    core = db_session.scalar(select(CoreCharge).where(CoreCharge.external_id == charge_id(1)))
+    db_session.refresh(core)
+    assert (core.latest_rejection_code, core.latest_rejection_reason) == ("-11", "glosa del reporte")
+    assert _enrich_charges_with_rejections(db_session) == 0  # idempotente
 
 
 def test_catalog_and_reason_changed_events_like_rj06(db_session, tmp_path):
