@@ -1,8 +1,7 @@
 import { fillMonths, pivotByStatus, STATUS_PALETTE, type ChannelChartRow, type PivotSeries, type StatusEntry } from "../../components/chartRows";
 import type { ChannelChartAnnotation } from "../../components/ChannelChart";
 import { TCH_SOURCE_NOTE } from "../shared/kpis";
-import { chartStatusColor, FLOW_IN_COLOR, FLOW_OUT_COLOR } from "../../chartColors";
-import { label as i18nLabel, normalizeKey } from "../../i18n/label";
+import { FLOW_IN_COLOR, FLOW_OUT_COLOR } from "../../chartColors";
 import type { RankingItem } from "../../components/chartModel";
 
 export type ChartMode = "count" | "amount";
@@ -109,21 +108,6 @@ export function churnRateChart(entries: { year: number; month: number; rate: num
     .map((e) => ({ year: e.year, month: e.month, rate: e.rate as number }))
     .sort((a, b) => ym(a.year, a.month) - ym(b.year, b.month));
   return { rows, series: [CHURN_RATE_SERIES] };
-}
-
-const CHANNEL_KEYS = new Set(["virtualpos", "virtualpos1", "virtualpos2", "toku", "payku", "tch"]);
-const isChannelKey = (raw: string) => CHANNEL_KEYS.has(normalizeKey(raw).replace(/ /g, ""));
-
-/**
- * Filas `{year, month, status}` cuyo `status` puede ser un CANAL (dashboard general) o un estado, apiladas por mes.
- * Un canal toma su color y rótulo de canal; un estado, los del mapa único de estados.
- */
-export function seriesStackedChart(entries: StatusValue[] | undefined | null, mode: ChartMode): ChartProps {
-  const base = statusStackedChart(entries, mode);
-  return {
-    rows: base.rows,
-    series: base.series.map((s) => (isChannelKey(s.key) ? { ...s, label: i18nLabel("channel", s.key), color: chartStatusColor(s.key) } : s)),
-  };
 }
 
 /** Suma por categoría de un año (null = todo) para un ranking (p. ej. motivos de rechazo). */

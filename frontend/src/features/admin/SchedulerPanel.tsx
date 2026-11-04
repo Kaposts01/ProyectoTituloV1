@@ -68,6 +68,15 @@ function cronLabel(cron: string): string {
   return map[cron] ?? cron;
 }
 
+/**
+ * REV-01 (origin/sprint-5/estabilizacion-dashboard 1005a26, adaptado): el backend emite `error` por cada fase que
+ * falla y la corrida sigue (queda `partial`); el cierre es `completed` (con su `status`) o `error` de fase `fatal`.
+ * Antes el stream se cerraba en el primer error de una fase y dejaba de seguir la corrida.
+ */
+export function isTerminalSseEvent(ev: { type: string; phase?: string | null }): boolean {
+  return ev.type === "completed" || (ev.type === "error" && ev.phase === "fatal");
+}
+
 export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boolean; canViewRuns: boolean; canImportTch: boolean }) {
   const { enabled } = useEnabledChannels();
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
@@ -123,7 +132,8 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
             setPolledPhase(run.phase ?? run.status);
             if (run.status !== "running") {
               if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-              if (run.status === "completed") invalidateCache();
+              // REV-01 (1005a26): una corrida parcial o fallida tambien pudo escribir datos.
+              invalidateCache();
               setTimeout(refreshData, 800);
             }
           }).catch(() => {});
@@ -141,9 +151,9 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
       const ev: SseEvent = JSON.parse(e.data as string);
       setSseEvents((prev) => [...prev, ev]);
       if (ev.type === "not_found") { es.close(); startPolling(); return; }
-      if (ev.type === "completed" || ev.type === "error") {
+      if (isTerminalSseEvent(ev)) {
         es.close();
-        if (ev.type === "completed") invalidateCache();
+        invalidateCache();
         setTimeout(refreshData, 800);
       }
     };

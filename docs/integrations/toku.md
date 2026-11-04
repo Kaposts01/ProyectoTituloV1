@@ -32,6 +32,10 @@ El sync de Toku solo recupera suscripciones activas desde la API. Las suscripcio
 
 El ETL Core implementa esta estrategia en `app/services/core_toku_etl.py` (`_materialize_stub_subscriptions`).
 
+## Recursos opcionales y 404 (L7-CIERRE)
+
+`payment` (`/organization/payments`) y `payment_method` son recursos secundarios: si su endpoint responde 404 (el sandbox responde 404 en `/organization/payments`), el recurso queda omitido (`resource_stats.<recurso>.skipped = true`, `reason = http_404`, y un aviso en el log sin datos personales), la sync sigue con los demás y el `sync_runs` queda `partial` con lo leído guardado; la corrida global (`etl_runs`) también queda `partial` y el canal no se reintenta. Clientes, suscripciones, facturas y transacciones son esenciales: su 404, cualquier 401/403 y los demás errores siguen haciendo fallar la sync. El texto del aviso no contiene marcadores de configuración o credencial, así que no dispara la alerta de primer fallo (d139a); además esa alerta solo mira corridas `failed`.
+
 ## Webhooks
 
 **Confirmed:** Toku permite crear endpoints HTTPS mediante `POST /webhook_endpoints`, autenticado con `x-api-key`. El endpoint recibe un identificador de entrega `id`, `event_type` y la carga del evento. La autenticidad se valida con `Toku-Signature`: HMAC-SHA256 de `<timestamp>.<event id>` usando el secreto entregado al crear el endpoint. Los eventos relevantes incluyen `invoice.paid`, `subscription.*`, `transaction.*` y `payment_method.*`. La forma del payload debe fijarse con `webhook_version`.

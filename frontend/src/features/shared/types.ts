@@ -3,13 +3,6 @@ import type { AlertWire } from "../dashboard/alertAdapter";
 import type { MonthlyEntry, MonthlyStatusEntry } from "./monthly";
 
 export type SyncRun = { status: string; records_processed: number; started_at?: string | null; finished_at?: string | null };
-export type SourceSummary = {
-  source: string;
-  records: number;
-  resources: Record<string, number>;
-  last_sync: SyncRun | null;
-};
-export type Summary = { sources: SourceSummary[] };
 export type StagingRecord = {
   id: string;
   source: string;
@@ -138,22 +131,6 @@ export type AuthUser = { id: string; username: string; is_active: boolean; roles
 export type AuthSession = { user: AuthUser; csrf_token: string };
 export type AdminRole = { id: string; name: string; description: string | null; permission_codes: string[] };
 export type PermGroup = { group: string; permissions: Array<{ code: string; description: string }> };
-export type GeneralDashboard = {
-  clients: number;
-  subscriptions: { active: number; amount: number };
-  transactions: { total: number; accepted: number; rejected: number; amount: number; rejection_rate_pct: number | null; rejection_rate_3m_pct?: number | null; basis_label?: string | null };
-  channels: { source: string; clients: number; active_subscriptions: number; accepted: number; amount: number }[];
-  years: number[];
-  transactions_monthly: MonthlyStatusEntry[];
-  activations_monthly: MonthlyStatusEntry[];
-  cancellations_monthly: MonthlyStatusEntry[];
-  debts_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
-  transactions_effective_monthly: (MonthlyStatusEntry & { charge_status: "pagada" | "rechazada" })[];
-  alerts?: AlertWire[];
-  pending_payments?: number;
-  sync_success_rate_pct?: number | null;
-  churn_rate_pct?: number;
-};
 export type GeneralClient = { rut: string; name: string; origins: string[]; active_origins: string[] };
 export type GeneralClients = { items: GeneralClient[]; total: number; offset: number; limit: number };
 export type GeneralSubscription = { id: string; platform: string; rut: string; client: string; status: string; started_at: string | null; ended_at: string | null; amount: string | null; currency: string | null; last_paid_date: string | null; secondary_status: string };

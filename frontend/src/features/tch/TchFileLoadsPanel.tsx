@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { friendlyError, getJson } from "../../api";
 import { label } from "../../i18n/label";
 import {
-  adaptTchFileLoads, resultBadgeTone, shortDateTime, shortHash, type TchFileLoad, type TchFileLoadsWire,
+  adaptTchFileLoads, controlBadge, controlDetail, resultBadgeTone, shortDateTime, shortHash, type TchFileLoad, type TchFileLoadsWire,
 } from "./tchFileLoadsAdapter";
 
+const count = (value: number | null | undefined): string => (value === null || value === undefined ? "—" : value.toLocaleString("es-CL"));
+
 /**
- * Archivos cargados (TCH-PAR-11): por reporte Excel, la fecha de carga, el hash, el mes, las filas y el resultado.
- * Se muestra solo con el permiso `sync_runs.view` (el mismo del endpoint); no hay datos personales.
+ * Archivos cargados (TCH-PAR-11): por reporte Excel, la fecha de carga, el hash, el mes, el resultado y la
+ * conciliación del archivo: filas leídas, insertadas, actualizadas, omitidas y con error (suscripciones + cuotas) y si
+ * el mes del reporte cuadra con el control del propio Excel. Se muestra solo con el permiso `sync_runs.view` (el
+ * mismo del endpoint); no hay datos personales.
  */
 export function TchFileLoadsPanel() {
   const [files, setFiles] = useState<TchFileLoad[] | null>(null);
@@ -35,15 +39,34 @@ export function TchFileLoadsPanel() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Fecha de carga</th><th>Archivo</th><th>Mes</th><th>Filas</th><th>Hash (sha256)</th><th>Resultado</th></tr>
+              <tr>
+                <th>Fecha de carga</th><th>Archivo</th><th>Mes</th><th>Leídas</th><th>Insertadas</th><th>Actualizadas</th>
+                <th>Omitidas</th><th>Con error</th><th>Control del Excel</th><th>Hash (sha256)</th><th>Resultado</th>
+              </tr>
             </thead>
             <tbody>
-              {files.map((file) => (
+              {files.map((file) => {
+                const badge = controlBadge(file.control);
+                const detail = controlDetail(file.control);
+                return (
                 <tr key={file.sha256}>
                   <td className="mono">{shortDateTime(file.loadedAt)}</td>
                   <td>{file.fileName}</td>
                   <td className="mono">{file.period ?? "—"}</td>
-                  <td className="mono">{file.rows === null ? "—" : file.rows.toLocaleString("es-CL")}</td>
+                  {/* Sin conciliación guardada (archivo anterior a TCH-PAR-11) se muestran las filas cargadas como leídas. */}
+                  <td className="mono num">{count(file.counts ? file.counts.read : file.rows)}</td>
+                  <td className="mono num">{count(file.counts?.inserted)}</td>
+                  <td className="mono num">{count(file.counts?.updated)}</td>
+                  <td className="mono num">{count(file.counts?.skipped)}</td>
+                  <td className="mono num">{count(file.counts?.errors)}</td>
+                  <td>
+                    {file.result === "fallido" ? "—" : (
+                      <span className={`badge badge-${badge.tone}`} title={detail ?? "El archivo no trae control para el mes del reporte"}>
+                        {badge.text}
+                      </span>
+                    )}
+                    {detail && file.control?.matches === false ? <p className="muted-copy mono">{detail}</p> : null}
+                  </td>
                   <td className="mono" title={file.sha256}>{shortHash(file.sha256)}</td>
                   <td>
                     <span className={`badge badge-${resultBadgeTone(file.result)}`} title={file.error ?? undefined}>
@@ -52,7 +75,8 @@ export function TchFileLoadsPanel() {
                     {file.result === "fallido" && file.error ? <p className="muted-copy">{file.error}</p> : null}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

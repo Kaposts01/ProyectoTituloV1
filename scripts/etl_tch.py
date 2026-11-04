@@ -24,7 +24,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
-from sqlalchemy import and_, case, func, or_, select, true
+from sqlalchemy import and_, case, func, literal_column, or_, select, true
 
 from app.db.session import SessionLocal, engine
 from app.models.etl_run import EtlRun
@@ -1496,6 +1496,10 @@ def _load_bank_catalog(db, rows: list[dict]) -> int:
     return len(to_insert)
 
 
+# PostgreSQL: en INSERT .. ON CONFLICT DO UPDATE .. RETURNING, `xmax = 0` marca la fila insertada (no la actualizada).
+_INSERTED_FLAG = literal_column("(xmax = 0)").label("inserted")
+
+
 def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
     # 1. Pre-cargar catálogos en batch (ON CONFLICT DO NOTHING)
     _bulk_upsert_catalogs(db, rows)
@@ -1530,6 +1534,7 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
 
     # Chunk para no superar los 65535 parámetros de PostgreSQL (24 cols x 2700 filas ~= 64800)
     CHUNK_SUBSCRIPTIONS = 2500
+    inserted = 0  # TCH-PAR-11: nuevas vs actualizadas por RETURNING (xmax = 0 solo en una fila recien insertada)
     for i in range(0, len(unique_subscriptions), CHUNK_SUBSCRIPTIONS):
         chunk = unique_subscriptions[i : i + CHUNK_SUBSCRIPTIONS]
         stmt = pg_insert(TchSubscription).values(chunk).on_conflict_do_update(
@@ -1569,10 +1574,10 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
                 "raw_payload": pg_insert(TchSubscription).excluded.raw_payload,
             },
         )
-        db.execute(stmt)
+        inserted += sum(1 for row in db.execute(stmt.returning(_INSERTED_FLAG)) if row.inserted)
     db.flush()
 
-    return len(unique_subscriptions), 0, 0
+    return inserted, len(unique_subscriptions) - inserted, 0
 
 
 _TX_OPTIONAL = {
@@ -1636,7 +1641,7 @@ def _transaction_upsert_set(stmt, table) -> dict:
     }
 
 
-def _load_transactions(db, rows: list[dict], file_name: str | None = None) -> int:
+def _load_transactions(db, rows: list[dict], file_name: str | None = None, stats: dict | None = None) -> int:
     """Upsert por ``dedupe_key`` (ficha|periodo|cuota). Devuelve cuantas cuotas distintas trae el lote.
 
     Si una misma cuota aparece varias veces en el lote (p. ej. rechazada y luego aceptada en el mismo reporte), las
@@ -1659,14 +1664,21 @@ def _load_transactions(db, rows: list[dict], file_name: str | None = None) -> in
         layers[index].append({"id": uuid.uuid4(), **_TX_OPTIONAL, **row})
 
     table = TchTransaction.__table__
+    inserted = 0
     for layer in layers:
         for i in range(0, len(layer), CHUNK):
             stmt = pg_insert(TchTransaction).values(layer[i : i + CHUNK])
-            db.execute(
-                stmt.on_conflict_do_update(
-                    constraint="uq_tch_transaccion_dedupe_key", set_=_transaction_upsert_set(stmt, table)
-                )
+            upsert = stmt.on_conflict_do_update(
+                constraint="uq_tch_transaccion_dedupe_key", set_=_transaction_upsert_set(stmt, table)
             )
+            if stats is None:
+                db.execute(upsert)
+            else:
+                inserted += sum(1 for row in db.execute(upsert.returning(_INSERTED_FLAG)) if row.inserted)
+    if stats is not None:
+        # TCH-PAR-11: cuotas distintas nuevas y ya existentes (una repeticion dentro del lote no cuenta dos veces).
+        stats["insertadas"] = inserted
+        stats["actualizadas"] = len(occurrences) - inserted
     return len(occurrences)
 
 
@@ -1867,14 +1879,19 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
     if n_banks:
         log.info(f"  Bancos nuevos: {n_banks}")
 
-    control_rows = _load_monthly_collection(db, _transform_monthly_collection(book))
+    collection_rows = _transform_monthly_collection(book)
+    control_rows = _load_monthly_collection(db, collection_rows)
     file_totals["controles"] = control_rows
     if control_rows:
         log.info(f"  Controles mensuales: {control_rows}")
 
+    # TCH-PAR-11: filas de datos leidas por tipo (solo conteos; nada del contenido).
+    read = {"suscripciones": 0, "cuotas_cargos": 0}
+
     # --- VIGENTES ---
     df_active = _read_sheet(book, SHEET_ACTIVE)
     if df_active is not None:
+        read["suscripciones"] += len(df_active)
         rows_active = _transform_subscriptions(df_active, "VIGENTE")
         transaction_rows = _transform_charge_history(df_active, report_name)
         has_portfolio = bool(rows_active)
@@ -1891,6 +1908,7 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
     # --- ELIMINADOS ---
     df_deleted = _read_sheet(book, SHEET_DELETED)
     if df_deleted is not None:
+        read["suscripciones"] += len(df_deleted)
         rows_deleted = _transform_subscriptions(df_deleted, "ELIMINADA")
         transaction_rows += _transform_charge_history(df_deleted, report_name)
         file_numbers.update(r["numero_ficha"] for r in rows_deleted)
@@ -1903,6 +1921,7 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
     # --- RECHAZADOS (mandatos) ---
     df_rejected_mandates = _read_sheet(book, SHEET_REJECTED_MANDATES)
     if df_rejected_mandates is not None:
+        read["suscripciones"] += len(df_rejected_mandates)
         rows_rejected_mandates = _transform_subscriptions(df_rejected_mandates, "RECHAZADA")
         # Sin historial: los mandatos de esta hoja nunca cobraron (TCH-PAR-04).
         file_numbers.update(r["numero_ficha"] for r in rows_rejected_mandates)
@@ -1917,12 +1936,15 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
 
     # --- CARGOS --- (primero los rechazados: si la misma cuota figura tambien aceptada en el reporte, la aceptada
     # se aplica despues, es el estado final, y el rechazo queda como atributo `rechazo_previo*`).
+    history_rows = len(transaction_rows)  # cuotas del historial mensual de las hojas de cartera (VIGENTES/ELIMINADOS)
     df_rejected = _read_sheet(book, SHEET_REJECTED_CHARGES)
     if df_rejected is not None:
+        read["cuotas_cargos"] += len(df_rejected)
         transaction_rows += _transform_transactions(df_rejected, "RECHAZADA", report_name)
 
     df_accepted = _read_sheet(book, SHEET_ACCEPTED_CHARGES)
     if df_accepted is not None:
+        read["cuotas_cargos"] += len(df_accepted)
         transaction_rows += _transform_transactions(df_accepted, "ACEPTADA", report_name)
 
     # "El ultimo reporte gana": cada fila lleva el mes del reporte que la trajo. Se procesan TODAS las ventanas de
@@ -1930,7 +1952,8 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
     report_period = _report_period(filepath)
     for row in transaction_rows:
         row["reporte_periodo"] = report_period
-    n_transactions = _load_transactions(db, transaction_rows, report_name)
+    transaction_stats: dict = {}
+    n_transactions = _load_transactions(db, transaction_rows, report_name, stats=transaction_stats)
     file_totals["trans"] = n_transactions
     log.info(f"  Transacciones: {n_transactions}")
 
@@ -1943,11 +1966,80 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
     if any(control_counts.values()):
         log.info("  Controles adicionales: " + ", ".join(f"{k}={v}" for k, v in control_counts.items()))
 
+    file_totals["conciliacion"] = file_reconciliation(
+        read=read,
+        history_rows=history_rows,
+        subscriptions=(file_totals["sus_ins"], file_totals["sus_upd"], file_totals["err"]),
+        transactions=transaction_stats,
+        transaction_rows=transaction_rows,
+        control_rows=collection_rows,
+        period=control_period,
+    )
+
     future_months = _purge_future_collection(db)
     if future_months:
         log.info(f"  Meses futuros en cero eliminados del control mensual: {future_months}")
 
     return file_totals
+
+
+def file_reconciliation(
+    *,
+    read: dict[str, int],
+    history_rows: int,
+    subscriptions: tuple[int, int, int],
+    transactions: dict,
+    transaction_rows: list[dict],
+    control_rows: list[dict],
+    period: str | None,
+    tolerance: float | None = None,
+) -> dict:
+    """TCH-PAR-11: conciliacion de UN archivo (solo conteos y periodos; nada personal).
+
+    Filas: leidas, insertadas, actualizadas, omitidas y con error, por suscripciones y cuotas. «Omitidas» = leidas que
+    no quedaron como fila distinta (sin ficha o sin «Cuota Mes», o repetidas en el mismo archivo). Las cuotas leidas
+    suman las filas de las hojas CARGOS y las del historial mensual de la cartera.
+
+    Control: aceptadas y rechazadas del mes del reporte en el detalle del propio archivo (estado final por cuota) contra
+    el control mensual del mismo Excel (hojas RECAUDACION HISTORICA). ``cuadra`` = desvio <= la tolerancia por mes de
+    la conciliacion (TCH-PAR-07); ``None`` si el archivo no trae control para ese mes.
+    """
+    tolerance = DEFAULT_TOLERANCE_MONTH if tolerance is None else tolerance
+    sus_ins, sus_upd, sus_err = subscriptions
+    sus_read = read.get("suscripciones", 0)
+    tx_read = read.get("cuotas_cargos", 0) + history_rows
+    tx_ins = int(transactions.get("insertadas", 0))
+    tx_upd = int(transactions.get("actualizadas", 0))
+    rows = {
+        "suscripciones": {
+            "leidas": sus_read, "insertadas": sus_ins, "actualizadas": sus_upd,
+            "omitidas": max(sus_read - sus_ins - sus_upd - sus_err, 0), "con_error": sus_err,
+        },
+        "cuotas": {
+            "leidas": tx_read, "insertadas": tx_ins, "actualizadas": tx_upd,
+            "omitidas": max(tx_read - tx_ins - tx_upd, 0), "con_error": 0,
+        },
+    }
+    rows["total"] = {key: sum(group[key] for group in rows.values()) for key in rows["suscripciones"]}
+
+    control = next((row for row in control_rows if row.get("periodo") == period), None) if period else None
+    check: dict[str, Any] = {"periodo": period, "fuente": "RECAUDACION HISTORICA", "cuadra": None}
+    if control is not None:
+        final: dict[str, str] = {}
+        for row in transaction_rows:  # el ultimo estado de cada cuota gana, como en la carga
+            if row.get("periodo") == period and row.get("dedupe_key"):
+                final[row["dedupe_key"]] = row.get("estado") or ""
+        accepted = sum(1 for status in final.values() if status == "ACEPTADA")
+        rejected = sum(1 for status in final.values() if status == "RECHAZADA")
+        control_accepted = int(control["aceptadas_cantidad"])
+        control_rejected = int(control["rechazadas_cantidad"])
+        check.update(
+            archivo_aceptadas=accepted, archivo_rechazadas=rejected,
+            control_aceptadas=control_accepted, control_rechazadas=control_rejected,
+            cuadra=_relative_gap(accepted, control_accepted) <= tolerance
+            and _relative_gap(rejected, control_rejected) <= tolerance,
+        )
+    return {"filas": rows, "control": check}
 
 
 # ---------------------------------------------------------------------------
@@ -2092,7 +2184,8 @@ def reload_full(
             t = _process_file(file_name, db)
             file_rows = t["sus_ins"] + t["sus_upd"] + t["trans"] + t["controles"]
             report_registry.register(
-                db, sha, file_name.name, file_name.stat().st_size, rows_loaded=file_rows, report_period=t.get("periodo_reporte")
+                db, sha, file_name.name, file_name.stat().st_size, rows_loaded=file_rows, report_period=t.get("periodo_reporte"),
+                stats=t.get("conciliacion"),
             )
             latest = t
             total += file_rows
@@ -2211,7 +2304,7 @@ def import_incremental_file(filepath: Path, run_id=None, display_name: str | Non
         report_period = _report_period(Path(file_name)) or totals.get("periodo_reporte")
         report_registry.register(
             db, sha, file_name, filepath.stat().st_size, rows_loaded=total,
-            report_period=report_period, etl_run_id=run.id,
+            report_period=report_period, etl_run_id=run.id, stats=totals.get("conciliacion"),
         )
         if _is_latest_report(latest_loaded, _report_period(filepath)):
             cancellations = _apply_implicit_cancellations(db, totals["fichas"])
@@ -2375,7 +2468,8 @@ def main(argv: list[str] | None = None) -> None:
                 raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
             t = _process_file(file_name, db)
             report_registry.register(
-                db, sha, file_name.name, file_name.stat().st_size, report_period=t.get("periodo_reporte"), etl_run_id=run_id
+                db, sha, file_name.name, file_name.stat().st_size, report_period=t.get("periodo_reporte"), etl_run_id=run_id,
+                stats=t.get("conciliacion"),
             )
             if _is_latest_report(latest_loaded, _report_period(file_name)):
                 cancellations = _apply_implicit_cancellations(db, t["fichas"])

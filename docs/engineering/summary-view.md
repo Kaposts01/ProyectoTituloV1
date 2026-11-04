@@ -46,9 +46,9 @@ Reglas verificadas por pruebas:
 | Ruta | Contenido |
 | --- | --- |
 | `/central/resumen` | Resumen unificado (nuevo) |
-| `/central/resumen-clasico` | Dashboard anterior, transitoria, fuera del menú; se retira en UX-15 |
+| `/central/resumen-clasico` | Retirada en UX-15 (2026-11-04): redirige a `/central/resumen` reemplazando el historial |
 
-Las pruebas `general.characterization` y `etl.i18n` apuntan ahora a la ruta clásica, de forma deliberada. La vista inicial ya no pide `staging/summary` ni `staging/dashboard/general` al abrir un enlace profundo a otra pantalla: queda resuelto el hallazgo 5 de `appcore-extraction.md` en lo relativo al resumen.
+UX-15 (d110 a, revisión visual aprobada en d148) retiró la vista anterior y su código (`GeneralSummaryContent`, `GeneralKpis`, `generalKpiData`, `applyChargeFilter`, `seriesStackedChart` y el estado de modo, año y filtros de `useGeneralDashboard`). La prueba `etl.i18n` cubría solo sus tarjetas por canal y se eliminó; `general.characterization` conserva el panel ETL sobre Socios. La vista inicial no pide `staging/summary` ni `staging/dashboard/general` (hallazgo 5 de `appcore-extraction.md`). Los endpoints del backend siguen disponibles.
 
 ## Qué falta
 

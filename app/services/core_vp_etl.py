@@ -4,8 +4,9 @@ Covers both platforms: virtualpos1 and virtualpos2.
 Run order: client attributes → subscriptions → charges → payments → rejections
 Idempotent: safe to re-run.
 
-Client linkage in subscriptions goes through social_id (RUT) because
-vp_subscriptions.client_external_id is NULL for all records.
+Client linkage in subscriptions prefers a supplied vp_subscriptions.client_external_id. The RUT (social_id) fallback
+is used only when it identifies a single client within the same platform: a RUT shared by two clients links to none
+(REV-01, from origin/sprint-5/estabilizacion-dashboard 1005a26).
 
 Payment → subscription linkage uses client RUT from the payment payload:
   - Exactly 1 subscription for that RUT on that platform → link it
@@ -72,13 +73,19 @@ def _build_identity_index(db: Session) -> dict[tuple[str, str], uuid.UUID | None
     }
 
 
-def _build_social_id_index(db: Session) -> dict[tuple[str, str], str]:
-    """(platform, social_id/RUT) → vp_client.external_id  (first match wins for rare duplicates)"""
-    index: dict[tuple[str, str], str] = {}
+def _build_social_id_index(db: Session) -> dict[tuple[str, str], str | None]:
+    """(platform, social_id/RUT) → vp_client.external_id; None marks a RUT shared by two or more clients (ambiguous).
+
+    Before REV-01 the first match won, which could attach a subscription or payment to the wrong person (ADR-001: the
+    RUT is not a universal identity).
+    """
+    index: dict[tuple[str, str], str | None] = {}
     for c in db.scalars(select(VpClient).where(VpClient.social_id.isnot(None))):
         key = (c.platform, c.social_id)
-        if key not in index:
-            index[key] = c.external_id
+        if key in index and index[key] != c.external_id:
+            index[key] = None
+        else:
+            index.setdefault(key, c.external_id)
     return index
 
 
@@ -130,7 +137,7 @@ def _materialize_client_attributes(db: Session, ext_to_core: dict) -> int:
 
 def _materialize_subscriptions(
     db: Session,
-    social_to_ext: dict[tuple[str, str], str],
+    social_to_ext: dict[tuple[str, str], str | None],
     ext_to_core: dict[tuple[str, str], uuid.UUID | None],
 ) -> int:
     subscriptions = db.scalars(select(VpSubscription)).all()
@@ -138,7 +145,10 @@ def _materialize_subscriptions(
     current_amounts = load_current_amount(db, family="vp")
     rows = []
     for s in subscriptions:
-        ext_id = social_to_ext.get((s.platform, s.client_social_id)) if s.client_social_id else None
+        # An explicit but unresolved client ID must not fall back to a personal attribute (REV-01).
+        ext_id = s.client_external_id
+        if not ext_id and s.client_social_id:
+            ext_id = social_to_ext.get((s.platform, s.client_social_id))
         client_id = ext_to_core.get((s.platform, ext_id)) if ext_id else None
         rows.append({
             "id": uuid.uuid4(),
@@ -305,7 +315,11 @@ def _materialize_charges(db: Session) -> int:
 # ── Paso 5: pagos ─────────────────────────────────────────────────────────────
 
 def _build_rut_to_sub_index(db: Session) -> dict[tuple[str, str], list[uuid.UUID]]:
-    """(platform, rut) → list of CoreSubscription.id for that platform+rut."""
+    """(platform, rut) → list of CoreSubscription.id for that platform+rut.
+
+    A RUT shared by two or more VP clients of the platform is left out (REV-01): the payment stays unlinked.
+    """
+    social_index = _build_social_id_index(db)
     index: dict[tuple[str, str], list[uuid.UUID]] = {}
     for row in db.execute(
         select(VpSubscription.platform, VpSubscription.client_social_id, CoreSubscription.id)
@@ -323,6 +337,8 @@ def _build_rut_to_sub_index(db: Session) -> dict[tuple[str, str], list[uuid.UUID
         .distinct(VpSubscription.platform, VpSubscription.client_social_id, CoreSubscription.id)
     ):
         key = (row.platform, row.client_social_id)
+        if key in social_index and social_index[key] is None:
+            continue
         index.setdefault(key, []).append(row.id)
     return index
 

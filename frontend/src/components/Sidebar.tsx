@@ -13,7 +13,7 @@ export type SidebarProps = {
   onToggleDetail: () => void;
   theme: "light" | "dark";
   onDashboard: () => void;
-  generalView: "summary" | "classic" | "clients" | "subscriptions" | "charges" | "report";
+  generalView: "summary" | "clients" | "subscriptions" | "charges" | "report";
   onGeneralClients: () => void;
   onGeneralSubscriptions: () => void;
   /** Cobros unificados (UX-09). */

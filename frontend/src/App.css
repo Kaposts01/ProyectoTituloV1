@@ -663,6 +663,8 @@ h1, h2, h3, .eyebrow {
   font-size: 0.88em;
   letter-spacing: 0;
 }
+/* Columnas numéricas de tabla: alineadas a la derecha (DESIGN.md, Tables). */
+td.num { text-align: right; }
 
 /* ── Menú de un solo nivel (UX-05, D29) ─────────────────────────────────
    Grupos con etiqueta, ítems planos, salud global compacta, buscador y el grupo

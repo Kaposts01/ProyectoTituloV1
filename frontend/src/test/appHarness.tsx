@@ -83,9 +83,6 @@ export function mountApp(path: string, handlers: Handler[] = [], options: { perm
     ["GET", "/api/v1/sync-runs/health", []],
     // Resumen unificado (/central/resumen): respuesta sintética por defecto para no ensuciar las pruebas ajenas.
     ["GET", "/api/v1/dashboard/general", () => rawSummary()],
-    // Vista anterior (/central/resumen-clasico): pide el resumen de staging y el dashboard general.
-    ["GET", "/api/v1/staging/summary", { sources: [] }],
-    ["GET", "/api/v1/staging/dashboard/general", { clients: 0, subscriptions: { active: 0, amount: 0 }, transactions: { total: 0, accepted: 0, rejected: 0, amount: 0, rejection_rate_pct: null }, channels: [], years: [], transactions_monthly: [], activations_monthly: [], cancellations_monthly: [], debts_monthly: [], transactions_effective_monthly: [] }],
   ];
   const table = [...handlers, ...defaults];
   vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {

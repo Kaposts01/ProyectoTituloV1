@@ -172,15 +172,15 @@ describe("redirecciones de rutas viejas", () => {
   });
 });
 
-describe("Resumen anterior (transitorio, fuera del menú; se retira con UX-15)", () => {
-  it("/central/resumen-clasico resuelve a la vista clásica, es canónica y está distinta del Resumen del menú", () => {
-    expect(parseRoute("/central/resumen-clasico")).toEqual({ kind: "central", view: "classic" });
-    expect(routePath({ kind: "central", view: "classic" })).toBe("/central/resumen-clasico");
-    expect(legacyRedirectPath("/central/resumen-clasico")).toBeNull();
+describe("Resumen anterior retirado (UX-15)", () => {
+  it("/central/resumen-clasico resuelve al Resumen y se redirige a /central/resumen", () => {
+    expect(parseRoute("/central/resumen-clasico")).toEqual({ kind: "central", view: "summary" });
+    expect(legacyRedirectPath("/central/resumen-clasico")).toBe("/central/resumen");
+    expect(legacyRedirectPath("/central/resumen-clasico/")).toBe("/central/resumen");
     expect(parseRoute("/central/resumen")).toEqual({ kind: "central", view: "summary" });
   });
 
-  it("no figura en el menú ni en el detalle por canal", () => {
+  it("no figura en el menú", () => {
     const paths = menuGroups.flatMap((g) => g.items.map((i) => routePath(menuRoute(i.action))));
     expect(paths).not.toContain("/central/resumen-clasico");
     expect(paths).toContain("/central/resumen");
