@@ -116,7 +116,7 @@ describe("Exportar: listas de staging", () => {
     await appReady();
     await screen.findByRole("button", { name: "VP 1" });
     fireEvent.click(screen.getByRole("button", { name: "VP 1" }));
-    fireEvent.change(screen.getByLabelText("Monto mínimo"), { target: { value: "500" } });
+    fireEvent.change(await screen.findByLabelText("Monto mínimo"), { target: { value: "500" } });
     fireEvent.change(await screen.findByLabelText("Fecha de cargo desde"), { target: { value: "2025-01-01" } });
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/records").at(-1)?.query.get("amount_min")).toBe("500"));
     await listSettled();
