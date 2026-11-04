@@ -93,8 +93,11 @@ def _materialize_subscription(sub: Subscription, payload: dict[str, Any]) -> Non
     sub.status = _as_text(payload.get("status") or (recurring or {}).get("status"))
     sub.amount = _as_text(payload.get("amount") or (recurring or {}).get("amount"))
     sub.currency = _as_text(payload.get("currency_code") or (recurring or {}).get("currency"))
-    sub.suscription_date = _as_text(payload.get("anchor") or (recurring or {}).get("anchor"))
-    sub.canceled_at = _as_text(payload.get("end_date") or (recurring or {}).get("end_date"))
+    # d141 / TK-PAR-05: el alta sale del reporte de Productos (consolidacion); el `anchor` es el proximo cobro y no se
+    # usa como alta. La baja de la API manda; sin ella se conserva la consolidada (p. ej. `deleted_at` del reporte).
+    end_date = _as_text(payload.get("end_date") or (recurring or {}).get("end_date"))
+    if end_date:
+        sub.canceled_at = end_date
 
 
 async def update_customer(db: Session, customer_id: str, changes: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Client:
