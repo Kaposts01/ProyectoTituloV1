@@ -28,6 +28,10 @@ from app.models.tch import TchFileLoad
 SOURCE = "tch_report"
 MARK_RESOURCE_TYPE = "consolidation_mark"
 MARK_EXTERNAL_ID = "tch"
+# TCH-PAR-11: conciliacion por archivo (filas leidas/insertadas/actualizadas/omitidas/con error y control del propio
+# Excel), una fila de ``source_records`` por sha256. Sin migracion: ``tch_file_loads`` no tiene columna para esto.
+# Solo conteos y periodos: nada del contenido del reporte ni datos personales.
+STATS_RESOURCE_TYPE = "file_stats"
 
 
 def file_sha256(path: Path) -> str:
@@ -59,10 +63,12 @@ def register(
     *,
     report_period: str | None = None,
     etl_run_id: uuid.UUID | None = None,
+    stats: dict | None = None,
 ) -> None:
     """Registra el reporte cargado; idempotente por sha256. Guarda solo nombre, tamano, mes y conteo, no su contenido.
 
-    Si el mismo contenido tenia un intento fallido, la fila pasa a 'cargado' con los datos de esta carga.
+    Si el mismo contenido tenia un intento fallido, la fila pasa a 'cargado' con los datos de esta carga. ``stats``
+    (TCH-PAR-11) es la conciliacion del archivo y se guarda aparte (``source_records``).
     """
     values = {
         "file_sha256": sha256,
@@ -83,6 +89,40 @@ def register(
         )
     )
     db.flush()
+    if stats is not None:
+        record_stats(db, sha256, stats)
+
+
+def _only_counts(value):
+    """Copia de la conciliacion con solo claves de texto y valores enteros, booleanos, None o texto corto."""
+    if isinstance(value, dict):
+        return {str(key): _only_counts(item) for key, item in value.items()}
+    if isinstance(value, bool) or value is None or isinstance(value, int):
+        return value
+    return str(value)[:40]
+
+
+def record_stats(db: Session, sha256: str, stats: dict) -> None:
+    """Guarda (o reemplaza) la conciliacion de un archivo. No hace commit."""
+    statement = insert(SourceRecord).values(
+        source=SOURCE, resource_type=STATS_RESOURCE_TYPE, external_id=sha256, payload=_only_counts(stats)
+    )
+    db.execute(statement.on_conflict_do_update(constraint="uq_source_record", set_={"payload": statement.excluded.payload}))
+    db.flush()
+
+
+def stats_by_sha(db: Session, sha256s: list[str]) -> dict[str, dict]:
+    """Conciliacion guardada por sha256 (los archivos sin ella, p. ej. cargados antes de TCH-PAR-11, no aparecen)."""
+    if not sha256s:
+        return {}
+    rows = db.execute(
+        select(SourceRecord.external_id, SourceRecord.payload).where(
+            SourceRecord.source == SOURCE,
+            SourceRecord.resource_type == STATS_RESOURCE_TYPE,
+            SourceRecord.external_id.in_(sha256s),
+        )
+    )
+    return {row.external_id: row.payload for row in rows if isinstance(row.payload, dict)}
 
 
 def register_failure(
@@ -130,6 +170,9 @@ def display_result(load: TchFileLoad) -> str:
 
 def clear(db: Session) -> None:
     db.execute(delete(TchFileLoad))
+    db.execute(
+        delete(SourceRecord).where(SourceRecord.source == SOURCE, SourceRecord.resource_type == STATS_RESOURCE_TYPE)
+    )
     db.flush()
 
 

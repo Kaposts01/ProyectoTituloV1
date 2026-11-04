@@ -183,6 +183,17 @@ intento fallido queda registrado con un texto genérico (el detalle está en `et
 mismo archivo. `GET /api/v1/tch/archivos` (permiso `sync_runs.view`) lo expone y el resumen TCH lo muestra en la
 sección «Archivos cargados».
 
+Conciliación por archivo (TCH-PAR-11, sin migración): cada carga guarda en `source_records`
+(`source='tch_report'`, `resource_type='file_stats'`, `external_id=<sha256>`) solo conteos: filas leídas, insertadas,
+actualizadas, omitidas y con error, por suscripciones (VIGENTES, ELIMINADOS, RECHAZADOS) y cuotas (hojas CARGOS más
+el historial mensual de la cartera). Insertada o actualizada sale de `RETURNING (xmax = 0)` del upsert; omitida es
+una fila leída que no quedó como fila distinta (sin ficha, sin «Cuota Mes» o repetida en el archivo). Además compara
+las aceptadas y rechazadas del mes del reporte en el detalle del archivo (estado final por cuota) con el control
+mensual del mismo Excel (hojas de RECAUDACIÓN HISTÓRICA), con la tolerancia por mes de TCH-PAR-07: «cuadra», «no
+cuadra» o «sin control» si el Excel no trae ese mes. La hoja KPI (`tch_kpi_reporte`) no se usa para esto porque sus
+rótulos no tienen un total de cargos estable. El endpoint lo entrega en `conciliacion` (null en archivos cargados
+antes de este cambio) y la carga completa lo reinicia junto con el registro.
+
 ## Brechas y limitaciones conocidas
 
 | ID | Tipo | Descripción |

@@ -177,3 +177,92 @@ def test_list_is_newest_first(db_session) -> None:
     registry.register(db_session, second, "b.xlsx", 1)
     order = [load.file_sha256 for load in registry.list_loads(db_session, 200) if load.file_sha256 in {first, second}]
     assert order == [second, first]
+
+
+# --- TCH-PAR-11 (resto): conciliacion por archivo ------------------------------------------------------------------
+
+
+def test_import_records_row_counts_and_control_check_per_file(db_session, tmp_path) -> None:
+    upload = layout_a(tmp_path)
+    sha = registry.file_sha256(upload)
+    etl_tch.import_incremental_file(upload, display_name=upload.name)
+
+    item = next(i for i in tch.list_report_files(limit=200)["items"] if i["sha256"] == sha)
+    rows, control = item["conciliacion"]["filas"], item["conciliacion"]["control"]
+    # 4 fichas leidas (2 VIGENTES, 1 ELIMINADOS, 1 RECHAZADOS), todas nuevas.
+    assert rows["suscripciones"] == {"leidas": 4, "insertadas": 4, "actualizadas": 0, "omitidas": 0, "con_error": 0}
+    cuotas = rows["cuotas"]
+    assert cuotas["insertadas"] > 0 and cuotas["actualizadas"] == 0
+    # La cuota 6 de dic de la ficha 961001 viene en el historial y en ambas hojas CARGOS: queda una sola fila.
+    assert cuotas["omitidas"] == cuotas["leidas"] - cuotas["insertadas"] >= 2
+    assert rows["total"]["leidas"] == rows["suscripciones"]["leidas"] + cuotas["leidas"]
+    # Control del propio Excel para dic-2024: 2 aceptadas y 0 rechazadas, igual que el detalle del archivo.
+    assert control["periodo"] == "2024-12"
+    assert (control["archivo_aceptadas"], control["archivo_rechazadas"]) == (2, 0)
+    assert (control["control_aceptadas"], control["control_rechazadas"]) == (2, 0)
+    assert control["cuadra"] is True
+    assert "961001" not in str(item["conciliacion"]) and "@" not in str(item["conciliacion"])
+
+
+def test_reloading_the_same_rows_counts_updates_not_inserts(db_session, tmp_path) -> None:
+    upload = layout_a(tmp_path)
+    etl_tch.import_incremental_file(upload, display_name=upload.name)
+    # Segunda pasada sobre los mismos datos (como una recarga): todo es actualizacion.
+    totals = etl_tch._process_file(upload, db_session)
+    rows = totals["conciliacion"]["filas"]
+    assert rows["suscripciones"]["insertadas"] == 0 and rows["suscripciones"]["actualizadas"] == 4
+    assert rows["cuotas"]["insertadas"] == 0 and rows["cuotas"]["actualizadas"] > 0
+
+
+def _control_check(rows, controls, period="2026-09"):
+    return etl_tch.file_reconciliation(
+        read={"suscripciones": 0, "cuotas_cargos": len(rows)}, history_rows=0, subscriptions=(0, 0, 0),
+        transactions={"insertadas": len(rows), "actualizadas": 0}, transaction_rows=rows, control_rows=controls,
+        period=period,
+    )["control"]
+
+
+def _tx(key: str, status: str, period: str = "2026-09") -> dict:
+    return {"dedupe_key": key, "estado": status, "periodo": period}
+
+
+def test_control_check_flags_a_file_that_does_not_match_its_own_control() -> None:
+    control = [{"periodo": "2026-09", "aceptadas_cantidad": 3, "rechazadas_cantidad": 1}]
+    rows = [_tx("1|2026-09|1", "ACEPTADA"), _tx("2|2026-09|1", "ACEPTADA"), _tx("3|2026-09|1", "RECHAZADA")]
+    check = _control_check(rows, control)
+    assert check["cuadra"] is False
+    assert (check["archivo_aceptadas"], check["control_aceptadas"]) == (2, 3)
+
+    rows.append(_tx("4|2026-09|1", "ACEPTADA"))
+    assert _control_check(rows, control)["cuadra"] is True
+
+
+def test_control_check_uses_the_final_state_of_each_installment_and_only_the_report_month() -> None:
+    control = [{"periodo": "2026-09", "aceptadas_cantidad": 1, "rechazadas_cantidad": 0}]
+    rows = [_tx("1|2026-09|1", "RECHAZADA"), _tx("1|2026-09|1", "ACEPTADA"), _tx("2|2026-08|1", "RECHAZADA", "2026-08")]
+    check = _control_check(rows, control)
+    assert (check["archivo_aceptadas"], check["archivo_rechazadas"], check["cuadra"]) == (1, 0, True)
+
+
+def test_control_check_is_null_without_a_control_row_for_the_month() -> None:
+    one = [_tx("1|2026-09|1", "ACEPTADA")]
+    assert _control_check(one, [])["cuadra"] is None
+    control = [{"periodo": "2026-09", "aceptadas_cantidad": 1, "rechazadas_cantidad": 0}]
+    assert _control_check(one, control, period=None)["cuadra"] is None
+
+
+def test_stats_keep_only_counts_and_are_cleared_with_the_registry(db_session) -> None:
+    sha = _sha()
+    stats = {"filas": {"total": {"leidas": 3}}, "control": {"cuadra": None, "x": 1.5}}
+    registry.register(db_session, sha, "a.xlsx", 1, stats=stats)
+    stored = registry.stats_by_sha(db_session, [sha])[sha]
+    assert stored["filas"]["total"]["leidas"] == 3 and stored["control"] == {"cuadra": None, "x": "1.5"}
+    registry.clear(db_session)
+    assert registry.stats_by_sha(db_session, [sha]) == {}
+
+
+def test_a_file_without_stats_lists_null_reconciliation(db_session) -> None:
+    sha = _sha()
+    registry.register(db_session, sha, "viejo.xlsx", 1, rows_loaded=2)
+    item = next(i for i in tch.list_report_files(limit=200)["items"] if i["sha256"] == sha)
+    assert item["conciliacion"] is None

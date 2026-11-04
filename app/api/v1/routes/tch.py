@@ -724,11 +724,15 @@ def list_report_files(limit: int = Query(50, ge=1, le=200)) -> dict:
     """TCH-PAR-11: registro de reportes Excel cargados, por archivo: fecha, sha256, mes, filas y resultado.
 
     Solo metadatos del archivo (nombre, tamano, hash, conteos): nada del contenido del reporte ni datos personales.
-    `resultado`: cargado, consolidado (ya lo vio la consolidacion TCH) o fallido.
+    `resultado`: cargado, consolidado (ya lo vio la consolidacion TCH) o fallido. `conciliacion` (TCH-PAR-11):
+    `filas` (leidas, insertadas, actualizadas, omitidas, con_error por suscripciones, cuotas y total) y `control`
+    (aceptadas/rechazadas del mes del reporte contra el control del mismo Excel; `cuadra` true/false/null).
     """
     db = _get_db()
     try:
         loads = tch_report_registry.list_loads(db, limit)
+        # TCH-PAR-11: conciliacion por archivo (conteos de filas y control del propio Excel); None si no se guardo.
+        stats = tch_report_registry.stats_by_sha(db, [load.file_sha256 for load in loads])
         return {
             "items": [
                 {
@@ -742,6 +746,7 @@ def list_report_files(limit: int = Query(50, ge=1, le=200)) -> dict:
                     "resultado": tch_report_registry.display_result(load),
                     "error": load.error_message,
                     "etl_run_id": str(load.etl_run_id) if load.etl_run_id else None,
+                    "conciliacion": stats.get(load.file_sha256),
                 }
                 for load in loads
             ],
