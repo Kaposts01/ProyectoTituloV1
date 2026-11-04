@@ -133,10 +133,7 @@ function AppCore() {
   };
   const [profileView, setProfileView] = useState<"summary" | "edit" | null>(null);
   const etl = useEtl(isChannelEnabled);
-  const general = useGeneralDashboard({
-    session, channel, activeSection, tchView, adminOpen, profileView,
-    lastEtlFinishedAt: etl.lastEtlRun?.finished_at, setError, setLoading,
-  });
+  const general = useGeneralDashboard({ session, setError });
   const {
     generalView, setGeneralView, setGeneralClientQuery, generalClientFilter, setGeneralClientFilter, generalClientOffset, setGeneralClientOffset, setGeneralClientDetail, setGeneralSubscriptionQuery, generalSubscriptionFilter, setGeneralSubscriptionFilter, generalSubscriptionOffset, setGeneralSubscriptionOffset,
   } = general;
@@ -239,13 +236,6 @@ function AppCore() {
     setError(null);
     setProfileView(null);
     if (updateUrl) navigate({ kind: "central", view: "summary" });
-  }
-
-  /** Vista anterior del dashboard general (TRANSITORIA, fuera del menú; se retira con UX-15). */
-  function showClassicSummary(updateUrl = true) {
-    showDashboard(false);
-    setGeneralView("classic");
-    if (updateUrl) navigate({ kind: "central", view: "classic" });
   }
 
   function showGeneralClients(updateUrl = true) {
@@ -437,9 +427,11 @@ function AppCore() {
     }
     if (route.kind === "central") {
       if (route.view === "report") showAutoReport(false);
-      else if (route.view === "summary") showDashboard(false);
-      else if (route.view === "classic") showClassicSummary(false);
-      else if (route.view === "charges") showGeneralCharges(false);
+      else if (route.view === "summary") {
+        showDashboard(false);
+        // UX-15: /central/resumen-clasico (retirada) -> /central/resumen (reemplaza el historial).
+        if (legacyRedirectPath(location.pathname)) navigate(route, true);
+      } else if (route.view === "charges") showGeneralCharges(false);
       else if (route.view === "clients") {
         showGeneralClients(false);
         const field = location.searchParams.get("campo");
@@ -654,7 +646,7 @@ function AppCore() {
     />
   ) : null;
 
-  const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} onReport={setReportScope} can={can} />;
+  const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} can={can} />;
 
   const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSubscription={showTchSubscription} onReport={setReportScope} can={can} /> : null;
 

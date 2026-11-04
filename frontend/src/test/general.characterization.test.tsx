@@ -1,144 +1,21 @@
 /**
- * Caracterización del dashboard general de AppCore (UX-04): resumen, clientes y
- * suscripciones consolidados, panel ETL. Datos sintéticos.
+ * Caracterización de las vistas consolidadas de AppCore (UX-04): clientes y suscripciones
+ * consolidados y panel ETL. Datos sintéticos.
  */
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, listSettled, failWith, mountApp, navTop, resetApp, type Handler } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Handler } from "./appHarness";
 
 afterEach(resetApp);
 
-const row = (status: string | null, month: number, count: number, amount: number, extra: Record<string, unknown> = {}) => ({ year: 2025, month, status, count, amount, ...extra });
-
-const general = {
-  clients: 1200,
-  subscriptions: { active: 900, amount: 9000000 },
-  transactions: { total: 500, accepted: 450, rejected: 50, amount: 4500000, rejection_rate_pct: 10, basis_label: null },
-  channels: [
-    { source: "VirtualPOS", clients: 800, active_subscriptions: 600, accepted: 300, amount: 3000000 },
-    { source: "TCH", clients: 400, active_subscriptions: 300, accepted: 150, amount: 1500000 },
-  ],
-  years: [2024, 2025],
-  transactions_monthly: [row("Aceptadas", 3, 90, 900000, { source: "VirtualPOS" }), row("Rechazadas", 3, 10, 100000, { source: "VirtualPOS" })],
-  activations_monthly: [row("VirtualPOS", 3, 20, 200000)],
-  cancellations_monthly: [row("VirtualPOS", 3, 5, 50000)],
-  debts_monthly: [row("VirtualPOS", 3, 12, 120000, { charge_status: "pagada" }), row("VirtualPOS", 3, 3, 30000, { charge_status: "rechazada" })],
-  transactions_effective_monthly: [row("VirtualPOS", 3, 40, 400000, { charge_status: "pagada" }), row("VirtualPOS", 3, 4, 40000, { charge_status: "rechazada" })],
-  alerts: [],
-  pending_payments: 82,
-  sync_success_rate_pct: 98.5,
-  churn_rate_pct: 2.1,
-};
-
-const staging = {
-  sources: [
-    { source: "virtualpos", records: 1000, resources: { client: 500, subscription: 300 }, last_sync: { status: "completed", records_processed: 1000, finished_at: "2025-03-31T10:00:00" } },
-  ],
-};
-
-const summaryHandlers = (dashboard: unknown = general): Handler[] => [
-  ["GET", "/api/v1/staging/summary", staging],
-  ["GET", "/api/v1/staging/dashboard/general", dashboard],
-];
-
-// Vista anterior del dashboard general: desde el Resumen unificado vive en la ruta transitoria /central/resumen-clasico
-// (el nombre del bloque se conserva para que los snapshots del marcado sigan siendo los mismos y prueben que no cambió).
-describe("Dashboard general (/central/resumen)", () => {
-  it("pide el resumen de staging y el dashboard general, y muestra cabecera, métricas, gráficos y tarjetas por canal", async () => {
-    const app = mountApp("/central/resumen-clasico", summaryHandlers());
-    await appReady();
-    expect(await screen.findByLabelText("Métricas generales")).toBeTruthy();
-    expect(app.exact("GET", "/api/v1/staging/summary")).toHaveLength(1);
-    expect(app.exact("GET", "/api/v1/staging/dashboard/general")).toHaveLength(1);
-    expect(screen.getByText("OPERACIONES RECURRENTES")).toBeTruthy();
-    expect(screen.getByText("Staging local")).toBeTruthy();
-    expect(screen.getByText("RESUMEN OPERATIVO")).toBeTruthy();
-    const metrics = screen.getByLabelText("Métricas generales");
-    expect(within(metrics).getByText("Clientes")).toBeTruthy();
-    expect(within(metrics).getByText("1.200")).toBeTruthy();
-    expect(within(metrics).getByText("Activaciones")).toBeTruthy();
-    expect(within(metrics).getByText("Transacciones pagadas")).toBeTruthy();
-    expect(within(metrics).getByText("90")).toBeTruthy();
-    expect(screen.getByLabelText("KPIs generales")).toBeTruthy();
-    for (const title of ["Recaudación mensual por canal", "Altas y bajas por mes", "Comparativa por canal", "Estado mensual consolidado", "Activaciones mensuales por canal", "Bajas mensuales por canal", "Deudas mensuales por canal", "Transacciones efectivas por canal"]) {
-      expect(screen.getByText(title)).toBeTruthy();
-    }
-    expect(screen.getByText("600 suscripciones vigentes")).toBeTruthy();
-    expect(screen.getByText("Carga staging")).toBeTruthy();
-    expect(screen.getByText("1.000 registros")).toBeTruthy();
-    expect(screen.getByText("Histórico TCH integrado")).toBeTruthy();
-    expect(screen.getByText("Base de datos unificada")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "↻ Sync completo" })).toBeTruthy();
-    expect((screen.getByLabelText("Año dashboard general") as HTMLSelectElement).value).toBe("2025");
-    await listSettled();
-    expect(contentHtml()).toMatchSnapshot();
-  });
-
-  it("antes de recibir datos muestra «Cargando indicadores consolidados...»", async () => {
-    mountApp("/central/resumen-clasico", [["GET", "/api/v1/staging/dashboard/general", () => new Promise(() => {})], ["GET", "/api/v1/staging/summary", staging]]);
-    await appReady();
-    expect(await screen.findByText("Cargando indicadores consolidados...")).toBeTruthy();
-    expect(screen.getByText("KPIs y actividad mensual calculados desde las entidades centralizadas y TCH.")).toBeTruthy();
-  });
-
-  it("muestra el error cuando falla el dashboard", async () => {
-    mountApp("/central/resumen-clasico", [["GET", "/api/v1/staging/summary", staging], ["GET", "/api/v1/staging/dashboard/general", failWith(500, "falla simulada")]]);
-    await appReady();
-    expect(await screen.findByText("falla simulada")).toBeTruthy();
-  });
-
-  it("alterna cantidad/monto, cambia el año, filtra deudas y transacciones y abre el reporte", async () => {
-    mountApp("/central/resumen-clasico", summaryHandlers());
-    await appReady();
-    const metrics = await screen.findByLabelText("Métricas generales");
-    fireEvent.click(screen.getByRole("button", { name: "Monto" }));
-    expect(metrics.querySelector(".metric-value-money")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Año dashboard general"), { target: { value: "2024" } });
-    expect((screen.getByLabelText("Año dashboard general") as HTMLSelectElement).value).toBe("2024");
-    const debts = screen.getByText("Deudas mensuales por canal").closest("article")!;
-    fireEvent.click(within(debts).getByRole("button", { name: "Rechazada" }));
-    expect(within(debts).getByRole("button", { name: "Rechazada" }).className).toBe("active");
-    expect(within(debts).getByRole("button", { name: "Todas" }).className).toBe("");
-    const trans = screen.getByText("Transacciones efectivas por canal").closest("article")!;
-    fireEvent.click(within(trans).getByRole("button", { name: "Pagada" }));
-    expect(within(trans).getByRole("button", { name: "Pagada" }).className).toBe("active");
-    fireEvent.click(screen.getByRole("button", { name: "Generar reporte" }));
-    expect(screen.getByLabelText("Generar reporte")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "operación consolidada" })).toBeTruthy();
-  });
-
-  it("muestra el panel de alertas cuando el dashboard trae alertas", async () => {
-    mountApp("/central/resumen-clasico", summaryHandlers({ ...general, alerts: [{ id: "a1", sev: "alta", tipo: "Rechazos", canal: "VirtualPOS", detalle: "Detalle sintético" }] }));
-    await appReady();
-    await screen.findByLabelText("Métricas generales");
-    expect(screen.getByText("ALERTAS OPERATIVAS")).toBeTruthy();
-  });
-
-  it("conserva modo, año y filtros al ir a Socios y volver al Resumen desde el menú", async () => {
-    mountApp("/central/resumen-clasico", [
-      ...summaryHandlers(),
-      ["GET", "/api/v1/staging/dashboard/general/clients", { items: [], total: 0, offset: 0, limit: 100 }],
-    ]);
-    await appReady();
-    await screen.findByLabelText("Métricas generales");
-    fireEvent.click(screen.getByRole("button", { name: "Monto" }));
-    fireEvent.change(screen.getByLabelText("Año dashboard general"), { target: { value: "2024" } });
-    fireEvent.click(navTop("Socios"));
-    await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
-    expect(await screen.findByText("CLIENTES CONSOLIDADOS")).toBeTruthy();
-    // Cambio deliberado: el menú «Resumen» ahora abre la vista nueva (/central/resumen); la anterior solo se alcanza por su
-    // ruta transitoria, así que se vuelve a ella con el historial del navegador.
-    window.history.pushState({}, "", "/central/resumen-clasico");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    await waitFor(() => expect(window.location.pathname).toBe("/central/resumen-clasico"));
-    const metrics = await screen.findByLabelText("Métricas generales");
-    expect(metrics.querySelector(".metric-value-money")).toBeTruthy();
-    expect((screen.getByLabelText("Año dashboard general") as HTMLSelectElement).value).toBe("2024");
-  });
+// La vista anterior del dashboard general (/central/resumen-clasico) se retiró en UX-15; su redirección al Resumen se
+// prueba en navigation.characterization. El panel del ETL sigue en el marco de Socios.
+describe("Panel ETL en Socios (/central/clientes)", () => {
+  const clientsHandler: Handler = ["GET", "/api/v1/staging/dashboard/general/clients", { items: [], total: 0, offset: 0, limit: 100 }];
 
   it("Sync completo: envía los proveedores habilitados, muestra el progreso y el resultado de la corrida", async () => {
-    const app = mountApp("/central/resumen-clasico", [
-      ...summaryHandlers(),
+    const app = mountApp("/central/clientes", [
+      clientsHandler,
       ["POST", "/api/v1/etl/full-sync", { run_id: "run-1" }],
       ["GET", "/api/v1/etl/runs/run-1", { id: "run-1", status: "completed", phase: null, started_at: "2025-03-31T10:00:00", finished_at: "2025-03-31T10:05:00", records_upserted: 1234, channels_processed: ["virtualpos"], error_message: null }],
     ]);
@@ -155,7 +32,7 @@ describe("Dashboard general (/central/resumen)", () => {
   }, 15000);
 
   it("Sync completo: si falla el inicio muestra el error y vuelve a habilitar el botón", async () => {
-    mountApp("/central/resumen-clasico", [...summaryHandlers(), ["POST", "/api/v1/etl/full-sync", failWith(409, "ya hay una corrida")]]);
+    mountApp("/central/clientes", [clientsHandler, ["POST", "/api/v1/etl/full-sync", failWith(409, "ya hay una corrida")]]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "↻ Sync completo" }));
     expect(await screen.findByText("ya hay una corrida")).toBeTruthy();
@@ -216,8 +93,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
     expect(call.query.get("offset")).toBe("0");
     expect(call.query.get("filter_field")).toBe("all");
     expect(call.query.has("query")).toBe(false);
-    // Cambio deliberado (Resumen unificado): la vista inicial «summary» ya no carga el dashboard anterior, que ahora vive en
-    // /central/resumen-clasico. El hallazgo 5 (se pedía el dashboard general aunque no se mostrara) queda resuelto aquí.
+    // La vista inicial «summary» no carga el dashboard anterior (retirado en UX-15): el hallazgo 5 sigue resuelto.
     expect(app.exact("GET", "/api/v1/staging/dashboard/general")).toHaveLength(0);
     expect(app.exact("GET", "/api/v1/staging/summary")).toHaveLength(0);
     expect(screen.getByText("CLIENTES CONSOLIDADOS")).toBeTruthy();

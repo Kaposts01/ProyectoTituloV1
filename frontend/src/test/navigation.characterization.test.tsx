@@ -235,30 +235,17 @@ describe("Resumen unificado y vista anterior (rutas del paso 3)", () => {
     expect(navTop("Resumen").getAttribute("aria-current")).toBe("page");
   });
 
-  it("/central/resumen-clasico abre la vista anterior, que pide sus datos y no el endpoint nuevo", async () => {
+  it("/central/resumen-clasico (retirada en UX-15) redirige al Resumen unificado sin pedir los datos anteriores", async () => {
     const app = mountApp("/central/resumen-clasico", [listHandler]);
     await appReady();
-    expect(await screen.findByLabelText("Métricas generales")).toBeTruthy();
-    expect(screen.getByText("RESUMEN OPERATIVO")).toBeTruthy();
-    expect(app.exact("GET", "/api/v1/staging/dashboard/general")).toHaveLength(1);
-    expect(app.exact("GET", "/api/v1/staging/summary")).toHaveLength(1);
-    expect(unifiedCalls(app)).toHaveLength(0);
-    expect(window.location.pathname).toBe("/central/resumen-clasico");
-    // fuera del menú: el ítem «Resumen» no queda marcado como activo en la vista anterior
-    expect(navTop("Resumen").getAttribute("aria-current")).toBeNull();
-  });
-
-  it("desde la vista anterior, el menú «Resumen» lleva al Resumen unificado", async () => {
-    const app = mountApp("/central/resumen-clasico", [listHandler]);
-    await appReady();
-    await screen.findByLabelText("Métricas generales");
-    fireEvent.click(navTop("Resumen"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/resumen"));
     await screen.findByRole("region", { name: "Indicadores del mes" });
     expect(unifiedCalls(app)).toHaveLength(1);
+    expect(legacyCalls(app)).toHaveLength(0);
+    expect(navTop("Resumen").getAttribute("aria-current")).toBe("page");
   });
 
-  it("la vista anterior respeta el permiso dashboard.view: sin él vuelve al inicio del usuario", async () => {
+  it("la URL antigua respeta el permiso dashboard.view: sin él vuelve al inicio del usuario", async () => {
     mountApp("/central/resumen-clasico", [listHandler], { permissions: ["toku.customers.view"] });
     await appReady();
     await waitFor(() => expect(window.location.pathname).toBe("/toku/clientes"));

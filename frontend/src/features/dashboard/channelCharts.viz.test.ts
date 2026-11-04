@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  activationVsChurnChart, activationVsChurnWithNet, churnRateChart, netGrowthChart, rankingByStatus, seriesStackedChart,
+  activationVsChurnChart, activationVsChurnWithNet, churnRateChart, netGrowthChart, rankingByStatus,
 } from "./channelCharts";
 
 // VIZ-09: mapeos de datos de los gráficos migrados (VIZ-06 a VIZ-08). Datos sintéticos.
@@ -68,17 +68,5 @@ describe("rankingByStatus (motivos de rechazo como ranking, VIZ-08)", () => {
   });
   it("year null suma todo y monto suma montos", () => {
     expect(rankingByStatus(rejected, "amount", null).find((i) => i.key === "Cambio de tarjeta")?.value).toBe(901);
-  });
-});
-
-describe("seriesStackedChart (dashboard general, VIZ-07)", () => {
-  it("rellena meses intermedios y rotula y colorea los canales como canales", () => {
-    const { rows, series } = seriesStackedChart([
-      { year: 2026, month: 1, status: "Toku", count: 1, amount: 0 },
-      { year: 2026, month: 3, status: "Payku", count: 2, amount: 0 },
-    ], "count");
-    expect(rows.map((r) => r.month)).toEqual([1, 2, 3]);
-    expect(series.map((s) => s.label)).toEqual(["Payku", "Toku"]);
-    expect(series.map((s) => s.color)).toEqual(["var(--series-4)", "var(--series-2)"]);
   });
 });
