@@ -73,15 +73,18 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
             onField={reset(setField)}
             query={query}
             onQuery={reset(setQuery)}
-          >
-            <ExportButton
-              entity="suscripciones"
-              canal={channel || undefined}
-              params={filterParams}
-              window={{ offset, limit: PAGE }}
-              canPii={can("export.pii")}
-            />
-          </UnifiedFilterBar>
+            count={list.data?.total ?? null}
+            noun="suscripciones"
+            actions={
+              <ExportButton
+                entity="suscripciones"
+                canal={channel || undefined}
+                params={filterParams}
+                window={{ offset, limit: PAGE }}
+                canPii={can("export.pii")}
+              />
+            }
+          />
           {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
           {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
           {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}

@@ -307,6 +307,7 @@ export const es = {
     order: "Orden",
     amount_total: "Monto total",
     charge_date: "Fecha de cargo",
+    motivo_rechazo: "Motivo de rechazo",
     authorized_at: "Fecha autorización",
     payment_type_code: "Tipo de pago",
     deposits: "Abonos",

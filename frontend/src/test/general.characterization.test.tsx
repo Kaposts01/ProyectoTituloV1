@@ -188,6 +188,25 @@ describe("Clientes consolidados (/central/clientes)", () => {
     expect(app.find("GET", "/api/v1/export/clientes/count").at(-1)?.query.get("canal")).toBe("tch");
   });
 
+  it("d143: chips de filtros en Socios; «×» quita uno y «Limpiar filtros» los quita todos", async () => {
+    const app = mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", list]]);
+    await appReady();
+    await screen.findByRole("button", { name: "11111111-1" });
+    expect(document.querySelector(".filter-count")?.textContent).toBe("250 socios");
+    fireEvent.change(screen.getByLabelText("Canal de los socios"), { target: { value: "tch" } });
+    fireEvent.change(screen.getByLabelText("Estado de los socios"), { target: { value: "active" } });
+    fireEvent.click(screen.getByRole("button", { name: "Quitar filtro Canal: TCH" }));
+    expect((screen.getByLabelText("Canal de los socios") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByText("Estado: Con suscripción activa")).toBeTruthy();
+    await waitFor(() => {
+      const last = app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)!;
+      expect([last.query.get("canal"), last.query.get("status")]).toEqual([null, "active"]);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
+    expect((screen.getByLabelText("Estado de los socios") as HTMLSelectElement).value).toBe("");
+    expect(screen.queryByRole("list", { name: "Filtros activos" })).toBeNull();
+  });
+
   it("pide la primera página y muestra título, columnas, filas y paginación", async () => {
     const app = mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", list]]);
     await appReady();

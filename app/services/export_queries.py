@@ -30,6 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session, aliased
 
+from app.models.core import CoreCharge
 from app.models.crm import Charge as CCharge
 from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment
@@ -37,13 +38,16 @@ from app.models.crm import Subscription as CSub
 from app.models.payku_channel import PaykuCycle as PkCycle
 from app.models.payku_channel import PaykuTransaction as PkTx
 from app.models.tch import TchClient, TchSubscription, TchTransaction
+from app.models.vp_report import VpReportPayment
 from app.services.charge_stats import (
     EXCLUDED_STATES,
     PAID_STATES,
     PENDING_DASHBOARD_STATES,
     REJECTED_STATES,
+    charge_outcome,
 )
 from app.services.exporter import ExportColumn
+from app.services.rejection_format import rejection_text
 
 YIELD_PER = 2000
 PAID_STATUSES = {"pagado", "pago", "aceptado", "aceptada", "accepted", "paid", "success", "aprobado", "aprobada", "cobrado", "cobrada"}
@@ -382,12 +386,35 @@ def _subs_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
 # ----------------------------------------------------------------------------- cobros
 
 
+# Motivo de rechazo (d143): columnas auxiliares `_rej_*` que `_charges_post` convierte en el texto legible de
+# `rejection_text` (reporte > API > catalogo > «Motivo no informado (código X)») y luego quita de la fila.
+_REJ_KEYS = ("_rej_code", "_rej_report_code", "_rej_report", "_rej_api")
+
+
+def _charges_post(row: dict[str, Any]) -> dict[str, Any]:
+    code, report_code, report, api = (row.pop(key, None) for key in _REJ_KEYS)
+    if report_code is not None and not str(report_code).strip():
+        report_code = None
+    # Con glosa del reporte manda el codigo del reporte; si no, el de `core_charges`.
+    chosen = (report_code or code) if report else (code or report_code)
+    row["rejection_reason"] = rejection_text(
+        row.get("channel"), chosen, report_reason=report, api_reason=api,
+        rejected=charge_outcome(row.get("status")) == "rejected",
+    )
+    return row
+
+
 def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+    core = aliased(CoreCharge)
+    # PAT de VirtualPOS (fuente de verdad de la glosa, D4/D5): solo filas con la cuenta resuelta (D6) y rechazadas.
+    rpt = aliased(VpReportPayment)
     cols = [
         CCharge.source.label("channel"), CCharge.external_id.label("charge_id"),
         CCharge.subscription_external_id.label("subscription_id"), CCharge.status.label("status"),
         CCharge.charge_date.label("charge_date"), null().label("period"), CCharge.amount.label("amount"),
         CCharge.currency.label("currency"), null().label("rejection_reason"),
+        core.latest_rejection_code.label("_rej_code"), rpt.response_code.label("_rej_report_code"),
+        rpt.response_text.label("_rej_report"), core.latest_rejection_reason.label("_rej_api"),
     ]
     if pii:
         sub, cli = aliased(CSub), aliased(CClient)
@@ -400,7 +427,12 @@ def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> A
                                  cli.external_id == func.coalesce(CCharge.client_external_id, sub.client_external_id)))
         )
     else:
-        stmt = select(*cols, null().label("rut"), null().label("name"))
+        stmt = select(*cols, null().label("rut"), null().label("name")).select_from(CCharge)
+    stmt = (
+        stmt.outerjoin(core, and_(core.source == CCharge.source, core.external_id == CCharge.external_id))
+        .outerjoin(rpt, and_(rpt.charge_external_id == CCharge.external_id, rpt.platform == CCharge.source,
+                             rpt.platform_status == "resolved", rpt.charge_status == "rechazado"))
+    )
     search = _search(f, {"id": CCharge.external_id, "subscription_id": CCharge.subscription_external_id, "status": CCharge.status})
     conds = [CCharge.source.in_(sources), *_common_conditions(f, CCharge.status, CCharge.charge_date, CCharge.amount)]
     outcome = outcome_condition(CCharge.status, f.outcome)
@@ -416,7 +448,10 @@ def _charges_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
     cols = [
         literal("tch").label("channel"), cast(t.id, String).label("charge_id"), cast(t.file_number, String).label("subscription_id"),
         t.status.label("status"), t.charge_date.label("charge_date"), t.period.label("period"), t.amount.label("amount"),
-        literal("CLP").label("currency"), t.rejection_reason.label("rejection_reason"),
+        literal("CLP").label("currency"), null().label("rejection_reason"),
+        # El Excel de TCH es el reporte de la plataforma: su «razon de rechazo» es la glosa del reporte (d143).
+        t.response_code.label("_rej_code"), null().label("_rej_report_code"), t.rejection_reason.label("_rej_report"),
+        null().label("_rej_api"),
     ]
     if pii:
         stmt = (
@@ -442,14 +477,19 @@ def _charges_payku_cycles(_sources: tuple[str, ...], f: ExportFilters, pii: bool
 
     Estado = `status_normalized` (taxonomia comun: paid/rejected/pending/cancelled...) con respaldo en el crudo, para
     que el resultado normalizado (`outcome`) y la tasa de rechazo usen la misma definicion que los demas canales.
-    Payku no da glosa de rechazo por ciclo: `rejection_reason` queda vacio.
+    Payku no da glosa de rechazo por ciclo ni en sus reportes (PK-PAR-10 solo trae transacciones pagadas y
+    liquidaciones): el motivo sale del estado del ciclo proyectado a `core_charges.latest_rejection_reason` (Lista A,
+    PK-PAR-06) y, si no hay, queda «Motivo no informado».
     """
     c = PkCycle
+    core = aliased(CoreCharge)
     status = func.coalesce(func.nullif(c.status_normalized, ""), c.status)
     cols = [
         literal("payku").label("channel"), c.external_id.label("charge_id"), c.subscription_id.label("subscription_id"),
         status.label("status"), c.cycle_day.label("charge_date"), func.substr(c.cycle_day, 1, 7).label("period"),
         c.amount_paid.label("amount"), literal("CLP").label("currency"), null().label("rejection_reason"),
+        core.latest_rejection_code.label("_rej_code"), null().label("_rej_report_code"), null().label("_rej_report"),
+        core.latest_rejection_reason.label("_rej_api"),
     ]
     if pii:
         sub, cli = aliased(CSub), aliased(CClient)
@@ -461,7 +501,8 @@ def _charges_payku_cycles(_sources: tuple[str, ...], f: ExportFilters, pii: bool
             .outerjoin(cli, and_(cli.source == "payku", cli.external_id == sub.client_external_id))
         )
     else:
-        stmt = select(*cols, null().label("rut"), null().label("name"))
+        stmt = select(*cols, null().label("rut"), null().label("name")).select_from(c)
+    stmt = stmt.outerjoin(core, and_(core.source == "payku", core.external_id == c.external_id))
     search = _search(f, {"id": c.external_id, "subscription_id": c.subscription_id, "status": status})
     conds = _common_conditions(f, status, c.cycle_day, c.amount_paid)
     outcome = outcome_condition(status, f.outcome)
@@ -523,10 +564,11 @@ ENTITY_SPECS: dict[str, tuple[ChannelSpec, ...]] = {
         ChannelSpec("tch", "tch.suscripciones.view", ("tch",), _subs_tch, _subs_post),
     ),
     "cobros": (
-        ChannelSpec("virtualpos", "virtualpos.charges.view", ("virtualpos1", "virtualpos2"), _charges_cclient),
-        ChannelSpec("toku", "toku.invoices.view", ("toku",), _charges_cclient),
-        ChannelSpec("payku", "payku.transactions.view", ("payku",), _charges_payku_cycles),
-        ChannelSpec("tch", "tch.transacciones.view", ("tch",), _charges_tch),
+        ChannelSpec("virtualpos", "virtualpos.charges.view", ("virtualpos1", "virtualpos2"), _charges_cclient,
+                    _charges_post),
+        ChannelSpec("toku", "toku.invoices.view", ("toku",), _charges_cclient, _charges_post),
+        ChannelSpec("payku", "payku.transactions.view", ("payku",), _charges_payku_cycles, _charges_post),
+        ChannelSpec("tch", "tch.transacciones.view", ("tch",), _charges_tch, _charges_post),
     ),
     "pagos": (
         ChannelSpec("virtualpos", "virtualpos.payments.view", ("virtualpos1", "virtualpos2"), _payments_cclient),
