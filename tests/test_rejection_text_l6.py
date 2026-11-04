@@ -5,7 +5,7 @@ Prioridad: glosa del reporte de la plataforma > glosa de la API > catalogo > «M
 
 import hashlib
 import random
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -199,8 +199,7 @@ def test_export_rows_carry_the_same_text() -> None:
     sfx = _sfx()
     _seed(sfx, random.randint(90_000_000, 99_999_999))
     items, _denied = select_specs("cobros", None, set(PERMS))
-    rows = list(iter_rows(SessionLocal, items, ExportFilters(date_from=datetime(2011, 8, 1).date(),
-                                                             date_to=datetime(2011, 8, 31).date()), False))
+    rows = list(iter_rows(SessionLocal, items, ExportFilters(date_from=date(2011, 8, 1), date_to=date(2011, 8, 31)), False))
     assert all(set(row) >= {"rejection_reason"} and not any(k.startswith("_rej") for k in row) for row in rows)
     got = _by_key(rows, sfx)
     assert {k: got[k] for k in EXPECTED} == EXPECTED
