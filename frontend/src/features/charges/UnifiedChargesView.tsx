@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useDebouncedValue } from "../../hooks";
 import { tryLabel } from "../../i18n/label";
 import { ExportButton } from "../shared/ExportButton";
-import { ChannelTotals, UnifiedFilterBar, UnifiedPagination } from "../general/UnifiedControls";
+import { ChannelTotals, UnifiedFilterBar, UnifiedPagination, type FilterChip } from "../general/UnifiedControls";
 import { StatusText, channelText, day, detailPath, money } from "../general/unifiedDisplay";
 import {
   CHARGE_OUTCOMES, VIEW_PERMISSIONS, canAny,
@@ -89,6 +89,10 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
     setTab(next); setChannel(""); setStatus(""); setField("all"); setOffset(0);
   };
   const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+  const extraChips: FilterChip[] = [];
+  if (outcome) extraChips.push({ key: "resultado", label: `Resultado: ${tryLabel("chargeOutcome", outcome) ?? outcome}`, onRemove: () => reset(setOutcome)("") });
+  if (dateFrom) extraChips.push({ key: "desde", label: `Desde: ${day(dateFrom)}`, onRemove: () => reset(setDateFrom)("") });
+  if (dateTo) extraChips.push({ key: "hasta", label: `Hasta: ${day(dateTo)}`, onRemove: () => reset(setDateTo)("") });
 
   return (
     <main className="app-shell unified-page">
@@ -126,29 +130,35 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
             onField={reset(setField)}
             query={query}
             onQuery={reset(setQuery)}
+            chips={extraChips}
+            onClear={() => { setOutcome(""); setDateFrom(""); setDateTo(""); setOffset(0); }}
+            count={list.data?.total ?? null}
+            noun={tab === "charges" ? "cobros" : "pagos"}
+            actions={
+              <ExportButton
+                entity={tab === "charges" ? "cobros" : "pagos"}
+                canal={channel || undefined}
+                params={filterParams}
+                window={{ offset, limit: PAGE }}
+                canPii={can("export.pii")}
+              />
+            }
           >
-            <label className="unified-filter">
+            <label className="filter-field">
               <span>Resultado</span>
               <select value={outcome} onChange={(event) => reset(setOutcome)(event.target.value)}>
                 <option value="">Todos los resultados</option>
                 {CHARGE_OUTCOMES.map((value) => <option key={value} value={value}>{tryLabel("chargeOutcome", value) ?? value}</option>)}
               </select>
             </label>
-            <label className="unified-filter">
+            <label className="filter-field">
               <span>Desde</span>
               <input type="date" value={dateFrom} onChange={(event) => reset(setDateFrom)(event.target.value)} />
             </label>
-            <label className="unified-filter">
+            <label className="filter-field">
               <span>Hasta</span>
               <input type="date" value={dateTo} onChange={(event) => reset(setDateTo)(event.target.value)} />
             </label>
-            <ExportButton
-              entity={tab === "charges" ? "cobros" : "pagos"}
-              canal={channel || undefined}
-              params={filterParams}
-              window={{ offset, limit: PAGE }}
-              canPii={can("export.pii")}
-            />
           </UnifiedFilterBar>
           {tab === "charges" ? <p className="muted-copy">Payku aparece con sus ciclos de cobro cuando existen; cada intento de cobro está en la pestaña Pagos.</p> : null}
           {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}

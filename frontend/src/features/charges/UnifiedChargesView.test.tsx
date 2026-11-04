@@ -67,6 +67,37 @@ describe("Cobros unificados", () => {
     expect(Object.fromEntries(count.query)).toEqual({ status: "RECHAZADA", outcome: "rejected", canal: "tch" });
   });
 
+  it("d143: los filtros activos se ven como chips; «×» quita uno y «Limpiar filtros» los quita todos", async () => {
+    const app = mountApp("/central/cobros", handlers);
+    await appReady();
+    await screen.findByRole("button", { name: "C-1" });
+    expect(document.querySelector(".filter-count")?.textContent).toBe("120 cobros");
+    expect(screen.queryByRole("button", { name: "Limpiar filtros" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Canal"), { target: { value: "tch" } });
+    fireEvent.change(screen.getByLabelText("Resultado"), { target: { value: "rejected" } });
+    fireEvent.change(screen.getByLabelText("Desde"), { target: { value: "2026-10-01" } });
+    const chips = screen.getByRole("list", { name: "Filtros activos" });
+    expect(within(chips).getByText("Canal: TCH")).toBeTruthy();
+    expect(within(chips).getByText("Desde: 2026-10-01")).toBeTruthy();
+    // quitar un filtro
+    fireEvent.click(screen.getByRole("button", { name: "Quitar filtro Canal: TCH" }));
+    expect((screen.getByLabelText("Canal") as HTMLSelectElement).value).toBe("");
+    expect(within(screen.getByRole("list", { name: "Filtros activos" })).queryByText("Canal: TCH")).toBeNull();
+    await waitFor(() => {
+      const last = app.exact("GET", "/api/v1/general/charges").at(-1)!;
+      expect(Object.fromEntries(last.query)).toEqual({ outcome: "rejected", date_from: "2026-10-01", offset: "0", limit: "50" });
+    });
+    // limpiar todos
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
+    expect(screen.queryByRole("list", { name: "Filtros activos" })).toBeNull();
+    expect((screen.getByLabelText("Resultado") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("Desde") as HTMLInputElement).value).toBe("");
+    await waitFor(() => {
+      const last = app.exact("GET", "/api/v1/general/charges").at(-1)!;
+      expect(Object.fromEntries(last.query)).toEqual({ offset: "0", limit: "50" });
+    });
+  });
+
   it("paginación en el servidor: Siguiente pide el offset 50", async () => {
     const app = mountApp("/central/cobros", handlers);
     await appReady();

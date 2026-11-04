@@ -712,8 +712,65 @@ h1, h2, h3, .eyebrow {
 }
 
 /* ── Vistas unificadas de Cartera (UX-08, UX-09) ── */
-.unified-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 12px; }
-.unified-filter { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-3); }
-.unified-filter-search { min-width: 180px; flex: 1; }
+/* Barra de filtros (d143): campos alineados de 36px, etiquetas en caps pequeñas, chips activos con «×»,
+   «Limpiar filtros» y contador. Escala de espaciado de DESIGN.md (4/8/16/24). En móvil se apila sin scroll. */
+.filter-bar {
+  /* banda de fondo `--bg-filter` sin borde ni sombra: no es una tarjeta anidada dentro del panel */
+  display: grid; gap: 8px; margin-bottom: 16px; padding: 16px; border-radius: 6px; background: var(--bg-filter);
+}
+.filter-row { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
+.filter-fields {
+  display: grid; flex: 1 1 560px; min-width: 0; align-items: end; gap: 8px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.filter-field { display: grid; gap: 4px; min-width: 0; }
+.filter-field > span {
+  color: var(--text-label); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+}
+.filter-field-wide { grid-column: span 2; }
+.filter-field select,
+.filter-field input {
+  box-sizing: border-box; width: 100%; height: 36px; padding: 0 8px; border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-1); background: var(--bg-input); font: inherit; font-size: 13px;
+}
+.filter-field input[type="date"] { font-family: var(--font-mono); }
+.filter-field select:focus-visible,
+.filter-field input:focus-visible {
+  outline: none; border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+.filter-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.filter-actions .export-trigger { box-sizing: border-box; height: 36px; padding-top: 0; padding-bottom: 0; }
+.filter-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 28px; }
+.filter-count { margin: 0 8px 0 0; color: var(--text-2); font-size: 13px; }
+.filter-count .mono { color: var(--text-1); font-weight: 600; }
+.filter-chips { display: contents; list-style: none; margin: 0; padding: 0; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 28px; max-width: 100%; padding: 0 4px 0 8px;
+  border: 1px solid var(--border); border-radius: 9999px; color: var(--text-1); background: var(--bg-surface);
+  font-size: 12px;
+}
+.filter-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chip button {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 9999px;
+  color: var(--text-2); background: transparent; font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
+}
+.filter-chip button:hover { color: var(--text-1); background: var(--bg-hover); }
+.filter-chip button:focus-visible, .filter-clear:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.filter-clear {
+  height: 28px; padding: 0 8px; border: 0; border-radius: 6px; color: var(--link-color); background: transparent;
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.filter-clear:hover { background: var(--bg-hover); }
+@media (max-width: 640px) {
+  .filter-bar { padding: 8px; }
+  .filter-fields { flex-basis: 100%; grid-template-columns: 1fr; }
+  .filter-field-wide { grid-column: auto; }
+  .filter-field select, .filter-field input { height: 44px; }
+  .filter-actions { width: 100%; }
+  .filter-actions .export-trigger { height: 44px; }
+  .filter-chip { height: 32px; }
+  .filter-chip button { width: 28px; height: 28px; }
+}
 .unified-totals { margin: 0 0 10px; font-size: 13px; }
 .unified-summary { margin-bottom: 16px; }

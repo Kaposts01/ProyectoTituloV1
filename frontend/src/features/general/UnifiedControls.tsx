@@ -12,9 +12,49 @@ export function channelOptions(channels: string[]): { value: string; label: stri
   return out;
 }
 
-/** Barra de filtros común: canal, estado, búsqueda por campo y espacio para filtros propios y el botón Exportar. */
+/** Filtro activo como chip: «Canal: Toku ×». `onRemove` lo quita. */
+export type FilterChip = { key: string; label: string; onRemove: () => void };
+
+/**
+ * Resumen de filtros (d143): contador de resultados, chips de los filtros activos con «×» para quitar cada uno y
+ * «Limpiar filtros». Lo usan Cobros, Suscripciones y Socios.
+ */
+export function ActiveFilters({ chips, onClear, count, noun }: {
+  chips: FilterChip[];
+  onClear: () => void;
+  count?: number | null;
+  noun: string;
+}) {
+  return (
+    <div className="filter-summary">
+      <p className="filter-count" aria-live="polite">
+        {count === null || count === undefined ? "…" : <><span className="mono">{count.toLocaleString("es-CL")}</span> {noun}</>}
+      </p>
+      {chips.length > 0 ? (
+        <>
+          <ul className="filter-chips" aria-label="Filtros activos">
+            {chips.map((chip) => (
+              <li key={chip.key} className="filter-chip">
+                <span>{chip.label}</span>
+                <button type="button" aria-label={`Quitar filtro ${chip.label}`} onClick={chip.onRemove}>×</button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="filter-clear" onClick={onClear}>Limpiar filtros</button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Barra de filtros común (Cobros y Suscripciones): canal, estado y búsqueda por campo, más filtros propios
+ * (`children`), acciones como Exportar (`actions`) y el resumen con chips. Los chips de canal, estado y texto se
+ * arman aquí; la vista agrega los suyos en `chips` y su limpieza en `onClear`.
+ */
 export function UnifiedFilterBar({
   idPrefix, channels, channel, onChannel, statuses, status, onStatus, fields, field, onField, query, onQuery, children,
+  actions, chips = [], onClear, count, noun = "resultados",
 }: {
   idPrefix: string;
   channels: string[];
@@ -29,38 +69,66 @@ export function UnifiedFilterBar({
   query: string;
   onQuery: (value: string) => void;
   children?: ReactNode;
+  actions?: ReactNode;
+  chips?: FilterChip[];
+  onClear?: () => void;
+  count?: number | null;
+  noun?: string;
 }) {
   const statusLabel = (value: string) => tryLabel("status", value) ?? tryLabel("tchStatus", value) ?? value;
+  const options = channelOptions(channels);
+  const channelLabel = options.find((option) => option.value === channel)?.label ?? channelText(channel);
+  const fieldLabel = fields.find((option) => option.value === field)?.label ?? field;
+  const base: FilterChip[] = [];
+  if (channel) base.push({ key: "canal", label: `Canal: ${channelLabel}`, onRemove: () => onChannel("") });
+  if (status) base.push({ key: "estado", label: `Estado: ${statusLabel(status)}`, onRemove: () => onStatus("") });
+  if (query.trim()) {
+    base.push({
+      key: "texto",
+      label: field === "all" ? `Texto: «${query.trim()}»` : `${fieldLabel}: «${query.trim()}»`,
+      onRemove: () => { onQuery(""); onField("all"); },
+    });
+  }
+  const clearAll = () => {
+    for (const chip of base) chip.onRemove();
+    onClear?.();
+  };
   return (
-    <div className="table-filters unified-filters">
-      <label className="unified-filter">
-        <span>Canal</span>
-        <select id={`${idPrefix}-canal`} value={channel} onChange={(event) => onChannel(event.target.value)}>
-          <option value="">Todos los canales</option>
-          {channelOptions(channels).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      </label>
-      <label className="unified-filter">
-        <span>Estado</span>
-        <select id={`${idPrefix}-estado`} value={status} onChange={(event) => onStatus(event.target.value)}>
-          <option value="">Todos los estados</option>
-          {status && !statuses.some((facet) => facet.status === status) ? <option value={status}>{statusLabel(status)}</option> : null}
-          {statuses.map((facet) => (
-            <option key={facet.status} value={facet.status}>{`${statusLabel(facet.status)} (${facet.count.toLocaleString("es-CL")})`}</option>
-          ))}
-        </select>
-      </label>
-      <label className="unified-filter">
-        <span>Buscar en</span>
-        <select id={`${idPrefix}-campo`} value={field} onChange={(event) => onField(event.target.value)}>
-          {fields.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      </label>
-      <label className="unified-filter unified-filter-search">
-        <span>Texto</span>
-        <input id={`${idPrefix}-buscar`} type="search" placeholder="Buscar" value={query} onChange={(event) => onQuery(event.target.value)} />
-      </label>
-      {children}
+    <div className="filter-bar">
+      <div className="filter-row">
+        <div className="filter-fields">
+          <label className="filter-field">
+            <span>Canal</span>
+            <select id={`${idPrefix}-canal`} value={channel} onChange={(event) => onChannel(event.target.value)}>
+              <option value="">Todos los canales</option>
+              {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Estado</span>
+            <select id={`${idPrefix}-estado`} value={status} onChange={(event) => onStatus(event.target.value)}>
+              <option value="">Todos los estados</option>
+              {status && !statuses.some((facet) => facet.status === status) ? <option value={status}>{statusLabel(status)}</option> : null}
+              {statuses.map((facet) => (
+                <option key={facet.status} value={facet.status}>{`${statusLabel(facet.status)} (${facet.count.toLocaleString("es-CL")})`}</option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Buscar en</span>
+            <select id={`${idPrefix}-campo`} value={field} onChange={(event) => onField(event.target.value)}>
+              {fields.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="filter-field filter-field-wide">
+            <span>Texto</span>
+            <input id={`${idPrefix}-buscar`} type="search" placeholder="Buscar" value={query} onChange={(event) => onQuery(event.target.value)} />
+          </label>
+          {children}
+        </div>
+        {actions ? <div className="filter-actions">{actions}</div> : null}
+      </div>
+      <ActiveFilters chips={[...base, ...chips]} onClear={clearAll} count={count} noun={noun} />
     </div>
   );
 }
