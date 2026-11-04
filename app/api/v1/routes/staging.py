@@ -42,6 +42,8 @@ from app.models.tch import (
 from app.services import rejected_month
 from app.services.channel_churn import CHURN_WINDOW_LABEL, unified_churn_rate
 from app.services.channel_consolidation import consolidate_to_centralized
+from app.services.charge_rejection_display import DETAIL_FIELD as REJECTION_DETAIL_FIELD
+from app.services.charge_rejection_display import charge_rejection_text
 from app.services.charge_stats import (
     PENDING_DASHBOARD_STATES,
     charge_outcome,
@@ -1764,6 +1766,13 @@ def _cstg(record: Any, rtype: str, extra: dict | None = None) -> dict[str, Any]:
     return result
 
 
+def _add_rejection_text(db: Session, data: dict[str, Any], charge: CCharge) -> None:
+    """Ficha de cobro (d143): agrega «Motivo de rechazo» en texto con la misma regla que la vista de Cobros."""
+    text_value = charge_rejection_text(db, charge.source, charge.external_id, charge.status)
+    if text_value:
+        data["payload"][REJECTION_DETAIL_FIELD] = text_value
+
+
 def _vp_plan_id(subscription: CSub) -> str | None:
     raw = subscription.raw_payload or {}
     plan_id = subscription.plan_external_id or raw.get("plan_id")
@@ -3317,8 +3326,10 @@ def virtualpos_charge_detail(
     payment = payments[0] if len(payments) == 1 else None
     subscription_data, client_data = _vp_subscription_detail_data(db, subscription)
     client_data = client_data or _vp_direct_client_data(db, charge)
+    charge_data = _cstg(charge, "charge")
+    _add_rejection_text(db, charge_data, charge)
     return {
-        "charge": _cstg(charge, "charge"),
+        "charge": charge_data,
         "subscription": subscription_data,
         "client": client_data,
         "payment": _cstg(payment, "payment") if payment else None,
@@ -3712,7 +3723,10 @@ def provider_record_detail(
             raise HTTPException(status_code=404, detail={"code": "staging_record_not_found", "message": "Registro no encontrado."})
         related = _toku_centralized_related(record, resource_type, db)
         extra = _sub_enrichment(db, [record]).get((record.source, record.external_id)) if resource_type == "subscription" else None
-        return {"record": _cstg(record, resource_type, extra), "related": _permitted_related(current_user, source, related)}
+        data = _cstg(record, resource_type, extra)
+        if resource_type == "invoice":
+            _add_rejection_text(db, data, record)
+        return {"record": data, "related": _permitted_related(current_user, source, related)}
     if source == "payku":
         model = _PAYKU_MODEL[resource_type]
         record = db.scalar(select(model).where(model.source == "payku", model.external_id == external_id))
