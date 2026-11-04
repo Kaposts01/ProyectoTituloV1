@@ -7,10 +7,10 @@
  ".cancellations[].status",
  ".cancellations[].year",
  ".charges",
- ".charges[].amount",
- ".charges[].count",
- ".charges[].month",
- ".charges[].status",
- ".charges[].year",
- ".transactions"
+ ".transactions",
+ ".transactions[].amount",
+ ".transactions[].count",
+ ".transactions[].month",
+ ".transactions[].status",
+ ".transactions[].year"
 ]

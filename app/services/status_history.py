@@ -23,7 +23,8 @@ CANCELLATION_STATES: dict[str, frozenset[str]] = {
     "virtualpos1": frozenset({"cancelada", "cancelado", "cancelled", "canceled"}),
     "virtualpos2": frozenset({"cancelada", "cancelado", "cancelled", "canceled"}),
     "toku": frozenset({"cancelled", "canceled", "cancelada", "deleted", "ended"}),
-    "payku": frozenset({"cancel", "delete", "suspended"}),  # los mismos estados que usa el churn del dashboard
+    # Los mismos estados que usa el churn del dashboard; `finish` (fin por fecha o plan con termino) tambien es baja.
+    "payku": frozenset({"cancel", "delete", "suspended", "finish"}),
     "tch": frozenset({"baja"}),
 }
 

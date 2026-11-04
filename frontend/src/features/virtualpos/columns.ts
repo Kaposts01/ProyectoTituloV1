@@ -103,8 +103,10 @@ export function tokuColumns(resource: string): TableColumn[] {
       { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status ?? nested(rec.payload, "recurring", "status")) },
       { key: "Estado sec.", label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
       { key: "Último cobro", label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
-      { key: "F. Inicio", label: "F. Inicio", value: (rec) => dateOnly(rec.payload.anchor ?? nested(rec.payload, "recurring", "anchor")) },
-      { key: "F. Cancelacion", label: "F. Cancelación", value: (rec) => dateOnly(rec.payload.end_date ?? nested(rec.payload, "recurring", "end_date")) },
+      // Alta y baja consolidadas (reporte de Productos + API) cuando el servidor las envía; el payload crudo de la API no
+      // trae la baja de una eliminada y su `anchor` es el próximo cobro (L6-DASH, ficha d142).
+      { key: "F. Inicio", label: "F. Inicio", value: (rec) => (rec.start_date !== undefined ? dateOnly(rec.start_date) : dateOnly(rec.payload.anchor ?? nested(rec.payload, "recurring", "anchor"))) },
+      { key: "F. Cancelacion", label: "F. Cancelación", value: (rec) => (rec.end_date !== undefined ? dateOnly(rec.end_date) : dateOnly(rec.payload.end_date ?? nested(rec.payload, "recurring", "end_date"))) },
       { key: "Acciones", label: "Acciones", value: () => "Acciones" },
     ];
   if (resource === "payment_method") {

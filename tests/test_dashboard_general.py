@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import engine
 from app.main import app
-from app.models.crm import Charge, PaymentMethod, Subscription
+from app.models.crm import Charge, Payment, PaymentMethod, Subscription
 from app.models.payku_channel import PaykuTransaction
 from app.models.tch import TchMonthlyCollection, TchSubscription
 from app.services import rejected_month
@@ -107,7 +107,9 @@ def data(db_session):
         charge("toku", "k1", "PAID", "2026-10-08", "20000"),
         charge("toku", "k2", "rejected", "2026-10-09", "2000"),
         charge("toku", "k3", "PAID", "2026-09-03", "15000"),
-        charge("payku", "y1", "success", "2026-10-11", "7000"),
+        # Payku no tiene cargos: su cobro es la transaccion consolidada en `payments` (L6-DASH)
+        Payment(source="payku", external_id="y1", status="success", payment_date="2026-10-11 10:00:00", amount="7000",
+                raw_payload={}),
         PaymentMethod(source="toku", external_id="pm1", status="chargeable", raw_payload={"subscription_ids": ["t1"]}),
         PaykuTransaction(external_id="tx1", subscription_id="p1", amount="7000", status="success",
                          created_at_api="2026-10-11T10:00:00"),
@@ -259,3 +261,86 @@ def test_quality_data_counts_undated_records(auth, data, db_session) -> None:
     client, _ = auth()
     q = get(client, month="2026-10")["calidad_datos"]
     assert q == {"altas_sin_fecha": 1, "bajas_sin_fecha": 1}
+
+
+# ── L6-DASH (ficha d142) ───────────────────────────────────────────────────────────────────────────────
+
+
+def payment(source, ext, status, day, amount):
+    return Payment(source=source, external_id=ext, status=status, payment_date=day, amount=amount, raw_payload={})
+
+
+def test_toku_unpaid_invoice_is_uncollected_when_due_and_receivable_when_future(auth, db_session) -> None:
+    # Toku nunca marca la factura como rechazada: queda UNPAID. Antes caia en «other» (cobrabilidad 100 %, no cobrado 0).
+    db_session.add_all([
+        sub("toku", "u-t1", "ACTIVE", "2026-01-05", amount="8000"),
+        charge("toku", "u-k1", "PAID", "2026-10-03", "8000"),
+        charge("toku", "u-k2", "UNPAID", "2026-10-05", "5000"),   # vencida: no cobrada
+        charge("toku", "u-k3", "unpaid", "2026-10-20", "4000"),   # futura dentro del mes: por cobrar
+        charge("toku", "u-k4", "VOIDED", "2026-10-06", "9999"),   # anulada: fuera
+    ])
+    db_session.flush()
+    client, _ = auth()
+    k = get(client, month="2026-10", channels="toku")["kpis"]
+    assert k["cobrabilidad"]["valor"] == 50.0  # 1 pagada / (1 + 1 impaga vencida)
+    assert k["no_cobrado"]["valor"] == 5000
+    assert k["por_cobrar"]["valor"] == 4000
+    assert k["ingreso_total"]["valor"] == 8000
+
+
+def test_payku_revenue_and_collectability_come_from_its_transactions(auth, db_session) -> None:
+    # Payku no escribe `charges`: antes ingreso, cobrabilidad, no cobrado y por cobrar quedaban siempre vacios.
+    db_session.add_all([
+        sub("payku", "pk-1", "active", "2026-03-01", amount="7000"),
+        payment("payku", "pk-t1", "success", "2026-10-02 09:00:00", "7000"),
+        payment("payku", "pk-t2", "failed", "2026-10-03 09:00:00", "7000"),
+        payment("payku", "pk-t3", "pending", "2026-10-14 09:00:00", "7000"),
+        payment("payku", "pk-t4", "success", "2026-09-02 09:00:00", "6000"),
+    ])
+    db_session.flush()
+    client, _ = auth()
+    body = get(client, month="2026-10", channels="payku")
+    k = body["kpis"]
+    assert (k["ingreso_total"]["valor"], k["ingreso_total"]["valor_mes_anterior"]) == (7000, 6000)
+    assert k["cobrabilidad"]["valor"] == 50.0 and k["no_cobrado"]["valor"] == 7000 and k["por_cobrar"]["valor"] == 7000
+    ing = {p["month"]: p["total"] for p in body["series"]["ingreso_por_canal"]}
+    assert ing["2026-09"] == 6000 and ing["2026-10"] == 7000
+
+
+def test_payku_members_exclude_never_activated_and_count_finished_as_cancellations(auth, db_session) -> None:
+    # «Socios totales» de Payku contaba las `register` (inscripcion nunca completada) y las `finish` para siempre.
+    db_session.add_all([
+        sub("payku", "pm-a", "active", "2026-02-01"),
+        sub("payku", "pm-r1", "register", "2026-03-01"),
+        sub("payku", "pm-r2", "REGISTER", "2026-04-01"),
+        sub("payku", "pm-f", "finish", "2026-02-10", "2026-09-30"),
+    ])
+    db_session.flush()
+    client, _ = auth()
+    k = get(client, month="2026-10", channels="payku")["kpis"]
+    assert k["socios_totales"]["valor"] == 1 and k["socios_totales"]["valor_mes_anterior"] == 1
+    sep = get(client, month="2026-09", channels="payku")["kpis"]
+    assert sep["bajas"]["valor"] == 1 and sep["activaciones"]["valor"] == 0
+
+
+def test_tch_signups_use_the_activation_fallback_and_skip_rejected(auth, db_session) -> None:
+    # TCH-PAR-17: desde jul-2025 el reporte no trae `fecha_activacion`; el dashboard de TCH usa el primer cobro y, si
+    # falta, la entrega al banco. El resumen solo miraba `fecha_activacion` y perdia esas altas.
+    rows = [
+        tch_sub(9101, "VIGENTE", "2026-01-10"),
+        tch_sub(9102, "VIGENTE", None),
+        tch_sub(9103, "VIGENTE", None),
+        tch_sub(9104, "ELIMINADA", None, "2026-10-08"),
+        tch_sub(9105, "RECHAZADA", None),
+    ]
+    rows[1].first_charge_date = "2026-10-05"
+    rows[2].bank_delivery_date = "2026-10-07"
+    rows[3].first_charge_date = "2026-05-02"
+    db_session.add_all(rows)
+    db_session.flush()
+    client, _ = auth()
+    body = get(client, month="2026-10", channels="tch")
+    k = body["kpis"]
+    assert k["activaciones"]["valor"] == 2 and k["bajas"]["valor"] == 1 and k["crecimiento_neto"]["valor"] == 1
+    assert k["socios_totales"]["valor"] == 3
+    assert body["calidad_datos"] == {"altas_sin_fecha": 0, "bajas_sin_fecha": 0}  # la RECHAZADA no fue alta

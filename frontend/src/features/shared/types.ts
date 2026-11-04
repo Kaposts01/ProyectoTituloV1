@@ -28,6 +28,9 @@ export type StagingRecord = {
   client_rut?: string | null;
   active_subscriptions?: number | null;
   collectible_subscriptions?: number | null;
+  /** Toku: alta y baja consolidadas de la suscripción (null = sin dato). */
+  start_date?: string | null;
+  end_date?: string | null;
 };
 export type StagingResponse = { items: StagingRecord[]; total: number; offset: number; limit: number };
 /**
