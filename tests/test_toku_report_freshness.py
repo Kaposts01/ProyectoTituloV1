@@ -53,7 +53,8 @@ def test_status_lists_latest_per_type_with_stale_flag(world, tmp_path) -> None: 
     by_type = {row["report_type"]: row for row in body["reports"]}
     assert by_type["deudas"]["is_stale"] is True and by_type["pagos"]["is_stale"] is False
     assert "deudas" in body["stale_types"] and "pagos" not in body["stale_types"]
-    assert set(by_type["pagos"]) == {"report_type", "generated_at", "loaded_at", "rows_total", "age_days", "is_stale"}
+    assert set(by_type["pagos"]) == {"report_type", "generated_at", "loaded_at", "rows_total", "age_days", "is_stale",
+                                     "filename", "result"}  # L7-IMPORT: nombre (sin ruta) y resultado
 
 
 def test_status_requires_the_import_permission(world) -> None:  # noqa: F811

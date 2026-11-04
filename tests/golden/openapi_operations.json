@@ -281,6 +281,9 @@
   "query:canal"
  ],
  "GET /api/v1/health/heartbeat": [],
+ "GET /api/v1/imports/status": [
+  "cookie:crm_access_token"
+ ],
  "GET /api/v1/imports/toku-reports/status": [
   "cookie:crm_access_token"
  ],
@@ -757,6 +760,9 @@
   "query:outcome",
   "query:query",
   "query:status"
+ ],
+ "POST /api/v1/imports/payku-reports": [
+  "cookie:crm_access_token"
  ],
  "POST /api/v1/imports/toku-reports": [
   "cookie:crm_access_token"

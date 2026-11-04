@@ -358,6 +358,8 @@ def report_freshness(db: Session, now: datetime | None = None) -> list[dict[str,
             "generated_at": record.generated_at.isoformat() if record.generated_at else None,
             "loaded_at": record.finished_at.isoformat() if record.finished_at else None,
             "rows_total": record.rows_total,
+            "filename": record.filename,  # L7-IMPORT: nombre del archivo (sin ruta) y resultado de la ultima carga
+            "result": record.status,
             "age_days": data_age_days(record.generated_at, now),
             "is_stale": is_older_than_max_age(record.generated_at, now),
         })

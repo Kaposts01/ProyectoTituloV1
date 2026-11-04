@@ -1,5 +1,6 @@
-"""Cargas manuales de reportes descargados: `POST /api/v1/imports/virtualpos-reports` (VP-PAR-02) y
-`POST /api/v1/imports/toku-reports` (TK-19, al final del archivo).
+"""Cargas manuales de reportes descargados: `POST /api/v1/imports/virtualpos-reports` (VP-PAR-02),
+`POST /api/v1/imports/toku-reports` (TK-19), `POST /api/v1/imports/payku-reports` (L7-IMPORT, PK-PAR-10/11) y
+`GET /api/v1/imports/status` (L7-IMPORT: ultima carga por canal y tipo de archivo para el panel unificado).
 
 Ruta fina: la logica vive en `app/services/vp_report_import.py`. Solo `admin` (permiso `virtualpos.reports.import`),
 con CSRF. El archivo se guarda en un temporal que se borra siempre; la auditoria queda en `write_runs` SIN contenido
@@ -10,18 +11,27 @@ incluyen filas del archivo, PII ni el mensaje de la excepcion original.
 import hashlib
 import logging
 import tempfile
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db
-from app.core.security import require_csrf, require_permissions
+from app.core.security import get_current_user, require_csrf, require_permissions
 from app.models.auth import User
 from app.models.write_run import WriteRun
-from app.services import toku_report_import, vp_report_import
+from app.services import (
+    payku_report_import,
+    report_import_status,
+    toku_report_import,
+    vp_report_import,
+)
+from app.services.payku_report_parser import ReportFormatError as PaykuReportFormatError
+from app.services.rbac import permission_codes
 from app.services.toku_report_parser import MissingPepperError
 from app.services.toku_report_parser import ReportFormatError as TokuReportFormatError
 from app.services.vp_report_parser import ReportFormatError
@@ -31,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 MAX_REPORT_BYTES = 100 * 1024 * 1024
 MAX_TOKU_REPORT_BYTES = 100 * 1024 * 1024
+MAX_PAYKU_REPORT_BYTES = 100 * 1024 * 1024
 _CHUNK = 1024 * 1024
 
 
@@ -77,7 +88,9 @@ def _summary_json(summary: vp_report_import.ImportSummary) -> dict[str, Any]:
         "links": summary.links,
         "discarded_card_values": summary.discarded_card_values,
         "extra_columns_count": len(summary.extra_columns),
-        "warnings": list(summary.warnings),
+        "data_age_days": toku_report_import.data_age_days(summary.generated_at),
+        "warnings": list(summary.warnings)
+        + (["data_older_than_max_age"] if toku_report_import.is_older_than_max_age(summary.generated_at) else []),
     }
 
 
@@ -278,3 +291,138 @@ def import_toku_report(
     finally:
         if temporary:
             Path(temporary).unlink(missing_ok=True)
+
+
+# ---- Payku (L7-IMPORT, PK-PAR-10/11) -----------------------------------------------------------------------------
+
+PAYKU_REPORTS_PERMISSION = "payku.reports.import"
+
+
+def _payku_summary_json(summary: payku_report_import.PaykuImportSummary) -> dict[str, Any]:
+    """Solo contadores y tipos de hoja: nunca filas, vouchers ni datos personales."""
+    return {
+        "file_id": str(summary.file_id),
+        "report_type": summary.report_type,
+        "status": "completed",
+        "already_loaded": summary.already_loaded,
+        "sheets": list(summary.sheets),
+        "rows_total": summary.rows_total,
+        "rows_new": summary.rows_new,
+        "rows_updated": summary.rows_updated,
+        "rows_skipped": summary.rows_skipped,
+        "skip_reasons": summary.skip_reasons,
+        "extra_columns_count": len(summary.extra_columns),
+        "transactions_enriched": summary.transactions_enriched,
+        "installments_filled": summary.installments_filled,
+        "subscriptions_next_date": summary.subscriptions_next_date,
+        "warnings": [],
+    }
+
+
+@router.post("/payku-reports", dependencies=[Depends(require_csrf)], tags=["Imports"])
+def import_payku_report(
+    report: Annotated[UploadFile, File(description="Reporte del portal de Payku (.xlsx): dataTransacciones, consolidado o datasubscripciones")],
+    user: Annotated[User, Depends(require_permissions(PAYKU_REPORTS_PERMISSION))],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, Any]:
+    """Carga un reporte de Payku. El formato no esta documentado: el parser valida los encabezados por firma y
+    rechaza (422) un archivo con columnas faltantes, informando solo los NOMBRES de las columnas."""
+    filename = Path((report.filename or "").replace("\\", "/")).name[:255]
+    payload: dict[str, Any] = {"filename": filename}
+
+    def audit(status: str, error: str | None = None) -> None:
+        _audit(db, user, status, payload, error, source="payku")
+
+    if Path(filename).suffix.lower() != ".xlsx":
+        audit("rejected", "invalid_extension")
+        raise _error(422, "invalid_format", "Seleccione un reporte .xlsx de Payku.")
+
+    temporary: str | None = None
+    try:
+        digest = hashlib.sha256()
+        size = 0
+        with tempfile.NamedTemporaryFile(prefix="synkmetrix-pk-", suffix=".xlsx", delete=False) as tmp:
+            temporary = tmp.name
+            while chunk := report.file.read(_CHUNK):
+                size += len(chunk)
+                if size > MAX_PAYKU_REPORT_BYTES:
+                    audit("rejected", "too_large")
+                    raise _error(413, "too_large", "El reporte supera el tamano maximo permitido.")
+                digest.update(chunk)
+                tmp.write(chunk)
+        if size == 0:
+            audit("rejected", "empty_file")
+            raise _error(422, "invalid_format", "El archivo esta vacio.")
+        payload["sha256"] = digest.hexdigest()
+
+        try:
+            summary = payku_report_import.import_report(
+                db, temporary, filename=filename or "reporte.xlsx", uploaded_by_user_id=user.id
+            )
+        except PaykuReportFormatError as exc:  # solo nombres de columnas/tipos, nunca valores de filas
+            audit("rejected", "invalid_format")
+            raise _error(422, "invalid_format", str(exc)) from None
+        except payku_report_import.PaykuReportImportError as exc:
+            audit("failed", exc.label)
+            raise _error(500, "import_failed", "No se pudo cargar el reporte.", label=exc.label) from None
+        except (zipfile.BadZipFile, InvalidFileException, KeyError, OSError):  # no es un libro .xlsx real
+            db.rollback()
+            audit("rejected", "invalid_format")
+            raise _error(422, "invalid_format", "El archivo no es un libro .xlsx valido.") from None
+
+        payload.update(
+            report_type=summary.report_type,
+            file_id=str(summary.file_id),
+            rows_total=summary.rows_total,
+            rows_new=summary.rows_new,
+            rows_updated=summary.rows_updated,
+            rows_skipped=summary.rows_skipped,
+        )
+        if summary.already_loaded:
+            audit("already_loaded")
+            raise _error(
+                409,
+                "already_loaded",
+                "Este reporte ya fue cargado (mismo contenido que un archivo anterior).",
+                file_id=str(summary.file_id),
+                report_type=summary.report_type,
+            )
+        audit("completed")
+        return _payku_summary_json(summary)
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
+
+
+# ---- Panel unificado (L7-IMPORT) ---------------------------------------------------------------------------------
+
+# Canal -> permiso de carga. TCH no tiene permiso propio: su carga (`POST /api/v1/tch/import-report`) exige el rol admin.
+IMPORT_PERMISSIONS: dict[str, str | None] = {
+    "toku": "toku.reports.import",
+    "virtualpos": "virtualpos.reports.import",
+    "payku": PAYKU_REPORTS_PERMISSION,
+    "tch": None,
+}
+
+
+def _can_import(user: User, channel: str) -> bool:
+    permission = IMPORT_PERMISSIONS[channel]
+    if permission is None:
+        return any(role.name == "admin" for role in user.roles)
+    return permission in permission_codes(user)
+
+
+@router.get("/status", tags=["Imports"])
+def imports_status(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, Any]:
+    """Ultima carga por tipo de archivo (fecha, nombre, filas y resultado) de cada canal que el usuario puede cargar,
+    con aviso si el dato tiene mas de 7 dias (DEC-21). Solo metadatos; sin permiso de carga en ningun canal: 403."""
+    channels = [c for c in report_import_status.CHANNELS if _can_import(user, c)]
+    if not channels:
+        raise _error(403, "permission_denied", "No tienes permiso para realizar esta acción.")
+    return {
+        "max_age_days": report_import_status.REPORT_MAX_AGE_DAYS,
+        "channels": [report_import_status.channel_status(db, c) for c in channels],
+    }
