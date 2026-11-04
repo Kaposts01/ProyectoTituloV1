@@ -827,6 +827,39 @@ export const es = {
     consolidado: "Consolidado",
     fallido: "Fallido",
   },
+  /** Tipo de archivo en el panel «Importar reportes de plataformas» (L7-IMPORT, `GET /api/v1/imports/status`). */
+  platformReportType: {
+    transacciones: "Transacciones",
+    suscriptores: "Suscriptores",
+    liquidaciones: "Liquidaciones",
+    suscripciones: "Suscripciones",
+    consolidado: "Consolidado anual",
+    reporte: "Reporte Excel TCH",
+  },
+  /** Resultado de la última carga de un archivo en el panel de importación (L7-IMPORT). */
+  reportImportResult: {
+    completed: "Cargado",
+    failed: "Fallido",
+    running: "En curso",
+    cargado: "Cargado",
+    consolidado: "Consolidado",
+    fallido: "Fallido",
+  },
+  /** Errores de la carga manual de un reporte de VirtualPOS o Payku (`detail.code`, L7-IMPORT). */
+  reportImportError: {
+    "invalid format": "El archivo no tiene los encabezados esperados o su tipo no se puede cargar.",
+    "too large": "El archivo supera el tamaño máximo permitido.",
+    "already loaded": "Este reporte ya fue cargado antes (mismo contenido).",
+    "load in progress": "Este archivo ya se está cargando. Espera a que termine.",
+    "import failed": "No se pudo cargar el reporte. No se guardó ningún cambio.",
+    "permission denied": "No tienes permiso para cargar este reporte.",
+  },
+  /** Avisos de la carga de un reporte de VirtualPOS o Payku (`warnings`, L7-IMPORT). */
+  reportImportWarning: {
+    "data older than max age": "El dato de este archivo tiene más de 7 días. Exporta un reporte nuevo desde la plataforma.",
+    "generated at fallback now": "El archivo no trae su fecha de generación; se usó la fecha de carga.",
+    "seller hash skipped no pepper": "El servidor no tiene configurada la clave de anonimización: se cargó sin el dato del vendedor.",
+  },
 } as const;
 
 export type Domain = keyof typeof es;

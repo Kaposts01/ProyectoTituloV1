@@ -774,3 +774,9 @@ h1, h2, h3, .eyebrow {
 }
 .unified-totals { margin: 0 0 10px; font-size: 13px; }
 .unified-summary { margin-bottom: 16px; }
+
+/* L7-IMPORT: panel «Importar reportes de plataformas». Contenedor sin tarjeta propia (no se anidan cards). */
+.platform-reports { display: grid; gap: var(--space-md, 16px); margin-top: var(--space-lg, 24px); }
+.platform-reports > .panel-heading h2 { margin: 0; }
+.platform-reports-table td.mono { font-variant-numeric: tabular-nums; }
+.platform-reports-card .primary-button { margin-top: 12px; }

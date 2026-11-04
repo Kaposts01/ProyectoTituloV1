@@ -18,8 +18,11 @@ Reglas
   cobros). Si todas las senales coinciden -> `resolved`; si discrepan -> `ambiguous` (NO se fuerza); sin senal ->
   `unresolved`. `reconcile()` reevalua lo pendiente y es idempotente (se puede correr tras cada sync).
 * Glosa de rechazo (decision D6): solo para cobros `rechazado` con plataforma resuelta se escribe
-  `payment_rejection_details` con `capture_source = 'report_pat'` (el codigo `''` queda como marcador). Si la API ya
-  guardo una glosa real del cobro, la API manda y no se duplica; un marcador de la API se reemplaza por la glosa real.
+  `payment_rejection_details` con `capture_source = 'report_pat'` (el codigo `''` queda como marcador). El PAT es la
+  fuente de verdad de la glosa (D4/D5, L7-IMPORT): si la API ya guardo una glosa real del cobro, la del reporte se
+  agrega igual (o pisa la fila de la API cuando coinciden cobro, pago y codigo) y el ETL Core la prefiere
+  (`core_vp_etl._detail_rows`); un marcador de la API se reemplaza por la glosa real. Un marcador del reporte
+  (rechazado sin glosa) nunca tapa una glosa real de la API.
   Las glosas nuevas alimentan `rejection_reason_catalog` y el evento `reason_changed` (`status_events`, como RJ-06).
 * Vinculo pago -> cobro: `UUID transaccion` -> `Id cargo` (1 a 1) con UPDATE explicito solo donde esta NULL:
   `vp_payments.charge_external_id` y `core_payments.charge_id`. Un UUID asociado a mas de un cobro no se vincula.
@@ -309,10 +312,11 @@ WHERE r.platform_status = 'resolved' AND r.charge_status = 'rechazado'
   AND NOT EXISTS (
       SELECT 1 FROM payment_rejection_details d
       WHERE d.source = r.platform AND d.charge_external_id = r.charge_external_id
-        AND (d.code <> '' OR coalesce(r.response_code, '') = '')
+        AND (coalesce(r.response_code, '') = '' OR (d.code <> '' AND d.capture_source = 'report_pat'))
   )
-ON CONFLICT DO NOTHING
-RETURNING source, charge_external_id, subscription_external_id, amount, code, reason
+ON CONFLICT (source, (coalesce(charge_external_id, '')), (coalesce(payment_external_id, '')), code) DO UPDATE
+    SET reason = EXCLUDED.reason, capture_source = 'report_pat', checked_at = now()
+RETURNING source, charge_external_id, subscription_external_id, amount, code, reason, (xmax = 0) AS inserted
 """
 
 
@@ -333,7 +337,13 @@ def _apply_rejection_details(db: Session) -> dict[str, int]:
         if row.code
     ]
     reasons_new = status_events.emit_reason_events(db, entries) if entries else 0
-    return {"inserted": len(inserted), "markers_replaced": markers, "reasons_new": reasons_new}
+    new_rows = sum(1 for row in inserted if row.inserted)
+    return {
+        "inserted": new_rows,
+        "markers_replaced": markers,
+        "reasons_new": reasons_new,
+        "api_overridden": len(inserted) - new_rows,  # filas de la API con el mismo cobro/pago/codigo: manda el PAT
+    }
 
 
 # ---- vinculo pago -> cobro -------------------------------------------------------------------------------------

@@ -419,14 +419,19 @@ def _detail_rows(db: Session) -> list:
 
     Los marcadores («consultado sin glosa», `code = ''`) no son rechazos y se omiten. Si la tabla aun no existe
     (migracion 20261029_0043 sin aplicar) devuelve [] y el ETL sigue con lo que ya hacia.
+
+    El reporte PAT es la fuente de verdad de la glosa (D4/D5, L7-IMPORT): si un cobro tiene una glosa del reporte
+    (`capture_source = 'report_pat'`), sus glosas de la API se descartan aqui y la del reporte manda en
+    `_enrich_charges_with_rejections` / `_enrich_payments_with_rejections` (ver `is_report_detail`).
     """
     try:
         with db.begin_nested():
-            return list(db.execute(
+            rows = list(db.execute(
                 select(
                     PaymentRejectionDetail.source, PaymentRejectionDetail.charge_external_id,
                     PaymentRejectionDetail.payment_external_id, PaymentRejectionDetail.code,
                     PaymentRejectionDetail.reason, PaymentRejectionDetail.rejected_at,
+                    PaymentRejectionDetail.capture_source,
                 )
                 .where(PaymentRejectionDetail.source.in_(_VP_SOURCES), PaymentRejectionDetail.code != "")
                 .order_by(PaymentRejectionDetail.rejected_at.asc().nulls_first(), PaymentRejectionDetail.captured_at.asc())
@@ -434,6 +439,13 @@ def _detail_rows(db: Session) -> list:
     except SQLAlchemyError as exc:
         log.warning("VP Core ETL: payment_rejection_details no disponible (%s); se omite", type(exc).__name__)
         return []
+    from_report = {(r.source, r.charge_external_id) for r in rows if is_report_detail(r) and r.charge_external_id}
+    return [r for r in rows if is_report_detail(r) or (r.source, r.charge_external_id) not in from_report]
+
+
+def is_report_detail(row) -> bool:
+    """True si la glosa viene del reporte PAT (manda sobre la de la API, D4/D5)."""
+    return getattr(row, "capture_source", None) == "report_pat"
 
 
 _CHARGE_PAYLOAD_LINK_CTE = """
@@ -531,9 +543,11 @@ def _enrich_charges_with_rejections(
         key = (d.source, d.charge_external_id)
         prev = best.get(key)
         occurred = d.rejected_at
+        authoritative = is_report_detail(d)
         newer = prev is None or (occurred is not None and (prev["occurred_at"] is None or occurred >= prev["occurred_at"]))
-        if newer:
-            best[key] = {"payment_external_id": d.payment_external_id, "code": d.code, "reason": d.reason, "occurred_at": occurred}
+        if authoritative or (newer and not (prev or {}).get("authoritative")):
+            best[key] = {"payment_external_id": d.payment_external_id, "code": d.code, "reason": d.reason,
+                         "occurred_at": occurred, "authoritative": authoritative}
     if not best:
         return 0
 
@@ -551,7 +565,10 @@ def _enrich_charges_with_rejections(
         ).first()
         if current is None:
             continue
-        if current.latest_rejection_at is not None and (rej["occurred_at"] is None or rej["occurred_at"] < current.latest_rejection_at):
+        stale = current.latest_rejection_at is not None and (
+            rej["occurred_at"] is None or rej["occurred_at"] < current.latest_rejection_at
+        )
+        if stale and not rej.get("authoritative"):  # la glosa del PAT manda aunque la de la API sea mas reciente
             continue
         new_values = {
             "latest_rejection_payment_id": core_payment_ids.get((platform, rej["payment_external_id"])),
@@ -580,9 +597,15 @@ def _enrich_payments_with_rejections(db: Session) -> int:
     found: dict[tuple[str, str], tuple[str, str | None, datetime | None]] = {}
     for p, code, reason in _rejected_vp_payments(db, set()):
         found[(p.platform, p.external_id)] = (code, reason, _parse_date(p.payment_date))
+    from_report: set[tuple[str, str]] = set()
     for d in _detail_rows(db):
         if d.payment_external_id:
-            found[(d.source, d.payment_external_id)] = (d.code, d.reason, d.rejected_at)
+            key = (d.source, d.payment_external_id)
+            if key in from_report and not is_report_detail(d):
+                continue  # la glosa del PAT manda (D4/D5)
+            found[key] = (d.code, d.reason, d.rejected_at)
+            if is_report_detail(d):
+                from_report.add(key)
     if not found:
         return 0
     updates: list[dict] = []

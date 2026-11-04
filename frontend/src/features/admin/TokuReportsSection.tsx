@@ -15,6 +15,9 @@ export type TokuReportFreshness = {
   rows_total: number;
   age_days: number | null;
   is_stale: boolean;
+  /** L7-IMPORT: nombre del archivo (sin ruta) y resultado de la carga. Opcionales para respuestas antiguas. */
+  filename?: string | null;
+  result?: string | null;
 };
 export type TokuReportsStatus = { max_age_days: number; reports: TokuReportFreshness[]; stale_types: string[] };
 export type TokuReportSummary = {
@@ -46,7 +49,7 @@ function warningText(code: string): string {
  * último archivo por tipo, con aviso si el dato tiene más de 7 días (DEC-21). Solo con `toku.reports.import`.
  * Nunca muestra filas del archivo: solo tipo, fechas y contadores.
  */
-export function TokuReportsSection({ permissions }: { permissions: string[] }) {
+export function TokuReportsSection({ permissions, nested = false }: { permissions: string[]; nested?: boolean }) {
   const allowed = permissions.includes(TOKU_REPORTS_PERMISSION);
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<TokuReportsStatus | null>(null);
@@ -82,9 +85,10 @@ export function TokuReportsSection({ permissions }: { permissions: string[] }) {
   }
 
   const maxAge = status?.max_age_days ?? 7;
+  const Title = nested ? "h3" : "h2";
   return (
     <section className="panel toku-reports-section" aria-labelledby="toku-reports-title">
-      <h2 id="toku-reports-title" className="section-title">Reportes de Toku</h2>
+      <Title id="toku-reports-title" className="section-title">Reportes de Toku</Title>
       <p className="muted-copy">
         Carga semanal de los reportes .xlsx exportados del Backoffice de Toku. Se avisa cuando el dato tiene más de {maxAge} días.
       </p>
@@ -98,7 +102,7 @@ export function TokuReportsSection({ permissions }: { permissions: string[] }) {
       {status && status.reports.length > 0 && (
         <table className="toku-reports-table">
           <thead>
-            <tr><th>Reporte</th><th>Fecha del dato</th><th>Antigüedad</th><th>Cargado</th><th>Filas</th></tr>
+            <tr><th>Reporte</th><th>Fecha del dato</th><th>Antigüedad</th><th>Cargado</th><th>Archivo</th><th>Filas</th><th>Resultado</th></tr>
           </thead>
           <tbody>
             {status.reports.map((row) => (
@@ -110,7 +114,9 @@ export function TokuReportsSection({ permissions }: { permissions: string[] }) {
                   {row.is_stale ? <strong> (más de {maxAge} días)</strong> : null}
                 </td>
                 <td className="mono">{formatDateTime(row.loaded_at)}</td>
+                <td className="mono">{row.filename ?? "—"}</td>
                 <td className="mono">{row.rows_total}</td>
+                <td>{row.result ? label("reportImportResult", row.result) : "—"}</td>
               </tr>
             ))}
           </tbody>
