@@ -13,6 +13,11 @@ from app.services.sync_progress import ProgressCallback
 
 SOURCE = "toku"
 
+# L7-CIERRE: recursos secundarios. Un 404 en ellos (el sandbox responde 404 en `/organization/payments`) los deja
+# omitidos y la corrida sigue (`partial`). Clientes, suscripciones, facturas y transacciones son esenciales: su error
+# (y cualquier 401/403) sigue haciendo fallar la corrida.
+OPTIONAL_RESOURCES = frozenset({"payment", "payment_method"})
+
 # SYNC-O-02: solo las transacciones se leen por ventana (son ~80 % del tiempo de Toku). Detras de
 # `SYNC_WINDOWED_READS_ENABLED`; DEC-03 sigue abierta (el filtro puede ser por fecha de transaccion o de
 # inicializacion), por eso la guarda mira ambas fechas y la ventana se solapa 48 h con la corrida anterior.
@@ -44,4 +49,5 @@ async def sync_toku(db: Session, progress_callback: ProgressCallback | None = No
         channel_store_fn=store_toku_resources,
         progress_callback=progress_callback,
         windowed=WINDOWED,
+        optional_resources=OPTIONAL_RESOURCES,
     )

@@ -157,6 +157,8 @@ async def sync_all_channels(
     channels_done: list[str] = []
     channels_failed: list[str] = []
     config_failed: list[str] = []
+    # L7-CIERRE: canales que sincronizaron pero omitieron un recurso opcional (404); la corrida queda `partial`.
+    channels_partial: list[str] = []
     metrics = RunMetrics(run_id)
     metrics_token = sync_metrics.activate(metrics)
     vp_synced: dict[str, uuid.UUID] = {}  # cuenta VP -> id de su SyncRun (para reconciliar tras la consolidacion final)
@@ -209,6 +211,8 @@ async def sync_all_channels(
                 n = sync_run.records_processed or 0
                 total_records += n
                 channels_done.append("toku")
+                if getattr(sync_run, "status", None) == "partial":
+                    channels_partial.append("toku")
                 event_bus.emit(run_id, {"type": "phase_done", "phase": phase, "records": n})
                 logger.info("%s completado: %d registros", phase, n)
             except Exception as exc:
@@ -399,6 +403,8 @@ async def sync_all_channels(
         failed_parts = []
         if channels_failed:
             failed_parts.append(f"Canales con error: {', '.join(channels_failed)}")
+        if channels_partial:
+            failed_parts.append(f"Recursos opcionales omitidos en: {', '.join(channels_partial)}")
         if config_failed:
             failed_parts.append(
                 f"Error de configuracion (no se reintenta; revisar variables de entorno): {', '.join(config_failed)}"
@@ -411,7 +417,7 @@ async def sync_all_channels(
             failed_parts.append(f"ETL Core con error: {', '.join(core_failures)}")
         failed_msg = "; ".join(failed_parts) or None
         # Nunca 'completed' si algo fallo: 'partial' si hubo exito en algun canal, 'failed' si ninguno.
-        if not (channels_failed or consolidation_failures or consolidation_error or core_failures):
+        if not (channels_failed or consolidation_failures or consolidation_error or core_failures or channels_partial):
             final_status = "completed"
         elif channels_done:
             final_status = "partial"

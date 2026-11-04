@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.models.sync_run import SyncRun
@@ -114,6 +115,16 @@ def safe_error_message(exc: Exception, secrets: Iterable[str]) -> str:
 
 ChannelStoreFn = Callable[["Session", str, list], int]
 
+# L7-CIERRE: un recurso OPCIONAL cuyo endpoint responde 404 (p. ej. Toku sandbox: `/organization/payments`) se omite y
+# la corrida sigue con los demas; queda `partial` con este texto. No lleva marcadores de configuracion o credencial
+# (ver app/core/channel_errors.py), asi que no dispara la alerta de primer fallo (d139a). 401/403 y cualquier error de
+# un recurso esencial siguen siendo fatales.
+OPTIONAL_SKIPPED_PREFIX = "Recursos opcionales omitidos (el endpoint respondio 404)"
+
+
+def _is_not_found(exc: Exception) -> bool:
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code == 404
+
 
 @dataclass(frozen=True)
 class WindowedRead:
@@ -134,7 +145,14 @@ async def sync_read_only_provider(
     channel_store_fn: ChannelStoreFn | None = None,
     progress_callback: ProgressCallback | None = None,
     windowed: dict[str, WindowedRead] | None = None,
+    optional_resources: Iterable[str] = (),
 ) -> SyncRun:
+    """Lee cada recurso del proveedor a `source_records` (y a las tablas canal) y deja la corrida en `sync_runs`.
+
+    `optional_resources`: recursos secundarios cuyo 404 no hace fallar la corrida (se omiten y queda `partial`).
+    """
+    optional = frozenset(optional_resources)
+    skipped: list[str] = []
     run = SyncRun(source=source, status="running", etl_run_id=current_run_id())
     db.add(run)
     db.commit()
@@ -199,7 +217,16 @@ async def sync_read_only_provider(
                         timer.mode = sync_cursors.MODE_FULL  # respaldo: lectura completa (lo ya escrito es idempotente)
                         seen = None
                 if seen is None:
-                    seen = await read_resource(resource_type, page_size, paginated, read_page, timer, None, ())
+                    try:
+                        seen = await read_resource(resource_type, page_size, paginated, read_page, timer, None, ())
+                    except Exception as exc:
+                        if resource_type not in optional or not _is_not_found(exc):
+                            raise
+                        # Lo ya leido de paginas anteriores se conserva; el recurso no marca exito en su cursor.
+                        skipped.append(resource_type)
+                        stats[resource_type] = {**timer.finish(), "skipped": True, "reason": "http_404"}
+                        logger.warning("%s/%s omitido: el endpoint respondio 404 (recurso opcional)", source, resource_type)
+                        continue
                 summary = timer.finish()
                 stats[resource_type] = summary
                 if resource_type == "subscription":
@@ -212,7 +239,8 @@ async def sync_read_only_provider(
             if subscriptions_read is not None:
                 # SYNC-D-13: bajas por desaparicion solo si todas las paginas de suscripciones se leyeron sin ventana.
                 detect_removals(db, source, seen_since=subscriptions_read[0], complete=subscriptions_read[1], run_id=run.id)
-        run.status = "completed"
+        run.status = "partial" if skipped else "completed"
+        run.error_message = f"{OPTIONAL_SKIPPED_PREFIX}: {', '.join(skipped)}" if skipped else None
         run.records_processed = processed
         run.resource_stats = stats
         run.finished_at = datetime.now(UTC)

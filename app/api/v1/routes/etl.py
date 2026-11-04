@@ -80,9 +80,14 @@ def _serialize_run(run: EtlRun) -> dict:
     }
 
 
-def full_sync_status(done: list[str], failed: list[str], consolidation_failures: list[str]) -> str:
-    """Estado final de un full-sync: `completed` solo sin fallos; `partial` con algun canal ok; `failed` si ninguno."""
-    if not failed and not consolidation_failures:
+def full_sync_status(
+    done: list[str], failed: list[str], consolidation_failures: list[str], partial: list[str] | None = None
+) -> str:
+    """Estado final de un full-sync: `completed` solo sin fallos; `partial` con algun canal ok; `failed` si ninguno.
+
+    `partial` (L7-CIERRE): canales que sincronizaron omitiendo un recurso opcional (404); dejan la corrida `partial`.
+    """
+    if not failed and not consolidation_failures and not partial:
         return "completed"
     return "partial" if done else "failed"
 
@@ -92,6 +97,7 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
     total = 0
     done: list[str] = []
     failed: list[str] = []
+    partial: list[str] = []
     try:
         for provider in providers:
             if provider not in _SYNC_FN:
@@ -108,6 +114,8 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
                     sync_run = await _SYNC_FN[provider](db)
                     total += sync_run.records_processed or 0
                     done.append(provider)
+                    if getattr(sync_run, "status", None) == "partial":
+                        partial.append(provider)
                     logger.info("Sync completado %s: %d registros", provider, sync_run.records_processed)
                 finally:
                     db.close()
@@ -135,9 +143,11 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
             error_parts.append(f"Canales con error: {', '.join(failed)}")
         if consolidation_failures:
             error_parts.append(f"Consolidacion con error: {', '.join(consolidation_failures)}")
+        if partial:
+            error_parts.append(f"Recursos opcionales omitidos en: {', '.join(partial)}")
         _update_run(
             run_id,
-            status=full_sync_status(done, failed, consolidation_failures),
+            status=full_sync_status(done, failed, consolidation_failures, partial),
             phase=None,
             channels_processed=done,
             channels_failed=failed or None,
