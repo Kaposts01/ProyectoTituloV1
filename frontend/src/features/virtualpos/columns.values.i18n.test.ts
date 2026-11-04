@@ -46,3 +46,19 @@ describe("columnas «Estado»: el valor del proveedor se muestra en español", (
     expect(cell(virtualPosColumns("subscription"), "Estado sec.", vpSubscription(1, {}, { secondary_status: "ZZ" }))).toBe("Desconocido (ZZ)");
   });
 });
+
+describe("Toku: fechas de alta y baja consolidadas (L6-DASH, ficha d142)", () => {
+  it("usa la baja del reporte aunque el payload de la API no la traiga", () => {
+    const deleted = tokuSubscription(1, { status: "CANCELLED" }, { start_date: "2024-06-06", end_date: "2025-06-17" });
+    expect(cell(tokuColumns("subscription"), "F. Cancelación", deleted)).toBe("2025-06-17");
+    expect(cell(tokuColumns("subscription"), "F. Inicio", deleted)).toBe("2024-06-06");
+  });
+
+  it("sin alta consolidada no muestra el anchor (próximo cobro) como alta", () => {
+    expect(cell(tokuColumns("subscription"), "F. Inicio", tokuSubscription(1, {}, { start_date: null, end_date: null }))).toBe("Sin dato");
+  });
+
+  it("sin los campos del servidor conserva el payload crudo", () => {
+    expect(cell(tokuColumns("subscription"), "F. Cancelación", tokuSubscription(1, { recurring: { end_date: "2026-01-02" } }))).toBe("2026-01-02");
+  });
+});

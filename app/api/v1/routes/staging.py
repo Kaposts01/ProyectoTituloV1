@@ -40,7 +40,7 @@ from app.models.tch import (
     TchTransaction,
 )
 from app.services import rejected_month
-from app.services.channel_churn import CHURN_WINDOW_LABEL, unified_churn_rate
+from app.services.channel_churn import CHURN_WINDOW_LABEL, closed_month_churn
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_rejection_display import DETAIL_FIELD as REJECTION_DETAIL_FIELD
 from app.services.charge_rejection_display import charge_rejection_text
@@ -56,6 +56,7 @@ from app.services.charge_stats import (
 from app.services.payku_sync import sync_payku
 from app.services.rbac import permission_codes, source_permission
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
+from app.services.status_history import CANCELLATION_STATES
 from app.services.toku_active import EffectiveActive
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
@@ -1348,10 +1349,10 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         cum_active = max(0, cum_active + activated - cancelled)
         active_subs_monthly_series.append({"year": month[0], "month": month[1], "count": cum_active})
 
-    # KPI churn unificado (DEC-37/D31): bajas del mes en curso (Chile) / socios al cierre del mes anterior.
-    # None si no hay base (ninguna suscripcion con alta); 0.0 si hay base pero sin bajas en el mes.
+    # KPI churn unificado (DEC-37/D31, L6-DASH): bajas / socios al cierre del mes anterior del ULTIMO MES CERRADO con
+    # dato (Chile). None si no hay base (ninguna suscripcion con alta) o ningun mes cerrado en la serie.
     has_base = any(int(v["count"]) for by_status in activation_by_month.values() for v in by_status.values())
-    churn_rate: float | None = unified_churn_rate(churn_rate_monthly_series, has_base=has_base)
+    churn_rate, _churn_period, churn_label = closed_month_churn(churn_rate_monthly_series, has_base=has_base)
     ltv = _ltv(arpu, churn_rate)
 
     def _flatten_by_status(data: dict) -> list[dict[str, Any]]:
@@ -1376,7 +1377,7 @@ def _vp_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
         "active_clients": active_clients,
         "arpu": arpu,
         "churn_rate": churn_rate,
-        "churn_window_label": CHURN_WINDOW_LABEL,
+        "churn_window_label": churn_label,
         "ltv": ltv,
     }
     ch_flat   = _flatten_by_status(charges_monthly)
@@ -1518,7 +1519,9 @@ def _toku_extended_data(records: list[SourceRecord]) -> dict[str, Any]:
             "rate": round(100 * cancelled / active_at_start, 1) if active_at_start > 0 else 0.0,
         })
 
-    kpis["churn_rate"] = unified_churn_rate(churn_rate_monthly_toku, has_base=total_subs > 0)
+    kpis["churn_rate"], _, kpis["churn_window_label"] = closed_month_churn(
+        churn_rate_monthly_toku, has_base=total_subs > 0
+    )
     kpis["ltv"] = _ltv(arpu, kpis["churn_rate"])
 
     tx_flat = _flatten_by_status(transactions_monthly)
@@ -1594,13 +1597,14 @@ def _payku_extended_data(
             status = str(payload.get("status", "")).lower()
 
             start = payload.get("start")
-            month = _month(start)
+            # `register` = inscripcion de tarjeta nunca completada: no es un alta (igual que el resumen, L6-DASH).
+            month = _month(start) if status != "register" else None
             if month:
                 activation_by_month[month][status.upper() or "SIN_ESTADO"]["count"] += 1
                 activation_by_month[month][status.upper() or "SIN_ESTADO"]["amount"] += _amount(payload.get("amount"))
 
             end = payload.get("end")
-            if end and status in {"cancel", "delete", "suspended"}:
+            if end and status in CANCELLATION_STATES["payku"]:
                 month = _month(end)
                 if month:
                     churn_by_month[month][status.upper()]["count"] += 1
@@ -1678,7 +1682,9 @@ def _payku_extended_data(
         })
         active_count = max(0, active_count + activated - cancelled)
         active_subs_monthly_payku.append({"year": month[0], "month": month[1], "count": active_count})
-    kpis["churn_rate"] = unified_churn_rate(churn_rate_monthly_payku, has_base=total_subs > 0)
+    kpis["churn_rate"], _, kpis["churn_window_label"] = closed_month_churn(
+        churn_rate_monthly_payku, has_base=total_subs > 0
+    )
     kpis["ltv"] = _ltv(arpu, kpis["churn_rate"])
 
     return {
@@ -2261,6 +2267,15 @@ def _toku_charge_client(column: Any) -> Any:
 _TOKU_SUB_CLIENT_NAME = func.trim(func.concat_ws(" ", CClient.first_name, CClient.last_name))
 
 
+def _toku_sub_dates(record: Any) -> dict[str, Any]:
+    """Alta y baja CONSOLIDADAS de una suscripcion Toku para la lista (L6-DASH, ficha d142).
+
+    El payload crudo de la API no trae la baja de una suscripcion eliminada (solo el reporte de Productos la tiene,
+    TK-PAR-05) y su `anchor` es el proximo cobro, no el alta. La lista ya filtra y ordena por estas columnas.
+    """
+    return {"start_date": record.suscription_date, "end_date": record.canceled_at}
+
+
 def _toku_sub_client_data(db: Session, records: list[Any]) -> dict[str, dict]:
     """Mapea {external_id del registro: {client_rut, client_name}} en una consulta."""
     client_ids = {r.client_external_id for r in records if r.client_external_id}
@@ -2422,7 +2437,11 @@ def _list_toku(
             _cstg(
                 record,
                 resource_type,
-                {**(enrichment.get((record.source, record.external_id)) or {}), **client_data.get(record.external_id, {})},
+                {
+                    **(enrichment.get((record.source, record.external_id)) or {}),
+                    **client_data.get(record.external_id, {}),
+                    **_toku_sub_dates(record),
+                },
             )
             for record in records
         ]
@@ -2435,7 +2454,7 @@ def _list_toku(
             _cstg(
                 r,
                 resource_type,
-                {**(enrichment.get((r.source, r.external_id)) or {}), **client_data.get(r.external_id, {})},
+                {**(enrichment.get((r.source, r.external_id)) or {}), **client_data.get(r.external_id, {}), **_toku_sub_dates(r)},
             )
             for r in records
         ]

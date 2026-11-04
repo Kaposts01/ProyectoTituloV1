@@ -166,14 +166,49 @@ def test_centralized_subscription_date_uses_the_report_start_not_the_anchor(db_s
     assert row.suscription_date == "2024-08-13" and row.canceled_at == "2026-05-02"
 
 
-def test_centralized_dates_fall_back_to_the_api_without_a_report_row_and_api_end_date_wins(db_session: Session) -> None:  # noqa: F811
+def test_centralized_start_is_null_without_a_report_row_and_api_end_date_wins(db_session: Session) -> None:  # noqa: F811
+    # d141 (opcion a): sin fila del reporte de Productos el alta queda NULL; el `anchor` es el proximo cobro.
     plain, ended = uid("sub"), uid("sub")
     api_subscription(db_session, plain, anchor="2026-11-05")
     api_subscription(db_session, ended, end_date="2026-03-01")
     World(db_session).product(ended, deleted=datetime(2026, 3, 5, 15, 0, tzinfo=UTC))
     channel_consolidation._consolidate_toku_subscriptions(db_session)
-    assert _central(db_session, plain).suscription_date == "2026-11-05" and _central(db_session, plain).canceled_at is None
+    assert _central(db_session, plain).suscription_date is None and _central(db_session, plain).canceled_at is None
     assert _central(db_session, ended).canceled_at == "2026-03-01"
+
+
+def test_subscription_without_report_row_is_not_counted_as_a_signup(db_session: Session) -> None:  # noqa: F811
+    # d141: antes el `anchor` (proximo cobro, p. ej. el mes siguiente) contaba como alta futura en el resumen.
+    from app.services.dashboard_general import _subscription_histograms
+
+    def toku_signups() -> tuple[int, int]:
+        signups, _, quality = _subscription_histograms(db_session, ["toku"])
+        return sum(signups["toku"].values()), quality["altas_sin_fecha"]
+
+    before_total, before_undated = toku_signups()
+    plain, reported = uid("sub"), uid("sub")
+    api_subscription(db_session, plain, anchor="2026-11-05")
+    api_subscription(db_session, reported, anchor="2026-11-05")
+    World(db_session).product(reported, created=datetime(2024, 8, 13, 13, 0, tzinfo=UTC))
+    channel_consolidation._consolidate_toku_subscriptions(db_session)
+    db_session.flush()
+    after_total, after_undated = toku_signups()
+    assert after_total - before_total == 1  # solo la que tiene alta en el reporte
+    assert after_undated - before_undated == 1  # la otra se informa como alta sin fecha
+    signups, _, _ = _subscription_histograms(db_session, ["toku"])
+    assert signups["toku"].get("2024-08", 0) >= 1
+
+
+def test_write_materialization_keeps_the_consolidated_dates() -> None:
+    # d141: tras una escritura en Toku la respuesta de la API (con `anchor` = proximo cobro y sin baja de la eliminada)
+    # no debe pisar el alta ni la baja consolidadas desde el reporte.
+    from app.services import write_toku
+
+    row = Subscription(source="toku", external_id="w-1", suscription_date="2024-08-13", canceled_at="2026-05-02")
+    write_toku._materialize_subscription(row, {"id": "w-1", "status": "CANCELLED", "recurring": {"anchor": "2026-12-05"}})
+    assert (row.suscription_date, row.canceled_at) == ("2024-08-13", "2026-05-02")
+    write_toku._materialize_subscription(row, {"id": "w-1", "recurring": {"end_date": "2026-04-30"}})
+    assert row.canceled_at == "2026-04-30"  # la baja de la API manda
 
 
 def test_chile_date_is_used_near_midnight(db_session: Session) -> None:  # noqa: F811

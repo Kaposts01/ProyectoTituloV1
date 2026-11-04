@@ -18,6 +18,7 @@ from sqlalchemy import Numeric, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.crm import Charge as CCharge
+from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription as CSub
 from app.models.tch import TchMonthlyCollection, TchSubscription, TchTransaction
 from app.services import rejected_month
@@ -40,6 +41,9 @@ _CHANNEL_SOURCES = {
 # TCH guarda el estado como VIGENTE / ELIMINADA (BAJA_STATES['tch'] es el estado normalizado del historial).
 _TCH_CANCELLATION_STATES = frozenset(CANCELLATION_STATES["tch"] | {"eliminada"})
 _FAILED_SUBSCRIPTION = "suscripcion_fallida"  # VirtualPOS: nunca fue una alta real (igual que el dashboard actual)
+# Payku `register`: el socio nunca completo la inscripcion de la tarjeta (no fue alta). Misma exclusion que la vista y
+# la exportacion de suscripciones (L6-DASH: antes contaban para siempre en «socios totales»).
+_PAYKU_NEVER_ACTIVATED = "register"
 
 CHURN_DEFINITION = (
     "Propuesta pendiente de confirmación: bajas del mes ÷ socios al inicio del mes (cierre del mes anterior), "
@@ -140,7 +144,12 @@ def _subscription_histograms(
     online = [c for c in channels if c in _CHANNEL_SOURCES]
     if online:
         sources = tuple(s for c in online for s in _CHANNEL_SOURCES[c])
-        not_failed = func.lower(func.trim(CSub.status)).is_distinct_from(_FAILED_SUBSCRIPTION)
+        status = func.lower(func.trim(CSub.status))
+        never_signed_up = or_(
+            status == _FAILED_SUBSCRIPTION,
+            (CSub.source == "payku") & (status == _PAYKU_NEVER_ACTIVATED),
+        )
+        not_failed = func.coalesce(never_signed_up, False).is_(False)
         valid_signup = CSub.suscription_date.op("~")(_DATE10)
         valid_cancellation = CSub.canceled_at.op("~")(_DATE10)
         is_cancelled = _cancellation_condition_csub(sources)
@@ -173,40 +182,64 @@ def _subscription_histograms(
         ) or 0
 
     if "tch" in channels:
-        valid_signup = TchSubscription.activation_date.op("~")(_DATE10)
+        # TCH-PAR-17 (L6-DASH): la misma fecha de alta que el dashboard de TCH. Desde jul-2025 el reporte ya no trae la
+        # fecha de activacion; se usa la del primer cobro y, si falta, la de entrega al banco. Antes el resumen solo
+        # miraba `fecha_activacion` y perdia todas esas altas. Un mandato RECHAZADA nunca fue alta (igual que la vista
+        # de suscripciones): no entra ni a las altas ni a la calidad de datos.
+        from app.api.v1.routes.tch import (
+            _effective_activation_date,  # import perezoso (evita el ciclo con el router)
+        )
+
+        activation = _effective_activation_date()
+        not_rejected = func.upper(func.trim(TchSubscription.status)).is_distinct_from("RECHAZADA")
+        valid_signup = func.coalesce(activation.op("~")(_DATE10), False)
         valid_cancellation = TchSubscription.deletion_date.op("~")(_DATE10)
         is_cancelled = func.lower(func.trim(TchSubscription.status)).in_(tuple(_TCH_CANCELLATION_STATES))
-        signup_month = func.substring(TchSubscription.activation_date, 1, 7)
+        signup_month = func.substring(activation, 1, 7)
         cancellation_month = func.substring(TchSubscription.deletion_date, 1, 7)
         for month, n in db.execute(
-            select(signup_month, func.count()).where(valid_signup).group_by(signup_month)
+            select(signup_month, func.count()).where(valid_signup, not_rejected).group_by(signup_month)
         ):
             signups["tch"][month] += n
         for month, n in db.execute(
             select(cancellation_month, func.count())
             .where(
-                is_cancelled, valid_cancellation, valid_signup,
-                func.substring(TchSubscription.deletion_date, 1, 10)
-                >= func.substring(TchSubscription.activation_date, 1, 10),
+                is_cancelled, valid_cancellation, valid_signup, not_rejected,
+                func.substring(TchSubscription.deletion_date, 1, 10) >= func.substring(activation, 1, 10),
             )
             .group_by(cancellation_month)
         ):
             cancellations["tch"][month] += n
         quality["altas_sin_fecha"] += db.scalar(
-            select(func.count()).select_from(TchSubscription).where(_invalid(valid_signup))
+            select(func.count()).select_from(TchSubscription).where(not_rejected, _invalid(valid_signup))
         ) or 0
         quality["bajas_sin_fecha"] += db.scalar(
             select(func.count()).select_from(TchSubscription).where(
-                is_cancelled,
+                is_cancelled, not_rejected,
                 or_(_invalid(valid_cancellation), _invalid(valid_signup),
-                    func.substring(TchSubscription.deletion_date, 1, 10)
-                    < func.substring(TchSubscription.activation_date, 1, 10)),
+                    func.substring(TchSubscription.deletion_date, 1, 10) < func.substring(activation, 1, 10)),
             )
         ) or 0
     return signups, cancellations, quality
 
 
 # ── cobros: ingreso, rechazo, pendiente ────────────────────────────────────────────────────────────────
+# Payku no tiene cargos: la consolidacion solo escribe sus transacciones en `payments` (cada transaccion es un intento
+# de cobro de la suscripcion). Antes el resumen leia `charges` para Payku y su ingreso, cobrabilidad, no cobrado y por
+# cobrar quedaban siempre vacios (L6-DASH).
+_PAYMENT_CHANNELS = frozenset({"payku"})
+# Toku marca la factura como UNPAID (nunca «rechazada"): vencida (fecha <= hoy) es no cobrada; con fecha futura, por
+# cobrar. Antes caia en «other» y Toku mostraba cobrabilidad 100 % y no cobrado 0 (L6-DASH).
+_TOKU_UNPAID_STATES = frozenset({"unpaid", "partially_paid"})
+
+
+def _charge_outcome(source: str, status: str, day: date | None, today: date) -> str:
+    """`charge_outcome` con la regla de la factura impaga de Toku."""
+    if source == "toku" and str(status or "").strip().lower() in _TOKU_UNPAID_STATES:
+        return "rejected" if day is not None and day <= today else "pending"
+    return charge_outcome(status)
+
+
 def _new_cell() -> dict[str, Any]:
     return {"paid_n": 0, "paid_amt": 0.0, "rej_n": 0, "rej_amt": 0.0, "pend_n": 0, "pend_amt": 0.0, "stat_rows": []}
 
@@ -221,33 +254,52 @@ def _charge_cells(
     """
     cells: dict[str, dict[str, dict[str, Any]]] = {c: defaultdict(_new_cell) for c in channels}
     online = [c for c in channels if c in _CHANNEL_SOURCES]
-    if online:
-        sources = tuple(s for c in online for s in _CHANNEL_SOURCES[c])
+
+    def add(source: str, d: str, st: str, n: int, amount: Any) -> None:
+        parsed = parse_charge_date(d)
+        outcome = _charge_outcome(source, st, parsed, today)
+        if parsed is None or outcome in ("excluded", "other"):
+            return
+        cell = cells[_SRC_CHANNEL[source]][d[:7]]
+        if outcome == "pending":  # programado y aun sin resultado: tambien lo que cae mas adelante en el mes
+            cell["pend_n"] += n
+            cell["pend_amt"] += float(amount)
+        elif parsed <= today:  # cobros futuros (fecha > hoy) no son pagados ni rechazados
+            key = "paid" if outcome == "paid" else "rej"
+            cell[f"{key}_n"] += n
+            cell[f"{key}_amt"] += float(amount)
+            cell["stat_rows"].append({"date": d, "status": "rechazado" if key == "rej" else st, "count": n})
+
+    charge_sources = tuple(s for c in online if c not in _PAYMENT_CHANNELS for s in _CHANNEL_SOURCES[c])
+    if charge_sources:
         day = func.substring(CCharge.charge_date, 1, 10)
         month = func.substring(CCharge.charge_date, 1, 7)
         status = func.lower(func.trim(CCharge.status))
         for source, d, st, n, amount in db.execute(
             select(CCharge.source, day, status, func.count(), func.coalesce(func.sum(_amount_col(CCharge.amount)), 0))
             .where(
-                CCharge.source.in_(sources),
+                CCharge.source.in_(charge_sources),
                 CCharge.charge_date.op("~")(r"^\d{4}-\d{2}"),
                 month >= first, month <= last,
             )
             .group_by(CCharge.source, day, status)
         ):
-            parsed = parse_charge_date(d)
-            outcome = charge_outcome(st)
-            if parsed is None or outcome in ("excluded", "other"):
-                continue
-            cell = cells[_SRC_CHANNEL[source]][d[:7]]
-            if outcome == "pending":  # programado y aun sin resultado: tambien lo que cae mas adelante en el mes
-                cell["pend_n"] += n
-                cell["pend_amt"] += float(amount)
-            elif parsed <= today:  # cobros futuros (fecha > hoy) no son pagados ni rechazados
-                key = "paid" if outcome == "paid" else "rej"
-                cell[f"{key}_n"] += n
-                cell[f"{key}_amt"] += float(amount)
-                cell["stat_rows"].append({"date": d, "status": st, "count": n})
+            add(source, d, st, n, amount)
+    payment_sources = tuple(s for c in online if c in _PAYMENT_CHANNELS for s in _CHANNEL_SOURCES[c])
+    if payment_sources:
+        day = func.substring(CPayment.payment_date, 1, 10)
+        month = func.substring(CPayment.payment_date, 1, 7)
+        status = func.lower(func.trim(CPayment.status))
+        for source, d, st, n, amount in db.execute(
+            select(CPayment.source, day, status, func.count(), func.coalesce(func.sum(_amount_col(CPayment.amount)), 0))
+            .where(
+                CPayment.source.in_(payment_sources),
+                CPayment.payment_date.op("~")(r"^\d{4}-\d{2}"),
+                month >= first, month <= last,
+            )
+            .group_by(CPayment.source, day, status)
+        ):
+            add(source, d, st, n, amount)
 
     if "tch" in channels:
         controls = db.scalars(

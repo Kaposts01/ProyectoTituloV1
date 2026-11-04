@@ -1298,3 +1298,20 @@ def test_payku_dashboard_exposes_coverage_gaps(db_session) -> None:
     gaps = staging.channel_dashboard("payku", db=db_session)["coverage_gaps"]
     assert {"year": 2097, "month": 12} in gaps and {"year": 2098, "month": 1} in gaps
     assert {"year": 2097, "month": 11} not in gaps
+
+
+def test_toku_subscription_list_exposes_consolidated_start_and_end_dates(db_session) -> None:
+    # L6-DASH (ficha d142): la API de Toku no trae la baja de una eliminada (solo el reporte de Productos) y su
+    # `anchor` es el proximo cobro. La lista entrega las fechas consolidadas para las columnas F. Inicio / F. Cancelacion.
+    db_session.add(Subscription(
+        source="toku", external_id="l6-deleted-sub", status="CANCELLED", amount="1000",
+        suscription_date="2024-06-06", canceled_at="2025-06-17",
+        raw_payload={"id": "l6-deleted-sub", "recurring": {"anchor": "2026-12-01"}},
+    ))
+    db_session.flush()
+    response = staging.list_records(
+        source="toku", resource_type="subscription", filter_field="id", query="l6-deleted-sub", db=db_session
+    )
+    item = next(i for i in response["items"] if i["external_id"] == "l6-deleted-sub")
+    assert (item["start_date"], item["end_date"]) == ("2024-06-06", "2025-06-17")
+    assert "end_date" not in item["payload"]  # el payload crudo no se toca

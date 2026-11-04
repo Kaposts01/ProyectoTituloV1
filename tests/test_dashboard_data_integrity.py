@@ -202,31 +202,45 @@ def _rec(rt, payload):
     return SimpleNamespace(resource_type=rt, payload=payload)
 
 
-def test_churn_window_label_is_unified_across_channels() -> None:
-    # DEC-37: los canales usan la definicion del resumen (D31), con el mismo rotulo.
-    from app.services.dashboard_general import CHURN_WINDOW_LABEL
+def test_churn_window_label_is_unified_across_channels(monkeypatch) -> None:
+    # DEC-37: los canales usan la definicion del resumen (D31); L6-DASH: el rotulo nombra el ultimo mes cerrado usado.
+    from app.services.channel_churn import churn_window_label
 
+    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2026, 3, 10, tzinfo=ZoneInfo("America/Santiago")))
+    expected = churn_window_label("2026-01")
+    assert "último mes cerrado" in expected and "2026-01" in expected
     sub = _rec("subscription", {"status": "ACTIVA", "amount": 100, "suscription_date": "2026-01-05"})
     vp = staging._vp_extended_data([sub])
-    assert vp["kpis"]["churn_window_label"] == vp["churn_window_label"] == CHURN_WINDOW_LABEL
+    assert vp["kpis"]["churn_window_label"] == vp["churn_window_label"] == expected
     tk = staging._toku_extended_data([_rec("subscription", {"status": "active", "amount": 1, "anchor": "2026-01-01", "customer": "c"})])
-    assert tk["kpis"]["churn_window_label"] == tk["churn_window_label"] == CHURN_WINDOW_LABEL
+    assert tk["kpis"]["churn_window_label"] == tk["churn_window_label"] == expected
     pk = staging._payku_extended_data([_rec("subscription", {"status": "active", "amount": 1, "start": "2026-01-01"})])
-    assert pk["kpis"]["churn_window_label"] == pk["churn_window_label"] == CHURN_WINDOW_LABEL
+    assert pk["kpis"]["churn_window_label"] == pk["churn_window_label"] == expected
 
 
-def test_unified_churn_rate_takes_current_chile_month_from_series() -> None:
-    from app.services.channel_churn import unified_churn_rate
+def test_churn_kpi_takes_the_last_closed_month_with_data() -> None:
+    # L6-DASH (ficha d142): el mes en curso casi siempre da 0 % los primeros dias; se usa el ultimo mes cerrado con dato.
+    from app.services.channel_churn import (
+        CHURN_WINDOW_LABEL,
+        closed_month_churn,
+        unified_churn_rate,
+    )
 
-    series = [{"year": 2026, "month": 1, "rate": 0.0}, {"year": 2026, "month": 2, "rate": 12.5}]
-    assert unified_churn_rate(series, has_base=True, today=date(2026, 2, 10)) == 12.5
-    assert unified_churn_rate(series, has_base=True, today=date(2026, 3, 1)) == 0.0  # mes sin punto: 0 con base
+    series = [{"year": 2026, "month": 1, "rate": 0.0}, {"year": 2026, "month": 2, "rate": 12.5}, {"year": 2026, "month": 4, "rate": 3.0}]
+    # en febrero el ultimo cerrado es enero; en marzo, febrero; en abril, febrero (marzo no tiene punto)
+    assert closed_month_churn(series, has_base=True, today=date(2026, 2, 10))[:2] == (0.0, "2026-01")
+    assert closed_month_churn(series, has_base=True, today=date(2026, 3, 1))[:2] == (12.5, "2026-02")
+    rate, period, label = closed_month_churn(series, has_base=True, today=date(2026, 4, 2))
+    assert (rate, period) == (12.5, "2026-02") and "2026-02" in label and "último mes cerrado" in label
+    assert closed_month_churn(series, has_base=True, today=date(2026, 5, 1))[:2] == (3.0, "2026-04")
+    # sin ningun mes cerrado (toda la actividad es del mes en curso) o sin base: sin dato, no un 0 inventado
+    assert closed_month_churn(series, has_base=True, today=date(2026, 1, 20)) == (None, None, CHURN_WINDOW_LABEL)
     assert unified_churn_rate(series, has_base=False, today=date(2026, 2, 10)) is None
 
 
-@pytest.mark.parametrize("now", [datetime(2026, 2, 15, 12, tzinfo=ZoneInfo("America/Santiago"))])
-def test_channels_churn_kpi_is_rate_of_current_month(monkeypatch, now) -> None:
-    # Mismo dato en VP, Toku y Payku: 4 altas en enero, 1 baja en febrero -> 1 / 4 = 25 % en febrero.
+@pytest.mark.parametrize("now", [datetime(2026, 3, 15, 12, tzinfo=ZoneInfo("America/Santiago"))])
+def test_channels_churn_kpi_is_rate_of_last_closed_month(monkeypatch, now) -> None:
+    # Mismo dato en VP, Toku y Payku: 4 altas en enero, 1 baja en febrero -> 1 / 4 = 25 % en febrero (cerrado en marzo).
     monkeypatch.setattr(rejected_month, "now_chile", lambda: now)
     vp = [_rec("subscription", {"status": "ACTIVA", "amount": 1, "suscription_date": "2026-01-05"}) for _ in range(3)]
     vp.append(_rec("subscription", {"status": "CANCELADA", "amount": 1, "suscription_date": "2026-01-05", "canceled_at": "2026-02-03"}))
@@ -247,8 +261,8 @@ def test_empty_channel_ratios_are_none_and_counts_zero(builder) -> None:
 
 def test_payku_arpu_subtext_count_has_no_floor_of_one(monkeypatch) -> None:
     # Causa del '1 cliente con subs activas' con 0 activas: piso `or 1` en active_clients.
-    # Churn unificado (DEC-37): el mes en curso es el de la baja (febrero), con 1 socio al cierre de enero.
-    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2026, 2, 10, tzinfo=ZoneInfo("America/Santiago")))
+    # Churn unificado (DEC-37, L6-DASH): el ultimo mes cerrado es el de la baja (febrero), con 1 socio al cierre de enero.
+    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2026, 3, 10, tzinfo=ZoneInfo("America/Santiago")))
     subs = [_rec("subscription", {"id": "s1", "status": "cancel", "start": "2026-01-01", "end": "2026-02-01", "amount": 5})]
     kpis = staging._payku_extended_data(subs, [])["kpis"]
     assert kpis["active_clients"] == 0 and kpis["arpu"] is None
@@ -300,7 +314,7 @@ def test_tch_summary_nulls_and_label(db_session, monkeypatch) -> None:
     out = tch.tch_summary()
     assert out["kpis"]["churn_rate"] is None and out["kpis"]["arpu"] is None and out["kpis"]["ltv"] is None
     assert out["transacciones"]["tasa_rechazo_pct"] is None
-    from app.services.dashboard_general import CHURN_WINDOW_LABEL
+    from app.services.channel_churn import CHURN_WINDOW_LABEL
 
     assert out["kpis"]["churn_window_label"] == out["churn_window_label"] == CHURN_WINDOW_LABEL
     assert out["kpis"]["mrr"] == 0

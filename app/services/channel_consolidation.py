@@ -435,7 +435,8 @@ def _consolidate_toku_subscriptions(db: Session, scope: Scope | None = None) -> 
     criteria = (TokuSubscription.external_id == scope[1],) if scope else ()
     rows = []
     # TK-PAR-05: alta y baja reales desde el reporte de Productos. La API solo trae el proximo cobro (`anchor`) y no
-    # lista las eliminadas; sin fila de reporte se conserva el comportamiento anterior.
+    # lista las eliminadas. d141 (opcion a): sin fila de reporte el alta queda NULL (el `anchor` es el proximo cobro,
+    # no el alta, y contaba como alta futura); la suscripcion queda fuera de las altas (`altas_sin_fecha`).
     report_dates = report_product_dates(db)
     for t in db.scalars(select(TokuSubscription).where(*criteria)).all():
         payload = t.raw_payload or {}
@@ -449,7 +450,7 @@ def _consolidate_toku_subscriptions(db: Session, scope: Scope | None = None) -> 
             "service_id": None,
             "status": t.status,
             "automatic_renewal": None,
-            "suscription_date": (chile_date_iso(report.created_at) if report else None) or t.anchor,
+            "suscription_date": chile_date_iso(report.created_at) if report else None,
             "canceled_at": t.end_date or (chile_date_iso(report.deleted_at) if report else None),
             "amount": t.amount,
             "currency": t.currency_code,

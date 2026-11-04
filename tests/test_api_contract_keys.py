@@ -59,7 +59,15 @@ def test_dashboard_general_keys(auth, data) -> None:  # noqa: F811
     assert_keys("dashboard_general", resp.json())
 
 
-def test_tch_routes_keys(seeded) -> None:
+def test_tch_routes_keys(seeded, monkeypatch) -> None:
+    # L6-DASH: el churn del canal es el del ultimo mes cerrado; «hoy» en noviembre deja octubre (con la baja de
+    # prueba) como mes cerrado y la alerta de churn sigue presente en la referencia de claves.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.services import rejected_month
+
+    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2026, 11, 5, 12, tzinfo=ZoneInfo("America/Santiago")))
     assert_keys("tch_summary", tch.tch_summary())
     assert_keys("tch_clientes", tch.list_clients(page=1, limit=50))
     assert_keys("tch_cliente_detalle", tch.get_client("T1"))
@@ -92,10 +100,18 @@ def test_recovery_json_keys(seeded) -> None:
     assert_keys("recovery_group", recovery._page(recovery._group_rows(seeded, "inactiva", start, end, no_filters), 0, 50))
 
 
-def test_reports_json_keys(seeded) -> None:
+def test_reports_json_keys(seeded, monkeypatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.services import rejected_month
+
     start, end = date(2026, 10, 1), date(2026, 10, 15)
     assert_keys("reports_auto_period", reports._auto_period_data(seeded, start, end))
     assert_keys("reports_virtualpos_data", reports._virtualpos_report_data(seeded, start, end))
     for scope in ("general", "toku", "payku", "tch"):
-        assert_keys(f"reports_snapshot_{scope}", reports._snapshot(seeded, scope))
+        with monkeypatch.context() as m:
+            if scope == "tch":  # L6-DASH: churn del ultimo mes cerrado; en noviembre, octubre (con la baja) da la alerta
+                m.setattr(rejected_month, "now_chile", lambda: datetime(2026, 11, 5, 12, tzinfo=ZoneInfo("America/Santiago")))
+            assert_keys(f"reports_snapshot_{scope}", reports._snapshot(seeded, scope))
         assert_keys(f"reports_series_{scope}", reports._series(seeded, scope, start, end))
