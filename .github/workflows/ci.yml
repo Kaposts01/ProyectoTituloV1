@@ -56,4 +56,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      # REV-01 (origin/sprint-5/estabilizacion-dashboard 1005a26): la CI corre tambien las pruebas del frontend.
+      - run: npm test
       - run: npm run build

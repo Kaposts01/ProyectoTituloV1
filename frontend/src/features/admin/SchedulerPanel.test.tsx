@@ -9,7 +9,7 @@ vi.mock("../../api", () => ({
   friendlyError: (_e: unknown, m: string) => m,
 }));
 import { getJson } from "../../api";
-import { SchedulerPanel, getPhasesForChannels, syncPayloadChannels, vpSubOptions } from "./SchedulerPanel";
+import { SchedulerPanel, getPhasesForChannels, isTerminalSseEvent, syncPayloadChannels, vpSubOptions } from "./SchedulerPanel";
 
 const mocked = vi.mocked(getJson);
 const PROD = ["virtualpos1", "virtualpos2", "toku", "payku", "tch"];
@@ -116,5 +116,15 @@ describe("SchedulerPanel: estados y jobs de facturacion", () => {
     render(<SchedulerPanel canSync canViewRuns canImportTch />);
     expect(await screen.findByText(/No se pudieron cargar los jobs/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+});
+
+describe("isTerminalSseEvent (REV-01)", () => {
+  it("un error de fase no cierra el stream; completed o el error fatal si", () => {
+    expect(isTerminalSseEvent({ type: "error", phase: "sync_toku" })).toBe(false);
+    expect(isTerminalSseEvent({ type: "error", phase: "core_etl" })).toBe(false);
+    expect(isTerminalSseEvent({ type: "progress", phase: "sync_toku" })).toBe(false);
+    expect(isTerminalSseEvent({ type: "completed" })).toBe(true);
+    expect(isTerminalSseEvent({ type: "error", phase: "fatal" })).toBe(true);
   });
 });
