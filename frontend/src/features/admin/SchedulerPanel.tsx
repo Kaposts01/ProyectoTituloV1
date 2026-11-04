@@ -361,7 +361,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
           <div className="sse-header">
             <div className="sse-header-left">
               <h3 className="sse-title">
-                {isCompleted ? `✓ Completado — ${(completedEv?.total_records ?? 0).toLocaleString()} registros en ${Math.floor((completedEv?.duration_s ?? 0) / 60)}m ${(completedEv?.duration_s ?? 0) % 60}s` : sseEvents.length === 0 ? "Conectando al stream…" : `Sincronizando… ${globalPct !== null ? `${globalPct}%` : ""}`}
+                {isCompleted ? `✓ Completado — ${(completedEv?.total_records ?? 0).toLocaleString("es-CL")} registros en ${Math.floor((completedEv?.duration_s ?? 0) / 60)}m ${(completedEv?.duration_s ?? 0) % 60}s` : sseEvents.length === 0 ? "Conectando al stream…" : `Sincronizando… ${globalPct !== null ? `${globalPct}%` : ""}`}
               </h3>
               {sseEvents.length === 0 && polledPhase && <p className="sse-polled-phase">{phaseText(polledPhase)} — actualizando cada 4s</p>}
               {!isCompleted && globalPct !== null ? <div className="sse-global-bar-wrap"><div className="sse-global-bar-fill" style={{ width: `${globalPct}%` }} /></div> : null}
@@ -422,7 +422,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
                   <td className="runs-dur">{isThisRunActive && globalPct !== null ? <span className="runs-live-dur">⟳ {globalPct}%</span> : fmtDuration(run.started_at, run.finished_at)}</td>
                   <td>{statusBadge(run.status)}</td>
                   <td className="runs-type">{runTypeLabel(run.channels_processed, enabled)}</td>
-                  <td className="runs-rec">{run.records_upserted != null ? <span className="runs-rec-val">{run.records_upserted.toLocaleString()}</span> : <span className="muted-copy">—</span>}</td>
+                  <td className="runs-rec">{run.records_upserted != null ? <span className="runs-rec-val">{run.records_upserted.toLocaleString("es-CL")}</span> : <span className="muted-copy">—</span>}</td>
                   <td>{run.status === "running" ? (isThisRunActive ? <span className="runs-watching-dot" title="Viendo en vivo">●</span> : <button className="runs-ver-btn" onClick={() => { setActiveRunId(run.id); setTriggeredChannels(undefined); }}>Ver en vivo</button>) : <button className="runs-ver-btn" aria-expanded={showDetail} onClick={() => setDetailRunId(showDetail ? null : run.id)}>{showDetail ? "Ocultar" : "Detalle"}</button>}</td>
                 </tr>
                 {showDetail ? (

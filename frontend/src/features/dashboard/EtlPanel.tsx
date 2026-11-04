@@ -37,7 +37,7 @@ export function EtlPanel({ etlRunning, lastEtlRun, etlError, runFullSync }: {
             <span className="etl-phase-badge">{label("phase", lastEtlRun.phase)}</span>
           ) : null}
           <span className="muted-copy">
-            {lastEtlRun.records_upserted.toLocaleString()} registros
+            {lastEtlRun.records_upserted.toLocaleString("es-CL")} registros
             {lastEtlRun.finished_at
               ? ` · ${new Date(lastEtlRun.finished_at).toLocaleString("es-CL")}`
               : " · en progreso…"}
