@@ -74,7 +74,7 @@ def test_security_codes_and_status(db_session, monkeypatch) -> None:
     monkeypatch.setattr(settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
     from fastapi.testclient import TestClient
 
-    anonymous = TestClient(app).get("/api/v1/staging/summary")
+    anonymous = TestClient(app, base_url="https://testserver").get("/api/v1/staging/summary")
     assert anonymous.status_code == 401
     assert anonymous.json()["detail"] == {"code": "authentication_required", "message": "Debes iniciar sesión para continuar."}
 

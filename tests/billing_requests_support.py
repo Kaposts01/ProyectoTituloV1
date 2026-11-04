@@ -211,7 +211,7 @@ def client_for(db: Session, user: User) -> tuple[TestClient, dict[str, str]]:
     token, csrf = create_access_token(user)
     app.dependency_overrides[crm_get_db] = lambda: db
     app.dependency_overrides[security_get_db] = lambda: db
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     client.cookies.set(ACCESS_COOKIE, token)
     return client, {"X-CSRF-Token": csrf}
 

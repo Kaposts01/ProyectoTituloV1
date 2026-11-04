@@ -57,7 +57,7 @@ def _client(db: Session, codes: set[str]) -> TestClient:
     token, _csrf = create_access_token(user)
     app.dependency_overrides[crm_get_db] = lambda: db
     app.dependency_overrides[security_get_db] = lambda: db
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     client.cookies.set(ACCESS_COOKIE, token)
     return client
 
@@ -172,7 +172,7 @@ def test_without_date_uses_yesterday_and_day_empty(db_session: Session) -> None:
 
 
 def test_rbac(db_session: Session) -> None:
-    anon = TestClient(app)
+    anon = TestClient(app, base_url="https://testserver")
     assert anon.get(f"/api/v1/changes/daily?date={DAY}").status_code in (401, 403)
     assert _client(db_session, {"sync_runs.view"}).get(f"/api/v1/changes/daily?date={DAY}").status_code == 403
     assert _client(db_session, {"dashboard.view"}).get(f"/api/v1/changes/daily?date={DAY}").status_code == 200

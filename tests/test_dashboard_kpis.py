@@ -47,7 +47,7 @@ def test_etl_run_returns_410_with_auth_and_csrf_and_creates_no_run(monkeypatch) 
     with SessionLocal() as other:
         before = other.scalar(select(func.count()).select_from(EtlRun))
     try:
-        client = TestClient(app)
+        client = TestClient(app, base_url="https://testserver")
         client.cookies.set(ACCESS_COOKIE, token)
         no_csrf = client.post("/api/v1/etl/run")
         ok = client.post("/api/v1/etl/run", headers={"X-CSRF-Token": csrf})

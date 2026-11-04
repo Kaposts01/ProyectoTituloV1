@@ -121,7 +121,7 @@ def _client(permissions, db_session):
     )
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[sync_runs.get_db] = lambda: db_session
-    return TestClient(app)
+    return TestClient(app, base_url="https://testserver")
 
 
 def _cleanup():

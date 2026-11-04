@@ -76,7 +76,7 @@ def test_seed_default_roles_restores_missing(db) -> None:
 
 def test_public_environment_no_auth_no_sensitive(monkeypatch) -> None:
     monkeypatch.setattr(settings, "sandbox_app_url", "https://sandbox.example.test")
-    res = TestClient(app).get("/api/v1/system/environment")
+    res = TestClient(app, base_url="https://testserver").get("/api/v1/system/environment")
     assert res.status_code == 200
     body = res.json()
     assert body["app_env"] in {"production", "sandbox", "qa"}
@@ -103,13 +103,13 @@ def _make_user(permission_codes: list[str]) -> tuple[str, str]:
 def _login(monkeypatch, permission_codes: list[str]) -> TestClient:
     monkeypatch.setattr(settings, "auth_jwt_secret", "test-jwt-secret-with-at-least-32-chars")
     username, password = _make_user(permission_codes)
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     assert client.post("/api/v1/auth/login", json={"username": username, "password": password}).status_code == 200
     return client
 
 
 def test_switch_requires_auth_and_permission(monkeypatch) -> None:
-    assert TestClient(app).get("/api/v1/system/environment/switch").status_code == 401
+    assert TestClient(app, base_url="https://testserver").get("/api/v1/system/environment/switch").status_code == 401
     client = _login(monkeypatch, ["dashboard.view"])
     assert client.get("/api/v1/system/environment/switch").status_code == 403
 
@@ -175,7 +175,7 @@ def _set_creds(monkeypatch, *, vp: bool, toku: bool, payku: bool) -> None:
 
 
 def _enabled() -> list[str]:
-    res = TestClient(app).get("/api/v1/system/environment")
+    res = TestClient(app, base_url="https://testserver").get("/api/v1/system/environment")
     assert res.status_code == 200
     return res.json()["enabled_channels"]
 

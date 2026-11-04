@@ -87,7 +87,7 @@ def no_plural_delete():
 
 def test_openapi_lists_new_routes():
     """Las rutas nuevas estan registradas bajo /api/v1/billing (con su metodo)."""
-    r = TestClient(app).get("/openapi.json")
+    r = TestClient(app, base_url="https://testserver").get("/openapi.json")
     assert r.status_code == 200
     paths = r.json()["paths"]
     expected = {
@@ -135,7 +135,7 @@ def test_missing_csrf_is_403_and_missing_session_is_401(w):
         ("post", f"/changes/{rid}/reopen", {"comment": "x"}), ("post", f"/changes/{rid}/apply", {}),
         ("put", "/policy", {"request_expiry_days": 9}),
     ]
-    anonymous = TestClient(app)
+    anonymous = TestClient(app, base_url="https://testserver")
     for method, path, body in writes:
         assert getattr(client, method)(f"{BASE}{path}", json=body).status_code == 403, path  # sin cabecera CSRF
         assert getattr(anonymous, method)(f"{BASE}{path}", json=body).status_code == 401, path
@@ -608,7 +608,7 @@ def test_requesters_empty_without_requests(w):
 
 
 def test_requesters_requires_session_and_view_permission(w):
-    assert TestClient(app).get(f"{BASE}/requesters").status_code == 401
+    assert TestClient(app, base_url="https://testserver").get(f"{BASE}/requesters").status_code == 401
     nobody = make_user(w.db)
     client, _ = client_for(w.db, nobody)
     assert client.get(f"{BASE}/requesters").status_code == 403

@@ -171,7 +171,7 @@ def test_payku_other_roles_are_forbidden_and_nothing_is_written(world, tmp_path,
 def test_payku_permission_alone_is_enough_and_csrf_and_auth_are_required(world, tmp_path):
     path = write_data_tx(tmp_path / "p.xlsx")
     assert world.post("payku_only", PAYKU_URL, path, csrf=False).status_code == 403
-    anonymous = TestClient(app)
+    anonymous = TestClient(app, base_url="https://testserver")
     assert anonymous.post(PAYKU_URL, files={"report": (path.name, path.read_bytes(), XLSX)}).status_code == 401
     assert _files(world.db) == 0
     assert world.post("payku_only", PAYKU_URL, path).status_code == 200
@@ -200,7 +200,7 @@ def test_status_is_filtered_by_permission_and_forbidden_without_any(world):
     assert [c["channel"] for c in body["channels"]] == ["payku"]
     r = world.get("soporte", STATUS_URL)
     assert r.status_code == 403 and r.json()["detail"]["code"] == "permission_denied"
-    assert TestClient(app).get(STATUS_URL).status_code == 401
+    assert TestClient(app, base_url="https://testserver").get(STATUS_URL).status_code == 401
 
 
 def test_status_shows_the_last_load_with_name_rows_and_result(world, tmp_path):

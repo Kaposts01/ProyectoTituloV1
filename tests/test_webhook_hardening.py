@@ -60,7 +60,7 @@ def _rows() -> list[WebhookEvent]:
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(app, base_url="https://testserver")
 
 
 def _sig(event_id: str, secret: str = TOKU_SECRET, ts: int | None = None) -> str:

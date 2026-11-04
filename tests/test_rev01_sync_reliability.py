@@ -88,7 +88,7 @@ def test_core_static_routes_are_not_captured_by_the_provider_route(path, endpoin
 def test_core_routes_require_authentication(path) -> None:
     app = FastAPI()
     app.include_router(etl.router)
-    assert TestClient(app).post(path).status_code == 401
+    assert TestClient(app, base_url="https://testserver").post(path).status_code == 401
 
 
 @pytest.mark.parametrize("module_name", ["scripts.sync_toku", "scripts.sync_virtualpos"])

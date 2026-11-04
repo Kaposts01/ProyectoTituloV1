@@ -64,7 +64,7 @@ def _client(db: Session, codes: set[str]) -> TestClient:
     token, _csrf = create_access_token(user)
     app.dependency_overrides[crm_get_db] = lambda: db
     app.dependency_overrides[security_get_db] = lambda: db
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     client.cookies.set(ACCESS_COOKIE, token)
     return client
 
@@ -151,7 +151,7 @@ def test_notify_status_changes_bumps_the_sequence() -> None:
 
 
 def test_stream_requires_session_and_permission(db_session) -> None:
-    anonymous = TestClient(app)
+    anonymous = TestClient(app, base_url="https://testserver")
     assert anonymous.get(URL).status_code == 401
     assert _client(db_session, {"toku.dashboard.view"}).get(URL).status_code == 403
 

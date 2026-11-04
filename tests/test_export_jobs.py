@@ -69,7 +69,7 @@ def _login(suffix: str, perms: list[str]) -> tuple[TestClient, dict[str, str]]:
         db.commit()
     finally:
         db.close()
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     resp = client.post("/api/v1/auth/login", json={"username": f"xj-{suffix}", "password": "Pw-xj-12345"})
     assert resp.status_code == 200
     return client, {"X-CSRF-Token": resp.json()["csrf_token"]}

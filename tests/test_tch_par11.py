@@ -159,13 +159,13 @@ def test_endpoint_requires_the_sync_runs_permission(monkeypatch) -> None:
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     assert client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"}).status_code == 200
     assert client.get("/api/v1/tch/archivos").status_code == 403
 
 
 def test_endpoint_rejects_anonymous_requests() -> None:
-    assert TestClient(app).get("/api/v1/tch/archivos").status_code == 401
+    assert TestClient(app, base_url="https://testserver").get("/api/v1/tch/archivos").status_code == 401
 
 
 def test_list_is_newest_first(db_session) -> None:

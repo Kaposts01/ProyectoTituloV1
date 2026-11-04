@@ -41,7 +41,7 @@ def _login(monkeypatch, perms: list[str]) -> TestClient:
         db.commit()
     finally:
         db.close()
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     assert client.post("/api/v1/auth/login", json={"username": f"rg-{suffix}", "password": "Pw-rg-12345"}).status_code == 200
     return client
 
@@ -256,4 +256,4 @@ def test_ensure_general_grants_matches_migration(db_session: Session) -> None:  
 
 @pytest.mark.parametrize("path", TOKU_PATHS + TCH_PATHS)
 def test_new_endpoints_reject_anonymous(path: str) -> None:
-    assert TestClient(app).get(path).status_code == 401
+    assert TestClient(app, base_url="https://testserver").get(path).status_code == 401

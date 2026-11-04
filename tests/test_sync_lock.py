@@ -64,7 +64,7 @@ def _client(monkeypatch, codes: list[str]) -> tuple[TestClient, dict[str, str]]:
         db.commit()
     finally:
         db.close()
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": f"lock-{suffix}", "password": "pw-lock-test"})
     assert login.status_code == 200
     return client, {"X-CSRF-Token": login.json()["csrf_token"]}

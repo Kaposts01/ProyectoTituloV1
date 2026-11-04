@@ -57,7 +57,7 @@ def test_other_tabs_do_not_open_payku_api(monkeypatch) -> None:
 
 @pytest.mark.parametrize("path", PAYKU_PATHS)
 def test_payku_endpoints_reject_anonymous(path: str) -> None:
-    assert TestClient(app).get(path).status_code == 401
+    assert TestClient(app, base_url="https://testserver").get(path).status_code == 401
 
 
 def test_bad_date_is_a_client_error(monkeypatch) -> None:

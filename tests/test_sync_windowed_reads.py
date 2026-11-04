@@ -196,7 +196,7 @@ def test_list_endpoint_filters_by_etl_run_and_exposes_stats(db_session) -> None:
     )
     app.dependency_overrides[get_current_user] = lambda: user
     try:
-        response = TestClient(app).get(f"/api/v1/sync-runs?etl_run_id={etl_run_id}")
+        response = TestClient(app, base_url="https://testserver").get(f"/api/v1/sync-runs?etl_run_id={etl_run_id}")
     finally:
         app.dependency_overrides.clear()
     assert response.status_code == 200

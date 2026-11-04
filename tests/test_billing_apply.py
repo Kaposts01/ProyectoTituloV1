@@ -687,7 +687,7 @@ def _route_client(monkeypatch, db_session, perms):
     token, csrf = create_access_token(user)
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: db_session
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     client.cookies.set(ACCESS_COOKIE, token)
     return client, csrf
 

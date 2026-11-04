@@ -234,7 +234,7 @@ def _setup_recovery_viewer(monkeypatch, suffix: str) -> tuple[TestClient, dict]:
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": f"viewer-{suffix}", "password": "View-pw-12345"})
     assert login.status_code == 200
     return client, {"X-CSRF-Token": login.json()["csrf_token"]}

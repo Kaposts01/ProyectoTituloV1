@@ -54,7 +54,7 @@ def _admin_client(monkeypatch) -> tuple[TestClient, str]:
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"})
     assert login.status_code == 200
     return client, login.json()["csrf_token"]
@@ -138,7 +138,7 @@ def test_tch_report_import_requires_admin_role(monkeypatch) -> None:
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"})
     csrf_token = login.json()["csrf_token"]
     response = client.post(

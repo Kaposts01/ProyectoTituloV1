@@ -86,7 +86,7 @@ def test_requires_authentication_and_csrf(db_session) -> None:
     from app.main import app
 
     seed_vp(db_session)
-    assert TestClient(app).get(BASE).status_code == 401
+    assert TestClient(app, base_url="https://testserver").get(BASE).status_code == 401
     _, client, h = _client(db_session, "jefatura")
     assert h
     assert client.post(BASE, json=BODY).status_code == 403  # sin cabecera CSRF

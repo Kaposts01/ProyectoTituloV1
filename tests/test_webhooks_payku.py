@@ -30,7 +30,7 @@ def _payment_body() -> dict:
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr("app.api.v1.routes.webhooks_payku.settings.payku_webhook_secret", _SECRET)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="https://testserver") as c:
         yield c
 
 
@@ -84,7 +84,7 @@ def test_missing_token_returns_401(client) -> None:
 
 def test_not_configured_returns_503(monkeypatch) -> None:
     monkeypatch.setattr("app.api.v1.routes.webhooks_payku.settings.payku_webhook_secret", "")
-    with TestClient(app) as c:
+    with TestClient(app, base_url="https://testserver") as c:
         resp = c.post(
             f"/api/v1/webhooks/payku/subscription?k={_SECRET}",
             json=_subscription_body(),

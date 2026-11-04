@@ -58,7 +58,7 @@ def _client(db: Session, codes: set[str]) -> tuple[TestClient, str]:
     token, csrf = create_access_token(user)
     app.dependency_overrides[crm_get_db] = lambda: db
     app.dependency_overrides[security_get_db] = lambda: db
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     client.cookies.set(ACCESS_COOKIE, token)
     return client, csrf
 
@@ -83,7 +83,7 @@ def test_permission_is_admin_only() -> None:
 
 
 def test_endpoints_require_session_and_permission(db_session) -> None:
-    assert TestClient(app).get(f"{BASE}/health").status_code == 401
+    assert TestClient(app, base_url="https://testserver").get(f"{BASE}/health").status_code == 401
     client, csrf = _client(db_session, {"sync_runs.view", "dashboard.view"})
     assert client.get(f"{BASE}/health").status_code == 403
     assert client.get(f"{BASE}/events").status_code == 403

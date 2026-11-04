@@ -84,7 +84,7 @@ def _login(monkeypatch, suffix: str, perms: list[str]) -> TestClient:
         db.commit()
     finally:
         db.close()
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     assert client.post("/api/v1/auth/login", json={"username": f"uv-{suffix}", "password": "Pw-uv-12345"}).status_code == 200
     return client
 

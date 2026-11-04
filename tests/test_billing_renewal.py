@@ -443,7 +443,7 @@ def test_endpoint_permissions(db_session):
     """401 sin sesion; 403 sin `billing_changes.view`; 200 con el permiso (ejecutivo/soporte/solicitante)."""
     kit = roles_kit(db_session)
     _task(db_session, "s1")
-    assert TestClient(app).get(f"{BASE}/renewal-tasks").status_code == 401
+    assert TestClient(app, base_url="https://testserver").get(f"{BASE}/renewal-tasks").status_code == 401
     nobody = make_user(db_session, make_role(db_session, "noview-t", {"sync.run"}))
     assert client_for(db_session, nobody)[0].get(f"{BASE}/renewal-tasks").status_code == 403
     for key in ("ejecutivo", "soporte", "solicitante"):
@@ -498,7 +498,7 @@ def test_endpoint_does_not_expose_member_pii(db_session):
 
 
 def test_openapi_lists_renewal_tasks_route():
-    paths = TestClient(app).get("/openapi.json").json()["paths"]
+    paths = TestClient(app, base_url="https://testserver").get("/openapi.json").json()["paths"]
     assert set(paths["/api/v1/billing/renewal-tasks"]) == {"get"}
     assert set(paths["/api/v1/billing/renewal-tasks/{task_id}/reject"]) == {"post"}  # BILL-15
 

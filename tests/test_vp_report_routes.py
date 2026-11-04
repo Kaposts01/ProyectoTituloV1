@@ -148,7 +148,7 @@ def test_other_roles_are_forbidden_and_nothing_is_written(world, tmp_path, who):
 def test_csrf_and_authentication_are_required(world, tmp_path):
     path = _csv(tmp_path)
     assert world.post("admin", path, csrf=False).status_code == 403
-    anonymous = TestClient(app)
+    anonymous = TestClient(app, base_url="https://testserver")
     app.dependency_overrides[crm_get_db] = lambda: world.db
     app.dependency_overrides[security_get_db] = lambda: world.db
     assert anonymous.post(URL, files={"report": (path.name, path.read_bytes(), "text/csv")}).status_code == 401

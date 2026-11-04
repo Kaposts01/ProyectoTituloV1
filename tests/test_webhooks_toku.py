@@ -82,7 +82,7 @@ def client(monkeypatch):
     # También parchear el acceso interno en el módulo del router
     import app.api.v1.routes.webhooks_toku as wh
     monkeypatch.setattr(wh.settings, "toku_webhook_secret", _SECRET)
-    return TestClient(app)
+    return TestClient(app, base_url="https://testserver")
 
 
 def test_webhook_valid_signature_returns_200(client) -> None:
@@ -133,7 +133,7 @@ def test_webhook_expired_timestamp_returns_401(client) -> None:
 def test_webhook_not_configured_returns_503(monkeypatch) -> None:
     import app.api.v1.routes.webhooks_toku as wh
     monkeypatch.setattr(wh.settings, "toku_webhook_secret", "")
-    c = TestClient(app)
+    c = TestClient(app, base_url="https://testserver")
     body = _invoice_paid_body()
     sig = _make_signature(body["id"])
     response = c.post(

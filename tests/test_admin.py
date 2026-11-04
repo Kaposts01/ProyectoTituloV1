@@ -62,7 +62,7 @@ def test_admin_can_manage_users_roles_and_passwords(monkeypatch) -> None:
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post(
         "/api/v1/auth/login",
         json={"username": manager_username, "password": "manager-password"},
@@ -98,7 +98,7 @@ def test_admin_can_manage_users_roles_and_passwords(monkeypatch) -> None:
     )
     assert reset.status_code == 200
 
-    member_client = TestClient(app)
+    member_client = TestClient(app, base_url="https://testserver")
     assert member_client.post(
         "/api/v1/auth/login",
         json={"username": member_username, "password": "changed-password"},
@@ -110,7 +110,7 @@ def test_admin_can_manage_users_roles_and_passwords(monkeypatch) -> None:
         headers=headers,
         json={"is_active": False},
     ).status_code == 200
-    assert TestClient(app).post(
+    assert TestClient(app, base_url="https://testserver").post(
         "/api/v1/auth/login",
         json={"username": member_username, "password": "changed-password"},
     ).status_code == 401
@@ -140,7 +140,7 @@ def _setup_admin_and_manager(monkeypatch, suffix: str) -> tuple[str, TestClient,
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": manager_username, "password": "Mgr-pw-12345"})
     assert login.status_code == 200
     headers = {"X-CSRF-Token": login.json()["csrf_token"]}
@@ -169,7 +169,7 @@ def _setup_single_admin_session(monkeypatch, suffix: str) -> tuple[str, str, Tes
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": admin_username, "password": "Admin-pw-12345"})
     assert login.status_code == 200
     headers = {"X-CSRF-Token": login.json()["csrf_token"]}
@@ -247,7 +247,7 @@ def test_cannot_deactivate_last_active_admin(monkeypatch, isolated_db) -> None:
 
     app.dependency_overrides[get_db] = _override
     try:
-        client = TestClient(app)
+        client = TestClient(app, base_url="https://testserver")
         login = client.post("/api/v1/auth/login", json={"username": "last-only-admin", "password": "Admin-pw-12345"})
         assert login.status_code == 200
         headers = {"X-CSRF-Token": login.json()["csrf_token"]}
@@ -288,7 +288,7 @@ def test_cannot_remove_admin_role_from_last_active_admin(monkeypatch, isolated_d
 
     app.dependency_overrides[get_db] = _override
     try:
-        client = TestClient(app)
+        client = TestClient(app, base_url="https://testserver")
         login = client.post("/api/v1/auth/login", json={"username": "last-only-admin-t5", "password": "Admin-pw-12345"})
         assert login.status_code == 200
         headers = {"X-CSRF-Token": login.json()["csrf_token"]}

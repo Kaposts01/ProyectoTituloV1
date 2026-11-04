@@ -190,7 +190,7 @@ def test_full_sync_background_marks_the_run_partial_or_failed(db_session, monkey
 
 def _heartbeat(db_session, monkeypatch):
     monkeypatch.setattr(health_routes, "SessionLocal", lambda: _NoClose(db_session))
-    return TestClient(app).get("/api/v1/health/heartbeat")
+    return TestClient(app, base_url="https://testserver").get("/api/v1/health/heartbeat")
 
 
 def test_heartbeat_needs_no_session_and_has_no_personal_data(db_session, monkeypatch):
@@ -230,7 +230,7 @@ def test_heartbeat_returns_503_without_database(monkeypatch):
             pass
 
     monkeypatch.setattr(health_routes, "SessionLocal", Broken)
-    r = TestClient(app).get("/api/v1/health/heartbeat")
+    r = TestClient(app, base_url="https://testserver").get("/api/v1/health/heartbeat")
     assert r.status_code == 503 and r.json() == {
         "status": "error", "checked_at": r.json()["checked_at"], "environment": settings.env_mode, "database": "error"}
 
