@@ -1,11 +1,21 @@
 import asyncio
 
 import httpx
+import pytest
 
 from app.core.config import settings
-from app.integrations.payku import client as payku_client
+from app.integrations import http_retry
 from app.integrations.payku.auth import build_sign
 from app.integrations.payku.client import PaykuClient
+
+
+@pytest.fixture(autouse=True)
+def _payku_settings(monkeypatch):
+    """Credenciales sinteticas: los tests no dependen de las llaves reales del .env local."""
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "payku_base_url", "https://payku.example.test")
+    monkeypatch.setattr(settings, "payku_api_key", "test-public-token")
+    monkeypatch.setattr(settings, "payku_secret_key", "test-secret-key")
 
 
 class PaykuTimeoutThenSuccessClient:
@@ -33,7 +43,7 @@ def test_payku_client_retries_read_timeout(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(settings, "payku_read_retries", 1)
-    monkeypatch.setattr(payku_client.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(http_retry.asyncio, "sleep", no_sleep)
     http_client = PaykuTimeoutThenSuccessClient()
     client = PaykuClient()
     original_client = client._client

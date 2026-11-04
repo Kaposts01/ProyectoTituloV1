@@ -50,7 +50,133 @@ PERMISSIONS: dict[str, str] = {
     "core.identity.read": "Ver candidatos de identidad centralizada",
     "core.identity.review": "Aprobar o rechazar candidatos de identidad",
     "core.identity.merge": "Ejecutar merge técnico de identidades",
+    "system.environment.switch": "Cambiar entre ambientes Producción y Sandbox",
+    "virtualpos.billing_changes.request": "Solicitar cambios de cobro VirtualPOS",
+    "virtualpos.billing_changes.approve": "Aprobar o rechazar cambios de cobro VirtualPOS",
+    "virtualpos.billing_changes.view": "Ver bandeja e historial de cambios de cobro VirtualPOS",
+    "virtualpos.billing_policy.manage": "Configurar aprobadores de cambios de cobro VirtualPOS",
+    "toku.reports.import": "Importar reportes descargados de Toku",
+    "virtualpos.reports.import": "Importar reportes PAT descargados del portal de VirtualPOS",
+    "payku.reports.import": "Importar reportes descargados del portal de Payku",
+    "export.pii": "Exportar datos personales (RUT, nombre, correo, teléfono, dirección) en las exportaciones CSV",
+    "subscriptions.cancellation.request": "Solicitar la baja de suscripciones (todos los canales)",
+    "subscriptions.cancellation.approve": "Aprobar, rechazar, aplicar y reabrir solicitudes de baja de suscripciones",
+    "subscriptions.cancellation.view": "Ver solicitudes de baja de suscripciones y su historial",
+    "general.recovery.view": "Ver el Recuperador general (Operación)",
+    "general.recovery.toku.view": "Ver la pestaña Toku del Recuperador general",
+    "general.recovery.tch.view": "Ver la pestaña TCH del Recuperador general (solo lectura)",
+    "general.recovery.payku.view": "Ver la pestaña Payku del Recuperador general (solo lectura)",
+    "general.billing_changes.view": "Ver Cambios de cobro en Operación",
+    "general.subscriptions.view": "Ver Suscripciones unificadas de todos los canales (Cartera)",
+    "general.charges.view": "Ver Cobros y pagos unificados de todos los canales (Cartera)",
+    "webhooks.manage": "Ver la salud de los webhooks y reprocesar eventos fallidos",
+    "subscriptions.manual_tasks.view": "Ver tareas manuales de suscripciones (medios de pago, mandatos TCH, montos de Payku)",
+    "subscriptions.manual_tasks.confirm": "Confirmar, asignar y descartar tareas manuales de suscripciones",
 }
+
+# RT-14: panel de salud de webhooks. Permiso de administracion (no termina en `.view`, asi que soporte y ejecutivo no lo
+# heredan). Sin migracion: `seed_permissions` (bootstrap_admin o scripts/maintenance/seed_roles.py) lo crea y lo da al rol
+# `admin`.
+WEBHOOKS_MANAGE = "webhooks.manage"
+
+# --- Operación general (UX-12, REC-04, REC-06) ----------------------------------------------------------------------
+# El Recuperador vive en /general/recuperador con una pestaña por canal; cada pestaña tiene su propio permiso y su API
+# exige ese permiso. La pestaña VirtualPOS sigue usando `virtualpos.recovery.view` (API sin cambios).
+GENERAL_RECOVERY_VIEW = "general.recovery.view"
+RECOVERY_TOKU_VIEW = "general.recovery.toku.view"
+RECOVERY_TCH_VIEW = "general.recovery.tch.view"
+RECOVERY_PAYKU_VIEW = "general.recovery.payku.view"
+GENERAL_BILLING_VIEW = "general.billing_changes.view"
+
+# Regla de la migracion 20261102_0052 (por datos, sin nombres de rol): cada permiso nuevo se otorga a los roles que
+# ya tienen TODOS los permisos de la tupla. Asi nadie pierde ni gana acceso a datos que no veia.
+GENERAL_GRANT_RULES: dict[str, tuple[str, ...]] = {
+    GENERAL_RECOVERY_VIEW: ("virtualpos.recovery.view",),
+    GENERAL_BILLING_VIEW: ("virtualpos.billing_changes.view",),
+    RECOVERY_TOKU_VIEW: ("virtualpos.recovery.view", "toku.subscriptions.view"),
+    RECOVERY_TCH_VIEW: ("virtualpos.recovery.view", "tch.suscripciones.view"),
+}
+
+# Pestaña Payku (REC-05), sembrada por la migracion 20261102_0055 con la misma regla por datos. Va aparte para no
+# alterar la regla de la 0052 (su prueba compara la migracion con `GENERAL_GRANT_RULES`).
+PAYKU_RECOVERY_GRANT_RULES: dict[str, tuple[str, ...]] = {
+    RECOVERY_PAYKU_VIEW: ("virtualpos.recovery.view", "payku.subscriptions.view"),
+}
+
+# --- Vistas unificadas de Cartera (UX-08, UX-09; d124 opcion c) ------------------------------------------------------
+# `general.subscriptions.view` y `general.charges.view` dan la vista unificada de TODOS los canales (Suscripciones;
+# Cobros y Pagos). Los permisos de vista por canal siguen valiendo (compatibilidad mientras la migracion 20261102_0064
+# no este aplicada, y para roles que solo ven algunos canales): sin el permiso general, cada canal exige el suyo.
+# La 0064 los otorga por datos a los roles que ya tienen TODOS los permisos de canal equivalentes, asi que nadie gana
+# acceso a datos que no veia.
+GENERAL_SUBSCRIPTIONS_VIEW = "general.subscriptions.view"
+GENERAL_CHARGES_VIEW = "general.charges.view"
+UNIFIED_VIEW_GRANT_RULES: dict[str, tuple[str, ...]] = {
+    GENERAL_SUBSCRIPTIONS_VIEW: (
+        "virtualpos.subscriptions.view", "toku.subscriptions.view", "payku.subscriptions.view", "tch.suscripciones.view",
+    ),
+    GENERAL_CHARGES_VIEW: (
+        "virtualpos.charges.view", "toku.invoices.view", "tch.transacciones.view",
+        "virtualpos.payments.view", "toku.transactions.view", "payku.transactions.view",
+    ),
+}
+
+# --- Baja de suscripciones multicanal (MGT-16) ---------------------------------------------------------------------
+# D12: JEFATURA solicita; ADMIN o JEFATURA aprueban; EJECUTIVO solo lee. D28: los permisos «fantasma»
+# (`virtualpos.payments.cancel`, `toku.invoices.update`, `toku.invoices.delete`) NO se siembran y el flujo nuevo no
+# depende de ellos.
+CANCELLATION_REQUEST = "subscriptions.cancellation.request"
+CANCELLATION_APPROVE = "subscriptions.cancellation.approve"
+CANCELLATION_VIEW = "subscriptions.cancellation.view"
+JEFATURA_ROLE_NAME = "jefatura"
+COORDINATOR_ROLE_NAME = "coordinador"
+
+# Matriz rol -> permisos de baja que siembra la migracion 20261029_0050 (solo si el rol YA existe; nunca lo crea).
+# `coordinador` no tiene permisos definidos en el codigo (la base de datos manda): hoy solo se le garantiza LECTURA de
+# las solicitudes de baja; no solicita ni aprueba. `soporte` y `ejecutivo` heredan `.view` por sufijo.
+CANCELLATION_ROLE_GRANTS: dict[str, frozenset[str]] = {
+    "admin": frozenset({CANCELLATION_REQUEST, CANCELLATION_APPROVE, CANCELLATION_VIEW}),
+    JEFATURA_ROLE_NAME: frozenset({CANCELLATION_REQUEST, CANCELLATION_APPROVE, CANCELLATION_VIEW}),
+    "soporte": frozenset({CANCELLATION_VIEW}),
+    "ejecutivo": frozenset({CANCELLATION_VIEW}),
+    COORDINATOR_ROLE_NAME: frozenset({CANCELLATION_VIEW}),
+}
+
+# --- Tareas manuales de suscripcion (MGT-11/13/14) ------------------------------------------------------------------
+# Migracion 20261102_0066. Confirmar (d107: la accion manual la hace un ejecutivo, otro o el mismo, y la confirma con su
+# usuario y fecha) quedo en admin y jefatura. d136 (migracion 20261102_0068) agrega `confirm` al rol `ejecutivo`: ver
+# `EXECUTIVE_EXTRA_PERMISSIONS` (esta matriz conserva la de la 0066, que su prueba compara con la migracion).
+MANUAL_TASKS_VIEW = "subscriptions.manual_tasks.view"
+MANUAL_TASKS_CONFIRM = "subscriptions.manual_tasks.confirm"
+MANUAL_TASK_ROLE_GRANTS: dict[str, frozenset[str]] = {
+    "admin": frozenset({MANUAL_TASKS_VIEW, MANUAL_TASKS_CONFIRM}),
+    JEFATURA_ROLE_NAME: frozenset({MANUAL_TASKS_VIEW, MANUAL_TASKS_CONFIRM}),
+    "soporte": frozenset({MANUAL_TASKS_VIEW}),
+    "ejecutivo": frozenset({MANUAL_TASKS_VIEW}),
+    COORDINATOR_ROLE_NAME: frozenset({MANUAL_TASKS_VIEW}),
+}
+
+SUPPORT_ROLE_NAME = "soporte"
+SUPPORT_ROLE_DESCRIPTION = "Soporte: consulta de todos los módulos, reintento de cargos y cambio de ambiente"
+SUPPORT_EXTRA_PERMISSIONS = ("virtualpos.charges.retry", "system.environment.switch")
+
+
+def support_permission_codes() -> set[str]:
+    """Permisos del rol soporte: todos los `.view` + reintento de cargos + cambio de ambiente."""
+    return {code for code in PERMISSIONS if code.endswith(".view")} | set(SUPPORT_EXTRA_PERMISSIONS)
+
+EXECUTIVE_ROLE_NAME = "ejecutivo"
+EXECUTIVE_ROLE_DESCRIPTION = "Ejecutivo: lectura de todos los módulos y confirmación de tareas manuales"
+# d136 (migracion 20261102_0068): el ejecutivo hace la accion manual en el portal y la confirma con su usuario (d107).
+# Es su UNICO permiso fuera de los `.view`.
+EXECUTIVE_EXTRA_PERMISSIONS: tuple[str, ...] = (MANUAL_TASKS_CONFIRM,)
+
+
+def executive_permission_codes() -> set[str]:
+    """Permisos del rol ejecutivo: los `.view` mas `subscriptions.manual_tasks.confirm` (d136: confirmar, asignar,
+    descartar y CSV de mandatos TCH de las tareas manuales). Nada mas que escriba, exporte o reintente."""
+    return {code for code in PERMISSIONS if code.endswith(".view")} | set(EXECUTIVE_EXTRA_PERMISSIONS)
+
 
 _RESOURCE_PERMISSIONS = {
     "virtualpos": {
@@ -88,6 +214,78 @@ def seed_permissions(db: Session) -> None:
     if admin is not None:
         admin.permissions = list(existing.values())
     db.flush()
+
+
+def _ensure_role(db: Session, name: str, description: str, wanted: set[str]) -> int:
+    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted))).all()}
+    role = db.scalar(select(Role).where(Role.name == name))
+    if role is None:
+        role = Role(name=name, description=description)
+        db.add(role)
+    present = {p.code for p in role.permissions}
+    for code in sorted(wanted - present):
+        role.permissions.append(by_code[code])
+    db.flush()
+    return len(role.permissions)
+
+
+def ensure_cancellation_grants(db: Session) -> dict[str, int]:
+    """Agrega los permisos de baja (`CANCELLATION_ROLE_GRANTS`) a los roles que YA existen; nunca crea roles ni quita
+    permisos. Idempotente. Equivale a la migracion 20261029_0050 y sirve para roles creados despues de aplicarla
+    (p. ej. `jefatura` o `coordinador`). Devuelve {rol_existente: permisos_agregados}."""
+    grants: dict[str, set[str]] = {}
+    for source in (CANCELLATION_ROLE_GRANTS, MANUAL_TASK_ROLE_GRANTS):  # 0066: tareas manuales, misma regla
+        for role_name, codes in source.items():
+            grants.setdefault(role_name, set()).update(codes)
+    wanted = {code for codes in grants.values() for code in codes}
+    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted))).all()}
+    added: dict[str, int] = {}
+    for role_name, codes in grants.items():
+        role = db.scalar(select(Role).where(Role.name == role_name))
+        if role is None:
+            continue
+        present = {p.code for p in role.permissions}
+        missing = sorted(code for code in codes if code not in present and code in by_code)
+        for code in missing:
+            role.permissions.append(by_code[code])
+        added[role_name] = len(missing)
+    db.flush()
+    return added
+
+
+def ensure_general_grants(db: Session) -> dict[str, int]:
+    """Equivale a las migraciones 20261102_0052, 20261102_0055 (pestaña Payku) y 20261102_0064 (vistas unificadas): otorga cada permiso `general.*` a los roles existentes que ya tienen todos
+    los permisos de su regla (`GENERAL_GRANT_RULES`). Nunca crea roles ni quita permisos. Idempotente.
+    Devuelve {rol: permisos_agregados} solo de los roles que recibieron alguno."""
+    rules = {**GENERAL_GRANT_RULES, **PAYKU_RECOVERY_GRANT_RULES, **UNIFIED_VIEW_GRANT_RULES}
+    by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(rules))).all()}
+    added: dict[str, int] = {}
+    for role in db.scalars(select(Role)).all():
+        present = {p.code for p in role.permissions}
+        for code, required in rules.items():
+            if code in by_code and code not in present and set(required) <= present:
+                role.permissions.append(by_code[code])
+                added[role.name] = added.get(role.name, 0) + 1
+    db.flush()
+    return added
+
+
+def seed_default_roles(db: Session) -> dict[str, int]:
+    """Crea los roles `soporte` y `ejecutivo` o les agrega los permisos faltantes (nunca quita). Idempotente.
+
+    No modifica admin/coordinador/jefatura, salvo por agregarles los permisos de BAJA de suscripciones si el rol ya
+    existe (`ensure_cancellation_grants`) y los `general.*` de Operación a quien ya ve lo equivalente
+    (`ensure_general_grants`). Devuelve {nombre_de_rol: cantidad_de_permisos} de soporte y ejecutivo.
+    """
+    seed_permissions(db)
+    ensure_cancellation_grants(db)
+    ensure_general_grants(db)
+    return {
+        SUPPORT_ROLE_NAME: _ensure_role(db, SUPPORT_ROLE_NAME, SUPPORT_ROLE_DESCRIPTION, support_permission_codes()),
+        EXECUTIVE_ROLE_NAME: _ensure_role(
+            db, EXECUTIVE_ROLE_NAME, EXECUTIVE_ROLE_DESCRIPTION, executive_permission_codes()
+        ),
+    }
 
 
 def get_user(db: Session, user_id: str) -> User | None:

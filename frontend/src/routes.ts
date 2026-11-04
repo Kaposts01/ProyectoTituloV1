@@ -2,15 +2,24 @@ export type ProviderSource = "virtualpos" | "toku" | "payku";
 
 export type ProviderSection = { source: ProviderSource; resource: string; label: string };
 
+/** Vistas de TCH. Las URLs siguen en español (`/tch/clientes`…) y los permisos también (`tch.clientes.view`): solo el nombre interno es inglés. */
+export type TchRouteView = "summary" | "clients" | "subscriptions" | "transactions";
+const TCH_URL_SEGMENT: Record<Exclude<TchRouteView, "summary">, string> = { clients: "clientes", subscriptions: "suscripciones", transactions: "transacciones" };
+
+/** Segmento español de la vista de TCH, para armar el permiso `tch.<segmento>.view` (contrato con el backend). */
+export const tchPermissionSegment = (view: Exclude<TchRouteView, "summary">): string => TCH_URL_SEGMENT[view];
+
 export type AppRoute =
-  | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "report" }
+  | { kind: "central"; view: "summary" | "clients" | "subscriptions" | "charges" | "report" }
   | { kind: "channel"; source: ProviderSource }
   | { kind: "resource"; source: ProviderSource; resource: string }
   | { kind: "record"; source: ProviderSource; resource: string; externalId: string }
   | { kind: "recovery" }
-  | { kind: "tch"; view: "summary" | "clientes" | "suscripciones" | "transacciones" }
-  | { kind: "tchSubscription"; numeroFicha: number }
-  | { kind: "admin"; view: "usuarios" | "sincronizacion" }
+  | { kind: "billingChanges" }
+  | { kind: "cancellations" }
+  | { kind: "tch"; view: TchRouteView }
+  | { kind: "tchSubscription"; fileNumber: number }
+  | { kind: "admin"; view: "users" | "sync" }
   | { kind: "profile"; view: "summary" | "edit" };
 
 const resourceRoutes: Record<string, Record<string, string>> = {
@@ -50,7 +59,12 @@ export function parseRoute(pathname: string): AppRoute | null {
   if (parts[0] === "central") {
     if (parts[1] === "clientes") return { kind: "central", view: "clients" };
     if (parts[1] === "suscripciones") return { kind: "central", view: "subscriptions" };
+    // Cobros unificados (UX-09): misma familia de rutas que Socios y Suscripciones (D29 mantuvo /central/*).
+    if (parts[1] === "cobros") return { kind: "central", view: "charges" };
     if (parts[1] === "resumen") return { kind: "central", view: "summary" };
+    // Vista anterior del resumen, retirada en UX-15: la URL antigua resuelve al Resumen y AppCore la redirige
+    // a /central/resumen (legacyRedirectPath).
+    if (parts[1] === "resumen-clasico") return { kind: "central", view: "summary" };
     if (parts[1] === "reporte-automatico") return { kind: "central", view: "report" };
     return null;
   }
@@ -62,25 +76,32 @@ export function parseRoute(pathname: string): AppRoute | null {
   }
 
   if (parts[0] === "admin") {
-    if (parts[1] === "usuarios") return { kind: "admin", view: "usuarios" };
-    if (parts[1] === "sincronizaciones") return { kind: "admin", view: "sincronizacion" };
+    if (parts[1] === "usuarios") return { kind: "admin", view: "users" };
+    if (parts[1] === "sincronizaciones") return { kind: "admin", view: "sync" };
     return null;
   }
 
   if (parts[0] === "tch") {
     if (parts[1] === "suscripciones" && parts.length === 3) {
-      const numeroFicha = Number(parts[2]);
-      if (Number.isSafeInteger(numeroFicha) && numeroFicha > 0) return { kind: "tchSubscription", numeroFicha };
+      const fileNumber = Number(parts[2]);
+      if (Number.isSafeInteger(fileNumber) && fileNumber > 0) return { kind: "tchSubscription", fileNumber };
       return null;
     }
-    if (parts.length === 2 && (parts[1] === "clientes" || parts[1] === "suscripciones" || parts[1] === "transacciones")) {
-      return { kind: "tch", view: parts[1] };
+    if (parts.length === 2) {
+      const view = (Object.keys(TCH_URL_SEGMENT) as Array<Exclude<TchRouteView, "summary">>).find((key) => TCH_URL_SEGMENT[key] === parts[1]);
+      if (view) return { kind: "tch", view };
     }
     if (parts.length === 2 && parts[1] === "resumen") return { kind: "tch", view: "summary" };
     return null;
   }
 
+  if (parts[0] === "general" && parts[1] === "recuperador" && parts.length === 2) return { kind: "recovery" };
+  // Ruta anterior (grupo VirtualPOS, UX-12): sigue resolviendo; AppCore la redirige a /general/recuperador.
   if (parts[0] === "virtualpos" && parts[1] === "recuperador-socios") return { kind: "recovery" };
+  if (parts[0] === "general" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
+  if (parts[0] === "general" && parts[1] === "bajas" && parts.length === 2) return { kind: "cancellations" };
+  // Ruta anterior (grupo VirtualPOS): sigue resolviendo; AppCore la redirige a la ruta canónica.
+  if (parts[0] === "virtualpos" && parts[1] === "cambios-de-cobro" && parts.length === 2) return { kind: "billingChanges" };
 
   const source = parts[0];
   if (source === "virtualpos" || source === "toku" || source === "payku") {
@@ -96,18 +117,29 @@ export function parseRoute(pathname: string): AppRoute | null {
   return null;
 }
 
+/** Ruta canónica si `pathname` es una ruta antigua que debe redirigirse (reemplazando el historial); null si no. */
+export function legacyRedirectPath(pathname: string): string | null {
+  const route = parseRoute(pathname);
+  if (!route) return null;
+  const canonical = routePath(route);
+  return pathname.replace(/\/+$/, "") === canonical ? null : canonical;
+}
+
 export function routePath(route: AppRoute): string {
   if (route.kind === "central") {
     if (route.view === "summary") return "/central/resumen";
     if (route.view === "clients") return "/central/clientes";
     if (route.view === "subscriptions") return "/central/suscripciones";
+    if (route.view === "charges") return "/central/cobros";
     return "/central/reporte-automatico";
   }
   if (route.kind === "channel") return `/${route.source}/resumen`;
-  if (route.kind === "recovery") return "/virtualpos/recuperador-socios";
-  if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : route.view}`;
-  if (route.kind === "tchSubscription") return `/tch/suscripciones/${route.numeroFicha}`;
-  if (route.kind === "admin") return `/admin/${route.view === "usuarios" ? "usuarios" : "sincronizaciones"}`;
+  if (route.kind === "recovery") return "/general/recuperador";
+  if (route.kind === "billingChanges") return "/general/cambios-de-cobro";
+  if (route.kind === "cancellations") return "/general/bajas";
+  if (route.kind === "tch") return `/tch/${route.view === "summary" ? "resumen" : TCH_URL_SEGMENT[route.view]}`;
+  if (route.kind === "tchSubscription") return `/tch/suscripciones/${route.fileNumber}`;
+  if (route.kind === "admin") return `/admin/${route.view === "users" ? "usuarios" : "sincronizaciones"}`;
   if (route.kind === "profile") return route.view === "edit" ? "/mi-perfil/editar" : "/mi-perfil";
 
   const paths: Record<string, Record<string, string>> = {

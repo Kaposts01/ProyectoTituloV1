@@ -8,6 +8,7 @@ Revises: 20261020_0034
 Create Date: 2026-10-21
 """
 
+import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -21,7 +22,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "etl_runs",
-        op.Column("channels_failed", postgresql.ARRAY(postgresql.VARCHAR()), nullable=True),
+        sa.Column("channels_failed", postgresql.ARRAY(postgresql.VARCHAR()), nullable=True),
     )
 
 

@@ -8,18 +8,23 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import require_csrf, require_permissions
 from app.db.session import SessionLocal
 from app.models.core import ClientMatchCandidate
 from app.models.etl_run import EtlRun
-from app.models.source_record import SourceRecord
+from app.scheduler.run_lock import (
+    ActiveRunError,
+    start_exclusive_run,
+    start_exclusive_runs,
+)
+from app.services import core_etl_mark
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.client_match_detector import detect_matches
 from app.services.core_payku_etl import run_payku_core_etl
 from app.services.core_tch_etl import run_tch_core_etl
 from app.services.core_toku_etl import run_toku_core_etl
 from app.services.core_vp_etl import run_vp_core_etl
-from app.services.crm_materialization import materialize_records
 from app.services.payku_sync import sync_payku
 from app.services.toku_sync import sync_toku
 from app.services.virtualpos_sync import sync_virtualpos
@@ -38,7 +43,8 @@ _SYNC_FN = {
 
 
 class FullSyncRequest(BaseModel):
-    providers: Annotated[list[str], Field(default_factory=lambda: list(_ALL_PROVIDERS))]
+    # REV-01 (origin/sprint-5/estabilizacion-dashboard 1005a26): una lista vacia no lanza una corrida sin canales.
+    providers: Annotated[list[str], Field(default_factory=lambda: list(_ALL_PROVIDERS), min_length=1)]
 
 
 def _get_db() -> Session:
@@ -57,6 +63,10 @@ def _update_run(run_id: uuid.UUID, **kwargs) -> None:
         db.close()
 
 
+def _active_run_conflict(busy: ActiveRunError) -> HTTPException:
+    return HTTPException(status_code=409, detail=str(busy))
+
+
 def _serialize_run(run: EtlRun) -> dict:
     return {
         "id": str(run.id),
@@ -70,13 +80,31 @@ def _serialize_run(run: EtlRun) -> dict:
     }
 
 
+def full_sync_status(
+    done: list[str], failed: list[str], consolidation_failures: list[str], partial: list[str] | None = None
+) -> str:
+    """Estado final de un full-sync: `completed` solo sin fallos; `partial` con algun canal ok; `failed` si ninguno.
+
+    `partial` (L7-CIERRE): canales que sincronizaron omitiendo un recurso opcional (404); dejan la corrida `partial`.
+    """
+    if not failed and not consolidation_failures and not partial:
+        return "completed"
+    return "partial" if done else "failed"
+
+
 async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> None:
     """BackgroundTask: sync APIs → source_records → materialización (Pipeline B)."""
     total = 0
+    done: list[str] = []
+    failed: list[str] = []
+    partial: list[str] = []
     try:
         for provider in providers:
             if provider not in _SYNC_FN:
                 logger.warning("Proveedor desconocido: %s. Omitido.", provider)
+                continue
+            if not settings.channel_enabled(provider):
+                logger.warning("Canal %s omitido: deshabilitado en %s.", provider, settings.env_mode)
                 continue
             _update_run(run_id, phase=f"sync_{provider}")
             logger.info("Iniciando sync Pipeline B: %s", provider)
@@ -85,29 +113,47 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
                 try:
                     sync_run = await _SYNC_FN[provider](db)
                     total += sync_run.records_processed or 0
+                    done.append(provider)
+                    if getattr(sync_run, "status", None) == "partial":
+                        partial.append(provider)
                     logger.info("Sync completado %s: %d registros", provider, sync_run.records_processed)
                 finally:
                     db.close()
             except Exception:
+                failed.append(provider)
                 logger.exception("Error en sync de %s", provider)
 
         # Consolidación desde tablas canal → tablas centralizadas
         _update_run(run_id, phase="consolidating")
+        consolidation_failures: list[str] = []
         db = SessionLocal()
         try:
-            consolidated = consolidate_to_centralized(db, providers)
+            consolidated = consolidate_to_centralized(db, providers, failures=consolidation_failures)
             total += consolidated
+            if consolidation_failures:
+                logger.error("Consolidacion con errores: %s", consolidation_failures)
             logger.info("Consolidación completada: %d registros", consolidated)
         finally:
             db.close()
 
+        # d139b (audit_sync §0.6): nunca `completed` si fallo la sync de un canal o la consolidacion; `partial` si algun
+        # canal sincronizo, `failed` si ninguno. Misma regla que el job nocturno (`sync_all_channels`).
+        error_parts = []
+        if failed:
+            error_parts.append(f"Canales con error: {', '.join(failed)}")
+        if consolidation_failures:
+            error_parts.append(f"Consolidacion con error: {', '.join(consolidation_failures)}")
+        if partial:
+            error_parts.append(f"Recursos opcionales omitidos en: {', '.join(partial)}")
         _update_run(
             run_id,
-            status="completed",
+            status=full_sync_status(done, failed, consolidation_failures, partial),
             phase=None,
-            channels_processed=providers,
+            channels_processed=done,
+            channels_failed=failed or None,
             records_upserted=total,
             finished_at=datetime.now(timezone.utc),
+            error_message="; ".join(error_parts) or None,
         )
     except Exception:
         logger.exception("Error en full-sync (run_id=%s)", run_id)
@@ -115,54 +161,23 @@ async def _run_full_sync_background(run_id: uuid.UUID, providers: list[str]) -> 
             run_id,
             status="failed",
             phase=None,
+            # REV-01 (1005a26): conserva lo que alcanzo a sincronizar antes del error.
+            channels_processed=done,
+            channels_failed=failed or None,
+            records_upserted=total,
             error_message="Error durante la sincronización.",
             finished_at=datetime.now(timezone.utc),
         )
 
 
-async def _run_materialization_background(run_id: uuid.UUID) -> None:
-    """BackgroundTask: materializa source_records existentes en entidades centralizadas."""
-    try:
-        _update_run(run_id, phase="materializing")
-        db = SessionLocal()
-        try:
-            staged = db.scalars(select(SourceRecord)).all()
-            materialize_records(db, staged)
-            _update_run(
-                run_id,
-                status="completed",
-                phase=None,
-                records_upserted=len(staged),
-                finished_at=datetime.now(timezone.utc),
-            )
-        finally:
-            db.close()
-    except Exception:
-        logger.exception("Error en materialización (run_id=%s)", run_id)
-        _update_run(
-            run_id,
-            status="failed",
-            phase=None,
-            error_message="Error durante la materialización.",
-            finished_at=datetime.now(timezone.utc),
-        )
-
-
 @router.post("/run", dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)], tags=["ETL"])
-def trigger_etl(background_tasks: BackgroundTasks) -> dict:
-    """Materializa source_records existentes en entidades centralizadas."""
-    db = _get_db()
-    try:
-        run = EtlRun(status="running", records_upserted=0, phase="materializing")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-        run_id = run.id
-    finally:
-        db.close()
-
-    background_tasks.add_task(_run_materialization_background, run_id)
-    return {"run_id": str(run_id), "status": "running"}
+def trigger_etl() -> dict:
+    """DEPRECADO: la materializacion legacy esta desactivada; usar /full-sync o /core/{provider}."""
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint deprecado: la materializacion legacy (crm_materialization) fue desactivada. "
+        "Use /etl/full-sync, que consolida desde las tablas canal.",
+    )
 
 
 @router.get("/runs", dependencies=[Depends(require_permissions("sync_runs.view"))], tags=["ETL"])
@@ -195,18 +210,25 @@ def trigger_full_sync(body: FullSyncRequest, background_tasks: BackgroundTasks) 
     unknown = set(body.providers) - set(_ALL_PROVIDERS)
     if unknown:
         raise HTTPException(status_code=422, detail=f"Proveedores desconocidos: {sorted(unknown)}")
+    providers = list(dict.fromkeys(body.providers))
+    skipped = [p for p in providers if not settings.channel_enabled(p)]
+    providers = [p for p in providers if p not in skipped]
+    if not providers:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Canal(es) deshabilitado(s) en {settings.env_mode}: {', '.join(skipped) or 'ninguno solicitado'}.",
+        )
     db = _get_db()
     try:
-        run = EtlRun(status="running", records_upserted=0, phase=f"sync_{body.providers[0]}")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
+        run = start_exclusive_run(db, phase=f"sync_{providers[0]}")
         run_id = run.id
+    except ActiveRunError as busy:
+        raise _active_run_conflict(busy) from busy
     finally:
         db.close()
 
-    background_tasks.add_task(_run_full_sync_background, run_id, body.providers)
-    return {"run_id": str(run_id), "status": "running", "providers": body.providers}
+    background_tasks.add_task(_run_full_sync_background, run_id, providers)
+    return {"run_id": str(run_id), "status": "running", "providers": providers, "skipped_providers": skipped}
 
 
 # ── Core ETL endpoints ────────────────────────────────────────────────────────
@@ -227,6 +249,9 @@ def _run_core_etl_background(run_id: uuid.UUID, provider: str) -> None:
     try:
         result = fn(db)
         db.commit()
+        if provider != "tch":  # marca de frescura del ETL Core (la lee /sync-runs/health)
+            core_etl_mark.record(db, provider, result)
+            db.commit()
         total = sum(result.values())
         _update_run(
             run_id,
@@ -252,35 +277,6 @@ def _run_core_etl_background(run_id: uuid.UUID, provider: str) -> None:
 
 
 @router.post(
-    "/core/{provider}",
-    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
-    tags=["ETL Core"],
-)
-def trigger_core_etl(provider: str, background_tasks: BackgroundTasks) -> dict:
-    """Materializa tablas de proveedor (tch/toku/payku/virtualpos) → entidades Core (Layer 3).
-
-    Idempotente: seguro re-ejecutar. Retorna inmediatamente; la ejecución ocurre en background.
-    """
-    if provider not in _CORE_ETL_FN:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Proveedor desconocido: '{provider}'. Opciones: {sorted(_CORE_ETL_FN)}",
-        )
-    db = _get_db()
-    try:
-        run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-        run_id = run.id
-    finally:
-        db.close()
-
-    background_tasks.add_task(_run_core_etl_background, run_id, provider)
-    return {"run_id": str(run_id), "status": "running", "provider": provider}
-
-
-@router.post(
     "/core/all",
     dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
     tags=["ETL Core"],
@@ -290,18 +286,16 @@ def trigger_core_etl_all(background_tasks: BackgroundTasks) -> dict:
 
     Orden: tch → toku → payku → virtualpos. Idempotente.
     """
-    run_ids = []
-    for provider in _CORE_ETL_FN:
-        db = _get_db()
-        try:
-            run = EtlRun(status="running", records_upserted=0, phase=f"core_{provider}")
-            db.add(run)
-            db.commit()
-            db.refresh(run)
-            run_ids.append(str(run.id))
-        finally:
-            db.close()
-        background_tasks.add_task(_run_core_etl_background, uuid.UUID(run_ids[-1]), provider)
+    db = _get_db()
+    try:  # las cuatro filas se reservan juntas, bajo el mismo lock
+        runs = start_exclusive_runs(db, [{"phase": f"core_{provider}"} for provider in _CORE_ETL_FN])
+        run_ids = [str(run.id) for run in runs]
+    except ActiveRunError as busy:
+        raise _active_run_conflict(busy) from busy
+    finally:
+        db.close()
+    for run_id, provider in zip(run_ids, _CORE_ETL_FN, strict=True):
+        background_tasks.add_task(_run_core_etl_background, uuid.UUID(run_id), provider)
 
     return {"run_ids": run_ids, "status": "running", "providers": list(_CORE_ETL_FN)}
 
@@ -323,6 +317,34 @@ def trigger_detect_matches() -> dict:
     finally:
         db.close()
     return {"status": "ok", "counts": counts}
+
+
+@router.post(
+    "/core/{provider}",
+    dependencies=[Depends(require_permissions("etl.run")), Depends(require_csrf)],
+    tags=["ETL Core"],
+)
+def trigger_core_etl(provider: str, background_tasks: BackgroundTasks) -> dict:
+    """Materializa tablas de proveedor (tch/toku/payku/virtualpos) → entidades Core (Layer 3).
+
+    Idempotente: seguro re-ejecutar. Retorna inmediatamente; la ejecución ocurre en background.
+    """
+    if provider not in _CORE_ETL_FN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Proveedor desconocido: '{provider}'. Opciones: {sorted(_CORE_ETL_FN)}",
+        )
+    db = _get_db()
+    try:
+        run = start_exclusive_run(db, phase=f"core_{provider}")
+        run_id = run.id
+    except ActiveRunError as busy:
+        raise _active_run_conflict(busy) from busy
+    finally:
+        db.close()
+
+    background_tasks.add_task(_run_core_etl_background, run_id, provider)
+    return {"run_id": str(run_id), "status": "running", "provider": provider}
 
 
 @router.get(

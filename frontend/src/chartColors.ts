@@ -1,48 +1,25 @@
-export const CHART_PRIMARY = "#2563EB";
+import { statusColor } from "./statusColors";
 
-const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "#16A34A",
-  ACTIVA: "#16A34A",
-  ACTIVO: "#16A34A",
-  CHARGEABLE: "#16A34A",
-  COBRADO: "#16A34A",
-  PAID: "#16A34A",
-  PAGADO: "#16A34A",
-  SUCCESS: "#16A34A",
-  PENDING: "#D97706",
-  PENDIENTE: "#D97706",
-  REGISTER: "#D97706",
-  INITIALIZED: "#D97706",
-  PROCESSING: "#0891B2",
-  PROCESANDO: "#0891B2",
-  SUSCRIBIENDO: "#2563EB",
-  PAUSED: "#64748B",
-  SUSPENDED: "#64748B",
-  ABORTED: "#DC2626",
-  CANCELADO: "#DC2626",
-  CANCELED: "#DC2626",
-  DELETE: "#DC2626",
-  FAILED: "#DC2626",
-  PERMANENT_FAILED: "#DC2626",
-  RECHAZADO: "#DC2626",
-  REJECTED: "#DC2626",
-  SUSCRIPCION_FALLIDA: "#DC2626",
-  VOID: "#DC2626",
-  ACEPTADA: "#16A34A",
-  ACEPTADAS: "#16A34A",
-  RECHAZADA: "#DC2626",
-  RECHAZADAS: "#DC2626",
-  PENDIENTES: "#D97706",
-  VIGENTE: "#16A34A",
-  ELIMINADA: "#DC2626",
-  "REINTENTO": "#D97706",
-  "CAMBIO DE TARJETA": "#7C3AED",
-  VIRTUALPOS: "#2563EB",
-  TOKU: "#7C3AED",
-  PAYKU: "#CA8A04",
-  TCH: "#0891B2",
+/** Color principal de un gráfico de una sola serie (D19/D27: violeta de la paleta de series, claro y oscuro). */
+export const CHART_PRIMARY = "var(--series-1)";
+
+/**
+ * Altas y bajas (DEC-36): azul y naranja neutros, nunca el verde/rojo de estado. Las bajas no se confunden con el rojo
+ * de «rechazado» ni con el gris de «cancelado» (UI-33). También son los tramos positivo/negativo de waterfall y
+ * barras divergentes.
+ */
+export const FLOW_IN_COLOR = "var(--flow-in)";
+export const FLOW_OUT_COLOR = "var(--flow-out)";
+
+/** Colores de CANAL (no de estado), como tokens `--series-N` (index.css). Los estados salen de statusColors.ts. */
+const CHANNEL_COLORS: Record<string, string> = {
+  VIRTUALPOS: "var(--series-1)",
+  TOKU: "var(--series-2)",
+  PAYKU: "var(--series-4)",
+  TCH: "var(--series-3)",
 };
 
+/** Color de una serie cuyo nombre puede ser un canal o un estado: canal -> color de canal; si no, color de estado. */
 export function chartStatusColor(status: string | null | undefined): string {
-  return STATUS_COLORS[String(status ?? "").trim().toUpperCase()] ?? "#64748B";
+  return CHANNEL_COLORS[String(status ?? "").trim().toUpperCase()] ?? statusColor(status);
 }

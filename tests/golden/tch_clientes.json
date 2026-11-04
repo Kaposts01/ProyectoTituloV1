@@ -1,0 +1,20 @@
+[
+ ".items",
+ ".items[].apellido",
+ ".items[].ciudad",
+ ".items[].comuna",
+ ".items[].direccion",
+ ".items[].email",
+ ".items[].fecha_nacimiento",
+ ".items[].id",
+ ".items[].nombre",
+ ".items[].profesion",
+ ".items[].rut",
+ ".items[].telefono",
+ ".items[].tipo_persona",
+ ".items[].tipo_socio",
+ ".limit",
+ ".page",
+ ".pages",
+ ".total"
+]

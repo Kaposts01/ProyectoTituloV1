@@ -1,24 +1,30 @@
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { ChannelHealthMap } from "../hooks/useChannelHealth";
 import type { ProviderSection, ProviderSource } from "../routes";
-import { providerGroups, resourcePermission } from "../navigation";
+import { detailChannels, filterMenu, visibleMenu, type DetailAction, type MenuAction, type TchView } from "../navigation";
+import { SidebarHealth } from "./SidebarHealth";
 
 export type SidebarProps = {
   activeSection: ProviderSection | null;
   channel: string | null;
   tchView: string | null;
-  openProvider: string | null;
+  /** «Detalle por canal» (transitorio) desplegado. */
+  detailOpen: boolean;
+  onToggleDetail: () => void;
   theme: "light" | "dark";
   onDashboard: () => void;
-  generalView: "summary" | "clients" | "subscriptions" | "report";
+  generalView: "summary" | "clients" | "subscriptions" | "charges" | "report";
   onGeneralClients: () => void;
   onGeneralSubscriptions: () => void;
+  /** Cobros unificados (UX-09). */
+  onGeneralCharges?: () => void;
   onAutoReport: () => void;
   onChannel: (source: ProviderSource) => void;
   onSection: (section: ProviderSection) => void;
-  onToggle: (provider: string) => void;
   onTheme: () => void;
-  onTch: (view: "summary" | "clientes" | "suscripciones" | "transacciones") => void;
+  onTch: (view: TchView) => void;
   permissions: string[];
-  onAdmin: (view: "usuarios" | "sincronizacion") => void;
+  onAdmin: (view: "users" | "sync") => void;
   adminOpen: boolean;
   adminTab: string | null;
   onLogout: () => void;
@@ -27,23 +33,106 @@ export type SidebarProps = {
   onClose: () => void;
   recoveryOpen: boolean;
   onRecovery: () => void;
+  billingOpen?: boolean;
+  onBilling?: () => void;
+  cancellationsOpen?: boolean;
+  onCancellations?: () => void;
+  profileOpen?: boolean;
+  health?: ChannelHealthMap;
 };
 
 export function Sidebar({
-  activeSection, channel, tchView, openProvider, theme, onDashboard,
-  generalView, onGeneralClients, onGeneralSubscriptions, onAutoReport,
-  onChannel, onSection, onToggle, onTheme, onTch,
+  activeSection, channel, tchView, detailOpen, onToggleDetail, theme, onDashboard,
+  generalView, onGeneralClients, onGeneralSubscriptions, onGeneralCharges, onAutoReport,
+  onChannel, onSection, onTheme, onTch,
   permissions, onAdmin, adminOpen, adminTab,
-  onLogout, onProfile, open, onClose, recoveryOpen, onRecovery,
+  onLogout, onProfile, open, onClose, recoveryOpen, onRecovery, billingOpen = false, onBilling, cancellationsOpen = false, onCancellations, profileOpen = false, health,
 }: SidebarProps) {
   const can = (permission: string) => permissions.includes(permission);
+  const [query, setQuery] = useState("");
+  const detailId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  const asideRef = useRef<HTMLElement>(null);
+  const openerRef = useRef<Element | null>(null);
+  // Drawer modal: el contenido de fondo queda inert + aria-hidden (mismo patron que Dialog en billing/ui.tsx),
+  // el foco entra al menu y, al cerrar, vuelve al elemento que lo abrio (la hamburguesa).
+  useLayoutEffect(() => {
+    if (!open) return;
+    const aside = asideRef.current;
+    openerRef.current = document.activeElement;
+    const siblings = aside?.parentElement
+      ? (Array.from(aside.parentElement.children).filter(
+          (el) => el !== aside && !el.classList.contains("sidebar-overlay") && el instanceof HTMLElement,
+        ) as HTMLElement[])
+      : [];
+    const saved = siblings.map((el) => ({ el, inert: el.hasAttribute("inert"), ariaHidden: el.getAttribute("aria-hidden") }));
+    for (const { el } of saved) {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    aside?.querySelector<HTMLElement>(".sidebar-close, button")?.focus();
+    return () => {
+      for (const { el, inert, ariaHidden } of saved) {
+        if (!inert) el.removeAttribute("inert");
+        if (ariaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", ariaHidden);
+      }
+    };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const opener = openerRef.current;
+    return () => { if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
+  }, [open]);
+
+  const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !cancellationsOpen && !profileOpen && generalView === "summary";
   const go = (fn: () => void) => () => { fn(); onClose(); };
-  const visibleGroups = providerGroups.map((group) => ({
-    ...group,
-    sections: group.sections.filter((section) => can(resourcePermission(section.source, section.resource))),
-  })).filter((group) => group.sections.length > 0);
+  const searching = query.trim() !== "";
+  const { groups, channels } = filterMenu(visibleMenu(can), detailChannels(can), query);
+  // Con búsqueda activa el detalle se muestra abierto para poder encontrar ahí las coincidencias.
+  const detailVisible = channels.length > 0 && (detailOpen || searching);
+
+  const runMenu = (action: MenuAction) => {
+    if (action.kind === "central") {
+      if (action.view === "summary") onDashboard();
+      else if (action.view === "clients") onGeneralClients();
+      else if (action.view === "subscriptions") onGeneralSubscriptions();
+      else if (action.view === "charges") onGeneralCharges?.();
+      else onAutoReport();
+    } else if (action.kind === "recovery") onRecovery();
+    else if (action.kind === "billing") onBilling?.();
+    else if (action.kind === "cancellations") onCancellations?.();
+    else onAdmin(action.view);
+  };
+  const menuActive = (action: MenuAction): boolean => {
+    if (action.kind === "central") return action.view === "summary" ? centralActive : generalView === action.view;
+    if (action.kind === "recovery") return recoveryOpen;
+    if (action.kind === "billing") return billingOpen;
+    if (action.kind === "cancellations") return cancellationsOpen;
+    return adminOpen && adminTab === action.view;
+  };
+  const runDetail = (action: DetailAction) => {
+    if (action.kind === "channel") onChannel(action.source);
+    else if (action.kind === "section") onSection(action.section);
+    else onTch(action.view);
+  };
+  const detailActive = (action: DetailAction): boolean => {
+    if (action.kind === "channel") return channel === action.source;
+    if (action.kind === "section") return activeSection?.source === action.section.source && activeSection.resource === action.section.resource;
+    // las fichas de TCH (cliente, suscripción, transacción) marcan su lista
+    return tchView === action.view || tchView === `${action.view === "clients" ? "client" : action.view === "subscriptions" ? "subscription" : "transaction"}-detail`;
+  };
+  const itemClass = (active: boolean) => (active ? "sidebar-item active" : "sidebar-item");
+
   return (
-    <aside className={`sidebar${open ? " open" : ""}`}>
+    <>
+    {open ? <div className="sidebar-overlay" aria-hidden="true" onClick={onClose} /> : null}
+    <aside id="app-sidebar" ref={asideRef} className={`sidebar${open ? " open" : ""}`}>
       <div className="sidebar-toprow">
         <button className="sidebar-brand" onClick={go(onDashboard)}>
           <span>Sx</span>
@@ -51,131 +140,76 @@ export function Sidebar({
         </button>
         <button className="sidebar-close" onClick={onClose} aria-label="Cerrar menú">✕</button>
       </div>
-      <nav className="sidebar-nav" aria-label="Navegacion principal">
-        {can("dashboard.view") ? <button
-          className={!activeSection && !channel && !tchView && generalView === "summary" ? "sidebar-item active" : "sidebar-item"}
-          onClick={go(onDashboard)}
-        >
-          Dashboard
-        </button> : null}
-        {can("dashboard.view") ? <>
-          <button className={generalView === "clients" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralClients)}>Clientes</button>
-          <button className={generalView === "subscriptions" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onGeneralSubscriptions)}>Suscripciones</button>
-          <button className={generalView === "report" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(onAutoReport)}>Reporte automático</button>
-        </> : null}
-        {visibleGroups.map((group) => (
-          <section className="sidebar-group" key={group.name}>
-            <div className="channel-heading">
-              <button
-                className={channel === group.sections[0].source ? "channel-dashboard active" : "channel-dashboard"}
-                onClick={go(() => onChannel(group.sections[0].source))}
-              >
-                {group.name}
-              </button>
-              <button
-                className="sidebar-expand"
-                aria-label={`Expandir ${group.name}`}
-                aria-expanded={openProvider === group.name}
-                onClick={() => onToggle(group.name)}
-              >
-                {openProvider === group.name ? "-" : "+"}
-              </button>
-            </div>
-            {openProvider === group.name
-              ? <>
-                  {group.sections.map((section) => (
-                    <button
-                      className={
-                        activeSection?.source === section.source &&
-                        activeSection.resource === section.resource
-                          ? "sidebar-item nested active"
-                          : "sidebar-item nested"
-                      }
-                      key={section.resource}
-                      onClick={go(() => onSection(section))}
-                    >
-                      {section.label}
-                    </button>
-                  ))}
-                  {group.name === "VirtualPOS" && can("virtualpos.recovery.view") ? (
-                    <button
-                      className={recoveryOpen ? "sidebar-item nested active" : "sidebar-item nested"}
-                      onClick={go(onRecovery)}
-                    >
-                      Recuperador de Socios
-                    </button>
-                  ) : null}
-                </>
-              : null}
-          </section>
+      <SidebarHealth health={health} />
+      <div className="sidebar-search">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Buscar"
+          aria-label="Buscar en el menú"
+          autoComplete="off"
+        />
+      </div>
+      <nav className="sidebar-nav" aria-label="Navegación principal">
+        {groups.map((group) => (
+          <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
+            {group.label ? <div className="sidebar-section-label">{group.label}</div> : null}
+            {group.items.map((item) => {
+              const active = menuActive(item.action);
+              return (
+                <button
+                  key={item.id}
+                  className={itemClass(active)}
+                  aria-current={active ? "page" : undefined}
+                  onClick={go(() => runMenu(item.action))}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         ))}
-        {can("tch.dashboard.view") ? (
-          <section className="sidebar-group">
-            <div className="channel-heading">
-              <button
-                className={tchView ? "channel-dashboard active" : "channel-dashboard"}
-                onClick={go(() => onTch("summary"))}
-              >
-                TCH
-              </button>
-              <button
-                className="sidebar-expand"
-                aria-label="Expandir TCH"
-                aria-expanded={openProvider === "TCH"}
-                onClick={() => onToggle("TCH")}
-              >
-                {openProvider === "TCH" ? "-" : "+"}
-              </button>
-            </div>
-            {openProvider === "TCH" ? (
-              <>
-                {can("tch.clientes.view") ? <button className={tchView === "clientes" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("clientes"))}>Clientes</button> : null}
-                <button className={tchView === "suscripciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("suscripciones"))}>Suscripciones</button>
-                <button className={tchView === "transacciones" ? "sidebar-item nested active" : "sidebar-item nested"} onClick={go(() => onTch("transacciones"))}>Transacciones</button>
-              </>
+        {channels.length > 0 ? (
+          <div className="sidebar-group sidebar-detail" role="group" aria-label="Detalle por canal">
+            <button
+              type="button"
+              className="channel-dashboard sidebar-detail-toggle"
+              aria-expanded={detailVisible}
+              aria-controls={detailId}
+              onClick={onToggleDetail}
+              disabled={searching}
+            >
+              <span>Detalle por canal</span>
+              <span className="sidebar-transient">Transitorio</span>
+              <span className="sidebar-detail-glyph" aria-hidden="true">{detailVisible ? "−" : "+"}</span>
+            </button>
+            {detailVisible ? (
+              <div id={detailId}>
+                <p className="sidebar-note">Se retira cuando existan las vistas unificadas de Cobros, Socios y Suscripciones.</p>
+                {channels.map((entry) => (
+                  <div className="sidebar-subgroup" role="group" aria-label={entry.name} key={entry.id}>
+                    <div className="sidebar-subheading">{entry.name}</div>
+                    {entry.items.map((item) => {
+                      const active = detailActive(item.action);
+                      return (
+                        <button
+                          key={item.id}
+                          className={itemClass(active)}
+                          aria-current={active ? "page" : undefined}
+                          onClick={go(() => runDetail(item.action))}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             ) : null}
-          </section>
+          </div>
         ) : null}
-        {can("users.manage") || can("roles.manage") || can("sync_runs.view") || can("sync.run") ? (
-          <section className="sidebar-group">
-            <div className="channel-heading">
-              <button
-                className={adminOpen ? "channel-dashboard active" : "channel-dashboard"}
-                onClick={go(() => onAdmin(can("users.manage") || can("roles.manage") ? "usuarios" : "sincronizacion"))}
-              >
-                Administración
-              </button>
-              <button
-                className="sidebar-expand"
-                aria-label="Expandir Administración"
-                aria-expanded={openProvider === "Administración"}
-                onClick={() => onToggle("Administración")}
-              >
-                {openProvider === "Administración" ? "-" : "+"}
-              </button>
-            </div>
-            {openProvider === "Administración" ? (
-              <>
-                {can("users.manage") || can("roles.manage") ? (
-                  <button
-                    className={adminOpen && adminTab === "usuarios" ? "sidebar-item nested active" : "sidebar-item nested"}
-                    onClick={go(() => onAdmin("usuarios"))}
-                  >
-                    Usuarios
-                  </button>
-                ) : null}
-                {can("sync_runs.view") || can("sync.run") ? (
-                  <button
-                    className={adminOpen && adminTab === "sincronizacion" ? "sidebar-item nested active" : "sidebar-item nested"}
-                    onClick={go(() => onAdmin("sincronizacion"))}
-                  >
-                    Sincronización
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-          </section>
-        ) : null}
+        {groups.length === 0 && channels.length === 0 ? <p className="sidebar-note" role="status">Sin resultados para «{query.trim()}».</p> : null}
       </nav>
       <div className="sidebar-footer">
         <button className="theme-btn" onClick={onTheme} aria-label="Cambiar tema">
@@ -186,5 +220,6 @@ export function Sidebar({
         <button className="theme-btn" onClick={go(onLogout)}>Cerrar sesión</button>
       </div>
     </aside>
+    </>
   );
 }

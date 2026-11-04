@@ -1,22 +1,41 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import re
+import uuid
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.virtualpos.client import VirtualPOSClient
+from app.models.billing import (
+    MANAGED_CANCELLED,
+    MANAGED_CREATED,
+    MANAGED_NEEDS_RECONCILIATION,
+    STATUS_APPLYING,
+    STATUS_APPROVED,
+    STATUS_NEEDS_RECONCILIATION,
+    STATUS_PENDING,
+    BillingChangeRequest,
+    BillingChangeRequestEvent,
+    VpCalendarMark,
+    VpManagedCharge,
+)
 from app.models.charge_recovery import ChargeRecovery
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
-from app.models.vp import VpSubscription
+from app.models.vp import VpPlan, VpSubscription
 from app.models.write_run import WriteRun
+from app.services.billing_plan import is_cancelled_status, is_pending_status
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
 
 log = logging.getLogger(__name__)
@@ -56,6 +75,16 @@ class DuplicateSubscriptionError(Exception):
 
 class RetryBlockedError(Exception):
     pass
+
+
+class RetryInProgressError(RetryBlockedError):
+    """BILL-14 (GB-RZ-30): otro `/retry` del mismo cargo ya esta en curso (doble clic o dos usuarios a la vez).
+    Hereda de `RetryBlockedError` para que las rutas existentes respondan 409 sin llamar a VirtualPOS."""
+
+
+class RetrySubscriptionBusyError(RetryBlockedError):
+    """RA-27: la suscripcion del cargo tiene tomado el lock por suscripcion (se aplica un cambio de cobro aprobado, una
+    baja o una reasignacion). Hereda de `RetryBlockedError`: las rutas responden 409 sin llamar a VirtualPOS."""
 
 
 # Códigos de rechazo VirtualPOS → decisión (ver docs/integrations/virtualpos/workflows/reintento-cobro-rechazado.md)
@@ -220,7 +249,7 @@ def _check_duplicate_client(db: Session, social_id: str) -> None:
         raise DuplicateClientError
 
 
-async def update_client(db: Session, client_id: str, changes: dict[str, Any]) -> Client:
+async def update_client(db: Session, client_id: str, changes: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Update a VirtualPOS client, then keep its local and centralized copies aligned."""
     client = db.scalar(
         select(Client).where(Client.external_id == client_id, Client.source.like("virtualpos%"))
@@ -253,6 +282,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
         external_id=client_id,
         operation="update_client",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(changes),
     )
     db.add(write_run)
@@ -310,7 +340,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
     return client
 
 
-async def create_client(db: Session, data: dict[str, Any]) -> Client:
+async def create_client(db: Session, data: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Create a VirtualPOS client and persist its provider response locally."""
     platform = data.pop("platform", "virtualpos1")
     all_secrets = (
@@ -332,6 +362,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
         external_id="pending",
         operation="create_client",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(data),
     )
     db.add(write_run)
@@ -397,7 +428,7 @@ async def create_client(db: Session, data: dict[str, Any]) -> Client:
     return client
 
 
-async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
+async def create_plan(db: Session, data: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Plan:
     """Create a VirtualPOS plan and persist its provider response locally."""
     platform = data.pop("platform", "virtualpos1")
     all_secrets = (
@@ -414,6 +445,7 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
         external_id="pending",
         operation="create_plan",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(data),
     )
     db.add(write_run)
@@ -478,8 +510,37 @@ async def create_plan(db: Session, data: dict[str, Any]) -> Plan:
     return plan
 
 
-async def create_charge(db: Session, subscription_id: str, data: dict[str, Any], platform: str = "virtualpos1") -> Charge:
-    """Create a VirtualPOS charge on an active subscription and persist the response locally."""
+async def _find_charge_by_internal_code(provider: Any, subscription_id: str, internal_code: str) -> dict | None:
+    """Cargo PENDIENTE de la suscripción con ese `internal_code` (todas las páginas).
+
+    Solo se adoptan pendientes (un cobro pagado/procesando con el mismo código no se reutiliza; los cancelados, en
+    cualquiera de sus 4 variantes, tampoco). Un fallo o una forma inesperada del listado se propaga: sin listado
+    completo no se puede garantizar idempotencia y no se crea el cargo.
+    """
+    for item in await fetch_all_charge_pages(provider, subscription_id):
+        if (
+            item.get("id")
+            and _as_text(item.get("internal_code")) == internal_code
+            and not is_cancelled_status(item.get("status"))
+            and is_pending_status(item.get("status"))
+        ):
+            return item
+    return None
+
+
+async def create_charge(
+    db: Session,
+    subscription_id: str,
+    data: dict[str, Any],
+    platform: str = "virtualpos1",
+    *,
+    request_id: uuid.UUID | None = None,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> Charge:
+    """Create a VirtualPOS charge on an active subscription and persist the response locally.
+
+    `request_id`/`requested_by_user_id` (opcionales) enlazan el WriteRun con la solicitud de cambio de facturacion.
+    """
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -488,7 +549,10 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
+    ensure_charge_allowed_on_plan(db, subscription_id, platform)
+
     request_data = {"suscription_id": subscription_id, **data}
+    internal_code = _as_text(data.get("internal_code"))
 
     write_run = WriteRun(
         source=platform,
@@ -497,21 +561,34 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
         operation="create_charge",
         status="pending",
         request_payload=sanitize_record(request_data),
+        request_id=request_id,
+        requested_by_user_id=requested_by_user_id,
     )
     db.add(write_run)
     db.commit()
 
+    adopted = False
     try:
         async with VirtualPOSClient(platform=platform) as provider:
-            response = await provider.create_charge(request_data)
-            payload = _charge_payload(response)
-            charge_id = _as_text((payload or {}).get("id") or (payload or {}).get("charge_id"))
-            if not charge_id:
-                raise RuntimeError("VirtualPOS returned no charge identifier")
-            if payload is None or len(payload) <= 1:
-                payload = _charge_payload(await provider.get_charge(charge_id))
-            if payload is None:
-                raise RuntimeError("VirtualPOS returned no charge payload")
+            existing = None
+            if internal_code:
+                # VP no impone idempotencia por internal_code (2 POST = 2 cargos): si un POST previo se cortó por
+                # timeout pero el cargo se creó, el reintento lo adopta aquí en vez de duplicarlo.
+                existing = await _find_charge_by_internal_code(provider, subscription_id, internal_code)
+            if existing is not None:
+                adopted = True
+                payload = {"suscription_id": subscription_id, **existing}
+                charge_id = _as_text(payload.get("id"))
+            else:
+                response = await provider.create_charge(request_data)
+                payload = _charge_payload(response)
+                charge_id = _as_text((payload or {}).get("id") or (payload or {}).get("charge_id"))
+                if not charge_id:
+                    raise RuntimeError("VirtualPOS returned no charge identifier")
+                if payload is None or len(payload) <= 1:
+                    payload = _charge_payload(await provider.get_charge(charge_id))
+                if payload is None:
+                    raise RuntimeError("VirtualPOS returned no charge payload")
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, all_secrets)
@@ -522,7 +599,7 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     sanitized_payload = sanitize_record(payload)
     write_run.external_id = charge_id
     write_run.status = "remote_succeeded"
-    write_run.response_payload = sanitized_payload
+    write_run.response_payload = {"adopted": True, "charge_id": charge_id} if adopted else sanitized_payload
     db.commit()
 
     try:
@@ -541,9 +618,13 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
             db.flush()
         else:
             source_record.payload = sanitized_payload
-        charge = Charge(source=platform, external_id=charge_id, source_record_id=source_record.id)
+        charge = db.scalar(select(Charge).where(Charge.external_id == charge_id, Charge.source == platform))
+        if charge is None:
+            charge = Charge(source=platform, external_id=charge_id, source_record_id=source_record.id)
+            db.add(charge)
+        else:
+            charge.source_record_id = source_record.id
         _materialize_charge(charge, sanitized_payload)
-        db.add(charge)
         write_run.status = "completed"
         write_run.finished_at = datetime.now(UTC)
         db.commit()
@@ -560,7 +641,13 @@ async def create_charge(db: Session, subscription_id: str, data: dict[str, Any],
     return charge
 
 
-async def cancel_charge(db: Session, charge_id: str) -> Charge:
+async def cancel_charge(
+    db: Session,
+    charge_id: str,
+    *,
+    request_id: uuid.UUID | None = None,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> Charge:
     """Cancel a pending VirtualPOS charge via DELETE /v3/charge/{id}."""
     charge = db.scalar(
         select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
@@ -583,6 +670,8 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
         operation="cancel_charge",
         status="pending",
         request_payload={"charge_id": charge_id},
+        request_id=request_id,
+        requested_by_user_id=requested_by_user_id,
     )
     db.add(write_run)
     db.commit()
@@ -645,7 +734,494 @@ async def cancel_charge(db: Session, charge_id: str) -> Charge:
     return charge
 
 
-async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription:
+class FixedPlanChargeBlockedError(Exception):
+    """POST /v3/charge sobre un plan MONTO_FIJO (o de tipo desconocido) con la bandera apagada."""
+
+
+FIXED_PLAN_BLOCKED_MESSAGE = (
+    "La suscripción pertenece a un plan de monto fijo (o de tipo desconocido); VirtualPOS rechaza cargos "
+    "manuales en esos planes (E-113). Active VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN solo tras validarlo en sandbox."
+)
+
+
+def _provider_error_code(exc: Exception) -> str | None:
+    """Extrae el código E-nnn de un error de VirtualPOS (sin exponer el cuerpo completo).
+
+    Prefiere `VirtualPOSAPIError.error_code` (NOK con HTTP 200); respaldo por regex sobre `exc.response.text`
+    (HTTPStatusError con HTTP 4xx/5xx).
+    """
+    code = getattr(exc, "error_code", None)
+    if isinstance(code, str) and code:
+        return code
+    response = getattr(exc, "response", None)
+    text = getattr(response, "text", "") or ""
+    match = re.search(r"E-\d{3}", text)
+    return match.group(0) if match else None
+
+
+def _plan_type_for_subscription(db: Session, subscription_id: str, platform: str) -> str | None:
+    """Tipo de plan según datos locales (core `plans`, luego `vp_plans`); None si se desconoce."""
+    plan_external_id = db.scalar(
+        select(Subscription.plan_external_id).where(
+            Subscription.external_id == subscription_id, Subscription.source == platform
+        )
+    )
+    if plan_external_id is None:
+        plan_external_id = db.scalar(
+            select(VpSubscription.plan_external_id).where(
+                VpSubscription.external_id == subscription_id, VpSubscription.platform == platform
+            )
+        )
+    if not plan_external_id:
+        return None
+    return db.scalar(
+        select(Plan.plan_type).where(Plan.external_id == plan_external_id, Plan.source == platform)
+    ) or db.scalar(
+        select(VpPlan.plan_type).where(VpPlan.external_id == plan_external_id, VpPlan.platform == platform)
+    )
+
+
+def ensure_charge_allowed_on_plan(db: Session, subscription_id: str, platform: str) -> None:
+    """Conservador: solo MONTO_VARIABLE conocido pasa; fijo o desconocido se bloquea salvo bandera explícita."""
+    if settings.virtualpos_allow_charge_on_fixed_plan:
+        return
+    plan_type = (_plan_type_for_subscription(db, subscription_id, platform) or "").strip().upper()
+    if plan_type != "MONTO_VARIABLE":
+        raise FixedPlanChargeBlockedError(FIXED_PLAN_BLOCKED_MESSAGE)
+
+
+def _items(response: Any, key: str) -> list[dict[str, Any]]:
+    value = response.get(key) if isinstance(response, dict) else None
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+class ProviderListingError(Exception):
+    """Listado de cobros incompleto o con forma inesperada: fail-closed, no se planifica ni se escribe con él."""
+
+
+_CHARGES_PAGE_LIMIT = 100
+_CHARGES_MAX_PAGES = 200
+
+
+async def fetch_all_charge_pages(provider: Any, subscription_id: str, status: str | None = None) -> list[dict[str, Any]]:
+    """Todas las páginas de `list_charges`, en modo estricto: una respuesta que no es dict con lista `charges` de dicts,
+    o sin `pagination.pages` entero cuando la página viene llena (indicio de más páginas), lanza `ProviderListingError`."""
+    out: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        kwargs: dict[str, Any] = {"page": page, "limit": _CHARGES_PAGE_LIMIT}
+        if status is not None:
+            kwargs["status"] = status
+        response = await provider.list_charges(subscription_id, **kwargs)
+        raw = response.get("charges") if isinstance(response, dict) else None
+        if not isinstance(raw, list) or any(not isinstance(item, dict) for item in raw):
+            raise ProviderListingError("Respuesta inesperada del listado de cobros del proveedor (se aborta, fail-closed).")
+        out.extend(raw)
+        pagination = response.get("pagination")
+        pages = pagination.get("pages") if isinstance(pagination, dict) else None
+        if isinstance(pages, bool) or not isinstance(pages, int):
+            if len(raw) >= _CHARGES_PAGE_LIMIT:
+                raise ProviderListingError("Listado de cobros posiblemente incompleto: página llena sin pagination.pages.")
+            return out
+        if page >= pages:
+            return out
+        page += 1
+        if page > _CHARGES_MAX_PAGES:
+            raise ProviderListingError("Listado de cobros con demasiadas páginas (se aborta).")
+
+
+async def _list_pending_charges(provider: Any, subscription_id: str) -> list[dict[str, Any]]:
+    """Cargos pendientes (estado normalizado con `is_pending_status`; nunca procesando/pagado/rechazado), todas las páginas."""
+    items = await fetch_all_charge_pages(provider, subscription_id, status="pendiente")
+    return [c for c in items if is_pending_status(c.get("status")) and c.get("id")]
+
+
+def _reconcile_cancelled_charges(db: Session, platform: str, cancelled: list[dict[str, Any]]) -> None:
+    for item in cancelled:
+        charge_id = _as_text(item.get("id"))
+        if not charge_id:
+            continue
+        charge = db.scalar(select(Charge).where(Charge.external_id == charge_id, Charge.source == platform))
+        base = dict(charge.raw_payload or {}) if charge is not None else {}
+        payload = sanitize_record({**base, **item, "status": "cancelado"})
+        source_record = db.scalar(
+            select(SourceRecord).where(
+                SourceRecord.source == platform,
+                SourceRecord.resource_type == "charge",
+                SourceRecord.external_id == charge_id,
+            )
+        )
+        if source_record is None:
+            db.add(SourceRecord(source=platform, resource_type="charge", external_id=charge_id, payload=payload))
+        else:
+            source_record.payload = payload
+        if charge is not None:
+            charge.status = "cancelado"
+            charge.raw_payload = payload
+
+
+def _resolve_platform(db: Session, subscription_id: str, platform: str | None) -> str:
+    if platform:
+        return platform
+    source = db.scalar(
+        select(Subscription.source).where(
+            Subscription.external_id == subscription_id, Subscription.source.like("virtualpos%")
+        )
+    )
+    return source or "virtualpos1"
+
+
+class PluralCancelForbiddenError(Exception):
+    """DELETE plural (sin `charge_ids`) sobre una suscripcion con calendario modificado (CO-16, hallazgo 1)."""
+
+
+PLURAL_CANCEL_FORBIDDEN_MESSAGE = (
+    "La suscripción tiene el calendario modificado por el CRM: la cancelación plural cancelaría también los cobros "
+    "manuales y los automáticos posteriores al horizonte (red de seguridad). Indique `charge_ids` explícitos."
+)
+
+
+def has_active_calendar_mark(db: Session, platform: str, subscription_id: str) -> bool:
+    return db.scalar(
+        select(VpCalendarMark.id).where(
+            VpCalendarMark.platform == platform,
+            VpCalendarMark.subscription_external_id == subscription_id,
+            VpCalendarMark.is_active.is_(True),
+        )
+    ) is not None
+
+
+LIVE_MANAGED_STATUSES = (MANAGED_CREATED, MANAGED_NEEDS_RECONCILIATION)
+OPEN_REQUEST_STATUSES = (STATUS_PENDING, STATUS_APPROVED, STATUS_APPLYING, STATUS_NEEDS_RECONCILIATION)
+
+
+def has_live_managed_charges(
+    db: Session, platform: str, subscription_id: str, statuses: tuple[str, ...] = LIVE_MANAGED_STATUSES
+) -> bool:
+    """Hay cobros del CRM vivos (`creado`/`requiere_conciliacion`) en la suscripción, aunque no exista marca."""
+    return db.scalar(
+        select(VpManagedCharge.id).where(
+            VpManagedCharge.platform == platform,
+            VpManagedCharge.subscription_external_id == subscription_id,
+            VpManagedCharge.status.in_(statuses),
+        ).limit(1)
+    ) is not None
+
+
+def has_open_change_request(
+    db: Session, platform: str, subscription_id: str, statuses: tuple[str, ...] = OPEN_REQUEST_STATUSES
+) -> bool:
+    return db.scalar(
+        select(BillingChangeRequest.id).where(
+            BillingChangeRequest.platform == platform,
+            BillingChangeRequest.subscription_external_id == subscription_id,
+            BillingChangeRequest.status.in_(statuses),
+        ).limit(1)
+    ) is not None
+
+
+class BillingFlowConflictError(Exception):
+    """El flujo viejo (reassign-amount) no puede esquivar los controles del flujo de solicitudes de cambio."""
+
+
+BILLING_FLOW_CONFLICT_MESSAGE = (
+    "La suscripción está gestionada por el flujo de solicitudes de cambio de cobro (calendario modificado, cobros del "
+    "CRM vivos o solicitud abierta): use ese flujo en vez de la reasignación directa de monto."
+)
+
+
+CLOSING_BLOCKING_REQUEST_STATUSES = (STATUS_APPLYING, STATUS_NEEDS_RECONCILIATION)
+CLOSING_BLOCKING_MANAGED_STATUSES = ("requiere_conciliacion",)
+CLOSING_CONFLICT_MESSAGE = (
+    "La suscripción tiene una solicitud de cambio de cobro aplicándose o pendiente de conciliación, o cobros del CRM "
+    "en conciliación: resuélvalo antes de darla de baja."
+)
+
+
+def ensure_no_billing_flow_conflict(
+    db: Session, platform: str, subscription_id: str, *, closing_subscription: bool = False
+) -> None:
+    """Lanza `BillingFlowConflictError` si la suscripcion esta gestionada por el flujo de solicitudes de cambio.
+
+    Con `closing_subscription=True` (baja, MGT-03) solo bloquea lo que la baja NO puede resolver sola: solicitudes
+    `aplicando`/`requiere_conciliacion` y cobros del CRM en `requiere_conciliacion`. Las solicitudes `pendiente`/
+    `aprobada`, la marca de calendario y los cobros `creado` los cierra la propia baja."""
+    if closing_subscription:
+        if (
+            has_open_change_request(db, platform, subscription_id, CLOSING_BLOCKING_REQUEST_STATUSES)
+            or has_live_managed_charges(db, platform, subscription_id, CLOSING_BLOCKING_MANAGED_STATUSES)
+        ):
+            raise BillingFlowConflictError(CLOSING_CONFLICT_MESSAGE)
+        return
+    if (
+        has_active_calendar_mark(db, platform, subscription_id)
+        or has_live_managed_charges(db, platform, subscription_id)
+        or has_open_change_request(db, platform, subscription_id)
+    ):
+        raise BillingFlowConflictError(BILLING_FLOW_CONFLICT_MESSAGE)
+
+
+async def cancel_future_charges(
+    db: Session,
+    subscription_id: str,
+    *,
+    platform: str | None = None,
+    charge_ids: list[str] | None = None,
+    dry_run: bool = False,
+    request_id: uuid.UUID | None = None,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """Cancela cargos FUTUROS `pendiente` de una suscripción sin cancelar la suscripción.
+
+    Sin `charge_ids` usa DELETE /v3/charges/{suscription_id} (plural, solo toca pendientes); con `charge_ids`
+    usa DELETE /v3/charge/{id} individual, re-consultando el estado de cada uno justo antes de borrar.
+    E-079/E-059 (nada pendiente) son un resultado no-op, no un error. VirtualPOS los devuelve como
+    HTTP 200 + cuerpo NOK (VirtualPOSAPIError) o, de forma defensiva, como HTTPStatusError 400.
+    """
+    platform = _resolve_platform(db, subscription_id, platform)
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+    result: dict[str, Any] = {
+        "subscription_id": subscription_id, "dry_run": dry_run, "cancelled": [], "would_cancel": [],
+        "skipped": [], "noop": False, "write_run_id": None,
+    }
+
+    if dry_run:  # solo lecturas al proveedor; no hay write_run ni escritura
+        async with VirtualPOSClient(platform=platform) as provider:
+            pending = await _list_pending_charges(provider, subscription_id)
+        wanted = set(charge_ids) if charge_ids is not None else None
+        result["would_cancel"] = [c for c in pending if wanted is None or c["id"] in wanted]
+        result["noop"] = not result["would_cancel"]
+        return result
+
+    if charge_ids is None and (
+        has_active_calendar_mark(db, platform, subscription_id) or has_live_managed_charges(db, platform, subscription_id)
+    ):
+        raise PluralCancelForbiddenError(PLURAL_CANCEL_FORBIDDEN_MESSAGE)
+
+    if not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+
+    write_run = WriteRun(
+        source=platform,
+        resource_type="subscription_charges",
+        external_id=subscription_id,
+        operation="cancel_future_charges",
+        status="pending",
+        request_payload={"subscription_id": subscription_id, "charge_ids": charge_ids},
+        request_id=request_id,
+        requested_by_user_id=requested_by_user_id,
+    )
+    db.add(write_run)
+    db.commit()
+    result["write_run_id"] = str(write_run.id)
+
+    cancelled: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    try:
+        async with VirtualPOSClient(platform=platform) as provider:
+            # Re-consulta justo antes de borrar: el estado local/previo puede estar obsoleto.
+            pending = await _list_pending_charges(provider, subscription_id)
+            if charge_ids is None:
+                if pending:
+                    try:
+                        response = await provider.delete_subscription_charges(subscription_id)
+                        cancelled = _items(response, "cancel_charges")
+                    except Exception as exc:
+                        if _provider_error_code(exc) != "E-079":
+                            raise
+            else:
+                pending_by_id = {c["id"]: c for c in pending}
+                for charge_id in charge_ids:
+                    if charge_id not in pending_by_id:
+                        skipped.append({"id": charge_id, "reason": "no_pendiente"})
+                        continue
+                    try:
+                        await provider.delete_charge(charge_id)
+                    except Exception as exc:
+                        code_hint = _provider_error_code(exc)
+                        if code_hint not in ("E-059", "E-079"):  # E-059 ya no cancelable; E-079 nada pendiente
+                            raise
+                        skipped.append({"id": charge_id, "reason": code_hint})
+                        continue
+                    cancelled.append({**pending_by_id[charge_id], "status": "cancelado"})
+    except Exception as exc:
+        # Si el lote falla a medias, los ya cancelados quedan trazados en el write_run.
+        _reconcile_cancelled_charges(db, platform, cancelled)
+        write_run.status = "failed"
+        write_run.error_message = safe_error_message(exc, all_secrets)
+        write_run.response_payload = {"cancelled_charge_ids": [c.get("id") for c in cancelled], "skipped": skipped}
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    result["cancelled"] = cancelled
+    result["skipped"] = skipped
+    result["noop"] = not cancelled
+    write_run.status = "remote_succeeded"
+    write_run.response_payload = {
+        "cancelled_charge_ids": [c.get("id") for c in cancelled], "skipped": skipped, "noop": result["noop"],
+    }
+    db.commit()
+
+    try:
+        _reconcile_cancelled_charges(db, platform, cancelled)
+        write_run.status = "completed"
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    return result
+
+
+async def reassign_subscription_amount(
+    db: Session,
+    subscription_id: str,
+    new_amount: int,
+    effective_date: str,
+    *,
+    platform: str | None = None,
+    description: str | None = None,
+    internal_code: str | None = None,
+    dry_run: bool = True,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """Flujo VIEJO de reasignación de monto. No puede esquivar los controles del flujo de solicitudes de cambio:
+    toma el `subscription_lock` de billing_apply (escrituras reales) y se rechaza con `BillingFlowConflictError`
+    si hay marca de calendario activa, cobros del CRM vivos o una solicitud abierta en la suscripción."""
+    from app.services.billing_apply import (
+        subscription_lock,  # import local: billing_apply importa este módulo
+    )
+
+    platform = _resolve_platform(db, subscription_id, platform)
+    if dry_run:
+        ensure_no_billing_flow_conflict(db, platform, subscription_id)
+        return await _reassign_subscription_amount(
+            db, subscription_id, new_amount, effective_date, platform=platform, description=description,
+            internal_code=internal_code, dry_run=True)
+    with subscription_lock(db, platform, subscription_id):
+        ensure_no_billing_flow_conflict(db, platform, subscription_id)
+        return await _reassign_subscription_amount(
+            db, subscription_id, new_amount, effective_date, platform=platform, description=description,
+            internal_code=internal_code, dry_run=False, requested_by_user_id=requested_by_user_id)
+
+
+async def _reassign_subscription_amount(
+    db: Session,
+    subscription_id: str,
+    new_amount: int,
+    effective_date: str,
+    *,
+    platform: str,
+    description: str | None = None,
+    internal_code: str | None = None,
+    dry_run: bool = True,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """Reemplaza el cargo pendiente del periodo (mes de `effective_date`) por uno nuevo con `new_amount`.
+
+    Orden seguro: primero CREAR el cargo nuevo y solo si tuvo éxito cancelar los pendientes del periodo,
+    para no dejar nunca al socio sin cobros si el POST falla (p. ej. E-113).
+    """
+    period = effective_date[:7]
+    all_secrets = (
+        settings.virtualpos_api_key, settings.virtualpos_secret_key,
+        settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
+    )
+    if not dry_run and not settings.virtualpos_writes_enabled:
+        raise WriteDisabledError
+    ensure_charge_allowed_on_plan(db, subscription_id, platform)  # bloqueado: no se llama al proveedor
+
+    code = internal_code or f"{subscription_id}-{period.replace('-', '')}-{new_amount}"
+    new_charge_request: dict[str, Any] = {"charge_date": effective_date, "amount": new_amount, "internal_code": code}
+    if description:
+        new_charge_request["description"] = description
+
+    async with VirtualPOSClient(platform=platform) as provider:
+        pending = await _list_pending_charges(provider, subscription_id)
+    to_cancel = [c for c in pending if str(c.get("charge_date") or "")[:7] == period]
+
+    result: dict[str, Any] = {
+        "subscription_id": subscription_id, "dry_run": dry_run, "would_create": new_charge_request,
+        "would_cancel": to_cancel, "created_charge_id": None, "cancelled": [], "write_run_id": None,
+    }
+    if dry_run:
+        return result
+
+    write_run = WriteRun(
+        source=platform,
+        resource_type="subscription_charges",
+        external_id=subscription_id,
+        operation="reassign_subscription_amount",
+        status="pending",
+        requested_by_user_id=requested_by_user_id,
+        request_payload={
+            "subscription_id": subscription_id, "new_amount": new_amount, "effective_date": effective_date,
+            "create": sanitize_record(new_charge_request), "cancel_charge_ids": [c["id"] for c in to_cancel],
+        },
+    )
+    db.add(write_run)
+    db.commit()
+    result["write_run_id"] = str(write_run.id)
+
+    # Orden seguro: crear primero y cancelar después, para no dejar al socio sin cobros si el POST falla.
+    try:
+        new_charge = await create_charge(
+            db, subscription_id, new_charge_request, platform=platform, requested_by_user_id=requested_by_user_id
+        )
+    except Exception as exc:
+        code_hint = _provider_error_code(exc)
+        suffix = f" ({code_hint})" if code_hint else ""
+        write_run.status = "failed"
+        write_run.error_message = (
+            f"No se creó el cargo nuevo{suffix}; no se canceló ningún cargo. {safe_error_message(exc, all_secrets)}"
+        )[:2000]
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    result["created_charge_id"] = new_charge.external_id
+    write_run.response_payload = {"created_charge_id": new_charge.external_id}
+    db.commit()
+
+    ids = [c["id"] for c in to_cancel if c["id"] != new_charge.external_id]
+    try:
+        if ids:
+            cancel_result = await cancel_future_charges(
+                db, subscription_id, platform=platform, charge_ids=ids, requested_by_user_id=requested_by_user_id
+            )
+            result["cancelled"] = cancel_result["cancelled"]
+    except Exception as exc:
+        write_run.status = "reconciliation_required"
+        write_run.error_message = (
+            "El cargo nuevo se creó pero falló la cancelación de los anteriores; revisar duplicados. "
+            + safe_error_message(exc, all_secrets)
+        )[:2000]
+        write_run.finished_at = datetime.now(UTC)
+        db.commit()
+        raise
+
+    write_run.status = "completed"
+    write_run.response_payload = {
+        "created_charge_id": new_charge.external_id,
+        "cancelled_charge_ids": [c.get("id") for c in result["cancelled"]],
+    }
+    write_run.finished_at = datetime.now(UTC)
+    db.commit()
+    return result
+
+
+async def create_subscription(db: Session, data: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
     """Create a VirtualPOS subscription and persist the response locally."""
     platform = data.pop("platform", "virtualpos1")
     all_secrets = (
@@ -687,6 +1263,7 @@ async def create_subscription(db: Session, data: dict[str, Any]) -> Subscription
         external_id="pending",
         operation="create_subscription",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(data),
     )
     db.add(write_run)
@@ -782,8 +1359,137 @@ def _is_base64(value: str) -> bool:
         return False
 
 
-async def cancel_subscription(db: Session, subscription_id: str) -> Subscription:
-    """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id}."""
+@dataclass
+class CancelOutcome:
+    """Resultado de la baja mas alla de la suscripcion: verificacion posterior (MGT-04).
+
+    `reason` (si `requires_reconciliation`): `pending_charges_remain` | `processing_charges` | `refresh_failed` |
+    `local_cleanup_failed`. Codigos fijos, sin texto del proveedor.
+    """
+
+    requires_reconciliation: bool = False
+    reason: str | None = None
+    pending_charges: int = 0
+    pending_charge_ids: list[str] = field(default_factory=list)
+    processing_charges: int = 0
+    processing_charge_ids: list[str] = field(default_factory=list)
+    closed_request_ids: list[str] = field(default_factory=list)
+
+    def flag(self, reason: str) -> None:
+        self.requires_reconciliation = True
+        if self.reason is None:
+            self.reason = reason
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _close_open_change_requests(
+    db: Session, platform: str, subscription_id: str, actor: uuid.UUID | None, write_run_id: uuid.UUID
+) -> list[str]:
+    """Solicitudes de la Opcion A aun no aplicadas (pendiente/aprobada) de la suscripcion dada de baja: pasan a
+    `no_ejecutable` con un motivo fijo y un evento inmutable. (`aplicando`/`requiere_conciliacion` no llegan aqui:
+    las bloquea `ensure_no_billing_flow_conflict`.)"""
+    ids = list(db.scalars(
+        update(BillingChangeRequest)
+        .where(
+            BillingChangeRequest.platform == platform,
+            BillingChangeRequest.subscription_external_id == subscription_id,
+            BillingChangeRequest.status.in_((STATUS_PENDING, STATUS_APPROVED)),
+        )
+        .values(status="no_ejecutable", error_message="SUBSCRIPTION_CANCELLED", updated_at=func.now())
+        .returning(BillingChangeRequest.id)
+        .execution_options(synchronize_session=False)
+    ))
+    for request_id in ids:
+        db.add(BillingChangeRequestEvent(
+            request_id=request_id, event_type="no_ejecutable", actor_user_id=actor,
+            detail={"reason": "subscription_cancelled", "write_run_id": str(write_run_id)},
+            created_at=datetime.now(UTC),
+        ))
+    return [str(i) for i in ids]
+
+
+def _retire_calendar_mark(db: Session, platform: str, subscription_id: str) -> None:
+    db.execute(
+        update(VpCalendarMark)
+        .where(
+            VpCalendarMark.platform == platform,
+            VpCalendarMark.subscription_external_id == subscription_id,
+            VpCalendarMark.is_active.is_(True),
+        )
+        .values(is_active=False, updated_at=func.now())
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def _verify_no_pending_charges(
+    db: Session, platform: str, subscription_id: str, write_run_id: uuid.UUID,
+    actor: uuid.UUID | None, outcome: CancelOutcome,
+) -> bool:
+    """Tras la baja: relee la suscripcion y sus cobros (`refresh_subscription`) y exige que NO queden cobros
+    pendientes. Si quedan, reintenta su cancelacion INDIVIDUAL por `charge_id` (nunca el DELETE plural) y vuelve a
+    verificar. Un cobro `procesando` no se cancela: se registra para conciliacion. Devuelve True si la verificacion
+    pudo completarse (aunque quede algo por conciliar)."""
+    from app.services import (
+        subscription_refresh as refresh,  # import local: ese modulo importa este
+    )
+
+    try:
+        result = await refresh.refresh_subscription(db, platform, subscription_id, run_id=write_run_id)
+        if result.pending_charges:
+            try:
+                await cancel_future_charges(
+                    db, subscription_id, platform=platform, charge_ids=list(result.pending_charge_ids),
+                    requested_by_user_id=actor,
+                )
+            except Exception as exc:
+                log.warning("VP baja %s: reintento individual de cobros pendientes fallo (%s)", subscription_id, type(exc).__name__)
+            result = await refresh.refresh_subscription(db, platform, subscription_id, run_id=write_run_id)
+    except refresh.RefreshError as exc:
+        log.warning("VP baja %s: no se pudo verificar los cobros (%s)", subscription_id, exc.code)
+        outcome.flag("refresh_failed")
+        return False
+    outcome.pending_charges = result.pending_charges
+    outcome.pending_charge_ids = list(result.pending_charge_ids)
+    outcome.processing_charges = result.processing_charges
+    outcome.processing_charge_ids = list(result.processing_charge_ids)
+    if result.pending_charges:
+        outcome.flag("pending_charges_remain")
+    elif result.processing_charges:
+        outcome.flag("processing_charges")
+    return True
+
+
+async def cancel_subscription(
+    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None
+) -> Subscription:
+    """Cancel an active VirtualPOS subscription via DELETE /v3/suscription/{id} (ver `cancel_subscription_with_outcome`)."""
+    sub, _ = await cancel_subscription_with_outcome(db, subscription_id, requested_by_user_id=requested_by_user_id)
+    return sub
+
+
+async def cancel_subscription_with_outcome(
+    db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None, lock_held: bool = False
+) -> tuple[Subscription, CancelOutcome]:
+    """Baja de una suscripcion VirtualPOS con el mismo guard y lock que la Opcion A (MGT-03) y verificacion posterior
+    (MGT-04).
+
+    Orden: lock por suscripcion (el mismo de `billing_apply`; `SubscriptionBusyError` si esta tomado) -> guard
+    `ensure_no_billing_flow_conflict` (bloquea solicitudes `aplicando`/`requiere_conciliacion` y cobros del CRM en
+    conciliacion) -> DELETE de la suscripcion -> cierre de las solicitudes abiertas como `no_ejecutable` y retiro de
+    la marca de calendario -> `refresh_subscription` y verificacion de que NO queden cobros pendientes (si quedan,
+    cancelacion individual por `charge_id`; nunca el DELETE plural) -> `canceled_at`. Un cobro `procesando` no se
+    cancela. Si algo no verifica, la baja ya hecha NO se revierte: se devuelve `requires_reconciliation` con un
+    motivo fijo y el `write_run` queda `reconciliation_required`.
+
+    `lock_held=True`: el llamador (el ejecutor de bajas multicanal) YA tiene el advisory lock de la suscripcion; no se
+    vuelve a tomar (seria un segundo intento sobre la misma clave y fallaria). El guard de conflicto se mantiene.
+    """
+    from app.services.billing_apply import (
+        subscription_lock,  # import local: billing_apply importa este modulo
+    )
+
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source.like("virtualpos%"))
     )
@@ -793,24 +1499,38 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
+    platform = sub.source
+    if lock_held:
+        ensure_no_billing_flow_conflict(db, platform, subscription_id, closing_subscription=True)
+        return await _cancel_subscription_locked(db, sub, subscription_id, requested_by_user_id)
+    with subscription_lock(db, platform, subscription_id):
+        ensure_no_billing_flow_conflict(db, platform, subscription_id, closing_subscription=True)
+        return await _cancel_subscription_locked(db, sub, subscription_id, requested_by_user_id)
+
+
+async def _cancel_subscription_locked(
+    db: Session, sub: Subscription, subscription_id: str, requested_by_user_id: uuid.UUID | None
+) -> tuple[Subscription, CancelOutcome]:
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
     )
+    platform = sub.source
 
     write_run = WriteRun(
-        source=sub.source,
+        source=platform,
         resource_type="subscription",
         external_id=subscription_id,
         operation="cancel_subscription",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"subscription_id": subscription_id},
     )
     db.add(write_run)
     db.commit()
 
     try:
-        async with VirtualPOSClient(platform=sub.source) as provider:
+        async with VirtualPOSClient(platform=platform) as provider:
             await provider.cancel_subscription(subscription_id)
             try:
                 refreshed_payload = _subscription_payload(await provider.get_subscription(subscription_id))
@@ -840,21 +1560,75 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
         # entidad centralizada; no hace falta resincronizar todo el canal.
         source_record = db.scalar(
             select(SourceRecord).where(
-                SourceRecord.source == sub.source,
+                SourceRecord.source == platform,
                 SourceRecord.resource_type == "subscription",
                 SourceRecord.external_id == subscription_id,
             )
         )
         if source_record is None:
             source_record = SourceRecord(
-                source=sub.source, resource_type="subscription", external_id=subscription_id, payload=sanitized_payload
+                source=platform, resource_type="subscription", external_id=subscription_id, payload=sanitized_payload
             )
             db.add(source_record)
         else:
             source_record.payload = sanitized_payload
         sub.status = _as_text(sanitized_payload.get("status")) or "CANCELADA"
         sub.raw_payload = sanitized_payload
-        write_run.status = "completed"
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        write_run = db.get(WriteRun, write_run.id)
+        if write_run is not None:
+            write_run.status = "reconciliation_required"
+            write_run.error_message = safe_error_message(exc, all_secrets)
+            write_run.finished_at = datetime.now(UTC)
+            db.commit()
+        raise ReconciliationRequiredError from exc
+
+    # MGT-03: la suscripcion ya no cobra; las solicitudes abiertas de la Opcion A pierden sentido.
+    outcome = CancelOutcome()
+    try:
+        outcome.closed_request_ids = _close_open_change_requests(
+            db, platform, subscription_id, requested_by_user_id, write_run.id
+        )
+        _retire_calendar_mark(db, platform, subscription_id)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        log.warning("VP baja %s: limpieza local fallo (%s)", subscription_id, type(exc).__name__)
+        outcome.flag("local_cleanup_failed")
+
+    # MGT-04: verificar que no queden cobros pendientes.
+    verified = await _verify_no_pending_charges(db, platform, subscription_id, write_run.id, requested_by_user_id, outcome)
+
+    sub = db.scalar(
+        select(Subscription)
+        .where(Subscription.external_id == subscription_id, Subscription.source == platform)
+        .execution_options(populate_existing=True)
+    ) or sub
+    write_run = db.get(WriteRun, write_run.id)
+    try:
+        if verified:  # los cobros del CRM que ya no estan pendientes ni procesando quedan cancelados
+            live = set(outcome.pending_charge_ids) | set(outcome.processing_charge_ids)
+            for managed in db.scalars(select(VpManagedCharge).where(
+                VpManagedCharge.platform == platform,
+                VpManagedCharge.subscription_external_id == subscription_id,
+                VpManagedCharge.status == MANAGED_CREATED,
+            )):
+                if managed.charge_id not in live:
+                    managed.status = MANAGED_CANCELLED
+                    managed.cancelled_at = datetime.now(UTC)
+        if not sub.canceled_at:
+            sub.canceled_at = datetime.now(UTC).isoformat(timespec="seconds")
+            db.execute(
+                update(VpSubscription)
+                .where(VpSubscription.platform == platform, VpSubscription.external_id == subscription_id,
+                       VpSubscription.canceled_at.is_(None))
+                .values(canceled_at=sub.canceled_at)
+            )
+        write_run.response_payload = {**sanitized_payload, "outcome": outcome.to_dict()}
+        write_run.status = "reconciliation_required" if outcome.requires_reconciliation else "completed"
+        write_run.error_message = outcome.reason if outcome.requires_reconciliation else None
         write_run.finished_at = datetime.now(UTC)
         db.commit()
     except Exception as exc:
@@ -867,10 +1641,10 @@ async def cancel_subscription(db: Session, subscription_id: str) -> Subscription
             db.commit()
         raise ReconciliationRequiredError from exc
 
-    return sub
+    return sub, outcome
 
 
-async def cancel_payment(db: Session, payment_id: str) -> Payment:
+async def cancel_payment(db: Session, payment_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Payment:
     """Cancel a VirtualPOS payment via DELETE /v3/payment/{uuid}."""
     payment = db.scalar(
         select(Payment).where(Payment.external_id == payment_id, Payment.source.like("virtualpos%"))
@@ -892,6 +1666,7 @@ async def cancel_payment(db: Session, payment_id: str) -> Payment:
         external_id=payment_id,
         operation="cancel_payment",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"payment_id": payment_id},
     )
     db.add(write_run)
@@ -953,8 +1728,40 @@ async def cancel_payment(db: Session, payment_id: str) -> Payment:
     return payment
 
 
-async def retry_charge(db: Session, charge_id: str, source: str | None = None) -> Charge:
-    """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry."""
+def _charge_retry_lock_key(source: str, charge_id: str) -> int:
+    """Clave int64 estable (no `hash()` de Python) y con prefijo propio: no choca con el lock por suscripcion."""
+    digest = hashlib.blake2b(f"retry_charge:{source}:{charge_id}".encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
+
+
+@contextmanager
+def charge_retry_lock(db: Session, source: str, charge_id: str) -> Iterator[None]:
+    """BILL-14: `pg_try_advisory_xact_lock` por cargo en una conexion dedicada, retenido mientras dure el reintento.
+    Si otro `/retry` del mismo cargo lo tiene, falla al instante con `RetryInProgressError` (no espera)."""
+    conn = db.get_bind().engine.connect()
+    try:
+        conn.begin()
+        got = conn.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": _charge_retry_lock_key(source, charge_id)}).scalar()
+        if not got:
+            raise RetryInProgressError(f"Cargo {charge_id}: ya hay un reintento en curso; espera a que termine.")
+        yield
+    finally:
+        try:
+            conn.rollback()  # libera el lock xact
+        finally:
+            conn.close()
+
+
+async def retry_charge(db: Session, charge_id: str, source: str | None = None, *, requested_by_user_id: uuid.UUID | None = None) -> Charge:
+    """Retry a rejected VirtualPOS charge via GET /v3/charge/{id}/retry.
+
+    BILL-14: un solo reintento por cargo a la vez (lock por cargo); el segundo recibe `RetryInProgressError` (409)
+    sin crear `write_run` ni llamar a VirtualPOS.
+
+    RA-27: ademas comparte el lock por suscripcion de `billing_apply` (el mismo de aplicar un cambio, de las bajas y de
+    la reasignacion): si otra operacion lo tiene, falla al instante con `RetrySubscriptionBusyError` (409), sin
+    `write_run` ni llamada a VirtualPOS; mientras el reintento lo retiene, esas operaciones reciben
+    `SubscriptionBusyError`. Orden: lock por cargo y luego por suscripcion (ambos sin espera: no hay interbloqueo)."""
     query = select(Charge).where(Charge.external_id == charge_id, Charge.source.like("virtualpos%"))
     if source is not None:
         query = query.where(Charge.source == source)
@@ -965,6 +1772,32 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None) -
     if not settings.virtualpos_writes_enabled:
         raise WriteDisabledError
 
+    with charge_retry_lock(db, charge.source, charge_id), _retry_subscription_lock(db, charge):
+        return await _retry_charge_locked(db, charge, charge_id, requested_by_user_id)
+
+
+@contextmanager
+def _retry_subscription_lock(db: Session, charge: Charge) -> Iterator[None]:
+    """RA-27: el lock por suscripcion de `billing_apply`, traducido a `RetrySubscriptionBusyError` si esta tomado."""
+    from app.services.billing_apply import (  # import local: billing_apply importa este modulo
+        SubscriptionBusyError,
+        subscription_lock,
+    )
+
+    if not charge.subscription_external_id:  # cargo sin suscripcion conocida: no hay cambio de cobro con el que chocar
+        yield
+        return
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(subscription_lock(db, charge.source, charge.subscription_external_id))
+        except SubscriptionBusyError:
+            raise RetrySubscriptionBusyError(
+                f"Cargo {charge.external_id}: la suscripción se está modificando (cambio de cobro o baja en curso); "
+                "reintenta cuando termine.") from None
+        yield
+
+
+async def _retry_charge_locked(db: Session, charge: Charge, charge_id: str, requested_by_user_id: uuid.UUID | None) -> Charge:
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -976,6 +1809,7 @@ async def retry_charge(db: Session, charge_id: str, source: str | None = None) -
         external_id=charge_id,
         operation="retry_charge",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"charge_id": charge_id},
     )
     db.add(write_run)

@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import { friendlyError, getJson } from "./api";
+import { adaptAlerts, type AlertWire } from "./features/dashboard/alertAdapter";
+import type { Alert } from "./features/dashboard/alertTypes";
+import { formatKpi } from "./components/formatKpi";
 
 type ChannelStats = {
   new_subscriptions: number;
@@ -24,7 +28,7 @@ type ReportPeriod = {
     tch: ChannelStats;
   };
   rejection_reasons: { reason: string; count: number; channel: string }[];
-  alerts: { sev: "alta" | "media" | "baja"; tipo: string; detalle: string }[];
+  alerts: AlertWire[];
 };
 
 type AutomaticReportData = {
@@ -59,13 +63,12 @@ function clp(n: number): string {
 }
 
 function pct(n: number): string {
-  return n.toFixed(1) + "%";
+  return formatKpi(n, "percent");
 }
 
-async function fetchReport(): Promise<AutomaticReportData> {
-  const r = await fetch("/api/v1/reports/automatic", { credentials: "include" });
-  if (!r.ok) throw new Error(`Error ${r.status}: ${r.statusText}`);
-  return r.json() as Promise<AutomaticReportData>;
+function fetchReport(): Promise<AutomaticReportData> {
+  // Por api.ts: el error HTTP llega en español (nunca el statusText en inglés del servidor).
+  return getJson<AutomaticReportData>("/api/v1/reports/automatic");
 }
 
 function ChurnBadge({ rate }: { rate: number }) {
@@ -78,9 +81,9 @@ function RejectBadge({ rate }: { rate: number }) {
   return <span className={`badge badge-${cls}`}>{pct(rate)}</span>;
 }
 
-function AlertRow({ a }: { a: { sev: string; tipo: string; detalle: string } }) {
-  const badgeCls = a.sev === "alta" ? "red" : a.sev === "media" ? "orange" : "gray";
-  const bgTint = a.sev === "alta" ? "rgba(232,64,64,.06)" : a.sev === "media" ? "rgba(245,158,11,.06)" : "transparent";
+function AlertRow({ a }: { a: Alert }) {
+  const badgeCls = a.severity === "alta" ? "red" : a.severity === "media" ? "orange" : "gray";
+  const bgTint = a.severity === "alta" ? "rgba(232,64,64,.06)" : a.severity === "media" ? "rgba(245,158,11,.06)" : "transparent";
   return (
     <div style={{
       background: bgTint,
@@ -93,10 +96,10 @@ function AlertRow({ a }: { a: { sev: string; tipo: string; detalle: string } }) 
       fontSize: "13px",
     }}>
       <span className={`badge badge-${badgeCls}`} style={{ flexShrink: 0, textTransform: "uppercase", fontSize: "10px", letterSpacing: ".3px", marginTop: "2px" }}>
-        {a.sev}
+        {a.severity}
       </span>
-      <strong style={{ minWidth: "180px", flexShrink: 0 }}>{a.tipo}</strong>
-      <span className="muted-copy">{a.detalle}</span>
+      <strong style={{ minWidth: "180px", flexShrink: 0 }}>{a.kind}</strong>
+      <span className="muted-copy">{a.detail}</span>
     </div>
   );
 }
@@ -105,7 +108,7 @@ function BarCell({ value, total }: { value: number; total: number }) {
   const pctValue = total > 0 ? (value / total) * 100 : 0;
   return (
     <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-      <span style={{ flex: "none", minWidth: "38px" }}>{pctValue.toFixed(1)}%</span>
+      <span style={{ flex: "none", minWidth: "38px" }}>{formatKpi(pctValue, "percent")}</span>
       <span style={{ flex: 1, background: "var(--border, #e2e8f0)", borderRadius: "4px", height: "6px", overflow: "hidden", minWidth: "60px" }}>
         <span style={{ display: "block", width: `${pctValue}%`, background: "var(--accent, #4a90c4)", height: "100%" }} />
       </span>
@@ -124,7 +127,7 @@ export function AutomaticReport() {
     setLoading(true);
     fetchReport()
       .then((d) => { if (mounted) { setData(d); setLoading(false); } })
-      .catch((err: unknown) => { if (mounted) { setError(String(err)); setLoading(false); } });
+      .catch((err: unknown) => { if (mounted) { setError(friendlyError(err, "Error desconocido.")); setLoading(false); } });
     return () => { mounted = false; };
   }, []);
 
@@ -215,7 +218,7 @@ export function AutomaticReport() {
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", paddingBottom: "4px" }}>
-            {p.alerts.map((a, i) => <AlertRow key={i} a={a} />)}
+            {adaptAlerts(p.alerts).map((a, i) => <AlertRow key={i} a={a} />)}
           </div>
         </section>
       )}
@@ -243,7 +246,7 @@ export function AutomaticReport() {
             <tbody>
               {CHANNELS.map((ch) => {
                 const s = p.channels[ch];
-                const saldo = s.new_subscriptions - s.cancellations;
+                const balance = s.new_subscriptions - s.cancellations;
                 const isGlobal = ch === "global";
                 return (
                   <tr key={ch} style={isGlobal ? { fontWeight: 700 } : undefined}>
@@ -256,8 +259,8 @@ export function AutomaticReport() {
                       {s.cancellations > 0 ? `-${s.cancellations.toLocaleString("es-CL")}` : "0"}
                     </td>
                     <td>{s.active_end.toLocaleString("es-CL")}</td>
-                    <td style={{ color: saldo >= 0 ? "var(--green, #2db87a)" : "var(--red, #e84040)", fontWeight: 600 }}>
-                      {saldo >= 0 ? "+" : ""}{saldo.toLocaleString("es-CL")}
+                    <td style={{ color: balance >= 0 ? "var(--green, #2db87a)" : "var(--red, #e84040)", fontWeight: 600 }}>
+                      {balance >= 0 ? "+" : ""}{balance.toLocaleString("es-CL")}
                     </td>
                     <td><ChurnBadge rate={s.churn_rate} /></td>
                   </tr>
@@ -343,7 +346,7 @@ export function AutomaticReport() {
                       <td>{r.count.toLocaleString("es-CL")}</td>
                       <td>
                         <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span style={{ flex: "none", minWidth: "38px" }}>{(r.count / total * 100).toFixed(1)}%</span>
+                          <span style={{ flex: "none", minWidth: "38px" }}>{formatKpi(r.count / total * 100, "percent")}</span>
                           <span style={{ flex: 1, background: "var(--border, #e2e8f0)", borderRadius: "4px", height: "6px", overflow: "hidden", minWidth: "60px" }}>
                             <span style={{ display: "block", width: `${(r.count / total * 100)}%`, background: "var(--red, #e84040)", height: "100%" }} />
                           </span>

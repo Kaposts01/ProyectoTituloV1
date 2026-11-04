@@ -94,7 +94,7 @@ def test_normalize_preserves_existing_created_at() -> None:
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr("app.api.v1.routes.webhooks_virtualpos.settings.virtualpos_payout_webhook_secret", _SECRET)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="https://testserver") as c:
         yield c
 
 
@@ -147,7 +147,7 @@ def test_payout_webhook_missing_signature_returns_401(client) -> None:
 
 def test_payout_webhook_not_configured_returns_503(monkeypatch) -> None:
     monkeypatch.setattr("app.api.v1.routes.webhooks_virtualpos.settings.virtualpos_payout_webhook_secret", "")
-    with TestClient(app) as c:
+    with TestClient(app, base_url="https://testserver") as c:
         body = json.dumps(_payout_body()).encode()
         sig = _make_payout_signature(body)
         resp = c.post(

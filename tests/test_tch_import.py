@@ -12,6 +12,7 @@ from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.auth import Role, User
+from app.scheduler.run_lock import ActiveRunError
 from app.services.rbac import seed_permissions
 
 
@@ -41,15 +42,19 @@ def _admin_client(monkeypatch) -> tuple[TestClient, str]:
     username = f"tch-admin-{uuid.uuid4().hex[:12]}"
     db = SessionLocal()
     try:
-        seed_permissions(db)
+        # Aislamiento: el rol `admin` no puede darse por creado por otro test (corrido solo, no existe).
         admin = db.scalar(select(Role).where(Role.name == "admin"))
-        assert admin is not None
+        if admin is None:
+            admin = Role(name="admin")
+            db.add(admin)
+            db.flush()
+        seed_permissions(db)  # con el rol ya creado, le asigna todos los permisos
         db.add(User(username=username, password_hash=hash_password("correct-password"), roles=[admin]))
         db.commit()
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"})
     assert login.status_code == 200
     return client, login.json()["csrf_token"]
@@ -66,9 +71,11 @@ def _xlsx_payload() -> bytes:
 def test_tch_report_import_accepts_xlsx_for_admin(monkeypatch) -> None:
     client, csrf_token = _admin_client(monkeypatch)
     monkeypatch.setattr(tch, "_get_db", lambda: _ImportDb())
+    monkeypatch.setattr(tch, "start_exclusive_run", lambda _db, **_f: type("Run", (), {"id": uuid.uuid4()})())
     captured: list[Path] = []
 
-    def fake_import(_run_id: str, report_path: str) -> None:
+    def fake_import(_run_id: str, report_path: str, original_name: str | None = None) -> None:
+        assert original_name == "septiembre.xlsx"  # TCH-PAR-11: el registro guarda el nombre original
         path = Path(report_path)
         captured.append(path)
         assert path.suffix == ".xlsx"
@@ -102,8 +109,12 @@ def test_tch_report_import_rejects_an_invalid_xlsx(monkeypatch) -> None:
 
 def test_tch_report_import_rejects_when_another_run_is_active(monkeypatch) -> None:
     client, csrf_token = _admin_client(monkeypatch)
-    active_run = type("ActiveRun", (), {"id": uuid.uuid4()})()
-    monkeypatch.setattr(tch, "_get_db", lambda: _ImportDb(active_run))
+    monkeypatch.setattr(tch, "_get_db", lambda: _ImportDb())
+
+    def busy(_db, **_fields):  # el lock real se prueba en test_sync_lock.py
+        raise ActiveRunError(uuid.uuid4())
+
+    monkeypatch.setattr(tch, "start_exclusive_run", busy)
 
     response = client.post(
         "/api/v1/tch/import-report",
@@ -127,7 +138,7 @@ def test_tch_report_import_requires_admin_role(monkeypatch) -> None:
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"})
     csrf_token = login.json()["csrf_token"]
     response = client.post(
@@ -137,3 +148,34 @@ def test_tch_report_import_requires_admin_role(monkeypatch) -> None:
     )
 
     assert response.status_code == 403
+
+
+class _DuplicateReportDb(_ImportDb):
+    """Sin corrida activa (1.a consulta) y con el sha256 ya registrado (2.a consulta)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    def scalar(self, _statement):
+        self.calls += 1
+        return uuid.uuid4()  # el reporte ya esta registrado
+
+
+def test_tch_report_import_rejects_a_report_already_loaded_by_sha256(monkeypatch) -> None:
+    client, csrf_token = _admin_client(monkeypatch)
+    db = _DuplicateReportDb()
+    monkeypatch.setattr(tch, "_get_db", lambda: db)
+    launched: list[str] = []
+    monkeypatch.setattr(tch, "_import_report_background", lambda run_id, path: launched.append(path))
+
+    response = client.post(
+        "/api/v1/tch/import-report",
+        headers={"X-CSRF-Token": csrf_token},
+        files={"report": ("20260101 TCH IG DICIEMBRE 2025.xlsx", _xlsx_payload())},
+    )
+
+    assert response.status_code == 409
+    assert "ya fue cargado" in response.json()["detail"].lower()
+    assert launched == []
+    assert db.added == []  # no se crea corrida ETL para un duplicado

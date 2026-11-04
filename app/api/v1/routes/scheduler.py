@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -13,17 +14,41 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import get_current_user, get_db, require_permissions
 from app.models.etl_run import EtlRun
+from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
 from app.scheduler.engine import JOB_SYNC_ALL, get_scheduler
-from app.scheduler.jobs.sync_all import sync_all_channels
+from app.scheduler.jobs.alert_jobs import JOB_ALERTS
+from app.scheduler.jobs.billing_jobs import (
+    BILLING_JOB_IDS,
+    JOB_BILLING_EXPIRE,
+    JOB_BILLING_RENEWAL,
+    JOB_BILLING_SWEEP,
+    billing_expire_requests,
+    billing_renewal_check,
+    billing_sweep_applying,
+)
+from app.scheduler.jobs.cancellation_jobs import (
+    CANCELLATION_JOB_IDS,
+    JOB_CANCELLATION_EXPIRE,
+    JOB_CANCELLATION_SWEEP,
+    cancellation_expire_requests,
+    cancellation_sweep_applying,
+)
+from app.scheduler.jobs.sync_all import channel_is_enabled, sync_all_channels
+from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 
 _VALID_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
 
 
 class TriggerBody(BaseModel):
     channels: list[str] | None = None
+
+
+# Una fila `running` mas vieja que esto se considera abandonada (proceso caido): no bloquea para siempre el 409.
+_BILLING_RUN_STALE_AFTER = timedelta(hours=1)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,6 +67,36 @@ def _serialize_run(run: EtlRun) -> dict:
     }
 
 
+def _cron_of(job) -> str:
+    """Expresión cron aproximada del trigger (minuto hora dom mes dow); '*' donde el campo no está fijado."""
+    try:
+        fields = {f.name: str(f) for f in job.trigger.fields}
+        return " ".join(fields.get(n, "*") for n in ("minute", "hour", "day", "month", "day_of_week"))
+    except Exception:  # noqa: BLE001
+        return "0 2 * * *"
+
+
+def _billing_job_json(db: Session, job) -> dict:
+    """Job de facturación: su última corrida sale de `sync_runs` (source = id del job)."""
+    last = db.scalar(select(SyncRun).where(SyncRun.source == job.id).order_by(desc(SyncRun.started_at)).limit(1))
+    running = last is not None and last.status == "running"
+    next_run = getattr(job, "next_run_time", None)
+    return {
+        "id": job.id,
+        "name": job.name,
+        "cron": _cron_of(job),
+        "next_run": next_run.isoformat() if next_run else None,
+        "last_run": {
+            "id": str(last.id), "status": last.status, "phase": None,
+            "started_at": last.started_at.isoformat() if last.started_at else None,
+            "finished_at": last.finished_at.isoformat() if last.finished_at else None,
+            "channels_processed": None, "records_upserted": last.records_processed, "error_message": last.error_message,
+        } if last else None,
+        "status": "running" if running else "scheduled",
+        "active_run_id": str(last.id) if running else None,
+    }
+
+
 @router.get("/jobs", tags=["Scheduler"])
 def list_jobs(
     _user=Depends(require_permissions("sync_runs.view")),
@@ -51,10 +106,13 @@ def list_jobs(
     sched = get_scheduler()
     result = []
     for job in sched.get_jobs():
+        if job.id in BILLING_JOB_IDS or job.id in CANCELLATION_JOB_IDS or job.id == JOB_ALERTS:  # alertas: sin filas en sync_runs (last_run = null)
+            result.append(_billing_job_json(db, job))
+            continue
         # Último EtlRun completado o fallido para este job
         last_run = db.scalar(
             select(EtlRun)
-            .where(EtlRun.status.in_(["completed", "failed"]))
+            .where(EtlRun.status.in_(["completed", "partial", "failed"]))
             .order_by(desc(EtlRun.started_at))
             .limit(1)
         )
@@ -66,11 +124,11 @@ def list_jobs(
             .limit(1)
         )
         job_status = "running" if active_run else "scheduled"
-        next_run = job.next_run_time
+        next_run = getattr(job, "next_run_time", None)
         result.append({
             "id": job.id,
             "name": job.name,
-            "cron": "0 2 * * *",
+            "cron": _cron_of(job),
             "next_run": next_run.isoformat() if next_run else None,
             "last_run": _serialize_run(last_run) if last_run else None,
             "status": job_status,
@@ -90,33 +148,64 @@ async def trigger_job(
     """Ejecuta un job inmediatamente y retorna el run_id para seguir el progreso."""
     sched = get_scheduler()
     if not sched.get_job(job_id):
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' no encontrado.")
+        raise HTTPException(status_code=404, detail={"code": "job_not_found", "message": f"Job '{job_id}' no encontrado."})
+
+    if job_id in BILLING_JOB_IDS or job_id in CANCELLATION_JOB_IDS:  # solo lectura hacia el proveedor: no depende de canales ni de la sync activa
+        if body.channels is not None:
+            raise HTTPException(status_code=422, detail={"code": "job_channel_selection_unsupported", "message": "Este job no admite selección de canales."})
+        running = db.scalar(select(SyncRun).where(
+            SyncRun.source == job_id, SyncRun.status == "running",
+            SyncRun.started_at > datetime.now(UTC) - _BILLING_RUN_STALE_AFTER).limit(1))
+        if running:
+            raise HTTPException(status_code=409, detail={"code": "job_already_running", "message": f"El job ya está en ejecución (run_id={running.id})."})
+        billing_run_id = uuid.uuid4()
+        # La fila `running` se crea AQUI, antes de lanzar la tarea: asi un segundo clic ve la fila y recibe 409. El job
+        # la adopta por su run_id (si la tarea aun no arranco, no hay hueco entre el chequeo y la fila).
+        db.add(SyncRun(id=billing_run_id, source=job_id, status="running"))
+        db.commit()
+        job_fn = {JOB_BILLING_RENEWAL: billing_renewal_check, JOB_BILLING_EXPIRE: billing_expire_requests,
+                  JOB_BILLING_SWEEP: billing_sweep_applying,
+                  JOB_CANCELLATION_EXPIRE: cancellation_expire_requests,
+                  JOB_CANCELLATION_SWEEP: cancellation_sweep_applying}[job_id]
+        background_tasks.add_task(job_fn, str(billing_run_id))
+        return {"run_id": str(billing_run_id), "status": "accepted", "skipped_channels": []}
 
     # Validar canales si se pasan
     if body.channels is not None:
         invalid = set(body.channels) - _VALID_CHANNELS
         if invalid:
-            raise HTTPException(status_code=422, detail=f"Canales inválidos: {sorted(invalid)}")
+            raise HTTPException(status_code=422, detail={"code": "invalid_channels", "message": f"Canales inválidos: {sorted(invalid)}"})
         if not body.channels:
-            raise HTTPException(status_code=422, detail="La lista de canales no puede estar vacía.")
+            raise HTTPException(status_code=422, detail={"code": "empty_channel_list", "message": "La lista de canales no puede estar vacía."})
 
-    # Bloquear si hay una sync activa
-    active = db.scalar(
-        select(EtlRun).where(EtlRun.status == "running").limit(1)
-    )
-    if active:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ya hay una sincronización activa (run_id={active.id}). Espera a que termine.",
-        )
-
-    run_id = str(uuid.uuid4())
-    if job_id == JOB_SYNC_ALL:
-        background_tasks.add_task(sync_all_channels, run_id, body.channels)
+    requested = list(dict.fromkeys(body.channels)) if body.channels is not None else None
+    skipped: list[str] = []
+    channels_to_run = requested
+    if requested is not None:
+        skipped = [c for c in requested if not channel_is_enabled(c)]
+        channels_to_run = [c for c in requested if c not in skipped]
+        if not channels_to_run:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "channels_disabled", "message": f"Canal(es) deshabilitado(s) en {settings.env_mode}: {', '.join(skipped)}."},
+            )
     else:
-        raise HTTPException(status_code=400, detail="Job no soporta ejecución manual.")
+        skipped = [c for c in _VALID_CHANNELS if not channel_is_enabled(c)]
 
-    return {"run_id": run_id, "status": "accepted"}
+    if job_id != JOB_SYNC_ALL:
+        raise HTTPException(status_code=400, detail={"code": "job_manual_run_unsupported", "message": "Job no soporta ejecución manual."})
+    # SYNC-O-11: la fila `running` se reserva AQUI, de forma atomica (lock de PostgreSQL), antes de lanzar la tarea;
+    # `sync_all_channels` la adopta por su run_id. Dos clics o dos workers: solo uno recibe 202.
+    try:
+        reserved = start_exclusive_run(db, phase="starting")
+    except ActiveRunError as busy:
+        raise HTTPException(
+            status_code=409, detail={"code": "sync_already_active", "message": f"Ya hay una sincronización activa (run_id={busy.run_id}). Espera a que termine."}
+        ) from busy
+    run_id = str(reserved.id)
+    background_tasks.add_task(sync_all_channels, run_id, channels_to_run)
+
+    return {"run_id": run_id, "status": "accepted", "skipped_channels": sorted(skipped)}
 
 
 @router.get("/runs", tags=["Scheduler"])
@@ -153,7 +242,7 @@ async def stream_run(
     try:
         uuid.UUID(run_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="run_id inválido.") from None
+        raise HTTPException(status_code=400, detail={"code": "invalid_run_id", "message": "run_id inválido."}) from None
 
     # Padding de 4 KB para forzar flush del buffer de Cloudflare/proxies
     _PAD = ": " + ("p" * 4096) + "\n"

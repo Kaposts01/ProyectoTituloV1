@@ -6,11 +6,15 @@ a los campos de la tabla de canal correspondiente.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import and_, func, or_, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.payku_channel import (
@@ -28,7 +32,28 @@ from app.models.toku_channel import (
     TokuTransaction,
 )
 from app.models.vp import VpCharge, VpClient, VpPayment, VpPlan, VpSubscription
+from app.services.payku_status import (
+    normalize_payku_charge_status,
+    normalize_payku_status,
+)
 from app.services.payload_sanitization import sanitize_payload
+from app.services.upsert_guard import distinct_where
+from app.services.vp_typed_fields import (
+    first_amount,
+    first_date_text,
+    first_timestamp_text,
+    payment_typed_fields,
+    subscription_typed_fields,
+)
+
+logger = logging.getLogger(__name__)
+
+# Las dos cuentas VirtualPOS soportadas; cualquier otro platform se rechaza.
+_VP_PLATFORMS = {"virtualpos1", "virtualpos2"}
+
+# SYNC-D-13: tablas con `last_seen_at`/`removed_at`. Cada upsert marca la fila como vista ahora y limpia una baja por
+# desaparicion previa (la fila reaparecio). Las bajas las decide `channel_removals`, nunca este modulo.
+_SEEN_TRACKED_MODELS = {VpSubscription, TokuSubscription, PaykuSubscription}
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 
@@ -78,14 +103,33 @@ def _card_summaries(cards: Any) -> list[dict] | None:
     return result or None
 
 
+def _stamped(model: type, updatable: dict[str, Any]) -> dict[str, Any]:
+    """SET del upsert con `updated_at = now()` (SYNC-O-07).
+
+    El upsert solo actualiza las filas que cambiaron (guarda `IS DISTINCT FROM`), asi que `updated_at` pasa a ser el
+    instante del ultimo cambio real del registro: es la marca que usa la consolidacion diferencial.
+    """
+    if "updated_at" in model.__table__.c and "updated_at" not in updatable:
+        return {**updatable, "updated_at": func.now()}
+    return updatable
+
+
 def upsert_channel(
     db: Session,
     model: type,
     records: Iterable[dict],
     extract: Callable[[dict], dict],
+    *,
+    skipped: list[str] | None = None,
 ) -> int:
-    """Inserta o actualiza un lote saneado de registros de un canal."""
+    """Inserta o actualiza un lote saneado de registros de un canal.
+
+    Si `skipped` es una lista, un lote que viole otra restriccion unica (p. ej. el indice parcial
+    de suscripciones activas) se reintenta fila a fila en SAVEPOINTs; las filas omitidas agregan
+    su external_id a `skipped`. Con `skipped=None` el error se propaga como antes.
+    """
     identity_fields = ("platform", "external_id") if model in {VpClient, VpPlan, VpSubscription, VpCharge, VpPayment} else ("external_id",)
+    seen_at = datetime.now(UTC) if model in _SEEN_TRACKED_MODELS else None
     rows = []
     for record in records:
         sanitized = sanitize_payload(record)
@@ -95,6 +139,9 @@ def upsert_channel(
         values.setdefault("id", uuid.uuid4())
         sanitized.pop("__external_id", None)
         values["raw_payload"] = sanitized
+        if seen_at is not None:
+            values["last_seen_at"] = seen_at
+            values["removed_at"] = None
         rows.append(values)
     if not rows:
         return 0
@@ -109,10 +156,73 @@ def upsert_channel(
     rows = deduped
     stmt = insert(model).values(rows)
     updatable = {key: stmt.excluded[key] for key in rows[0] if key not in (*identity_fields, "id", "created_at")}
-    stmt = stmt.on_conflict_do_update(index_elements=list(identity_fields), set_=updatable)
-    db.execute(stmt)
+    # `last_seen_at` cambia en cada lectura: no cuenta como cambio para la guarda (SYNC-O-07); se marca aparte.
+    guarded = {key: value for key, value in updatable.items() if key != "last_seen_at"}
+    stmt = stmt.on_conflict_do_update(
+        index_elements=list(identity_fields), set_=_stamped(model, updatable),
+        where=distinct_where(model.__table__, guarded),
+    )
+    if skipped is None:
+        db.execute(stmt)
+        _touch_seen(db, model, identity_fields, rows, seen_at)
+        db.commit()
+        return len(rows)
+    try:
+        with db.begin_nested():
+            db.execute(stmt)
+            _touch_seen(db, model, identity_fields, rows, seen_at)
+    except IntegrityError:
+        # Desempate: se conserva la mas reciente por suscription_date; en empate, el mayor external_id.
+        ordered = sorted(rows, key=lambda r: (r.get("suscription_date") or "", r["external_id"]), reverse=True)
+        stored = 0
+        for row in ordered:
+            single = insert(model).values([row])
+            single_set = {key: single.excluded[key] for key in row if key not in (*identity_fields, "id", "created_at")}
+            single = single.on_conflict_do_update(
+                index_elements=list(identity_fields),
+                set_=_stamped(model, single_set),
+                where=distinct_where(model.__table__, single_set),
+            )
+            try:
+                with db.begin_nested():
+                    db.execute(single)
+                stored += 1
+            except IntegrityError:
+                skipped.append(str(row["external_id"]))
+        if seen_at is not None:
+            _touch_skipped_seen(db, model, identity_fields, [r for r in ordered if str(r["external_id"]) in skipped], seen_at)
+        db.commit()
+        return stored
     db.commit()
     return len(rows)
+
+
+def _touch_seen(db: Session, model: type, identity_fields: tuple[str, ...], rows: list[dict], seen_at: datetime | None) -> None:
+    """SYNC-D-13 + SYNC-O-07: marca como vistas todas las filas del lote, cambien o no.
+
+    La guarda `IS DISTINCT FROM` no reescribe las filas sin cambios, asi que `last_seen_at` se actualiza aparte
+    (sin mover `updated_at`); si no, la deteccion de bajas tomaria por desaparecida una fila que no cambio.
+    """
+    if seen_at is None or not rows:
+        return
+    keys = [tuple(row[f] for f in identity_fields) for row in rows]
+    db.execute(
+        update(model)
+        .where(tuple_(*(getattr(model, f) for f in identity_fields)).in_(keys))
+        .values(last_seen_at=seen_at)
+        .execution_options(synchronize_session=False)
+    )
+
+
+def _touch_skipped_seen(db: Session, model: type, identity_fields: tuple[str, ...], rows: list[dict], seen_at: datetime) -> None:
+    """SYNC-D-13: una fila omitida por otra restriccion unica SI vino del proveedor; si ya existe, queda vista.
+
+    Solo toca `last_seen_at` (no el resto de columnas): sin esto, la deteccion de bajas la tomaria por desaparecida.
+    """
+    if not rows:
+        return
+    keys = [and_(*(getattr(model, f) == row[f] for f in identity_fields)) for row in rows]
+    db.execute(update(model).where(or_(*keys)).values(last_seen_at=seen_at))
 
 
 # ── Extractores VirtualPOS ────────────────────────────────────────────────────
@@ -139,7 +249,7 @@ def extract_vp_plan(p: dict) -> dict:
         "external_id": _str(p, "__external_id", "id", "uuid"),
         "name": _str(p, "name"),
         "description": _str(p, "description"),
-        "amount": _str(p, "amount"),
+        "amount": first_amount(p.get("amount")),
         "currency": _str(p, "currency"),
         "plan_type": _str(p, "type"),
         "is_active": _str(p, "is_active"),
@@ -148,6 +258,12 @@ def extract_vp_plan(p: dict) -> dict:
 
 
 def extract_vp_subscription(p: dict) -> dict:
+    """Columnas de `vp_subscriptions`; tarjeta vigente, alias POS y origen salen de `raw_payload` (VP-PAR-07).
+
+    VP-PAR-13: el monto va como Decimal y las fechas como texto canonico (`yyyy-mm-dd hh:mm:ss`, Postgres lo convierte
+    a `timestamp`); lo no convertible va como None. Texto y no datetime porque el desempate de `upsert_channel` compara
+    `suscription_date` como texto.
+    """
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid"),
@@ -157,36 +273,51 @@ def extract_vp_subscription(p: dict) -> dict:
         "service_id": _str(p, "service_id"),
         "status": _str(p, "status") or _str(order, "status"),
         "automatic_renewal": _str(p, "automatic_renewal", "renewal"),
-        "suscription_date": _str(p, "suscription_date"),
-        "canceled_at": _str(p, "canceled_at"),
-        "amount": _str(p, "amount") or _str(order, "amount"),
+        "suscription_date": first_timestamp_text(p.get("suscription_date")),
+        "canceled_at": first_timestamp_text(p.get("canceled_at")),
+        "amount": first_amount(p.get("amount"), order.get("amount")),
         "currency": _str(p, "currency") or _str(order, "currency"),
+        **subscription_typed_fields(p),
     }
 
 
 def extract_vp_charge(p: dict, subscription_external_id: str | None = None) -> dict:
+    """Columnas de `vp_charges`. VP-PAR-13: monto Decimal y `charge_date` como `yyyy-mm-dd` (columna `date`)."""
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid", "order.uuid"),
         "subscription_external_id": _str(p, "suscription_id", "subscription_id") or subscription_external_id,
         "client_external_id": _str(p, "client_uuid", "client_id"),
-        "amount": _str(p, "amount") or _str(order, "amount"),
+        "amount": first_amount(p.get("amount"), order.get("amount")),
         "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status") or _str(order, "status"),
-        "charge_date": _str(p, "charge_date") or _str(order, "created_at"),
+        "charge_date": first_date_text(p.get("charge_date"), order.get("created_at")),
     }
 
 
 def extract_vp_payment(p: dict) -> dict:
+    """Columnas de `vp_payments` desde un pago de `GET /payments`.
+
+    Sin `charge_external_id` (VP-PAR-06): el listado de pagos no trae referencia al cobro (verificado en la
+    auditoria del 2026-10-29), y escribir la columna en el upsert la reescribia a NULL en cada sync, borrando el
+    vinculo pago -> cobro que dejan el reporte PAT (`vp_report_import.link_payments_from_reports`) y la captura de
+    rechazos (`vp_rejection_capture.link_payments_to_charges`). Al no estar en el lote, el `ON CONFLICT DO UPDATE`
+    no toca la columna y el vinculo sobrevive a la siguiente sync. La clave se omite siempre (y no solo cuando
+    viene vacia) porque un lote multi-fila exige las mismas claves en todas las filas.
+
+    VP-PAR-07: RUT del cliente, `authorized_at` y el primer tramo de `order.deposits` (comision, abono y fecha de
+    abono) se promueven a columnas (`vp_typed_fields.payment_typed_fields`). VP-PAR-13: monto Decimal y fechas como
+    texto canonico que Postgres convierte a `timestamp`.
+    """
     order = p.get("order") or {}
     return {
         "external_id": _str(p, "__external_id", "id", "uuid", "order.uuid"),
-        "charge_external_id": _str(p, "charge_id", "charge_uuid"),
         "client_external_id": _str(p, "client_uuid", "client_id"),
-        "amount": _str(p, "amount") or _str(order, "amount"),
+        "amount": first_amount(p.get("amount"), order.get("amount")),
         "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status") or _str(order, "status"),
-        "payment_date": _str(p, "payment_date") or _str(order, "authorized_at") or _str(order, "created_at"),
+        "payment_date": first_timestamp_text(p.get("payment_date"), order.get("authorized_at"), order.get("created_at")),
+        **payment_typed_fields(p),
     }
 
 
@@ -284,7 +415,7 @@ def extract_payku_plan(p: dict) -> dict:
         "name": _str(p, "name"),
         "code": _str(p, "code"),
         "description": _str(p, "description"),
-        "amount": _str(p, "amount"),
+        "amount": first_amount(p.get("amount")),
         "currency": _str(p, "currency"),
         "status": _str(p, "status"),
         "total_suscription": int(total) if total is not None else None,
@@ -316,6 +447,8 @@ def extract_payku_subscription(p: dict) -> dict:
         "client_id": _str(p, "client_id") or _str(client, "id"),
         "plan_id": _str(p, "plan_id") or _str(plan, "id"),
         "status": _str(p, "status"),
+        # Taxonomia comun (PK-PAR-07); `status` sigue siendo el valor crudo de Payku.
+        "status_normalized": normalize_payku_status(_str(p, "status", "estatus")),
         "last_status_current_payment": _str(p, "last_status_current_payment"),
         "start_date": _str(p, "start"),
         "end_date": _str(p, "end"),
@@ -339,20 +472,104 @@ def extract_payku_transaction(p: dict) -> dict:
         or subscription_from_list
     )
     order = p.get("order") or {}
+    order_ref = order if isinstance(order, (str, int)) and not isinstance(order, bool) else None
     return {
         "external_id": _str(p, "__external_id", "id", "transaction"),
         "subscription_id": sub_id,
         "amount": _str(p, "amount") or _str(order, "amount"),
         "currency": _str(p, "currency") or _str(order, "currency"),
         "status": _str(p, "status"),
-        "created_at_api": _str(p, "created_at"),
+        # Texto crudo con fecha Y hora (hora de Chile, sin zona); el ETL Core lo interpreta (PK-PAR-04).
+        # `fecha` es el nombre del campo en las notificaciones de cobro (`DD-MM-AAAA HH:MM:SS`).
+        "created_at_api": _str(p, "created_at", "fecha"),
+        # PK-06: p_transactions ampliada (estado comun de cobro, orden del comercio y concepto, p. ej. «Cobro: # 3»).
+        "status_normalized": normalize_payku_charge_status(_str(p, "status")),
+        "order_ref": str(order_ref)[:100] if order_ref not in (None, "") else None,
+        "description": _str(p, "description"),
     }
+
+
+def extract_payku_cycles(subscription: dict) -> list[dict]:
+    """Ciclos de cobro de una suscripcion Payku (PK-06) desde `paid[]` de V3; lista vacia si no viene (V1).
+
+    Clave `<suscripcion>:<payment_cycle_day>` (o `<suscripcion>:n<paid_number>` si falta el dia). Si el mismo ciclo
+    aparece varias veces (un elemento por intento) gana el de mayor `try_number`. Devuelve filas listas para
+    `p_cycles` (incluye `raw_payload` del elemento, ya saneado por el llamador).
+    """
+
+    def as_int(value: Any) -> int | None:
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+
+    def transaction_ids(transactions: Any) -> list[str]:
+        # `paid[].transactions[]` no esta documentada (Q-05): ids sueltos u objetos con transaction/transaction_id/id.
+        if not isinstance(transactions, list):
+            return []
+        ids: list[str] = []
+        for item in transactions:
+            value = _get(item, "transaction", "transaction_id", "id") if isinstance(item, dict) else item
+            if value is not None and not isinstance(value, (dict, list, bool)) and str(value).strip():
+                text = str(value).strip()
+                if text not in ids:
+                    ids.append(text)
+        return ids
+
+    sub_id = _str(subscription, "__external_id", "id")
+    paid = subscription.get("paid") if isinstance(subscription, dict) else None
+    if not sub_id or not isinstance(paid, list):
+        return []
+    by_key: dict[str, dict] = {}
+    for item in paid:
+        if not isinstance(item, dict):
+            continue
+        cycle_day = _str(item, "payment_cycle_day")
+        paid_number = as_int(item.get("paid_number"))
+        if cycle_day:
+            key = f"{sub_id}:{cycle_day.strip()[:40]}"
+        elif paid_number is not None:
+            key = f"{sub_id}:n{paid_number}"
+        else:
+            continue
+        status = _str(item, "status", "estatus")
+        row = {
+            "external_id": key,
+            "subscription_id": sub_id,
+            "cycle_day": cycle_day,
+            "payment_day": _str(item, "payment_day"),
+            "status": status,
+            "status_normalized": normalize_payku_charge_status(status),
+            "amount_paid": _str(item, "amount_paid", "amount"),
+            "try_number": as_int(item.get("try_number")),
+            "paid_number": paid_number,
+            "transaction_ids": transaction_ids(item.get("transactions")),
+            "raw_payload": item,
+        }
+        previous = by_key.get(key)
+        if previous is None or (row["try_number"] or 0) >= (previous["try_number"] or 0):
+            by_key[key] = row
+    return list(by_key.values())
 
 
 # ── Funciones de sincronización por canal ─────────────────────────────────────
 
-def store_vp_resources(db: Session, resource_type: str, records: list[dict], *, platform: str, **kwargs: Any) -> int:
-    """Escribe registros VirtualPOS en su tabla canal correspondiente."""
+def store_vp_resources(
+    db: Session,
+    resource_type: str,
+    records: list[dict],
+    *,
+    platform: str,
+    skipped_subscriptions: list[str] | None = None,
+    **kwargs: Any,
+) -> int:
+    """Escribe registros VirtualPOS en su tabla canal correspondiente.
+
+    `skipped_subscriptions` recibe los external_id de suscripciones omitidas por duplicado activo.
+    """
+    if platform not in _VP_PLATFORMS:
+        logger.warning("store_vp_resources: platform desconocido rechazado (%s)", resource_type)
+        return 0
     _map = {
         "client": (VpClient, extract_vp_client),
         "plan": (VpPlan, extract_vp_plan),
@@ -365,6 +582,17 @@ def store_vp_resources(db: Session, resource_type: str, records: list[dict], *, 
     if resource_type not in _map:
         return 0
     model, extractor = _map[resource_type]
+    if resource_type == "subscription":
+        skipped: list[str] = []
+        written = upsert_channel(db, model, records, lambda r: {"platform": platform, **extractor(r)}, skipped=skipped)
+        if skipped:
+            logger.warning(
+                "store_vp_resources: %d suscripciones omitidas por duplicado activo (platform=%s, ids=%s)",
+                len(skipped), platform, ",".join(skipped[:20]),
+            )
+            if skipped_subscriptions is not None:
+                skipped_subscriptions.extend(skipped)
+        return written
     return upsert_channel(db, model, records, lambda r: {"platform": platform, **extractor(r)})
 
 

@@ -11,7 +11,7 @@ from typing import Any
 # Direct execution places scripts/ first on sys.path; add the project root for app imports.
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from app.integrations.virtualpos.client import VirtualPOSClient
+from app.integrations.virtualpos.client import VirtualPOSAPIError, VirtualPOSClient
 
 DEFAULT_INPUT = Path("reports/virtualpos_unlinked_payments.csv")
 
@@ -77,7 +77,10 @@ async def main() -> None:
     for platform, platform_samples in samples.items():
         async with VirtualPOSClient(platform) as client:
             for sample_number, (subscription_id, expected_payment_uuids) in enumerate(platform_samples, start=1):
-                response = await client.list_charges(subscription_id, page=1, limit=100)
+                try:
+                    response = await client.list_charges(subscription_id, page=1, limit=100)
+                except VirtualPOSAPIError as exc:  # NOK con HTTP 200: se reporta el código en vez de abortar
+                    response = exc.response.json()
                 charges = records_from_response(response)
                 charge_payment_uuids = {uuid for charge in charges if (uuid := payment_uuid_from_charge(charge))}
                 status_counts = Counter(str(charge.get("status", "unknown")) for charge in charges)

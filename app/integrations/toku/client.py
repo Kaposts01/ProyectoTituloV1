@@ -1,15 +1,22 @@
-import asyncio
 from typing import Any, Self
 
 import httpx
 
 from app.core.config import settings
+from app.integrations.http_retry import send_with_retries
+from app.integrations.toku.write_guard import (
+    PROCESS_STATE,
+    assert_sandbox_write_allowed,
+    check_sandbox_writes_allowed,
+)
 
 
 class TokuClient:
     """Client for the Toku API (x-api-key authentication)."""
 
     def __init__(self) -> None:
+        if not settings.is_production and not settings.channel_enabled("toku"):
+            raise RuntimeError(f"Toku esta deshabilitado en {settings.env_mode} (faltan variables TOKU_SANDBOX_*)")
         self._cursors: dict[str, str] = {}
         self._client = httpx.AsyncClient(
             base_url=settings.toku_base_url.rstrip("/"),
@@ -165,8 +172,16 @@ class TokuClient:
     # Transactions                                                         #
     # ------------------------------------------------------------------ #
 
-    async def list_transactions(self, page: int = 1, page_size: int = 100) -> Any:
-        return await self._get("/transactions", params={"page": page, "page_size": page_size})
+    async def list_transactions(
+        self, page: int = 1, page_size: int = 100, start_date: str | None = None, end_date: str | None = None
+    ) -> Any:
+        """GET /transactions. `start_date`/`end_date` (`YYYY-MM-DD`, inclusive) acotan la ventana (SYNC-O-02)."""
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return await self._get("/transactions", params=params)
 
     # ------------------------------------------------------------------ #
     # Payments                                                             #
@@ -180,19 +195,11 @@ class TokuClient:
     # ------------------------------------------------------------------ #
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        for attempt in range(settings.toku_read_retries + 1):
-            try:
-                response = await self._client.get(path, params=params)
-                if response.status_code in {429, 503}:
-                    if attempt == settings.toku_read_retries:
-                        response.raise_for_status()
-                    await asyncio.sleep(2**attempt)
-                    continue
-                break
-            except httpx.ReadTimeout:
-                if attempt == settings.toku_read_retries:
-                    raise
-                await asyncio.sleep(2**attempt)
+        # Solo GET de lectura (idempotentes): red caida, 429 y 5xx transitorio se reintentan con backoff, respetando
+        # `Retry-After` con el tope `HTTP_RETRY_MAX_DELAY_SECONDS` (helper comun SYNC-D-10). Escrituras: un solo intento.
+        response = await send_with_retries(
+            lambda: self._client.get(path, params=params), retries=settings.toku_read_retries
+        )
         response.raise_for_status()
         return response.json()
 
@@ -209,17 +216,31 @@ class TokuClient:
             self._cursors.pop(path, None)
         return response
 
+    def _guard_write(self, method: str, path: str, data: Any) -> None:
+        """Fuera de produccion toda escritura pasa por las guardas duras (antes de tocar la red)."""
+        if not settings.is_production:
+            assert_sandbox_write_allowed(method, path, data, settings, PROCESS_STATE)
+
+    def precheck_writes(self, operations: list[tuple[str, str, Any]]) -> None:
+        """Valida (sin contar contra el cupo ni tocar la red) que TODAS las escrituras `(metodo, ruta, body)`
+        pasarian las guardas. Produccion: no-op (comportamiento sin cambios)."""
+        if not settings.is_production:
+            check_sandbox_writes_allowed(operations, settings, PROCESS_STATE)
+
     async def _post(self, path: str, data: dict[str, Any]) -> Any:
+        self._guard_write("POST", path, data)
         response = await self._client.post(path, json=data)
         response.raise_for_status()
         return response.json()
 
     async def _put(self, path: str, data: dict[str, Any]) -> Any:
+        self._guard_write("PUT", path, data)
         response = await self._client.put(path, json=data)
         response.raise_for_status()
         return response.json()
 
     async def _delete(self, path: str) -> Any:
+        self._guard_write("DELETE", path, None)
         response = await self._client.delete(path)
         response.raise_for_status()
         return response.json()

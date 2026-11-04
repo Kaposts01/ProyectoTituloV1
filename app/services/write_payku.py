@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -66,7 +67,7 @@ def _materialize_client(client: Client, payload: dict[str, Any]) -> None:
     client.status = _as_text(payload.get("status"))
 
 
-async def update_client(db: Session, client_id: str, changes: dict[str, Any]) -> Client:
+async def update_client(db: Session, client_id: str, changes: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Update a Payku subscription client via PUT /api/suclient/{id}."""
     client = db.scalar(
         select(Client).where(Client.external_id == client_id, Client.source == "payku")
@@ -83,6 +84,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
         external_id=client_id,
         operation="update_client",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload=sanitize_record(changes),
     )
     db.add(write_run)
@@ -126,7 +128,7 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any]) ->
     return client
 
 
-async def delete_client(db: Session, client_id: str) -> Client:
+async def delete_client(db: Session, client_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Client:
     """Delete a Payku subscription client via DELETE /api/suclient/{id}."""
     client = db.scalar(
         select(Client).where(Client.external_id == client_id, Client.source == "payku")
@@ -143,6 +145,7 @@ async def delete_client(db: Session, client_id: str) -> Client:
         external_id=client_id,
         operation="delete_client",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"client_id": client_id},
     )
     db.add(write_run)
@@ -181,7 +184,7 @@ async def delete_client(db: Session, client_id: str) -> Client:
     return client
 
 
-async def delete_subscription(db: Session, subscription_id: str) -> Subscription:
+async def delete_subscription(db: Session, subscription_id: str, *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
     """Cancel a Payku subscription via DELETE /api/sususcription/{id}."""
     sub = db.scalar(
         select(Subscription).where(Subscription.external_id == subscription_id, Subscription.source == "payku")
@@ -198,6 +201,7 @@ async def delete_subscription(db: Session, subscription_id: str) -> Subscription
         external_id=subscription_id,
         operation="delete_subscription",
         status="pending",
+        requested_by_user_id=requested_by_user_id,
         request_payload={"subscription_id": subscription_id},
     )
     db.add(write_run)

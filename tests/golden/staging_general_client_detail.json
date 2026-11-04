@@ -1,0 +1,19 @@
+[
+ ".charges",
+ ".clients",
+ ".clients[].external_id",
+ ".clients[].id_cliente",
+ ".clients[].portal",
+ ".rut",
+ ".subscriptions",
+ ".subscriptions[].external_id",
+ ".subscriptions[].id_subscription",
+ ".subscriptions[].portal",
+ ".subscriptions[].status",
+ ".transactions",
+ ".transactions[].amount",
+ ".transactions[].external_id",
+ ".transactions[].id_transaccion",
+ ".transactions[].portal",
+ ".transactions[].status"
+]

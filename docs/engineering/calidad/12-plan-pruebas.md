@@ -43,6 +43,36 @@ SynkmetriX es un sistema ETL/CRM donde los errores en datos son costosos y difí
 PYTHONPATH=. .venv/Scripts/pytest.exe tests/ -v
 ```
 
+### 2.1 Base de pruebas y guardas (`tests/conftest.py`, `tests/db_guard.py`)
+
+Cada sesión de pytest **destruye y recrea** el esquema `public` de su base de pruebas y aplica `alembic upgrade head`. Por eso la base se elige con variables de proceso y pasa por guardas que fallan cerrado (la sesión aborta con código 2 antes de abrir conexiones):
+
+| Variable de proceso | Por defecto | Regla |
+|---|---|---|
+| `CRM_TEST_DB_NAME` | `crm_test` | Debe calzar con `^[a-z][a-z0-9_]{0,57}_test$` (minúsculas, termina en `_test`, segura para SQL). Nunca `crm`, `crm_sandbox` ni una base del sistema, ni la base de `DATABASE_URL`/`SANDBOX_DATABASE_URL`. Si se define vacía, falla. |
+| `CRM_DOTENV_PATH` | `<repo>/.env` | `.env` que leen la suite y la app (`Settings`). Si se define, el archivo debe existir. No se copia ni se imprime. |
+| `TEST_DATABASE_URL` | (sin valor) | URL completa opcional; su base pasa por las mismas guardas y, si `CRM_TEST_DB_NAME` también está definida, deben coincidir. |
+
+La base se crea sola si no existe (en el Postgres de `DATABASE_URL`, Docker en `localhost:5433`). Las guardas se prueban en `tests/test_db_guard.py`.
+
+### 2.2 Correr pytest en paralelo desde un git worktree
+
+Dos sesiones que usan la misma base se pisan (cada una borra el esquema de la otra). Para correr en paralelo, **cada worktree usa su propia base `*_test` y su propio `--basetemp`**. Un worktree no tiene `.env` ni `.venv`: se usan los del repo principal, sin copiarlos.
+
+PowerShell, desde la raíz del worktree (cambiar `crm_<lote>_test` y la carpeta de `--basetemp` por valores únicos del lote):
+
+```powershell
+$env:CRM_TEST_DB_NAME = 'crm_<lote>_test'
+$env:CRM_DOTENV_PATH  = 'C:\Users\Usuario\Downloads\CRM_projectoTitulo\.env'
+$env:PYTHONPATH       = '.'
+C:\Users\Usuario\Downloads\CRM_projectoTitulo\.venv\Scripts\pytest.exe -q -p no:cacheprovider --basetemp="$env:TEMP\pytest-<lote>"
+```
+
+- `crm_test` (sin la variable) queda para el repo principal; no la uses desde un worktree si otra sesión puede estar corriendo.
+- `--basetemp` debe ser distinto por sesión: pytest borra esa carpeta al empezar. También evita el `PermissionError` sobre `pytest-of-<usuario>` en Windows.
+- `-p no:cacheprovider` evita que sesiones paralelas escriban la misma `.pytest_cache`.
+- Las bases `crm_<lote>_test` quedan en el Postgres de Docker; se pueden reutilizar o borrar a mano. Nunca se corre Alembic por CLI contra ellas ni contra `crm`/`crm_sandbox`.
+
 ---
 
 ## 3. Categorías y rutas de prueba

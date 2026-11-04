@@ -9,10 +9,11 @@
 
 | # | Pregunta | Impacto | Carpeta Postman |
 |---|---|---|---|
-| V-1 | ¿`GET /v3/suscriptions` trae `charge_program[]` completo de cada suscripcion (como el ejemplo oficial)? | VP-28, seguimiento masivo | 05 · Seguimiento de cobros |
+| V-1 | ¿`GET /v3/suscriptions` trae `charge_program[]` completo de cada suscripcion (como el ejemplo oficial)? (Resuelta 2026-10-27: sí, VP-C01) | VP-28, seguimiento masivo | 05 · Seguimiento de cobros |
 | V-2 | ¿`GET /v3/charge/{id}` de cargo pagado trae `payment.order.uuid`? | VP-28 (critico) | 05 · Seguimiento |
 | V-3 | ¿`GET /v3/payments` incluye transacciones recurrentes PAT? | seguimiento completo | 05 · Seguimiento |
 | V-4 | ¿Un reintento reutiliza el mismo Payment o crea uno nuevo? | REC-02, seguimiento | 05 · Seguimiento |
+| V-5 | ¿`POST /v3/charge` funciona sobre una suscripción de plan MONTO_FIJO? | WR-VP-05 (cambio de monto por cargos) | Escrituras / Cargos |
 
 ---
 
@@ -162,6 +163,74 @@ Guardar ambos uuids (antes y despues del reintento) y el conteo de `authorizatio
 
 ---
 
+### V-5: ¿`POST /v3/charge` funciona sobre una suscripcion de plan MONTO_FIJO?
+
+**Contexto.** WR-VP-05 necesita cambiar el monto cobrado a socios con plan fijo sin cambiar de plan (hay mas de 6000 suscripciones activas en planes fijos). El enfoque es cancelar los cargos futuros pendientes (`DELETE /v3/charges/{suscription_id}`) y crear un cargo nuevo con el monto vigente. La documentacion oficial de `POST /v3/charge` lo describe como cargo programado "tipico de planes `MONTO_VARIABLE`" y su catalogo de errores asocia `E-113` a planes que no son `MONTO_VARIABLE` (asociacion inferida desde el texto del mensaje, no confirmada por VirtualPOS). Hasta ejecutar esta prueba, la bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` permanece apagada.
+
+**Prerequisitos.**
+1. Ambiente sandbox (`https://api.virtualpos-sandbox.com`). No ejecutar contra produccion.
+2. Un plan de tipo `MONTO_FIJO` activo en el portal de sandbox.
+3. Una suscripcion ACTIVA sobre ese plan (`suscription_id` anotado) con tarjeta aprobada (VISA de prueba de la tabla de preparacion).
+4. Fecha `charge_date` igual o posterior a hoy (`E-078`) y un `internal_code` unico de prueba (es llave de idempotencia, `E-086`).
+
+**Request Postman (WR-VP-05 / V-5).**
+
+```http
+POST {{base_url}}/v3/charge
+Content-Type: application/json
+Authorization: {{api_key}}
+Signature: {{jwt_token}}
+
+{
+  "suscription_id": "{{suscription_id_monto_fijo}}",
+  "charge_date": "{{fecha_futura_yyyy_mm_dd}}",
+  "amount": {{monto_prueba}},
+  "description": "V-5 prueba plan fijo",
+  "internal_code": "{{internal_code_unico_v5}}"
+}
+```
+
+**Que campo del response valida la pregunta.**
+- Codigo de error `E-113` en el cuerpo (plan no es `MONTO_VARIABLE`) o, si no aparece, `status` y `code` de la respuesta de exito.
+- Si responde HTTP 200, el campo `charge.id` y `charge.status` (`pendiente`).
+
+**Resultados esperados.**
+- Caso A (funciona): HTTP 200 con `charge.status = "pendiente"` sobre el plan fijo. WR-VP-05 puede usar el flujo de cargos sobre planes fijos.
+- Caso B (falla con E-113, segun la documentacion): el cambio de monto mediante cargos no es viable sobre planes `MONTO_FIJO`. El flujo de WR-VP-05 no debe activarse.
+
+**Como documentar el resultado.**
+Anotar en "Resultados observados V-5" la fecha, el codigo HTTP y el `code`/mensaje de error recibido (sin `api_key`, `Signature` ni datos de tarjeta), el tipo de plan usado y el `suscription_id` de prueba. Si hubo Caso A, cancelar el cargo de prueba con `DELETE {{base_url}}/v3/charge/{{charge_id}}` (solo pendientes) para no dejar cobros programados en sandbox.
+
+**Impacto en el codigo segun el resultado.**
+- Si Caso A (ocurrió en sandbox el 2026-10-27): activar la bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` solo en sandbox; en producción mantenerla apagada hasta una prueba controlada, validar el orden seguro de WR-VP-05 (crear primero, cancelar el del mismo mes despues) y completar WR-VP-05 en `tasks.md`. Actualizar `integrations/virtualpos/resources/charges.md` quitando la inferencia sobre `MONTO_VARIABLE`.
+- Si Caso B: no activar la bandera. Revisar el enfoque para planes fijos antes de cualquier cambio de monto (la decision de negocio sigue siendo mantener la suscripcion y que el monto sea el ultimo cobrado). Registrar el resultado en `tasks.md` (WR-VP-05) y en `docs/memory/PROJECT_STATE.md`.
+
+**Estado:** Ejecutada en sandbox 2026-10-27 (cuenta 1, base `crm_sandbox`; escrituras activadas solo por variables de proceso).
+
+**Resultados observados V-5**
+
+- A) Suscripcion ACTIVA de plan `MONTO_FIJO` (tipo segun `vp_plans.raw_payload.type`): `POST /v3/charge` fue **aceptado** (`charge_date` futura, monto 1000, `internal_code` unico). No aparecio E-113. El cargo quedo `pendiente` y se cancelo con `DELETE /v3/charge/{id}`.
+- B) Suscripcion de plan `MONTO_VARIABLE`: crear cargo X OK; reasignar monto (crear cargo Y de otro monto y luego cancelar X, mismo mes) OK en el orden seguro (crear primero, cancelar despues). `DELETE /v3/charges/{suscription_id}` cancelo el cargo pendiente Y y devolvio `cancel_charges[]` con `status` `cancelado`. Al final no quedaban cargos pendientes.
+- Conclusion: la inferencia "`POST /v3/charge` exige plan `MONTO_VARIABLE`" (charges.md, workflows/cambiar-monto.md, workflows/alta-socio.md) **no se observo** en sandbox y contradice la documentacion actual.
+
+**No probado (limites)**
+
+1. Solo sandbox. Produccion no se probo y podria comportarse distinto.
+2. Las suscripciones de plan fijo usadas no tenian cargos pendientes programados. No se sabe si, con cargos automaticos futuros ya existentes, un cargo manual duplica el cobro del mes.
+3. Si se cancelan todos los cargos futuros de una suscripcion de plan fijo, VirtualPOS no generara cobros automaticos para esos meses. El CRM tendria que crear los cargos de los meses siguientes (un POST por cargo). Decision de diseno pendiente.
+4. No se probo que el cobro manual se ejecute realmente sobre la tarjeta en la fecha.
+
+**Que actualizar**
+
+- `resources/charges.md`: nota junto a E-113 agregada; quitar la inferencia cuando se confirme en produccion.
+- `workflows/cambiar-monto.md`: nota en § 1; revisar la decision del 2026-10-12 tras validar en produccion.
+- `workflows/alta-socio.md`: pendiente; corregir la afirmacion "POST /v3/charge exige plan MONTO_VARIABLE" tras validar en produccion.
+- `tasks.md`: WR-VP-05 y VAL-VP-01 con el estado real.
+- `docs/memory/PROJECT_STATE.md`: entrada del 2026-10-27.
+- Bandera `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN`: puede activarse en sandbox; en produccion debe seguir apagada hasta una prueba controlada.
+
+---
+
 ## Instrucciones de preparacion de sandbox
 
 **Acceso.** Base URL: `https://api.virtualpos-sandbox.com`. Portal de llaves: `https://comercios.virtualpos-sandbox.com` → Perfil > Configuracion de cuenta > Integracion. Checkout: `https://pay.virtualpos-sandbox.com/...`.
@@ -196,10 +265,19 @@ Simulador de banco: RUT `11.111.111-1`, clave `123`.
 
 | # | Fecha | Resultado (A/B) | Evidencia resumida | Conclusion |
 |---|---|---|---|---|
-| V-1 | — | — | — | Pendiente |
-| V-2 | — | — | — | Pendiente |
-| V-3 | — | — | — | Pendiente |
-| V-4 | — | — | — | Pendiente |
+| V-1 | 2026-10-27 | A (confirmado) | `GET /v3/suscriptions` trae `charge_program[]` igual a `GET /v3/suscription/{id}/charges` en 5 suscripciones ([CLAIM:VP-C01]) | Resuelta. Caso A: el job masivo no necesita llamadas adicionales |
+| V-2 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
+| V-3 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
+| V-4 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
+| V-5 | 2026-10-27 | A (aceptado en plan fijo, con limites) | `POST /v3/charge` aceptado sobre plan `MONTO_FIJO` sin E-113; cargo de prueba cancelado | Ejecutada en sandbox. Pendiente: continuidad de cobros mensuales y prueba controlada en produccion |
+
+---
+
+## Suite de contrato (2026-10-27)
+
+La suite de contrato (`tests_contract/`, excluida por defecto de pytest) compara la documentación de `docs/integrations/virtualpos/` con el sandbox real. Ejecución, variables y guardas en [tests_contract/README.md](../../../tests_contract/README.md). Cada prueba registra esperado frente a observado; un desacuerdo no falla la prueba.
+
+El informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado, en `.gitignore`) recoge 29 afirmaciones y 12 discrepancias de la ejecución del 2026-10-27 (cuenta 1, sandbox). Las notas "Observado en sandbox 2026-10-27" de los recursos citan cada afirmación con su ID `[CLAIM:VP-Cnn]`. Resultado: V-1 resuelta (VP-C01); V-2, V-3 y V-4 siguen pendientes porque requieren tarjeta y cobro real; V-5 tiene resultado (sección anterior).
 
 ---
 
@@ -211,4 +289,6 @@ Simulador de banco: RUT `11.111.111-1`, clave `123`.
 | V-2 (Caso B) | `seguimiento-cobros.md § 5` cuadratura: indicar retardo por abono. Conector: no alertar cuota pagada sin uuid inmediatamente. |
 | V-3 (Caso B) | `sync-virtualpos.md` PASO 4: separar fuente de pagos recurrentes vs. spot. Conector: no upsert de recurrentes desde listado. |
 | V-4 (Caso B) | `sync-virtualpos.md` PASO 3: siempre releer `GET /v3/charge/{id}` y actualizar `payment_uuid`. Agregar logica de `vpos_charge_retries`. |
+| V-5 (Caso A) | `docs/memory/CURRENT_SPRINT.md` y `tasks.md` WR-VP-05: activar bandera y completar. `integrations/virtualpos/resources/charges.md`: quitar la inferencia MONTO_VARIABLE. |
+| V-5 (Caso B) | `tasks.md` WR-VP-05: registrar que no es viable por cargos. `docs/memory/PROJECT_STATE.md`: revisar enfoque de planes fijos. |
 | V-1 a V-4 (cualquiera) | `docs/integrations/virtualpos/workflows/seguimiento-cobros.md` § 8 Pendientes: marcar la pregunta como resuelta con fecha y resultado. |

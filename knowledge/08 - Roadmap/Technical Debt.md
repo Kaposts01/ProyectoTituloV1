@@ -34,4 +34,5 @@ Esta nota resume deuda documentada o comprobable. La prioridad refleja el sentid
 - [ADR-001](../../docs/decisions/ADR-001-identidad-centralizada-socios.md)
 - [Modelo centralizado](../../docs/data/centralized-model.md)
 - [Modelo TCH](../../app/models/tch.py)
-- [Tareas operativas](../../docs/tasks.md)
+- [Plan y estado del proyecto (fuente única)](../../docs/tasks.md)
+- [Roadmap (índice)](Roadmap.md)

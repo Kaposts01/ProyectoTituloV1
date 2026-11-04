@@ -1,16 +1,14 @@
 """Receptor de webhooks de VirtualPOS.
 
 Tipos soportados (kind):
-  payment     → POST con uuid; sin firma documentada (usamos el uuid para consultar la API).
-  subscription → POST con id/uuid; sin firma documentada.
-  payout      → POST con objeto payout; HMAC-SHA256 del body en header `Signature` (hex o base64).
+  payment      -> POST con uuid; sin firma documentada. SOLO se guarda el id: el procesador relee por API.
+  subscription -> POST con id/uuid; sin firma documentada. SOLO se guarda el id.
+  payout       -> POST con objeto payout; HMAC-SHA256 del body en header `Signature` (hex o base64).
 
-Pipeline (docs/integrations/virtualpos/resources/webhooks.md):
-  POST → [payout: verificar HMAC] → INSERT stg_vpos_webhook_events → 200 inmediato
-  → BackgroundTask: invalidar caché si el evento afecta KPIs.
-
-Para payout: la firma se calcula sobre el body crudo exacto (no re-serializar).
-El campo `create_at` del webhook se normaliza a `created_at` al guardar el payload.
+Pipeline (docs/data/webhooks.md):
+  POST -> rate limit -> tope de body -> [payout: verificar HMAC] -> INSERT idempotente en `webhook_events` -> 200.
+Para payout la firma se calcula sobre el body crudo exacto (no re-serializar). El payload no se loguea; el contenido de
+payment/subscription nunca se confia ni se persiste (solo ids/estado).
 """
 
 import base64
@@ -20,13 +18,19 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.api.v1.routes.staging import invalidate_dashboard_cache
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models.stg_vpos_webhook_event import StgVposWebhookEvent
+from app.services.webhook_intake import (
+    check_rate_limit,
+    dedupe_key,
+    enqueue_event,
+    masked_payload,
+    minimal_payload,
+    read_body_limited,
+)
 
 
 def get_db():
@@ -42,9 +46,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Webhooks"])
 
 _VALID_KINDS = frozenset({"payment", "subscription", "payout"})
-
-# Eventos que afectan KPIs del dashboard → invalidan caché
-_CACHE_INVALIDATING_KINDS = frozenset({"payment", "subscription"})
 
 
 def _verify_payout_signature(raw_body: bytes, received: str, secret: str) -> bool:
@@ -85,25 +86,19 @@ def _extract_resource_id(payload: dict[str, Any], kind: str) -> str | None:
     return None
 
 
-def _invalidate_if_needed(kind: str) -> None:
-    if kind in _CACHE_INVALIDATING_KINDS:
-        invalidate_dashboard_cache()
-        logger.info("Dashboard cache invalidated by vpos webhook kind=%s", kind)
-
-
 @router.post("/webhooks/virtualpos/{kind}")
 async def receive_virtualpos_webhook(
     kind: str,
     request: Request,
-    background_tasks: BackgroundTasks,
     signature: str | None = Header(default=None, alias="Signature"),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
-    """Receptor de webhooks de VirtualPOS. Responde 200 en < 2 s."""
+    """Receptor de webhooks de VirtualPOS. Valida, encola y responde 200 (sin trabajo pesado)."""
     if kind not in _VALID_KINDS:
         raise HTTPException(status_code=404, detail=f"Unknown webhook kind: {kind}")
 
-    raw_body = await request.body()
+    check_rate_limit(request, f"virtualpos:{kind}")
+    raw_body = await read_body_limited(request)
 
     # Payout requiere firma HMAC-SHA256; payment y subscription no tienen firma documentada
     if kind == "payout":
@@ -119,27 +114,29 @@ async def receive_virtualpos_webhook(
             raise HTTPException(status_code=401, detail="Invalid signature.")
 
     try:
-        payload: dict[str, Any] = json.loads(raw_body.decode("utf-8"))
+        payload = json.loads(raw_body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON body.") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid JSON body.")
 
     if kind == "payout":
         payload = _normalize_payout_payload(payload)
+        stored = masked_payload(payload)
+    else:
+        stored = minimal_payload(payload)  # sin firma: solo ids/estado, el contenido no se confia
 
-    payload_hash = hashlib.sha256(raw_body).hexdigest()
-    source_ip = request.headers.get("x-forwarded-for") or (request.client.host if request.client else None)
-
-    event = StgVposWebhookEvent(
-        event_kind=kind,
-        resource_id=_extract_resource_id(payload, kind),
-        payload=payload,
-        payload_hash=payload_hash,
-        source_ip=str(source_ip)[:45] if source_ip else None,
-        signature_verified=(kind == "payout"),
+    resource_id = _extract_resource_id(payload, kind)
+    resource_id = str(resource_id) if isinstance(resource_id, str | int) else None
+    inserted = enqueue_event(
+        db,
+        source="virtualpos",
+        event_type=kind,
+        key=dedupe_key("virtualpos", kind, resource_id, str(stored.get("status") or ""), bucket=True),
+        payload_masked=stored,
+        resource_type=kind,
+        resource_external_id=resource_id,
+        subscription_external_id=resource_id if kind == "subscription" else None,
     )
-    db.add(event)
-    db.commit()
-    logger.info("VirtualPOS webhook staged kind=%s resource_id=%s", kind, event.resource_id)
-
-    background_tasks.add_task(_invalidate_if_needed, kind)
+    logger.info("VirtualPOS webhook %s kind=%s resource_id=%s", "encolado" if inserted else "duplicado", kind, resource_id)
     return {"status": "ok"}

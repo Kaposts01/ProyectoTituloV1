@@ -1,11 +1,27 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import make_url
 
 from alembic import context
 from app.core.config import settings
+from app.db.migration_guard import check_downgrade_allowed, is_downgrade_command
 from app.db.session import Base
 from app.models.auth import Permission, Role, User  # noqa: F401
+from app.models.billing import (  # noqa: F401
+    BillingChangeRequest,
+    BillingChangeRequestEvent,
+    BillingPolicy,
+    BillingPolicyAudit,
+    BillingRenewalTask,
+    VpCalendarMark,
+    VpManagedCharge,
+)
+from app.models.cancellation import (  # noqa: F401
+    SubscriptionCancellationRequest,
+    SubscriptionCancellationRequestEvent,
+)
 from app.models.charge_recovery import ChargeRecovery  # noqa: F401
 from app.models.core import (  # noqa: F401
     CoreCharge,
@@ -26,26 +42,45 @@ from app.models.crm import (  # noqa: F401
     Subscription,
 )
 from app.models.etl_run import EtlRun  # noqa: F401
+from app.models.export_job import ExportJob  # noqa: F401
+from app.models.manual_task import (  # noqa: F401
+    SubscriptionManualTask,
+    SubscriptionManualTaskEvent,
+)
 from app.models.payku_channel import (  # noqa: F401
     PaykuClient,
+    PaykuCycle,
     PaykuPlan,
     PaykuSubscription,
     PaykuTransaction,
 )
+from app.models.payku_report import (  # noqa: F401
+    PkReportFile,
+    PkReportSettlement,
+    PkReportTransaction,
+)
+from app.models.refresh_queue import RefreshQueueItem  # noqa: F401
+from app.models.rejection import PaymentRejectionDetail  # noqa: F401
 from app.models.source_record import SourceRecord  # noqa: F401
+from app.models.status_change import (  # noqa: F401
+    RejectionReasonCatalog,
+    StatusChangeEvent,
+)
 from app.models.stg_payku_webhook_event import StgPaykuWebhookEvent  # noqa: F401
 from app.models.stg_toku_webhook_event import StgTokuWebhookEvent  # noqa: F401
 from app.models.stg_vpos_webhook_event import StgVposWebhookEvent  # noqa: F401
+from app.models.sync_cursor import SyncCursor  # noqa: F401
 from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.tch import (  # noqa: F401
-    TchBanco,
-    TchCentroCosto,
-    TchCliente,
-    TchOrigen,
-    TchRecaudacionMensual,
-    TchSuscripcion,
-    TchTipoMandato,
-    TchTransaccion,
+    TchBank,
+    TchClient,
+    TchCostCenter,
+    TchFileLoad,
+    TchMandateType,
+    TchMonthlyCollection,
+    TchOrigin,
+    TchSubscription,
+    TchTransaction,
 )
 from app.models.toku_channel import (  # noqa: F401
     TokuCustomer,
@@ -55,6 +90,16 @@ from app.models.toku_channel import (  # noqa: F401
     TokuSubscription,
     TokuTransaction,
 )
+from app.models.toku_report import (  # noqa: F401
+    CoreSubscriptionSignal,
+    TkReportAttempt,
+    TkReportDebt,
+    TkReportFile,
+    TkReportInscription,
+    TkReportPaymentMethod,
+    TkReportProduct,
+    TkReportResponseCode,
+)
 from app.models.vp import (  # noqa: F401
     VpCharge,
     VpClient,
@@ -62,10 +107,24 @@ from app.models.vp import (  # noqa: F401
     VpPlan,
     VpSubscription,
 )
+from app.models.vp_report import (  # noqa: F401
+    VpReportFile,
+    VpReportPayment,
+    VpReportSubscription,
+)
+from app.models.webhook_event import WebhookEvent  # noqa: F401
 from app.models.write_run import WriteRun  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# Guarda anti-downgrade accidental (incidente 2026-10-28; ver app/db/migration_guard.py).
+# Se evalua antes de abrir cualquier conexion. `_proxy` es la EnvironmentContext activa (alembic 1.19.1).
+check_downgrade_allowed(
+    make_url(settings.database_url).database or "",
+    is_downgrade_command(getattr(getattr(context, "_proxy", None), "context_opts", None)),
+    os.environ,
+)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

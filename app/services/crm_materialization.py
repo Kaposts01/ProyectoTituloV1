@@ -1,3 +1,10 @@
+"""DEPRECADO: materializacion legacy de source_records a entidades centralizadas.
+
+Desactivada del flujo operativo; reemplazada por app.services.channel_consolidation
+(consolidate_to_centralized). El modulo se conserva solo por compatibilidad y tests.
+Limitacion conocida: PaymentMethod no tiene constraint de upsert aqui, por lo que
+materialize_records lanza KeyError con "payment_method".
+"""
 from collections.abc import Iterable
 from typing import Any
 
@@ -6,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.crm import Charge, Client, Payment, PaymentMethod, Plan, Subscription
 from app.models.source_record import SourceRecord
+from app.services.upsert_guard import distinct_where
 
 
 def _text(record: dict[str, Any], *keys: str) -> str | None:
@@ -96,6 +104,7 @@ def _upsert(db: Session, model: type[Charge | Client | Payment | PaymentMethod |
         **{key: value for key, value in values.items() if key in allowed},
     }
     statement = insert(model).values(**row)
+    updatable = {key: statement.excluded[key] for key in row if key not in {"source", "external_id"}}
     statement = statement.on_conflict_do_update(
         constraint={
             Client: "uq_client_source_external_id",
@@ -104,7 +113,9 @@ def _upsert(db: Session, model: type[Charge | Client | Payment | PaymentMethod |
             Charge: "uq_charge_source_external_id",
             Payment: "uq_payment_source_external_id",
         }[model],
-        set_={key: statement.excluded[key] for key in row if key not in {"source", "external_id"}},
+        set_=updatable,
+        # SYNC-O-07: no reescribir una fila identica (misma guarda IS DISTINCT FROM que channel_consolidation).
+        where=distinct_where(model.__table__, updatable),
     )
     db.execute(statement)
 

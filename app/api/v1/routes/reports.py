@@ -16,7 +16,13 @@ from app.core.security import get_current_user
 from app.db.session import SessionLocal
 from app.models.auth import User
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
-from app.models.tch import TchSuscripcion, TchTransaccion
+from app.models.tch import TchSubscription, TchTransaction
+from app.services.charge_stats import (
+    charge_outcome,
+    charge_rejection_stats,
+    chile_today,
+    is_future_charge,
+)
 from app.services.rbac import permission_codes, source_permission
 
 router = APIRouter()
@@ -50,6 +56,20 @@ def _require_report_access(user: User, scope: str) -> None:
 
 def _status(value: Any) -> str:
     return staging._general_transaction_status(value)
+
+
+def _charge_status(status: Any, charge_date: Any, today: date) -> str | None:
+    """Rotulo de un CARGO con la definicion unica de charge_stats (UI-30).
+
+    Pagado/rechazado solo con fecha <= hoy (Chile); pendiente/procesando -> Pendientes; cancelados, expirados, anulados
+    y estados desconocidos quedan fuera (antes caian en Pendientes o en el denominador).
+    """
+    outcome = charge_outcome(status)
+    if outcome in ("paid", "rejected"):
+        if is_future_charge(charge_date, today):
+            return None
+        return "Aceptadas" if outcome == "paid" else "Rechazadas"
+    return "Pendientes" if outcome == "pending" else None
 
 
 def _amount(value: Any) -> float:
@@ -95,8 +115,8 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
     numeric_subscription = case((Subscription.amount.op("~")(r"^\d+(\.\d+)?$"), cast(Subscription.amount, Numeric)), else_=0)
     sources = _source_filter(scope)
 
-    def add(kind: str, value: str | None, status: str, count: int, amount: Any) -> None:
-        if not value:
+    def add(kind: str, value: str | None, status: str | None, count: int, amount: Any) -> None:
+        if not value or status is None:
             return
         try:
             event_date = date.fromisoformat(value[:10])
@@ -108,6 +128,7 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
             bucket["amount"] += _amount(amount)
 
     start_value, end_value = start.isoformat(), end.isoformat()
+    today = chile_today()
     payment_query = select(Payment.payment_date, Payment.status, func.count(), func.coalesce(func.sum(numeric_payment), 0)).where(func.substring(Payment.payment_date, 1, 10).between(start_value, end_value)).group_by(Payment.payment_date, Payment.status)
     charge_query = select(Charge.charge_date, Charge.status, func.count(), func.coalesce(func.sum(numeric_charge), 0)).where(func.substring(Charge.charge_date, 1, 10).between(start_value, end_value)).group_by(Charge.charge_date, Charge.status)
     activation_query = select(Subscription.suscription_date, func.count(), func.coalesce(func.sum(numeric_subscription), 0)).where(func.substring(Subscription.suscription_date, 1, 10).between(start_value, end_value)).group_by(Subscription.suscription_date)
@@ -121,19 +142,19 @@ def _series(db: Session, scope: str, start: date, end: date) -> dict[str, list[d
         for event_date, status, count, amount in db.execute(payment_query):
             add("transactions", event_date, _status(status), count, amount)
         for event_date, status, count, amount in db.execute(charge_query):
-            add("charges", event_date, _status(status), count, amount)
+            add("charges", event_date, _charge_status(status, event_date, today), count, amount)
         for event_date, count, amount in db.execute(activation_query):
             add("activations", event_date, "Altas", count, amount)
         for event_date, count, amount in db.execute(cancellation_query):
             add("cancellations", event_date, "Bajas", count, amount)
     if scope in {"general", "tch"}:
-        for transaction in db.scalars(select(TchTransaccion).where(func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_value, end_value))):
-            add("transactions", transaction.fecha_cargo, _status(transaction.estado), 1, transaction.monto)
-            add("charges", transaction.fecha_cargo, _status(transaction.estado), 1, transaction.monto)
-        for subscription in db.scalars(select(TchSuscripcion).where(func.substring(TchSuscripcion.fecha_activacion, 1, 10).between(start_value, end_value))):
-            add("activations", subscription.fecha_activacion, "Altas", 1, subscription.equivalente_pesos or subscription.monto)
-        for subscription in db.scalars(select(TchSuscripcion).where(func.substring(TchSuscripcion.fecha_eliminacion, 1, 10).between(start_value, end_value))):
-            add("cancellations", subscription.fecha_eliminacion, "Bajas", 1, subscription.equivalente_pesos or subscription.monto)
+        for transaction in db.scalars(select(TchTransaction).where(func.substring(TchTransaction.charge_date, 1, 10).between(start_value, end_value))):
+            add("transactions", transaction.charge_date, _status(transaction.status), 1, transaction.amount)
+            add("charges", transaction.charge_date, _charge_status(transaction.status, transaction.charge_date, today), 1, transaction.amount)
+        for subscription in db.scalars(select(TchSubscription).where(func.substring(TchSubscription.activation_date, 1, 10).between(start_value, end_value))):
+            add("activations", subscription.activation_date, "Altas", 1, subscription.peso_equivalent or subscription.amount)
+        for subscription in db.scalars(select(TchSubscription).where(func.substring(TchSubscription.deletion_date, 1, 10).between(start_value, end_value))):
+            add("cancellations", subscription.deletion_date, "Bajas", 1, subscription.peso_equivalent or subscription.amount)
 
     return {
         kind: [
@@ -175,8 +196,10 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
             func.substring(Charge.charge_date, 1, 10).between(start.isoformat(), end.isoformat()),
         )
     ).all()
-    paid_charges = [charge for charge in charges if _status(charge.status) == "Aceptadas"]
-    rejected_charges = [charge for charge in charges if _status(charge.status) == "Rechazadas"]
+    today_chile = chile_today()
+    # UI-30: pagados y rechazados con la definicion unica (charge_stats): sin cargos con fecha posterior a hoy.
+    paid_charges = [c for c in charges if _charge_status(c.status, c.charge_date, today_chile) == "Aceptadas"]
+    rejected_charges = [c for c in charges if _charge_status(c.status, c.charge_date, today_chile) == "Rechazadas"]
     charge_by_month: dict[str, list[Charge]] = defaultdict(list)
     for charge in charges:
         if charge_date := _as_date(charge.charge_date):
@@ -198,8 +221,8 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
     }
     active_count_by_month = []
     churn = []
-    altas, bajas = [], []
-    deu_pag, deu_nop, int_ok, int_fail, cg_can, cg_pro, rec_mes, pagos_mes = [], [], [], [], [], [], [], []
+    signups, cancellations = [], []
+    debts_paid, debts_unpaid, attempts_ok, attempts_failed, charges_cancelled, charges_processing, monthly_revenue, monthly_payments = [], [], [], [], [], [], [], []
     for month in months:
         month_end = date.fromisoformat(f"{month}-28")
         while month_end.month == int(month[5:]):
@@ -213,22 +236,24 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
         active_start = sum(1 for subscription in subscriptions if (created := _as_date(subscription.suscription_date)) and created < month_start and (not (cancelled := _as_date(subscription.canceled_at)) or cancelled >= month_start))
         active_end = sum(1 for subscription in subscriptions if (created := _as_date(subscription.suscription_date)) and created <= month_end and (not (cancelled := _as_date(subscription.canceled_at)) or cancelled > month_end))
         statuses = charge_by_month[month]
-        paid = [charge for charge in statuses if _status(charge.status) == "Aceptadas"]
-        rejected = [charge for charge in statuses if _status(charge.status) == "Rechazadas"]
-        cancelled = [charge for charge in statuses if str(charge.status or "").lower() == "cancelado"]
-        processing = [charge for charge in statuses if str(charge.status or "").lower() in {"pendiente", "procesando"}]
-        altas.append(len(month_subs))
-        bajas.append(len(month_cancellations))
+        paid = [c for c in statuses if _charge_status(c.status, c.charge_date, today_chile) == "Aceptadas"]
+        rejected = [c for c in statuses if _charge_status(c.status, c.charge_date, today_chile) == "Rechazadas"]
+        # VP-PAR-10: un cobro con fecha posterior a hoy (Chile) no es un cancelado ni un pendiente reales.
+        past = [charge for charge in statuses if not is_future_charge(charge.charge_date, today_chile)]
+        cancelled = [charge for charge in past if str(charge.status or "").lower() == "cancelado"]
+        processing = [charge for charge in past if str(charge.status or "").lower() in {"pendiente", "procesando"}]
+        signups.append(len(month_subs))
+        cancellations.append(len(month_cancellations))
         active_count_by_month.append(active_end)
         churn.append(round(100 * len(month_cancellations) / active_start, 2) if active_start else 0)
-        deu_pag.append(len(paid))
-        deu_nop.append(len(rejected))
-        int_ok.append(len(paid))
-        int_fail.append(len(rejected))
-        cg_can.append(len(cancelled))
-        cg_pro.append(len(processing))
-        rec_mes.append(round(sum(_amount(charge.amount) for charge in paid), 2))
-        pagos_mes.append(len(paid))
+        debts_paid.append(len(paid))
+        debts_unpaid.append(len(rejected))
+        attempts_ok.append(len(paid))
+        attempts_failed.append(len(rejected))
+        charges_cancelled.append(len(cancelled))
+        charges_processing.append(len(processing))
+        monthly_revenue.append(round(sum(_amount(charge.amount) for charge in paid), 2))
+        monthly_payments.append(len(paid))
     account_labels = {"virtualpos1": "Cuenta 1", "virtualpos2": "Cuenta 2"}
     account_revenue = {label: 0.0 for label in account_labels.values()}
     account_subscriptions = {label: 0 for label in account_labels.values()}
@@ -244,8 +269,8 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
         e = _as_date(sub.canceled_at) or end
         return max(0.0, (e - s).days / 30.44)
 
-    vida_prom_val = round(sum(_lifetime_months(s) for s in historical_subscriptions) / len(historical_subscriptions), 1) if historical_subscriptions else 0
-    vida_prom_activas_val = round(sum(_lifetime_months(s) for s in active_at_end) / len(active_at_end), 1) if active_at_end else 0
+    avg_lifetime = round(sum(_lifetime_months(s) for s in historical_subscriptions) / len(historical_subscriptions), 1) if historical_subscriptions else 0
+    avg_lifetime_active = round(sum(_lifetime_months(s) for s in active_at_end) / len(active_at_end), 1) if active_at_end else 0
 
     # ── tabla activas ─────────────────────────────────────────────────────────
     active_table = []
@@ -280,61 +305,61 @@ def _virtualpos_report_data(db: Session, start: date, end: date) -> dict[str, An
     sub_charges_map: dict[tuple[str, str], list[Charge]] = defaultdict(list)
     for charge in sorted(charges, key=lambda c: (c.charge_date or "")):
         sub_charges_map[(charge.source, charge.subscription_external_id or "")].append(charge)
-    racha_list: list[dict[str, Any]] = []
+    streak_list: list[dict[str, Any]] = []
     for (src, sid), clist in sub_charges_map.items():
         streak = 0
         for charge in clist:
-            if _status(charge.status) == "Rechazadas":
+            if _charge_status(charge.status, charge.charge_date, today_chile) == "Rechazadas":
                 streak += 1
             else:
                 streak = 0
             if streak >= 3:
                 sub = subscription_by_id.get((src, sid))
-                racha_list.append({"sev": "alta", "tipo": "Racha de rechazos", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": _amount(charge.amount), "detalle": f"{streak} rechazos consecutivos — riesgo de caída"})
+                streak_list.append({"sev": "alta", "tipo": "Racha de rechazos", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": _amount(charge.amount), "detalle": f"{streak} rechazos consecutivos — riesgo de caída"})
                 break
-    alert_counts["Racha de rechazos"] = len(racha_list)
-    alerts.extend(racha_list[:100])
+    alert_counts["Racha de rechazos"] = len(streak_list)
+    alerts.extend(streak_list[:100])
 
     # 3. Suscripción fallida — nunca cobró (media)
     paid_sub_keys = {(c.source, c.subscription_external_id) for c in paid_charges}
-    fallidas: list[dict[str, Any]] = []
+    failed_subscriptions: list[dict[str, Any]] = []
     for sub in historical_subscriptions:
         if (sub.source, sub.external_id) not in paid_sub_keys:
-            fallidas.append({"sev": "media", "tipo": "Suscripción fallida", "cliente": _cname(sub.source, sub.client_external_id, sub), "cuenta": account_labels[sub.source], "producto": _text(sub.external_id), "monto": _amount(sub.amount), "detalle": "Nunca registró un cobro aceptado"})
-    alert_counts["Suscripción fallida"] = len(fallidas)
-    alerts.extend(fallidas[:100])
+            failed_subscriptions.append({"sev": "media", "tipo": "Suscripción fallida", "cliente": _cname(sub.source, sub.client_external_id, sub), "cuenta": account_labels[sub.source], "producto": _text(sub.external_id), "monto": _amount(sub.amount), "detalle": "Nunca registró un cobro aceptado"})
+    alert_counts["Suscripción fallida"] = len(failed_subscriptions)
+    alerts.extend(failed_subscriptions[:100])
 
     # 4. Cobro múltiple en el mes (media)
     paid_per_sub_month: dict[tuple[str, str, str], int] = defaultdict(int)
     for charge in paid_charges:
         if charge.charge_date:
             paid_per_sub_month[(charge.source, charge.subscription_external_id or "", charge.charge_date[:7])] += 1
-    multiples: list[dict[str, Any]] = []
-    seen_mult: set[tuple[str, str]] = set()
+    multiple_charges: list[dict[str, Any]] = []
+    seen_multiple: set[tuple[str, str]] = set()
     for (src, sid, month), count in sorted(paid_per_sub_month.items()):
-        if count >= 2 and (src, sid) not in seen_mult:
-            seen_mult.add((src, sid))
+        if count >= 2 and (src, sid) not in seen_multiple:
+            seen_multiple.add((src, sid))
             sub = subscription_by_id.get((src, sid))
-            multiples.append({"sev": "media", "tipo": "Cobro múltiple en el mes", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": 0.0, "detalle": f"{count} cobros aceptados en {month}"})
-    alert_counts["Cobro múltiple en el mes"] = len(multiples)
-    alerts.extend(multiples[:80])
+            multiple_charges.append({"sev": "media", "tipo": "Cobro múltiple en el mes", "cliente": _cname(src, sub.client_external_id if sub else None, sub), "cuenta": account_labels.get(src, src), "producto": _text(sid), "monto": 0.0, "detalle": f"{count} cobros aceptados en {month}"})
+    alert_counts["Cobro múltiple en el mes"] = len(multiple_charges)
+    alerts.extend(multiple_charges[:80])
 
     # 5. Cliente con múltiples activas (baja)
     client_active_map: dict[tuple[str, str], list[Subscription]] = defaultdict(list)
     for sub in active_at_end:
         client_active_map[(sub.source, sub.client_external_id or "")].append(sub)
-    multi_activas: list[dict[str, Any]] = []
+    multiple_active: list[dict[str, Any]] = []
     for (src, cid), subs in client_active_map.items():
         if len(subs) >= 2:
-            multi_activas.append({"sev": "baja", "tipo": "Cliente con múltiples activas", "cliente": _cname(src, cid), "cuenta": account_labels.get(src, src), "producto": _text(", ".join(s.external_id or "" for s in subs[:3])), "monto": 0.0, "detalle": f"{len(subs)} suscripciones activas simultáneas"})
-    alert_counts["Cliente con múltiples activas"] = len(multi_activas)
-    alerts.extend(multi_activas[:50])
+            multiple_active.append({"sev": "baja", "tipo": "Cliente con múltiples activas", "cliente": _cname(src, cid), "cuenta": account_labels.get(src, src), "producto": _text(", ".join(s.external_id or "" for s in subs[:3])), "monto": 0.0, "detalle": f"{len(subs)} suscripciones activas simultáneas"})
+    alert_counts["Cliente con múltiples activas"] = len(multiple_active)
+    alerts.extend(multiple_active[:50])
 
     total_revenue = round(sum(_amount(charge.amount) for charge in paid_charges), 2)
     total_attempts = len(paid_charges) + len(rejected_charges)
     return {
-        "kpis": {"total_subs": len(historical_subscriptions), "n_activas": len(active_at_end), "total_clientes": len(clients_at_end), "total_recaudado": total_revenue, "total_comision": 0, "total_abono": total_revenue, "cobrabilidad": round(100 * len(paid_charges) / total_attempts, 1) if total_attempts else 0, "vida_prom": vida_prom_val, "vida_prom_activas": vida_prom_activas_val, "recaud_prom_sub": round(total_revenue / len(historical_subscriptions), 0) if historical_subscriptions else 0, "recaud_prom_activa": round(total_revenue / len(active_at_end), 0) if active_at_end else 0, "churn_prom": round(sum(churn) / len(churn), 2) if churn else 0, "total_cargos": len(charges), "cargos_pag": len(paid_charges), "cargos_rec": len(rejected_charges), "ticket_prom": round(total_revenue / len(paid_charges), 0) if paid_charges else 0, "pct_comision": 0},
-        "meses": months, "altas": altas, "bajas": bajas, "activas_acum": active_count_by_month, "churn": churn, "deu_pag": deu_pag, "deu_nop": deu_nop, "int_ok": int_ok, "int_fail": int_fail, "cg_can": cg_can, "cg_pro": cg_pro, "rec_mes": rec_mes, "com_mes": [0] * len(months), "pagos_mes": pagos_mes,
+        "kpis": {"total_subs": len(historical_subscriptions), "n_activas": len(active_at_end), "total_clientes": len(clients_at_end), "total_recaudado": total_revenue, "total_comision": 0, "total_abono": total_revenue, "cobrabilidad": round(100 * len(paid_charges) / total_attempts, 1) if total_attempts else 0, "vida_prom": avg_lifetime, "vida_prom_activas": avg_lifetime_active, "recaud_prom_sub": round(total_revenue / len(historical_subscriptions), 0) if historical_subscriptions else 0, "recaud_prom_activa": round(total_revenue / len(active_at_end), 0) if active_at_end else 0, "churn_prom": round(sum(churn) / len(churn), 2) if churn else 0, "total_cargos": len(charges), "cargos_pag": len(paid_charges), "cargos_rec": len(rejected_charges), "ticket_prom": round(total_revenue / len(paid_charges), 0) if paid_charges else 0, "pct_comision": 0},
+        "meses": months, "altas": signups, "bajas": cancellations, "activas_acum": active_count_by_month, "churn": churn, "deu_pag": debts_paid, "deu_nop": debts_unpaid, "int_ok": attempts_ok, "int_fail": attempts_failed, "cg_can": charges_cancelled, "cg_pro": charges_processing, "rec_mes": monthly_revenue, "com_mes": [0] * len(months), "pagos_mes": monthly_payments,
         "estado_dist": {"ACTIVA": len(active_at_end), "CANCELADA": len(historical_subscriptions) - len(active_at_end)}, "rec_cuenta": account_revenue, "subs_cuenta": account_subscriptions, "alertas_resumen": alert_counts, "n_alertas": sum(alert_counts.values()), "alertas": alerts, "tabla_activas": active_table[:200],
     }
 
@@ -414,10 +439,10 @@ def _generic_alerts(scope: str, snapshot: dict[str, Any], series: dict[str, list
         can_by_month[f"{entry['year']}-{int(entry['month']):02d}"] += int(entry.get("count", 0))
     all_months = sorted(set(act_by_month) | set(can_by_month))
     for month in all_months:
-        altas = act_by_month[month]
-        bajas = can_by_month[month]
-        if bajas > altas and bajas > 0:
-            alerts.append({"sev": "media", "tipo": "Saldo negativo de suscripciones", "detalle": f"{month}: {bajas} bajas vs {altas} altas"})
+        signups = act_by_month[month]
+        cancellations = can_by_month[month]
+        if cancellations > signups and cancellations > 0:
+            alerts.append({"sev": "media", "tipo": "Saldo negativo de suscripciones", "detalle": f"{month}: {cancellations} bajas vs {signups} altas"})
 
     # 3. Tasa de rechazo global del período
     total_ok = sum(v["ok"] for v in charge_by_month.values())
@@ -429,9 +454,9 @@ def _generic_alerts(scope: str, snapshot: dict[str, Any], series: dict[str, list
             alerts.insert(0, {"sev": "alta" if global_rate > 50 else "media", "tipo": "Tasa de rechazo global elevada", "detalle": f"Período completo: {global_rate:.1f}% de rechazos ({total_fail} de {total_all} cargos)"})
 
     if scope == "tch":
-        tasa = snapshot.get("tasa_rechazo", 0)
-        if isinstance(tasa, (int, float)) and tasa > 15:
-            alerts.insert(0, {"sev": "alta" if tasa > 30 else "media", "tipo": "Tasa de rechazo operacional", "detalle": f"Tasa histórica global: {tasa}% — supera umbral de alerta"})
+        rate = snapshot.get("tasa_rechazo", 0)
+        if isinstance(rate, (int, float)) and rate > 15:
+            alerts.insert(0, {"sev": "alta" if rate > 30 else "media", "tipo": "Tasa de rechazo operacional", "detalle": f"Tasa histórica global: {rate}% — supera umbral de alerta"})
     return alerts
 
 
@@ -576,7 +601,7 @@ def _auto_period_data(db: Session, dfrom: date, dto: date) -> dict[str, Any]:
     start_iso = dfrom.isoformat()
     end_iso = dto.isoformat()
     numeric_charge = case((Charge.amount.op("~")(r"^\d+(\.\d+)?$"), cast(Charge.amount, Numeric)), else_=0)
-    numeric_tch = case((TchTransaccion.monto.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaccion.monto, Numeric)), else_=0)
+    numeric_tch = case((TchTransaction.amount.op("~")(r"^\d+(\.\d+)?$"), cast(TchTransaction.amount, Numeric)), else_=0)
 
     # Payku statuses that are never real active subscriptions.
     # "register": payment method setup never completed.
@@ -713,67 +738,74 @@ def _auto_period_data(db: Session, dfrom: date, dto: date) -> dict[str, Any]:
         ).all()
     }
 
-    rejected = dict(db.execute(
-        select(Charge.source, func.count())
-        .where(
-            func.substring(Charge.charge_date, 1, 10).between(start_iso, end_iso),
-            func.lower(Charge.status).in_(("rechazado", "rejected", "failed", "failure")),
-        )
-        .group_by(Charge.source)
-    ).all())
+    # UI-30: rechazo con la definicion unica de charge_stats (fecha <= hoy en Chile, sin cancelados/expirados/anulados;
+    # tasa = rechazados / (pagados + rechazados)). Antes el denominador eran TODOS los cargos del rango.
+    charge_day = func.substring(Charge.charge_date, 1, 10)
+    charge_rows_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for src, day, status, cnt in db.execute(
+        select(Charge.source, charge_day, Charge.status, func.count())
+        .where(charge_day.between(start_iso, end_iso))
+        .group_by(Charge.source, charge_day, Charge.status)
+    ).all():
+        charge_rows_by_source[src].append({"date": day, "status": status, "count": int(cnt)})
+    stats_until = min(dto, chile_today())
+    charge_stats_by_source = {
+        src: charge_rejection_stats(rows, stats_until, since=dfrom) for src, rows in charge_rows_by_source.items()
+    }
+    rejected = {src: s["rejected"] for src, s in charge_stats_by_source.items()}
+    total_charges = {src: s["evaluable"] for src, s in charge_stats_by_source.items()}
 
-    total_charges = dict(db.execute(
-        select(Charge.source, func.count())
-        .where(func.substring(Charge.charge_date, 1, 10).between(start_iso, end_iso))
-        .group_by(Charge.source)
-    ).all())
-
-    tch_new = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_activacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_activacion, 1, 10).between(start_iso, end_iso),
+    tch_new = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.activation_date.isnot(None),
+        func.substring(TchSubscription.activation_date, 1, 10).between(start_iso, end_iso),
     )) or 0
-    tch_can = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_eliminacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_eliminacion, 1, 10).between(start_iso, end_iso),
+    tch_can = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.deletion_date.isnot(None),
+        func.substring(TchSubscription.deletion_date, 1, 10).between(start_iso, end_iso),
     )) or 0
-    tch_act_start = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_activacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_activacion, 1, 10) < start_iso,
-        or_(TchSuscripcion.fecha_eliminacion.is_(None), func.substring(TchSuscripcion.fecha_eliminacion, 1, 10) >= start_iso),
+    tch_act_start = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.activation_date.isnot(None),
+        func.substring(TchSubscription.activation_date, 1, 10) < start_iso,
+        or_(TchSubscription.deletion_date.is_(None), func.substring(TchSubscription.deletion_date, 1, 10) >= start_iso),
     )) or 0
-    tch_act_end = db.scalar(select(func.count()).select_from(TchSuscripcion).where(
-        TchSuscripcion.fecha_activacion.isnot(None),
-        func.substring(TchSuscripcion.fecha_activacion, 1, 10) <= end_iso,
-        or_(TchSuscripcion.fecha_eliminacion.is_(None), func.substring(TchSuscripcion.fecha_eliminacion, 1, 10) > end_iso),
+    tch_act_end = db.scalar(select(func.count()).select_from(TchSubscription).where(
+        TchSubscription.activation_date.isnot(None),
+        func.substring(TchSubscription.activation_date, 1, 10) <= end_iso,
+        or_(TchSubscription.deletion_date.is_(None), func.substring(TchSubscription.deletion_date, 1, 10) > end_iso),
     )) or 0
     tch_rev_row = db.execute(
         select(func.count(), func.coalesce(func.sum(numeric_tch), 0))
-        .select_from(TchTransaccion)
+        .select_from(TchTransaction)
         .where(
-            TchTransaccion.fecha_cargo.isnot(None),
-            func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
-            func.upper(TchTransaccion.estado) == "ACEPTADA",
+            TchTransaction.charge_date.isnot(None),
+            func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
+            func.upper(TchTransaction.status) == "ACEPTADA",
         )
     ).one()
     tch_rev_count, tch_rev_amount = int(tch_rev_row[0] or 0), float(tch_rev_row[1] or 0)
-    tch_rejected = db.scalar(select(func.count()).select_from(TchTransaccion).where(
-        TchTransaccion.fecha_cargo.isnot(None),
-        func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
-        func.upper(TchTransaccion.estado) == "RECHAZADA",
-    )) or 0
-    tch_total = db.scalar(select(func.count()).select_from(TchTransaccion).where(
-        TchTransaccion.fecha_cargo.isnot(None),
-        func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
-    )) or 0
+    tch_day = func.substring(TchTransaction.charge_date, 1, 10)
+    tch_charge_stats = charge_rejection_stats(
+        (
+            {"date": day, "status": status, "count": int(cnt)}
+            for day, status, cnt in db.execute(
+                select(tch_day, TchTransaction.status, func.count())
+                .where(TchTransaction.charge_date.isnot(None), tch_day.between(start_iso, end_iso))
+                .group_by(tch_day, TchTransaction.status)
+            ).all()
+        ),
+        stats_until,
+        since=dfrom,
+    )
+    tch_rejected, tch_total = tch_charge_stats["rejected"], tch_charge_stats["evaluable"]
     tch_reasons = db.execute(
-        select(TchTransaccion.razon_rechazo, func.count())
+        select(TchTransaction.rejection_reason, func.count())
         .where(
-            TchTransaccion.fecha_cargo.isnot(None),
-            func.substring(TchTransaccion.fecha_cargo, 1, 10).between(start_iso, end_iso),
-            func.upper(TchTransaccion.estado) == "RECHAZADA",
-            TchTransaccion.razon_rechazo.isnot(None),
+            TchTransaction.charge_date.isnot(None),
+            func.substring(TchTransaction.charge_date, 1, 10).between(start_iso, end_iso),
+            func.upper(TchTransaction.status) == "RECHAZADA",
+            TchTransaction.rejection_reason.isnot(None),
         )
-        .group_by(TchTransaccion.razon_rechazo)
+        .group_by(TchTransaction.rejection_reason)
         .order_by(func.count().desc())
         .limit(15)
     ).all()

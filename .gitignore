@@ -39,3 +39,18 @@ postman/
 Claude outputs/
 uvicorn.log
 uvicorn_err.log
+
+.env.*
+!.env.example
+# Config de Vite del sandbox: solo puerto y proxy, sin secretos.
+!frontend/.env.sandbox
+
+# Informes de la suite de contrato (drift doc vs proveedor)
+reports/contract/
+
+# Reportes descargados de los proveedores (traen datos personales de socios)
+*.xlsx
+*.xls
+
+# Reportes descargados de los portales (contienen datos personales)
+docs/Reportes_*/

@@ -25,7 +25,7 @@ def test_login_sets_session_and_requires_csrf_for_logout(monkeypatch) -> None:
     finally:
         db.close()
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     login = client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"})
 
     assert login.status_code == 200

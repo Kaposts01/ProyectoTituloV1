@@ -11,11 +11,12 @@ from app.models.payku_channel import PaykuSubscription, PaykuTransaction
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
 from app.models.tch import (
-    TchCliente,
-    TchRecaudacionMensual,
-    TchSuscripcion,
-    TchTransaccion,
+    TchClient,
+    TchMonthlyCollection,
+    TchSubscription,
+    TchTransaction,
 )
+from app.services import rejected_month
 from app.services.channel_store import (
     extract_payku_subscription,
     extract_payku_transaction,
@@ -235,15 +236,22 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
                 source="payku", external_id="general-payku-rejected", status="rejected", amount="900",
                 payment_date="2099-04-02", raw_payload={},
             ),
-            TchCliente(rut="99.999.999-9"),
-            TchSuscripcion(
-                numero_ficha=999999, estado="VIGENTE", monto="2000", fecha_activacion="2099-04-03"
+            TchClient(rut="99.999.999-9"),
+            TchSubscription(
+                file_number=999999, status="VIGENTE", amount="2000", activation_date="2099-04-03"
             ),
-            TchTransaccion(numero_ficha=999999, periodo="2099-04", estado="ACEPTADA", monto="2000"),
-            TchRecaudacionMensual(
-                periodo="2099-04", aceptadas_cantidad=1, aceptadas_monto="2000",
-                rechazadas_cantidad=0, rechazadas_monto="0", archivo_origen="control.xlsx",
+            TchTransaction(file_number=999999, period="2099-04", status="ACEPTADA", amount="2000"),
+            # Tarjetas de rechazo = universo de CARGOS hasta hoy (no meses futuros): periodo pasado.
+            TchMonthlyCollection(
+                period="2026-09", accepted_count=1, accepted_amount="2000",
+                rejected_count=0, rejected_amount="0", source_file="control.xlsx",
             ),
+            Charge(source="payku", external_id="general-payku-charge-ok", status="pagado",
+                   charge_date="2026-09-02", raw_payload={}),
+            Charge(source="payku", external_id="general-payku-charge-rej", status="rechazado",
+                   charge_date="2026-09-02", raw_payload={}),
+            Charge(source="payku", external_id="general-payku-charge-cancel", status="cancelado",
+                   charge_date="2026-09-02", raw_payload={}),
         ]
     )
     db_session.flush()
@@ -260,12 +268,17 @@ def test_general_dashboard_aggregates_canonical_channels_and_tch(db_session) -> 
     assert {entry["status"] for entry in response["activations_monthly"] if entry["year"] == 2099} >= {"Payku", "TCH"}
 
 
-def test_pending_payments_counts_only_nonterminal_charges(db_session) -> None:
+def test_pending_payments_counts_only_explicit_pending_charges(db_session, monkeypatch) -> None:
+    # Los cobros de prueba llevan fecha 2099: "hoy" (Chile) se fija despues para que no sean futuros (VP-PAR-10).
+    monkeypatch.setattr(rejected_month, "now_chile", lambda: datetime(2099, 12, 31, 12, tzinfo=rejected_month.CHILE_TZ))
+    # Antes 'in_progress' (estado no terminal desconocido) contaba como pendiente; ahora solo estados
+    # explicitamente pendientes (pendiente/pending/procesando). Ver tests/test_dashboard_data_integrity.py.
     staging.invalidate_dashboard_cache()
     before = staging.general_dashboard(db=db_session)
     db_session.add_all([
         Charge(source="payku", external_id="pend-1", status="pending", charge_date="2099-05-01", raw_payload={}),
-        Charge(source="payku", external_id="pend-2", status="in_progress", charge_date="2099-05-01", raw_payload={}),
+        Charge(source="payku", external_id="pend-2", status="Pendiente", charge_date="2099-05-01", raw_payload={}),
+        Charge(source="payku", external_id="pend-3", status="in_progress", charge_date="2099-05-01", raw_payload={}),
         Charge(source="payku", external_id="term-paid", status="pagado", charge_date="2099-05-01", raw_payload={}),
         Charge(source="payku", external_id="term-rej", status="rejected", charge_date="2099-05-01", raw_payload={}),
     ])
@@ -320,7 +333,8 @@ def test_dashboard_channel_endpoint_returns_subset_by_source(db_session) -> None
         assert "transactions_monthly" in data
 
 
-def test_report_series_filters_events_to_the_requested_date_range(db_session) -> None:
+def test_report_series_filters_events_to_the_requested_date_range(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(reports, "chile_today", lambda: date(2099, 12, 31))  # UI-30: los cargos futuros no cuentan
     db_session.add_all(
         [
             Payment(source="payku", external_id="report-in", status="success", amount="1200", payment_date="2099-04-15", raw_payload={}),
@@ -345,7 +359,8 @@ def test_report_dates_require_a_strictly_increasing_range() -> None:
         reports._parse_date("04-01-2099", "date_from")
 
 
-def test_virtualpos_report_uses_historical_snapshot_and_period_charges(db_session) -> None:
+def test_virtualpos_report_uses_historical_snapshot_and_period_charges(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(reports, "chile_today", lambda: date(2099, 12, 31))  # UI-30: los cargos futuros no cuentan
     db_session.add_all(
         [
             Client(source="virtualpos1", external_id="report-client", provider_created_at="2099-04-01", raw_payload={}),
@@ -644,7 +659,7 @@ def test_virtualpos_plan_detail_lists_subscriptions_by_plan_id(db_session) -> No
     assert response["subscriptions"][0]["external_id"] == "plan-subscription-1"
 
 
-def test_virtualpos_plan_list_counts_non_failed_active_and_cobrable_subscriptions(db_session) -> None:
+def test_virtualpos_plan_list_counts_non_failed_active_and_collectible_subscriptions(db_session) -> None:
     db_session.add_all(
         [
             Plan(source="virtualpos1", external_id="metrics-plan", raw_payload={"id": "metrics-plan"}),
@@ -1083,8 +1098,8 @@ def test_general_subscriptions_combine_channels_and_filter_fields(db_session) ->
         [
             Client(source="toku", external_id="general-sub-client", social_id="88.777.666-5", first_name="Pablo", last_name="Cliente", raw_payload={}),
             Subscription(source="toku", external_id="general-sub-toku", client_external_id="general-sub-client", status="active", amount="2500", currency="CLP", suscription_date="2099-05-01", raw_payload={}),
-            TchCliente(rut="77.666.555-4", nombre="Tania", apellido="TCH"),
-            TchSuscripcion(numero_ficha=987654, cliente_rut="77.666.555-4", estado="VIGENTE", equivalente_pesos="3500", fecha_activacion="2099-05-02"),
+            TchClient(rut="77.666.555-4", name="Tania", last_name="TCH"),
+            TchSubscription(file_number=987654, client_rut="77.666.555-4", status="VIGENTE", peso_equivalent="3500", activation_date="2099-05-02"),
         ]
     )
     db_session.flush()
@@ -1109,7 +1124,7 @@ def test_general_subscriptions_exclude_non_operational_statuses(db_session) -> N
             Subscription(source="virtualpos1", external_id="excluded-vp", status="SUSCRIPCION_FALLIDA", raw_payload={}),
             Subscription(source="payku", external_id="excluded-payku", status="register", raw_payload={}),
             Subscription(source="tch", external_id="excluded-tch-canonical", status="RECHAZADA", raw_payload={}),
-            TchSuscripcion(numero_ficha=765432, estado="RECHAZADA"),
+            TchSubscription(file_number=765432, status="RECHAZADA"),
             Subscription(source="virtualpos1", external_id="included-vp", status="ACTIVA", raw_payload={}),
         ]
     )
@@ -1126,3 +1141,177 @@ def test_general_dashboard_routes_precede_the_provider_detail_route() -> None:
 
     assert paths.index("/dashboard/general/clients") < paths.index("/{source}/{resource_type}/{external_id}")
     assert paths.index("/dashboard/general/subscriptions") < paths.index("/{source}/{resource_type}/{external_id}")
+
+
+# --- TK-10: filtro/orden por secondary_status son globales (antes de paginar) ---
+
+def _seed_secondary_status_subs(db_session, source: str, prefix: str) -> dict[str, str]:
+    """Siembra suscripciones activas con 3 estados secundarios distintos; devuelve {external_id: estado}."""
+    expected = {
+        f"{prefix}-cobrable-a": "cobrable",
+        f"{prefix}-cobrable-b": "cobrable",
+        f"{prefix}-incobrable-a": "incobrable",
+        f"{prefix}-incobrable-b": "incobrable",
+        f"{prefix}-nunca": "Nunca Cobrado",
+        f"{prefix}-inactiva": "inactiva",
+    }
+    paid_dates = {"cobrable": "2099-04-01", "incobrable": "2000-01-01"}
+    rows: list = []
+    for external_id, secondary in expected.items():
+        rows.append(
+            Subscription(
+                source=source,
+                external_id=external_id,
+                status="CANCELED" if secondary == "inactiva" else "ACTIVE",
+                raw_payload={"id": external_id},
+            )
+        )
+        if secondary in paid_dates:
+            if source == "toku":
+                rows.append(
+                    Payment(
+                        source="toku",
+                        external_id=f"{external_id}-tx",
+                        status="SUCCESS",
+                        payment_date=paid_dates[secondary],
+                        raw_payload={"payment_intents": [{"id_subscription": external_id}]},
+                    )
+                )
+            else:
+                rows.append(
+                    Charge(
+                        source=source,
+                        external_id=f"{external_id}-charge",
+                        subscription_external_id=external_id,
+                        status="pagado",
+                        charge_date=paid_dates[secondary],
+                        raw_payload={},
+                    )
+                )
+    db_session.add_all(rows)
+    db_session.flush()
+    return expected
+
+
+@pytest.mark.parametrize("source,prefix", [("toku", "tk10-toku"), ("virtualpos", "tk10-vp")])
+def test_secondary_status_filter_is_global_before_pagination(db_session, source, prefix) -> None:
+    db_source = "virtualpos1" if source == "virtualpos" else source
+    expected = _seed_secondary_status_subs(db_session, db_source, prefix)
+    mine = {k for k in expected}
+
+    def fetch(**kwargs):
+        return staging.list_records(
+            source=source, resource_type="subscription", filter_field="secondary_status",
+            query="cobrable", db=db_session, **kwargs,
+        )
+
+    full = fetch(limit=100000, offset=0)
+    full_ids = [item["external_id"] for item in full["items"]]
+    # total refleja el filtrado completo, no la pagina ni el universo sin filtrar
+    assert full["total"] == len(full_ids)
+    assert {i for i in full_ids if i in mine} == {f"{prefix}-cobrable-a", f"{prefix}-cobrable-b"}
+    assert all(item["secondary_status"] == "cobrable" for item in full["items"])
+
+    # Pagina 2 con limit pequeno: mismos registros que el corte global, con total global
+    page2 = fetch(limit=1, offset=1)
+    assert page2["total"] == full["total"]
+    assert page2["offset"] == 1 and page2["limit"] == 1
+    assert [item["external_id"] for item in page2["items"]] == full_ids[1:2]
+    assert all(item["secondary_status"] == "cobrable" for item in page2["items"])
+
+    # Paginas sucesivas (y la ultima) coinciden con el corte global; acotado para no hacer N consultas
+    for offset in (0, 2, 4, max(full["total"] - 2, 0)):
+        page = fetch(limit=2, offset=offset)
+        assert page["total"] == full["total"]
+        assert [item["external_id"] for item in page["items"]] == full_ids[offset: offset + 2]
+
+    # Offset mas alla del total: sin items, total intacto
+    beyond = fetch(limit=2, offset=full["total"] + 10)
+    assert beyond["items"] == [] and beyond["total"] == full["total"]
+
+
+@pytest.mark.parametrize("source,prefix", [("toku", "tk10s-toku"), ("virtualpos", "tk10s-vp")])
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+def test_secondary_status_sort_is_global_before_pagination(db_session, source, prefix, direction) -> None:
+    db_source = "virtualpos1" if source == "virtualpos" else source
+    expected = _seed_secondary_status_subs(db_session, db_source, prefix)
+
+    def fetch(**kwargs):
+        return staging.list_records(
+            source=source, resource_type="subscription", sort_field="secondary_status",
+            sort_direction=direction, db=db_session, **kwargs,
+        )
+
+    full = fetch(limit=100000, offset=0)
+    full_ids = [item["external_id"] for item in full["items"]]
+    keys = [item["secondary_status"].casefold() for item in full["items"]]
+    assert keys == sorted(keys, reverse=direction == "desc")
+    assert {i for i in full_ids if i.startswith(prefix)} == set(expected)
+
+    # Cada pagina (offset > 0, limit pequeno) es el corte del orden global y total no es el de la pagina
+    for offset in (0, 3, max(full["total"] - 3, 0)):
+        page = fetch(limit=3, offset=offset)
+        assert page["total"] == full["total"] == len(full_ids)
+        assert [item["external_id"] for item in page["items"]] == full_ids[offset: offset + 3]
+    page2 = fetch(limit=2, offset=2)
+    assert [item["external_id"] for item in page2["items"]] == full_ids[2:4]
+
+
+def test_month_coverage_gaps_helper() -> None:
+    gaps = staging._month_coverage_gaps
+    assert gaps([]) == []
+    assert gaps([{"year": 2099, "month": 3}]) == []
+    assert gaps([{"year": 2099, "month": 3}, {"year": 2099, "month": 4}]) == []
+    assert gaps([{"year": 2098, "month": 11}, {"year": 2099, "month": 2}]) == [
+        {"year": 2098, "month": 12},
+        {"year": 2099, "month": 1},
+    ]
+    assert gaps([{"year": 2099, "month": 5}, {"year": 2099, "month": 5}, {"year": 2099, "month": 7}]) == [
+        {"year": 2099, "month": 6}
+    ]
+
+
+def test_toku_activity_uses_payments_and_keeps_invoice_activity(db_session) -> None:
+    db_session.add_all(
+        [
+            Charge(source="toku", external_id="act-inv-1", client_external_id="c", status="PAID", amount="2000", charge_date="2097-03-01", raw_payload={}),
+            Payment(source="toku", external_id="act-pay-1", client_external_id="c", status="SUCCESS", amount="1500", payment_date="2098-05-02", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+    dashboard = staging.channel_dashboard("toku", db=db_session)
+    assert dashboard["activity_resource"] == "transaction"
+    assert any(e["year"] == 2098 and e["month"] == 5 for e in dashboard["activity"])
+    assert not any(e["year"] == 2097 for e in dashboard["activity"])
+    assert any(e["year"] == 2097 and e["month"] == 3 for e in dashboard["invoice_activity"])
+    assert {2097, 2098} <= set(dashboard["years"])
+
+
+def test_payku_dashboard_exposes_coverage_gaps(db_session) -> None:
+    db_session.add_all(
+        [
+            Payment(source="payku", external_id="gap-1", status="SUCCESS", amount="100", payment_date="2097-11-05", raw_payload={}),
+            Payment(source="payku", external_id="gap-2", status="SUCCESS", amount="100", payment_date="2098-02-05", raw_payload={}),
+        ]
+    )
+    db_session.flush()
+    gaps = staging.channel_dashboard("payku", db=db_session)["coverage_gaps"]
+    assert {"year": 2097, "month": 12} in gaps and {"year": 2098, "month": 1} in gaps
+    assert {"year": 2097, "month": 11} not in gaps
+
+
+def test_toku_subscription_list_exposes_consolidated_start_and_end_dates(db_session) -> None:
+    # L6-DASH (ficha d142): la API de Toku no trae la baja de una eliminada (solo el reporte de Productos) y su
+    # `anchor` es el proximo cobro. La lista entrega las fechas consolidadas para las columnas F. Inicio / F. Cancelacion.
+    db_session.add(Subscription(
+        source="toku", external_id="l6-deleted-sub", status="CANCELLED", amount="1000",
+        suscription_date="2024-06-06", canceled_at="2025-06-17",
+        raw_payload={"id": "l6-deleted-sub", "recurring": {"anchor": "2026-12-01"}},
+    ))
+    db_session.flush()
+    response = staging.list_records(
+        source="toku", resource_type="subscription", filter_field="id", query="l6-deleted-sub", db=db_session
+    )
+    item = next(i for i in response["items"] if i["external_id"] == "l6-deleted-sub")
+    assert (item["start_date"], item["end_date"]) == ("2024-06-06", "2025-06-17")
+    assert "end_date" not in item["payload"]  # el payload crudo no se toca

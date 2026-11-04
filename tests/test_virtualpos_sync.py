@@ -10,7 +10,9 @@ from app.db.session import engine
 from app.models.crm import Charge, Client, Payment, Plan, Subscription
 from app.models.source_record import SourceRecord
 from app.models.sync_run import SyncRun
-from app.models.write_run import WriteRun  # noqa: F401 — registra la tabla en metadata antes de resolve FK
+from app.models.write_run import (
+    WriteRun,  # noqa: F401 — registra la tabla en metadata antes de resolve FK
+)
 from app.services import virtualpos_sync
 
 

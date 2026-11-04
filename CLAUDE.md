@@ -13,7 +13,7 @@ Follow [AGENTS.md](AGENTS.md) for operational rules.
 ### Architecture and current state
 
 - [PROJECT_STATE.md](docs/memory/PROJECT_STATE.md) records the current operational context.
-- [Current sprint](docs/memory/CURRENT_SPRINT.md) records active work.
+- [Plan and status](docs/tasks.md) is the single source of truth for the plan, sprints, backlog, and task status ([Current sprint](docs/memory/CURRENT_SPRINT.md) and [Roadmap](docs/product/roadmap.md) are only pointers to it).
 - [Architecture](docs/architecture/) describes the current documented architecture.
 
 ### Formal decisions
@@ -192,6 +192,7 @@ See [Technical Debt](knowledge/08%20-%20Roadmap/Technical%20Debt.md) for detail.
 
 - [AGENTS.md](AGENTS.md)
 - [Project state](docs/memory/PROJECT_STATE.md)
+- [Plan and status](docs/tasks.md)
 - [Architecture](docs/architecture/)
 - [ADRs](docs/decisions/)
 - [Knowledge Home](knowledge/00%20-%20Home/SynkmetriX.md)
@@ -205,8 +206,8 @@ Read [DESIGN.md](DESIGN.md) before any visual or UI work: defines fonts, colors,
 Key rules from DESIGN.md:
 - Cabinet Grotesk (Fontshare) for display/headings, General Sans (Fontshare) for body/UI
 - JetBrains Mono for ALL numeric data values: RUTs, IDs, amounts, timestamps
-- Sidebar always in brand teal (#1a3d47 light / #091418 dark)
-- Dark mode derives from teal, not from any external palette
+- Sidebar always navy blue (#111727 light / #0a0f1c dark), decision D1 2026-10-29
+- Surfaces, primary and action colors are blue-gray and blue in light and dark (decision D27); chart series use the violet/indigo `--series-N` tokens (D19). See DESIGN.md for the exact tokens
 - No nested cards; no colored left-border on cards; no Inter in any role
 
 ## Health Stack

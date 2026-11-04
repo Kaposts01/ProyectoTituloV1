@@ -13,7 +13,7 @@ from app.main import app
 from app.models.auth import Permission, Role, User
 from app.models.core import ClientMatchCandidate, CoreClient, ExternalIdentity
 
-client = TestClient(app, raise_server_exceptions=False)
+client = TestClient(app, raise_server_exceptions=False, base_url="https://testserver")
 
 _CANDIDATE_URL = "/api/v1/core/identity/match-candidates"
 
@@ -55,7 +55,7 @@ def identity_client(isolated_db):
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: fake_user
 
-    yield TestClient(app)
+    yield TestClient(app, base_url="https://testserver")
 
     del app.dependency_overrides[get_db]
     del app.dependency_overrides[get_current_user]

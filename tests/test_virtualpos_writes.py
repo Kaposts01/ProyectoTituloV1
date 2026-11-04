@@ -151,7 +151,7 @@ def test_normalize_rut_accepts_common_formats_and_rejects_invalid_values() -> No
 
 
 def test_update_client_route_requires_authentication() -> None:
-    response = TestClient(app).put(
+    response = TestClient(app, base_url="https://testserver").put(
         "/api/v1/writes/virtualpos/clients/client-write-1",
         json={"first_name": "Después"},
     )

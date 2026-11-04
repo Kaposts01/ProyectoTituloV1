@@ -1,10 +1,11 @@
-import asyncio
 import json
 from typing import Any, Self
 
 import httpx
 
+from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
+from app.integrations.http_retry import send_with_retries
 from app.integrations.payku.auth import build_sign
 
 
@@ -12,9 +13,18 @@ class PaykuClient:
     """Client for the Payku API (/api/* endpoints)."""
 
     def __init__(self) -> None:
+        if not settings.is_production and not settings.channel_enabled("payku"):
+            raise RuntimeError(f"Payku esta deshabilitado en {settings.env_mode} (faltan variables PAYKU_SANDBOX_*)")
         api_key = settings.payku_api_key.strip()
         if api_key.lower().startswith("bearer "):
             api_key = api_key[7:].strip()
+        if not api_key or not settings.payku_secret_key.strip():
+            missing = tuple(
+                name
+                for name, value in (("PAYKU_API_KEY", api_key), ("PAYKU_SECRET_KEY", settings.payku_secret_key.strip()))
+                if not value
+            )
+            raise ChannelConfigError("Payku sin credenciales", missing)
         self._client = httpx.AsyncClient(
             base_url=settings.payku_base_url.rstrip("/"),
             timeout=settings.payku_timeout_seconds,
@@ -255,18 +265,11 @@ class PaykuClient:
     # ------------------------------------------------------------------ #
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        for attempt in range(settings.payku_read_retries + 1):
-            try:
-                response = await self._client.get(
-                    path,
-                    params=params,
-                    headers={"Sign": build_sign(path, params or {}, settings.payku_secret_key)},
-                )
-                break
-            except (httpx.ReadTimeout, httpx.ReadError, httpx.ConnectError):
-                if attempt == settings.payku_read_retries:
-                    raise
-                await asyncio.sleep(2**attempt)
+        # SYNC-D-10: solo las lecturas se reintentan (red, 429 y 5xx, con Retry-After y tope). POST/PUT/DELETE: un intento.
+        headers = {"Sign": build_sign(path, params or {}, settings.payku_secret_key)}
+        response = await send_with_retries(
+            lambda: self._client.get(path, params=params, headers=headers), retries=settings.payku_read_retries
+        )
         response.raise_for_status()
         return response.json()
 

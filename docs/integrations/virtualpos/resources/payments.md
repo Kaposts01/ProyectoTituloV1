@@ -972,6 +972,7 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 
 ### Consideraciones
 
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C08] (CONFIRMADO): `GET /v3/payments` devuelve los pagos como lista bajo la clave `payments`. Claves raíz observadas: `code`, `commerce`, `pagination`, `payments`, `status`. El sync del CRM leyó 5 registros.
 - Los filtros de fecha son `format: date` en la OpenAPI (usa `YYYY-MM-DD`).
 - El enum de `status` en este filtro incluye valores que no aparecen en la tabla del Objeto Payment: `suspendido`, `anulado`, `autorizando`.
 - Base de la sincronización incremental: consulta por ventana de `created_from/created_to` y, aparte, por `authorization_from/authorization_to` para capturar pagos que se autorizaron después.
