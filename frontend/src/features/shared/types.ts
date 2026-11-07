@@ -122,6 +122,8 @@ export type EtlRun = {
   finished_at: string | null;
   records_upserted: number;
   channels_processed: string[] | null;
+  /** Canales que fallaron en la corrida (QA-15). Opcional: el ETL antiguo no lo envía. */
+  channels_failed?: string[] | null;
   error_message: string | null;
 };
 export type SchedulerJob = { id: string; name: string; cron: string; next_run: string | null; last_run: EtlRun | null; status: string; active_run_id?: string | null };

@@ -40,7 +40,7 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
 
   useEffect(() => {
     if (!session || generalView !== "clients") return;
-    const params = new URLSearchParams({ limit: "100", offset: String(generalClientOffset), filter_field: generalClientFilter });
+    const params = new URLSearchParams({ limit: "50", offset: String(generalClientOffset), filter_field: generalClientFilter });
     if (generalClientChannel) params.set("canal", generalClientChannel);
     if (generalClientStatus) params.set("status", generalClientStatus);
     if (debouncedGeneralClientQuery.trim()) params.set("query", debouncedGeneralClientQuery.trim());

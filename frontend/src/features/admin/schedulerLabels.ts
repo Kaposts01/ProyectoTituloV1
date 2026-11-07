@@ -27,3 +27,13 @@ export function runTypeLabel(channels: string[] | null, enabled: string[]): stri
   if (channels.length === 1 && channels[0] === "tch") return "TCH (importación)";
   return channels.map((c) => short[c] ?? label("channel", c)).join(" + ");
 }
+
+/**
+ * QA-15: «Falló: Toku» para los canales que fallaron en una corrida. El tipo de la corrida solo nombra los canales que
+ * terminaron bien, así que un fallo de Toku dentro de una corrida «VP1 · Parcial» no se veía en el Historial.
+ */
+export function failedChannelsLabel(failed: string[] | null | undefined): string | null {
+  if (!failed || failed.length === 0) return null;
+  const short: Record<string, string> = { virtualpos1: "VP1", virtualpos2: "VP2", toku: "Toku", payku: "Payku", tch: "TCH" };
+  return `Falló: ${failed.map((c) => short[c] ?? label("channel", c)).join(", ")}`;
+}

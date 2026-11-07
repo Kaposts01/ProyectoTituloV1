@@ -235,7 +235,7 @@ describe("TCH: clientes (/tch/clientes)", () => {
   it("pide la lista, muestra columnas y filas y busca por nombre volviendo a la página 1", async () => {
     const app = mountApp("/tch/clientes", [["GET", "/api/v1/tch/clientes", list]]);
     await appReady();
-    expect(await screen.findByRole("button", { name: "22222221-2" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "22.222.221-2" })).toBeTruthy();
     expect(screen.getByText("Clientes TCH")).toBeTruthy();
     expect(screen.getByText("Socios asociados a mandatos físicos.")).toBeTruthy();
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["RUT", "Nombre", "Fecha nacimiento", "Profesión", "Tipo socio"]);
@@ -260,7 +260,7 @@ describe("TCH: clientes (/tch/clientes)", () => {
       ["GET", /^\/api\/v1\/tch\/clientes\/[^/]+$/, detail],
     ]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "22222221-2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "22.222.221-2" }));
     expect(await screen.findByText("TCH / CLIENTE")).toBeTruthy();
     expect(await screen.findByText("Datos personales")).toBeTruthy();
     expect(screen.getByText("Mandatos asociados")).toBeTruthy();

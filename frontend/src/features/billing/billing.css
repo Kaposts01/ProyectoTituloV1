@@ -29,7 +29,7 @@ html[data-theme="dark"] {
 }
 
 .bx-page .topbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.bx-tabs { display: flex; gap: 4px; margin: 12px 0 16px; border-bottom: 1px solid var(--border); }
+.bx-tabs { position: relative; display: flex; gap: 4px; margin: 12px 0 16px; border-bottom: 1px solid var(--border); }
 .bx-tabs button { padding: 10px 14px; border: 0; border-bottom: 2px solid transparent; color: var(--text-2); background: transparent; cursor: pointer; font: inherit; font-weight: 600; }
 .bx-tabs button[aria-selected="true"] { border-bottom-color: var(--color-accent); color: var(--text-1); }
 
@@ -145,7 +145,9 @@ html[data-theme="dark"] {
   .bx-btn, .bx-tabs button { transition: none; }
 }
 
-.bx-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* QA-13: patrón sr-only completo (margin -1px, padding 0, border 0). Las pestañas quedan posicionadas para que el
+   texto oculto no escape del recorte de .bx-tabs (con overflow-x) y ensanche la página en móvil. */
+.bx-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
 .bx-count { display: inline-block; margin-left: 8px; min-width: 20px; padding: 0 6px; border-radius: 9999px; border: 1px solid var(--bx-warn-text); background: var(--bx-warn-bg); color: var(--bx-warn-text); font-size: 11px; line-height: 18px; text-align: center; }
 .bx-sub { margin-top: 4px; color: var(--text-2); font-size: 12px; }

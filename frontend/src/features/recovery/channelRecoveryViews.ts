@@ -5,7 +5,7 @@
 
 export type ReadOnlyChannel = "toku" | "tch" | "payku";
 
-export type ColumnKind = "id" | "text" | "date" | "number" | "money" | "status" | "tchStatus" | "reason" | "recoverableReason";
+export type ColumnKind = "id" | "text" | "date" | "number" | "money" | "status" | "tchStatus" | "reason" | "recoverableReason" | "rut";
 
 export type RecoveryColumn = { key: string; header: string; kind: ColumnKind };
 
@@ -186,7 +186,7 @@ export const CHANNEL_RECOVERY: Record<ReadOnlyChannel, ChannelRecoveryConfig> = 
 
 /** Columnas de datos personales (d119, opción b): el backend las llena solo con el permiso de clientes del canal. */
 export const PII_COLUMNS: RecoveryColumn[] = [
-  { key: "rut", header: "RUT", kind: "id" },
+  { key: "rut", header: "RUT", kind: "rut" },
   { key: "name", header: "Nombre", kind: "text" },
 ];
 

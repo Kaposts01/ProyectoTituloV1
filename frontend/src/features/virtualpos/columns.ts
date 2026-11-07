@@ -1,6 +1,7 @@
 import { label, labelOr } from "../../i18n/label";
 import { text, dateOnly, clp, nested, cardTypeText, record } from "../shared/utils";
 import type { StagingRecord, TableColumn } from "../shared/types";
+import { rutText } from "../shared/rut";
 
 export function virtualPosClientName(rec: StagingRecord): string {
   const client = rec.payload.client;
@@ -32,7 +33,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
   const platformColumn: TableColumn = { key: "Plataforma", label: "Plataforma", value: vpPlatformLabel };
   if (resource === "client")
     return [
-      { key: "RUT", label: "RUT", value: (rec) => text(rec.payload.social_id) },
+      { key: "RUT", label: "RUT", value: (rec) => rutText(text(rec.payload.social_id), "Sin dato") },
       { key: "Nombre", label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || "Sin dato" },
       { key: "Email", label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
       { key: "Telefono", label: "Teléfono", value: (rec) => text(rec.payload.phone_number) },
@@ -54,7 +55,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
     ];
   if (resource === "subscription")
     return [
-      { key: "RUT cliente", label: "RUT cliente", value: clientRut },
+      { key: "RUT cliente", label: "RUT cliente", value: (rec) => rutText(clientRut(rec), "Sin dato") },
       { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { key: "Estado sec.", label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
       { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
@@ -68,7 +69,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
     return [
       { key: "ID subscripción", label: "ID suscripción", value: (rec) => rec.subscription_id ?? text(rec.payload.subscription_id ?? rec.payload.suscription_id) },
       { key: "Cliente", label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
-      { key: "RUT cliente", label: "RUT cliente", value: (rec) => rec.client_social_id ?? "Sin dato" },
+      { key: "RUT cliente", label: "RUT cliente", value: (rec) => rutText(rec.client_social_id ?? "Sin dato", "Sin dato") },
       { key: "Fecha de cargo", label: "Fecha de cargo", value: (rec) => text(rec.payload.charge_date) },
       { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
@@ -76,7 +77,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
       { key: "Acciones", label: "Acciones", value: () => "Eliminar" },
     ];
   return [
-    { key: "RUT cliente", label: "RUT cliente", value: clientRut },
+    { key: "RUT cliente", label: "RUT cliente", value: (rec) => rutText(clientRut(rec), "Sin dato") },
     { key: "Cliente", label: "Cliente", value: (rec) => rec.client_name ?? "Sin dato" },
     { key: "F. Pago", label: "F. Pago", value: (rec) => text(nested(rec.payload, "order", "authorized_at")) },
     { key: "Monto", label: "Monto", value: (rec) => clp(nested(rec.payload, "order", "amount")) },
@@ -89,7 +90,7 @@ export function virtualPosColumns(resource: string): TableColumn[] {
 export function tokuColumns(resource: string): TableColumn[] {
   if (resource === "customer")
     return [
-      { key: "RUT", label: "RUT", value: (rec) => text(rec.payload.government_id) },
+      { key: "RUT", label: "RUT", value: (rec) => rutText(text(rec.payload.government_id), "Sin dato") },
       { key: "Nombre", label: "Nombre", value: (rec) => text(rec.payload.name) },
       { key: "Mail", label: "Correo electrónico", value: (rec) => text(rec.payload.mail) },
       { key: "Telefono", label: "Teléfono", value: (rec) => text(rec.payload.phone_number) },
@@ -97,7 +98,7 @@ export function tokuColumns(resource: string): TableColumn[] {
     ];
   if (resource === "subscription")
     return [
-      { key: "RUT cliente", label: "RUT cliente", value: (rec) => text(rec.client_rut) },
+      { key: "RUT cliente", label: "RUT cliente", value: (rec) => rutText(text(rec.client_rut), "Sin dato") },
       { key: "Cliente", label: "Cliente", value: (rec) => text(rec.client_name) },
       { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
       { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status ?? nested(rec.payload, "recurring", "status")) },
@@ -132,7 +133,7 @@ export function tokuColumns(resource: string): TableColumn[] {
   }
   if (resource === "invoice")
     return [
-      { key: "RUT cliente", label: "RUT cliente", value: (rec) => text(rec.client_rut) },
+      { key: "RUT cliente", label: "RUT cliente", value: (rec) => rutText(text(rec.client_rut), "Sin dato") },
       { key: "Cliente", label: "Cliente", value: (rec) => text(rec.client_name) },
       { key: "Monto", label: "Monto", value: (rec) => clp(rec.payload.amount) },
       { key: "Pagado", label: "Pagado", value: (rec) => paid(rec.payload.is_paid) },
@@ -141,7 +142,7 @@ export function tokuColumns(resource: string): TableColumn[] {
       { key: "Acciones", label: "Acciones", value: () => "Acciones" },
     ];
   return [
-    { key: "RUT cliente", label: "RUT cliente", value: (rec) => text(nested(rec.payload, "customer", "government_id") ?? rec.client_rut) },
+    { key: "RUT cliente", label: "RUT cliente", value: (rec) => rutText(text(nested(rec.payload, "customer", "government_id") ?? rec.client_rut), "Sin dato") },
     { key: "Cliente", label: "Cliente", value: (rec) => text(nested(rec.payload, "customer", "name") ?? rec.client_name) },
     { key: "Monto", label: "Monto", value: (rec) => clp(nested(rec.payload, "transaction", "amount") ?? rec.payload.amount) },
     { key: "Fecha transaccion", label: "Fecha transacción", value: (rec) => dateOnly(nested(rec.payload, "transaction", "transaction_date") ?? rec.payload.transaction_date) },
@@ -152,7 +153,7 @@ export function tokuRelatedColumns(resource: string): TableColumn[] {
   if (resource === "customer")
     return [
       { key: "Nombre", label: "Nombre", value: (item) => text(item.payload.name) },
-      { key: "RUT", label: "RUT", value: (item) => text(item.payload.government_id) },
+      { key: "RUT", label: "RUT", value: (item) => rutText(text(item.payload.government_id), "Sin dato") },
       { key: "Estado", label: "Estado", value: (item) => label("status", item.payload.status) },
     ];
   if (resource === "payment_method")
@@ -183,7 +184,7 @@ export function paykuColumns(resource: string): TableColumn[] {
   if (resource === "client")
     return [
       { key: "ID", label: "ID", value: (rec) => text(rec.payload.id, rec.external_id) },
-      { key: "RUT", label: "RUT", value: (rec) => text(rec.payload.rut) },
+      { key: "RUT", label: "RUT", value: (rec) => rutText(text(rec.payload.rut), "Sin dato") },
       { key: "Nombre", label: "Nombre", value: (rec) => `${text(rec.payload.first_name, "")} ${text(rec.payload.last_name, "")}`.trim() || text(rec.payload.name) },
       { key: "Email", label: "Correo electrónico", value: (rec) => text(rec.payload.email) },
       { key: "Telefono", label: "Teléfono", value: (rec) => text(rec.payload.phone) },
@@ -203,7 +204,7 @@ export function paykuColumns(resource: string): TableColumn[] {
       { key: "Estado", label: "Estado", value: (rec) => label("status", rec.payload.status) },
       { key: "Estado sec.", label: "Estado sec.", value: (rec) => labelOr("secondaryStatus", rec.secondary_status, "—") },
       { key: "Último cobro", label: "Último cobro", value: (rec) => rec.last_paid_date ? String(rec.last_paid_date).slice(0, 10) : "—" },
-      { key: "RUT", label: "RUT", value: (rec) => text(nested(rec.payload, "client", "rut")) },
+      { key: "RUT", label: "RUT", value: (rec) => rutText(text(nested(rec.payload, "client", "rut")), "Sin dato") },
       { key: "F. Inicio", label: "F. Inicio", value: (rec) => text(rec.payload.start) },
       { key: "F. Cancelacion", label: "F. Cancelación", value: (rec) => text(rec.payload.end) },
       { key: "Acciones", label: "Acciones", value: () => "Eliminar" },

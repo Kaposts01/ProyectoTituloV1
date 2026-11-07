@@ -151,7 +151,7 @@ function ReportImportCard({ config, status, maxAge, onUploaded }: {
                   <td>{label("platformReportType", row.report_type)}</td>
                   <td className="mono">{formatDateTime(row.loaded_at)}</td>
                   <td className="mono">{row.filename ?? "—"}</td>
-                  <td className="mono">{row.rows_total ?? "—"}</td>
+                  <td className="mono">{row.rows_total?.toLocaleString("es-CL") ?? "—"}</td>
                   <td>
                     {row.result
                       ? <span className={`badge badge-${resultTone(row.result)}`}>{label("reportImportResult", row.result)}</span>
@@ -180,7 +180,7 @@ function ReportImportCard({ config, status, maxAge, onUploaded }: {
           <p>
             Archivo de {label("platformReportType", summary.report_type)} cargado: <span className="mono">{summary.rows_new}</span> nuevas,{" "}
             <span className="mono">{summary.rows_updated}</span> actualizadas, <span className="mono">{summary.rows_skipped}</span> omitidas
-            (de <span className="mono">{summary.rows_total}</span> filas).
+            (de <span className="mono">{summary.rows_total.toLocaleString("es-CL")}</span> filas).
           </p>
           {(summary.warnings ?? []).length > 0 && (
             <ul>{(summary.warnings ?? []).map((w) => <li key={w} className="export-warning">{warningText(w)}</li>)}</ul>

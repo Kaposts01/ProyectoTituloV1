@@ -1,6 +1,6 @@
 /** Cobros unificados (UX-09, /central/cobros): tabla multicanal, filtros, rechazo y Exportar. Datos sintéticos. */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import "./UnifiedChargesView";
 import { appReady, mountApp, resetApp, type Handler } from "../../test/appHarness";
 
@@ -120,5 +120,67 @@ describe("Cobros unificados", () => {
     expect(screen.queryByRole("tab", { name: "Cobros" })).toBeNull();
     await waitFor(() => expect(app.exact("GET", "/api/v1/general/payments").length).toBeGreaterThan(0));
     expect(app.exact("GET", "/api/v1/general/charges/summary")).toHaveLength(0);
+  });
+  it("QA-01: al pasar a Pagos no quedan filas de cobros bajo las columnas de pagos ni claves repetidas", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const payments = {
+      ...chargesPage, total: 2, by_channel: {},
+      items: [
+        { channel: "virtualpos1", payment_id: "P-1", charge_id: "C-1", status: "pagado", payment_date: "2026-10-03", amount: "1000", currency: "CLP", rut: null, name: null },
+        { channel: "virtualpos1", payment_id: "P-1", charge_id: "C-2", status: "pagado", payment_date: "2026-10-04", amount: "1000", currency: "CLP", rut: null, name: null },
+      ],
+    };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    mountApp("/central/cobros", [
+      ["GET", "/api/v1/general/payments", async () => { await gate; return payments; }],
+      ...handlers,
+    ]);
+    await appReady();
+    await screen.findByRole("button", { name: "C-1" });
+    fireEvent.click(screen.getByRole("tab", { name: "Pagos" }));
+    // mientras llegan los pagos la tabla de pagos está vacía: los cobros anteriores no se pintan
+    expect(screen.queryByRole("button", { name: "C-1" })).toBeNull();
+    expect(screen.getByRole("columnheader", { name: "ID de pago" }).closest("table")!.querySelectorAll("tbody tr")).toHaveLength(0);
+    release();
+    expect(await screen.findAllByRole("button", { name: "P-1" })).toHaveLength(2);
+    const rows = screen.getByRole("columnheader", { name: "ID de pago" }).closest("table")!.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(2);
+    expect(errors.mock.calls.some((call) => String(call[0]).includes("same key"))).toBe(false);
+    errors.mockRestore();
+  });
+
+  it("QA-16: un rango de fechas invertido se avisa en vez de mostrar «0 cobros» sin explicación", async () => {
+    mountApp("/central/cobros", handlers);
+    await appReady();
+    await screen.findByRole("button", { name: "C-1" });
+    expect(screen.queryByText(/es posterior a «Hasta»/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Desde"), { target: { value: "2026-10-31" } });
+    fireEvent.change(screen.getByLabelText("Hasta"), { target: { value: "2026-10-01" } });
+    expect(screen.getByText(/La fecha «Desde» \(2026-10-31\) es posterior a «Hasta» \(2026-10-01\)/)).toBeTruthy();
+    expect(screen.getByLabelText("Desde")).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(screen.getByLabelText("Hasta"), { target: { value: "2026-11-30" } });
+    expect(screen.queryByText(/es posterior a «Hasta»/)).toBeNull();
+  });
+
+  it("QA-08/QA-09: el RUT sale como 12.345.678-9 en mono y el filtro Estado distingue etiquetas repetidas por canal", async () => {
+    mountApp("/central/cobros", [
+      ["GET", "/api/v1/general/charges", { ...chargesPage, items: [{ ...chargesPage.items[0], rut: "111111111" }, { ...chargesPage.items[1], rut: "2222F3K92" }] }],
+      ["GET", "/api/v1/general/charges/statuses", { canales: chargesPage.canales, statuses: [
+        { status: "PAID", count: 2947, channels: ["toku"] }, { status: "pagado", count: 1847, channels: ["virtualpos"] },
+        { status: "paid", count: 32, channels: ["payku"] }, { status: "RECHAZADA", count: 20, channels: ["tch"] },
+      ] }],
+      ...handlers,
+    ]);
+    await appReady();
+    await screen.findByRole("button", { name: "C-1" });
+    const rut = screen.getByText("11.111.111-1");
+    expect(rut.className).toContain("mono");
+    const invalid = screen.getByText(/2222F3K92/);
+    expect(invalid.closest(".rut-invalid")?.textContent).toContain("no válido");
+    expect(await screen.findByRole("option", { name: "Pagado · Toku (2.947)" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Pagado · VirtualPOS (1.847)" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Pagado · Payku (32)" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Rechazada (20)" })).toBeTruthy();
   });
 });

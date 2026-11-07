@@ -62,23 +62,25 @@ export function RunResourceStats({ etlRunId }: { etlRunId: string }) {
   if (rows.length === 0) return <p className="muted-copy">Sin detalle por recurso para esta ejecución.</p>;
 
   return (
-    <table className="scheduler-jobs-table run-resource-stats">
-      <thead>
-        <tr><th>Canal</th><th>Recurso</th><th>Lectura</th><th>Nuevos</th><th>Actualizados</th><th>Sin cambio</th><th>Duración</th></tr>
-      </thead>
-      <tbody>
-        {rows.map(({ run, resource, stat }) => (
-          <tr key={`${run.id}-${resource}`}>
-            <td>{SOURCE_LABEL[run.source] ?? run.source}</td>
-            <td>{RESOURCE_LABEL[resource] ?? resource}</td>
-            <td>{MODE_LABEL[stat.mode ?? ""] ?? stat.mode ?? "—"}</td>
-            <td className="runs-rec-val mono-num">{num(stat.inserted)}</td>
-            <td className="runs-rec-val mono-num">{num(stat.updated)}</td>
-            <td className="runs-rec-val mono-num">{num(stat.unchanged)}</td>
-            <td className="runs-rec-val mono-num">{secs(stat.seconds)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="table-wrap">
+      <table className="scheduler-jobs-table run-resource-stats">
+        <thead>
+          <tr><th>Canal</th><th>Recurso</th><th>Lectura</th><th>Nuevos</th><th>Actualizados</th><th>Sin cambio</th><th>Duración</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(({ run, resource, stat }) => (
+            <tr key={`${run.id}-${resource}`}>
+              <td>{SOURCE_LABEL[run.source] ?? run.source}</td>
+              <td>{RESOURCE_LABEL[resource] ?? resource}</td>
+              <td>{MODE_LABEL[stat.mode ?? ""] ?? stat.mode ?? "—"}</td>
+              <td className="runs-rec-val mono-num">{num(stat.inserted)}</td>
+              <td className="runs-rec-val mono-num">{num(stat.updated)}</td>
+              <td className="runs-rec-val mono-num">{num(stat.unchanged)}</td>
+              <td className="runs-rec-val mono-num">{secs(stat.seconds)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

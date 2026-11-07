@@ -12,6 +12,35 @@ export function channelOptions(channels: string[]): { value: string; label: stri
   return out;
 }
 
+export const facetStatusLabel = (value: string) => tryLabel("status", value) ?? tryLabel("tchStatus", value) ?? value;
+
+/**
+ * Etiquetas del filtro «Estado» (QA-09). Cada canal escribe el mismo estado a su manera (`PAID`, `paid`, `pagado`) y
+ * todos se traducen a «Pagado»; si una etiqueta se repite se le agrega el canal («Pagado · Toku») y, si aún se repite
+ * (dos textos del mismo canal), el texto crudo del proveedor. Las etiquetas únicas quedan como estaban.
+ */
+export function statusFacetLabels(facets: StatusFacet[]): Map<string, string> {
+  const tally = (labels: Map<string, string>) => {
+    const counts = new Map<string, number>();
+    for (const value of labels.values()) counts.set(value, (counts.get(value) ?? 0) + 1);
+    return counts;
+  };
+  const labels = new Map(facets.map((facet) => [facet.status, facetStatusLabel(facet.status)]));
+  const first = tally(labels);
+  for (const facet of facets) {
+    const base = labels.get(facet.status)!;
+    if ((first.get(base) ?? 0) < 2) continue;
+    const where = (facet.channels ?? []).map((channel) => channelText(channel)).join(", ");
+    labels.set(facet.status, where ? `${base} · ${where}` : `${base} · ${facet.status.trim()}`);
+  }
+  const second = tally(labels);
+  for (const facet of facets) {
+    const current = labels.get(facet.status)!;
+    if ((second.get(current) ?? 0) > 1) labels.set(facet.status, `${current} (${facet.status.trim()})`);
+  }
+  return labels;
+}
+
 /** Filtro activo como chip: «Canal: Toku ×». `onRemove` lo quita. */
 export type FilterChip = { key: string; label: string; onRemove: () => void };
 
@@ -75,7 +104,8 @@ export function UnifiedFilterBar({
   count?: number | null;
   noun?: string;
 }) {
-  const statusLabel = (value: string) => tryLabel("status", value) ?? tryLabel("tchStatus", value) ?? value;
+  const facetLabels = statusFacetLabels(statuses);
+  const statusLabel = (value: string) => facetLabels.get(value) ?? facetStatusLabel(value);
   const options = channelOptions(channels);
   const channelLabel = options.find((option) => option.value === channel)?.label ?? channelText(channel);
   const fieldLabel = fields.find((option) => option.value === field)?.label ?? field;

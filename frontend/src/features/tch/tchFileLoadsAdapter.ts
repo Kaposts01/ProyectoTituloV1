@@ -1,3 +1,4 @@
+import { formatDateTime } from "../billing/billingLabels";
 /**
  * Registro de reportes Excel TCH cargados (TCH-PAR-11): contrato de `GET /api/v1/tch/archivos` y su adaptador.
  * Solo metadatos del archivo (fecha, hash, mes, filas, resultado) y su conciliación (conteos y control del propio
@@ -112,11 +113,12 @@ export function adaptTchFileLoads(wire: TchFileLoadsWire | null | undefined): Tc
     }));
 }
 
-/** «2026-11-02T10:05:00+00:00» -> «2026-11-02 10:05» (hora del servidor, sin conversión). */
+/**
+ * «2026-11-02T10:05:00+00:00» -> «2026-11-02 07:05»: en hora de Chile (America/Santiago), igual que «Reporte Excel de
+ * TCH» en Sincronización (QA-06; antes se recortaba el ISO en UTC y las dos pantallas diferían 3 h).
+ */
 export function shortDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(iso);
-  return match ? `${match[1]} ${match[2]}` : iso.slice(0, 16);
+  return formatDateTime(iso);
 }
 
 /** Tono de la insignia del resultado (las claves son los valores del backend). */

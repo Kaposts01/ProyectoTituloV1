@@ -9,6 +9,7 @@ import {
   type ChargeRow, type PaymentRow, type RejectionSummary, type StatusFacets, type UnifiedPage,
 } from "../general/unifiedTypes";
 import { cleanParams, useUnifiedGet } from "../general/useUnifiedList";
+import { Rut } from "../shared/RutCell";
 
 const PAGE = 50;
 type Tab = "charges" | "payments";
@@ -88,6 +89,8 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
   const switchTab = (next: Tab) => {
     setTab(next); setChannel(""); setStatus(""); setField("all"); setOffset(0);
   };
+  // QA-16: un rango invertido devolvía «0 cobros» sin explicación; ahora se avisa (las fechas AAAA-MM-DD se comparan como texto).
+  const invertedRange = dateFrom !== "" && dateTo !== "" && dateFrom > dateTo;
   const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
   const extraChips: FilterChip[] = [];
   if (outcome) extraChips.push({ key: "resultado", label: `Resultado: ${tryLabel("chargeOutcome", outcome) ?? outcome}`, onRemove: () => reset(setOutcome)("") });
@@ -153,13 +156,18 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
             </label>
             <label className="filter-field">
               <span>Desde</span>
-              <input type="date" value={dateFrom} onChange={(event) => reset(setDateFrom)(event.target.value)} />
+              <input type="date" value={dateFrom} max={dateTo || undefined} aria-invalid={invertedRange || undefined} onChange={(event) => reset(setDateFrom)(event.target.value)} />
             </label>
             <label className="filter-field">
               <span>Hasta</span>
-              <input type="date" value={dateTo} onChange={(event) => reset(setDateTo)(event.target.value)} />
+              <input type="date" value={dateTo} min={dateFrom || undefined} aria-invalid={invertedRange || undefined} onChange={(event) => reset(setDateTo)(event.target.value)} />
             </label>
           </UnifiedFilterBar>
+          {invertedRange ? (
+            <p className="export-warning" role="alert">
+              La fecha «Desde» ({day(dateFrom)}) es posterior a «Hasta» ({day(dateTo)}): no hay {tab === "charges" ? "cobros" : "pagos"} en un rango invertido. Corrige una de las dos fechas.
+            </p>
+          ) : null}
           {tab === "charges" ? <p className="muted-copy">Payku aparece con sus ciclos de cobro cuando existen; cada intento de cobro está en la pestaña Pagos.</p> : null}
           {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
           {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
@@ -169,15 +177,15 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
               <table>
                 <thead><tr><th>Canal</th><th>ID de cobro</th><th>Suscripción</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Fecha de cobro</th><th>Período</th><th>Monto</th><th>Motivo de rechazo</th></tr></thead>
                 <tbody>
-                  {((list.data?.items ?? []) as ChargeRow[]).map((row) => {
+                  {((list.data?.items ?? []) as ChargeRow[]).filter((row) => row.charge_id !== undefined).map((row, index) => {
                     const go = open(detailPath("charge", row.channel, row.charge_id));
                     return (
-                      <tr key={`${row.channel}-${row.charge_id}`}>
+                      <tr key={`${row.channel}-${row.charge_id}-${index}`}>
                         <td>{channelText(row.channel)}</td>
                         <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.charge_id}</button> : row.charge_id}</td>
                         <td className="mono">{row.subscription_id ?? "—"}</td>
                         <td>{row.name || "—"}</td>
-                        <td className="mono">{row.rut || "—"}</td>
+                        <td><Rut value={row.rut} /></td>
                         <td><StatusText value={row.status} /></td>
                         <td className="mono">{day(row.charge_date)}</td>
                         <td className="mono">{row.period ?? "—"}</td>
@@ -193,15 +201,15 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
               <table>
                 <thead><tr><th>Canal</th><th>ID de pago</th><th>ID de cobro</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Fecha de pago</th><th>Monto</th></tr></thead>
                 <tbody>
-                  {((list.data?.items ?? []) as PaymentRow[]).map((row) => {
+                  {((list.data?.items ?? []) as PaymentRow[]).filter((row) => row.payment_id !== undefined).map((row, index) => {
                     const go = open(detailPath("payment", row.channel, row.payment_id));
                     return (
-                      <tr key={`${row.channel}-${row.payment_id}`}>
+                      <tr key={`${row.channel}-${row.payment_id}-${index}`}>
                         <td>{channelText(row.channel)}</td>
                         <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.payment_id}</button> : row.payment_id}</td>
                         <td className="mono">{row.charge_id ?? "—"}</td>
                         <td>{row.name || "—"}</td>
-                        <td className="mono">{row.rut || "—"}</td>
+                        <td><Rut value={row.rut} /></td>
                         <td><StatusText value={row.status} /></td>
                         <td className="mono">{day(row.payment_date)}</td>
                         <td className="mono">{money(row.amount, row.currency)}</td>
