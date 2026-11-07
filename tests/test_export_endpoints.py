@@ -18,6 +18,7 @@ from app.models.crm import Charge, Client, Payment, Subscription
 from app.models.tch import TchClient, TchSubscription, TchTransaction
 from app.models.write_run import WriteRun
 from app.services.charge_stats import chile_today
+from app.services.exporter import format_rut
 from app.services.rbac import seed_permissions
 
 PII_HEADERS = {"RUT del cliente", "Nombre del cliente", "Correo", "Teléfono", "Dirección", "RUT", "Nombre"}
@@ -120,7 +121,7 @@ def test_clients_with_export_pii_includes_personal_columns(monkeypatch) -> None:
     header, rows = _parse(client.get("/api/v1/export/clientes", params={"query": sfx, "filter_field": "name", "all": "true"}))
     assert {"RUT", "Nombre", "Correo", "Teléfono", "Dirección"} <= set(header)
     by_canal = {r["Canal"]: r for r in rows}
-    assert by_canal["virtualpos1"]["RUT"] == "11111111-1" and by_canal["virtualpos1"]["Correo"] == f"ana{sfx}@example.test"
+    assert by_canal["virtualpos1"]["RUT"] == "11.111.111-1" and by_canal["virtualpos1"]["Correo"] == f"ana{sfx}@example.test"
     assert by_canal["tch"]["Dirección"].startswith("Calle Falsa 123")
 
 
@@ -205,7 +206,7 @@ def test_charges_vp_pii_requires_permission_and_audit_has_no_content(monkeypatch
     assert "RUT del cliente" not in header and "44444444-4" not in str(rows)
     pii = _login(monkeypatch, sfx + "q", ["virtualpos.charges.view", "export.pii"])
     header, rows = _parse(pii.get("/api/v1/export/cobros", params=params))
-    assert rows[0]["RUT del cliente"] == "44444444-4" and rows[0]["Nombre del cliente"] == f"Dora{sfx} Prueba"
+    assert rows[0]["RUT del cliente"] == "44.444.444-4" and rows[0]["Nombre del cliente"] == f"Dora{sfx} Prueba"
     db = SessionLocal()
     try:
         run = db.scalars(select(WriteRun).where(
@@ -272,10 +273,10 @@ def test_subscriptions_vp_and_tch_with_filters(monkeypatch) -> None:
     assert not (set(header) & PII_HEADERS)
     pii = _login(monkeypatch, sfx + "x", [*perms, "export.pii"])
     _, rows = _parse(pii.get("/api/v1/export/suscripciones", params=tch_params))
-    assert rows[0]["RUT del cliente"] == rut and rows[0]["Nombre del cliente"] == f"Fer{sfx} Prueba"
+    assert rows[0]["RUT del cliente"] == format_rut(rut) and rows[0]["Nombre del cliente"] == f"Fer{sfx} Prueba"
     by_client = {"query": f"Eva{sfx}", "filter_field": "client", "all": "true"}
     _, rows = _parse(pii.get("/api/v1/export/suscripciones", params=by_client))
-    assert [r["RUT del cliente"] for r in rows] == ["77777777-7"]
+    assert [r["RUT del cliente"] for r in rows] == ["77.777.777-7"]
 
 
 def test_charges_tch_and_payments(monkeypatch) -> None:

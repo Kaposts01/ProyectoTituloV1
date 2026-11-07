@@ -99,9 +99,18 @@ def test_virtualpos_takes_worst_of_vp1_vp2(db_session) -> None:
     assert _by_channel(db_session)["virtualpos"]["level"] == "error"
 
 
-def test_virtualpos_one_side_unknown_is_worse_than_ok(db_session) -> None:
+def test_qa05_virtualpos_account_without_runs_does_not_hide_the_one_that_syncs(db_session) -> None:
+    """QA-05: la cuenta 2 sin corridas no deja a VirtualPOS en «Sin datos»; el estado sale de la cuenta 1."""
     _run(db_session, "virtualpos1", "completed", 1)
-    assert _by_channel(db_session)["virtualpos"]["level"] == "unknown"
+    item = _by_channel(db_session)["virtualpos"]
+    assert item["level"] == "ok" and item["status"] == "ok" and item["last_finished_at"] is not None
+    _run(db_session, "virtualpos1", "completed", 30)  # mas vieja: no cambia la ultima
+    assert _by_channel(db_session)["virtualpos"]["level"] == "ok"
+
+
+def test_qa05_account_without_runs_does_not_hide_a_failing_account(db_session) -> None:
+    _run(db_session, "virtualpos1", "failed", 1)
+    assert _by_channel(db_session)["virtualpos"]["level"] == "error"
 
 
 def test_tch_uses_etl_runs(db_session) -> None:

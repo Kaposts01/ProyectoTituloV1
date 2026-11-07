@@ -62,6 +62,8 @@ def _serialize_run(run: EtlRun) -> dict:
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "channels_processed": run.channels_processed,
+        # QA-15: los canales que fallaron en la corrida; sin esto el Historial solo nombraba los que terminaron bien.
+        "channels_failed": run.channels_failed,
         "records_upserted": run.records_upserted,
         "error_message": run.error_message,
     }

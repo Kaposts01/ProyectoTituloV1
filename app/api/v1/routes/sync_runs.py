@@ -206,11 +206,19 @@ def _resources_health(db: Session, channel: str, sources: tuple[str, ...]) -> li
     return [{"source": "tch", "resource": "file", "mode": "load", "last_success_at": loaded.isoformat()}]
 
 
+def _never_ran(part: dict[str, object]) -> bool:
+    """Fuente sin ninguna corrida terminada ni colgada: no aporta informacion sobre la salud del canal."""
+    return part["level"] == "unknown" and part["status"] == "unknown"
+
+
 def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for channel, sources in _CHANNEL_SOURCES.items():
         parts = [_source_health(db, src, now) for src in (sources or (channel,))]
-        worst = max(parts, key=lambda p: (_SEVERITY[p["level"]], _STATUS_SEVERITY[p["status"]]))  # type: ignore[index]
+        # QA-05: una cuenta que nunca corrio (p. ej. virtualpos2 sin configurar) no tapa a la que si sincroniza; el
+        # canal sale de las cuentas con corridas. Si ninguna corrio, el canal queda «sin datos» como antes.
+        ran = [p for p in parts if not _never_ran(p)] or parts
+        worst = max(ran, key=lambda p: (_SEVERITY[p["level"]], _STATUS_SEVERITY[p["status"]]))  # type: ignore[index]
         finished_at = worst["finished_at"]
         item: dict[str, object] = {
             "channel": channel,

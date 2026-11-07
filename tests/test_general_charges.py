@@ -127,6 +127,10 @@ def test_unified_charges_lists_channels_paginates_and_filters(monkeypatch) -> No
     assert [row["charge_id"] for row in by_status["items"]] == [f"c1-{sfx}"]
     statuses = client.get("/api/v1/general/charges/statuses", params=DATES).json()
     assert {s["status"]: s["count"] for s in statuses["statuses"]} == {"pagado": 1, " Rechazado ": 1, "cancelado": 1, "UNPAID": 1, "RECHAZADA": 1}
+    # QA-09: cada estado dice de qué canal viene, para no repetir la misma etiqueta sin contexto en el filtro
+    channels = {s["status"]: s["channels"] for s in statuses["statuses"]}
+    assert channels["RECHAZADA"] == ["tch"]
+    assert all(isinstance(value, list) and value for value in channels.values())
     assert client.get("/api/v1/general/charges", params={"outcome": "nope"}).status_code == 422
     assert client.get("/api/v1/general/charges", params={"filter_field": "rut"}).status_code == 422
 

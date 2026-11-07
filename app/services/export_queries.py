@@ -718,9 +718,14 @@ def fetch_page(
 def status_facets(
     session: Session, items: list[tuple[ChannelSpec, tuple[str, ...]]], filters: ExportFilters, limit: int = 60,
 ) -> list[dict[str, Any]]:
-    """Estados presentes (texto del proveedor, tal cual) con su cantidad, ignorando el filtro de estado activo."""
+    """Estados presentes (texto del proveedor, tal cual) con su cantidad, ignorando el filtro de estado activo.
+
+    Cada estado lleva `channels`, los proveedores que lo usan (QA-09): `PAID`, `paid` y `pagado` se traducen igual
+    («Pagado») y sin el canal el filtro repetia la misma etiqueta sin decir de donde viene cada una.
+    """
     base = replace(filters, status=None)
     merged: dict[str, int] = {}
+    providers: dict[str, list[str]] = {}
     for spec, sources in items:
         sub = spec.build(sources, base, False).order_by(None).subquery()
         stmt = select(sub.c.status, func.count()).group_by(sub.c.status)
@@ -728,5 +733,8 @@ def status_facets(
             if status is None or str(status).strip() == "":
                 continue
             merged[str(status)] = merged.get(str(status), 0) + int(count)
+            seen = providers.setdefault(str(status), [])
+            if spec.provider not in seen:
+                seen.append(spec.provider)
     ordered = sorted(merged.items(), key=lambda kv: (-kv[1], kv[0].lower()))[:limit]
-    return [{"status": status, "count": count} for status, count in ordered]
+    return [{"status": status, "count": count, "channels": providers[status]} for status, count in ordered]
