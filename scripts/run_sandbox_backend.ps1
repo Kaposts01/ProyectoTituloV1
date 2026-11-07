@@ -1,5 +1,6 @@
 # Levanta la instancia SANDBOX del backend (puerto 8001, base SANDBOX_DATABASE_URL del .env).
 # La instancia de produccion corre aparte en el puerto 8000 (sin APP_ENV=sandbox).
+# Requiere SANDBOX_AUTH_JWT_SECRET en el .env (distinta de AUTH_JWT_SECRET): sin ella el arranque falla a proposito.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
