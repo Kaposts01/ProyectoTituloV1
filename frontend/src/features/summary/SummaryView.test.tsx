@@ -96,7 +96,7 @@ describe("Resumen unificado: tarjetas", () => {
   });
 
   it("cada tarjeta lleva el delta contra el mes anterior y el chip «sin meta» (no se inventan metas)", async () => {
-    installFetch(() => ({ body: rawSummary() }));
+    installFetch(() => ({ body: rawSummary({ is_current_month: false }) }));
     render(<SummaryView />);
     await ready();
     for (const label of KPI_LABELS) {
@@ -123,10 +123,33 @@ describe("Resumen unificado: tarjetas", () => {
   });
 
   it("el delta del churn baja es bueno y subir es malo (sube 33,3 pts => clase «bad»)", async () => {
-    installFetch(() => ({ body: rawSummary() }));
+    installFetch(() => ({ body: rawSummary({ is_current_month: false }) }));
     render(<SummaryView />);
     await ready();
     expect(within(card("Churn")).getByTestId("kpi-delta").className).toContain("bad");
+  });
+
+  it("QA-07: el mes en curso avisa «al día X», no compara los flujos con el mes anterior y ofrece el último mes cerrado", async () => {
+    installFetch(() => ({ body: rawSummary() }));
+    render(<SummaryView />);
+    await ready();
+    const note = screen.getByRole("note", { name: "Mes en curso" });
+    expect(note.textContent).toMatch(/Mes en curso, al día \d{1,2}:/);
+    expect(note.textContent).toMatch(/datos parciales/);
+    for (const label of ["Ingreso total", "Acumulado del año", "Activaciones", "Bajas", "Crecimiento neto", "Churn", "No cobrado", "Por cobrar"]) {
+      expect(within(card(label)).queryByTestId("kpi-delta"), label).toBeNull();
+    }
+    // los stocks y razones sí se comparan
+    expect(within(card("Socios totales")).getByTestId("kpi-delta")).toBeTruthy();
+    fireEvent.click(within(note).getByRole("button", { name: "Ver el último mes cerrado" }));
+    await waitFor(() => expect(summaryCalls().at(-1)?.searchParams.get("month")).toMatch(/^\d{4}-\d{2}$/));
+  });
+
+  it("QA-07: un mes cerrado no lleva el aviso de mes en curso", async () => {
+    installFetch(() => ({ body: rawSummary({ is_current_month: false }) }));
+    render(<SummaryView />);
+    await ready();
+    expect(screen.queryByRole("note", { name: "Mes en curso" })).toBeNull();
   });
 
   it("MRR y ARPU en null se ven «—» con texto accesible «sin datos», sin inventar 0", async () => {

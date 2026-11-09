@@ -26,6 +26,9 @@ export function TchFileLoadsPanel() {
     return () => { mounted = false; };
   }, []);
 
+  // QA-14: archivos anteriores a la conciliación por archivo: sin conteos ni filas guardadas.
+  const legacy = (files ?? []).filter((file) => !file.counts && (file.rows === null || file.rows === undefined) && file.result !== "fallido").length;
+
   return (
     <section className="panel" aria-label="Archivos TCH cargados">
       <div className="panel-heading"><div><p className="eyebrow">REPORTES EXCEL</p><h3>Archivos cargados</h3></div></div>
@@ -36,12 +39,21 @@ export function TchFileLoadsPanel() {
       ) : files.length === 0 ? (
         <p className="muted-copy">Aún no hay reportes registrados.</p>
       ) : (
-        <div className="table-wrap">
+        <>
+        {legacy > 0 ? (
+          <p className="muted-copy" role="note">
+            {legacy === 1 ? "1 archivo se cargó" : `${legacy.toLocaleString("es-CL")} archivos se cargaron`} antes de que el CRM guardara
+            la conciliación por archivo: sus conteos de filas y el control del Excel no existen («—» y «Sin control»). Volver a
+            cargar el mismo Excel los calcula.
+          </p>
+        ) : null}
+        <p className="muted-copy table-scroll-hint">En pantallas angostas la tabla se desplaza hacia la derecha (control del Excel y hash).</p>
+        <div className="table-wrap" tabIndex={0} aria-label="Tabla de archivos TCH cargados, desplazable">
           <table>
             <thead>
               <tr>
-                <th>Fecha de carga</th><th>Archivo</th><th>Mes</th><th>Leídas</th><th>Insertadas</th><th>Actualizadas</th>
-                <th>Omitidas</th><th>Con error</th><th>Control del Excel</th><th>Hash (sha256)</th><th>Resultado</th>
+                <th>Fecha de carga</th><th>Archivo</th><th>Mes</th><th>Resultado</th><th>Leídas</th><th>Insertadas</th>
+                <th>Actualizadas</th><th>Omitidas</th><th>Con error</th><th>Control del Excel</th><th>Hash (sha256)</th>
               </tr>
             </thead>
             <tbody>
@@ -53,6 +65,12 @@ export function TchFileLoadsPanel() {
                   <td className="mono">{shortDateTime(file.loadedAt)}</td>
                   <td>{file.fileName}</td>
                   <td className="mono">{file.period ?? "—"}</td>
+                  <td>
+                    <span className={`badge badge-${resultBadgeTone(file.result)}`} title={file.error ?? undefined}>
+                      {label("tchFileResult", file.result)}
+                    </span>
+                    {file.result === "fallido" && file.error ? <p className="muted-copy">{file.error}</p> : null}
+                  </td>
                   {/* Sin conciliación guardada (archivo anterior a TCH-PAR-11) se muestran las filas cargadas como leídas. */}
                   <td className="mono num">{count(file.counts ? file.counts.read : file.rows)}</td>
                   <td className="mono num">{count(file.counts?.inserted)}</td>
@@ -68,18 +86,13 @@ export function TchFileLoadsPanel() {
                     {detail && file.control?.matches === false ? <p className="muted-copy mono">{detail}</p> : null}
                   </td>
                   <td className="mono" title={file.sha256}>{shortHash(file.sha256)}</td>
-                  <td>
-                    <span className={`badge badge-${resultBadgeTone(file.result)}`} title={file.error ?? undefined}>
-                      {label("tchFileResult", file.result)}
-                    </span>
-                    {file.result === "fallido" && file.error ? <p className="muted-copy">{file.error}</p> : null}
-                  </td>
                 </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );

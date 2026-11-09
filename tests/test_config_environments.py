@@ -26,6 +26,7 @@ PROD = {
 }
 SBX = {
     "sandbox_database_url": SDB,
+    "sandbox_auth_jwt_secret": "sbx-jwt-secret-sintetico-de-al-menos-32-caracteres",
     "virtualpos_sandbox_base_url": "https://api.virtualpos-sandbox.com",
     "virtualpos_sandbox_api_key": "sbx-vk",
     "virtualpos_sandbox_secret_key": "sbx-vs",
@@ -196,3 +197,34 @@ def test_sync_all_skips_disabled_channel(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(sync_all, "consolidate_to_centralized", lambda *_a, **_k: 0)
     asyncio.run(sync_all.sync_all_channels(channels=["toku", "payku", "virtualpos2"]))
     assert calls == []
+
+
+# ---- SANDBOX_AUTH_JWT_SECRET: produccion y sandbox no comparten la firma de las sesiones ----------------------------
+
+
+def test_sandbox_uses_its_own_jwt_secret_and_production_keeps_auth_jwt_secret() -> None:
+    prod_secret = "prod-jwt-secret-sintetico-de-al-menos-32-caracteres"
+    s = sandbox(auth_jwt_secret=prod_secret)
+    assert s.auth_jwt_secret == SBX["sandbox_auth_jwt_secret"]
+    p = make(**SBX, auth_jwt_secret=prod_secret)
+    assert p.is_production and p.auth_jwt_secret == prod_secret
+
+
+@pytest.mark.parametrize("env", ["sandbox", "qa"])
+def test_sandbox_without_its_jwt_secret_does_not_start(env: str) -> None:
+    with pytest.raises(ValidationError, match="SANDBOX_AUTH_JWT_SECRET es obligatoria"):
+        sandbox(env, drop=("sandbox_auth_jwt_secret",), auth_jwt_secret="prod-jwt-secret-sintetico-de-al-menos-32-caracteres")
+    with pytest.raises(ValidationError, match="SANDBOX_AUTH_JWT_SECRET es obligatoria"):
+        sandbox(env, sandbox_auth_jwt_secret="   ")
+
+
+def test_sandbox_jwt_secret_must_differ_from_production_and_be_long_enough() -> None:
+    same = "mismo-secreto-sintetico-de-al-menos-32-caracteres"
+    with pytest.raises(ValidationError, match="igual a AUTH_JWT_SECRET"):
+        sandbox(auth_jwt_secret=same, sandbox_auth_jwt_secret=same)
+    with pytest.raises(ValidationError, match="al menos 32 caracteres"):
+        sandbox(sandbox_auth_jwt_secret="corto")
+
+
+def test_production_does_not_require_the_sandbox_jwt_secret() -> None:
+    assert make().is_production and make().sandbox_auth_jwt_secret == ""

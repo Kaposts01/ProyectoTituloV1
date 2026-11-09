@@ -294,7 +294,7 @@ export function StagingRecordsList({
                 {records.items.map((record) => (
                   <tr key={record.id}>
                     {columns.map((column) => (
-                      <td key={column.key}>
+                      <td key={column.key} className={column.key.startsWith("RUT") ? "mono" : undefined}>
                         {activeSection.source === "virtualpos" &&
                         activeSection.resource === "subscription" &&
                         column.key === "Acciones" ? (

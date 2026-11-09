@@ -178,6 +178,11 @@ El decisor devuelve texto; no edita archivos. Si el informe es insuficiente para
 11. CLAUDE.md §9 exige autorización explícita para pruebas con escrituras externas reales. La aprobación del usuario del 2026-10-28 es esa autorización explícita, **limitada a sandbox** y a los escenarios catalogados (sección 3). Nada de esto se extiende a producción: allí siempre con el usuario y con más cuidado.
 12. Regla de oro: producción siempre con el usuario. Ante la duda sobre el ambiente (Toku comparte host; `APP_ENV=development` equivale a producción), se trata como producción.
 13. **Los agentes nunca ejecutan la CLI de Alembic** (`upgrade`, `downgrade`, `stamp`, `current`) contra ninguna base; las migraciones solo se prueban por pytest (`crm_test`); aplicar migraciones a `crm` es siempre del usuario (a `crm_sandbox`, el orquestador avisando). Incidente del 2026-10-28 (handoff §9 #20); `alembic/env.py` además bloquea los `downgrade` sobre bases no seguras (OPS-10).
+14. **`crm_sandbox` puede contener datos personales reales (QA-04, 2026-11-05).** El QA encontró en Socios un cliente de VirtualPOS (canal `virtualpos1`) con nombre de aspecto real y un correo personal: se creó contra el sandbox de VirtualPOS con datos de una persona real y luego se sincronizó. Hasta que el usuario decida qué hacer (anonimizar en `crm_sandbox`, pedir el borrado en el sandbox de VirtualPOS o ambas cosas):
+    - tratar `crm_sandbox` como si tuviera PII: sin capturas, CSV ni extractos de Socios, Cobros o Suscripciones en informes, fichas o PR, salvo filas sintéticas reconocibles (`DEMO-`, `TEST`, «AmigoPrueba»);
+    - las exportaciones de prueba («Exportar») se descargan al scratchpad y se borran al terminar;
+    - nadie (ni agentes ni scripts) anonimiza ni borra esas filas por su cuenta: es una decisión «siempre con el usuario» (§2.3), porque toca datos y el vínculo con el proveedor;
+    - al crear datos en los sandboxes de los proveedores se usan solo nombres, RUT y correos sintéticos (dominio `example.test`).
 
 ## 6. Qué ve el usuario después de cada ciclo
 

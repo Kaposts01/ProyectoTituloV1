@@ -5,7 +5,8 @@ import { SummaryCharts } from "./SummaryCharts";
 import { SummaryHealth } from "./SummaryHealth";
 import { SummaryKpiGrid, SummaryKpiSkeleton } from "./SummaryKpiGrid";
 import { hasAnyData } from "./summaryAdapter";
-import { monthLabel, shiftMonth, tchDataDate } from "./summaryFormat";
+import { serverNow } from "../../serverClock";
+import { chileDayOfMonth, monthLabel, shiftMonth, tchDataDate } from "./summaryFormat";
 import type { SummaryChannel, UnifiedSummary } from "./summaryTypes";
 import { useSummary } from "./useSummary";
 
@@ -14,6 +15,25 @@ function formatGeneratedAt(iso: string | null): string | null {
   const time = Date.parse(iso);
   if (Number.isNaN(time)) return null;
   return new Date(time).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short", timeZone: "America/Santiago" });
+}
+
+/**
+ * QA-07 (decisión: opción A). El Resumen sigue abriendo en el mes en curso, pero lo dice: «mes en curso, al día X»,
+ * datos parciales, y las tarjetas de flujo no muestran variación contra el mes anterior (comparar unos días contra
+ * un mes completo dibujaba caídas que no ocurrieron). Un botón lleva al último mes cerrado.
+ */
+function PartialMonthNote({ summary, onClosedMonth }: { summary: UnifiedSummary; onClosedMonth: () => void }) {
+  if (!summary.isCurrentMonth) return null;
+  const day = chileDayOfMonth(serverNow());
+  return (
+    <div className="summary-partial" role="note" aria-label="Mes en curso">
+      <p>
+        <strong>Mes en curso, al día <span className="mono">{day.toLocaleString("es-CL")}</span>:</strong> datos parciales.
+        Ingresos, altas, bajas y churn no se comparan con el mes anterior hasta que el mes cierre.
+      </p>
+      <button type="button" className="secondary-button" onClick={onClosedMonth}>Ver el último mes cerrado</button>
+    </div>
+  );
 }
 
 function QualityNote({ summary }: { summary: UnifiedSummary }) {
@@ -68,6 +88,7 @@ export function SummaryView() {
       </header>
 
       {shown ? <SummaryHealth channels={shown.channels} health={health} /> : null}
+      {shown ? <PartialMonthNote summary={shown} onClosedMonth={() => setMonth(shiftMonth(shown.month, -1))} /> : null}
 
       {state.status === "loading" ? (
         <>

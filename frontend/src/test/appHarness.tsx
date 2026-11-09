@@ -32,7 +32,7 @@ export const ALL_PERMISSIONS = [
   "toku.customers.view", "toku.subscriptions.view", "toku.payment_methods.view", "toku.invoices.view", "toku.transactions.view",
   "payku.clients.view", "payku.plans.view", "payku.subscriptions.view", "payku.transactions.view",
   "tch.dashboard.view", "tch.clientes.view", "tch.suscripciones.view", "tch.transacciones.view",
-  "users.manage", "roles.manage", "sync_runs.view", "sync.run",
+  "users.manage", "roles.manage", "sync_runs.view", "sync.run", "etl.run",
 ];
 
 export type Call = { method: string; path: string; query: URLSearchParams; url: string; body: unknown };

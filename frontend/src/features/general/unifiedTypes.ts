@@ -11,7 +11,7 @@ export type UnifiedPage<T> = {
   canales: string[];
 };
 
-export type StatusFacet = { status: string; count: number };
+export type StatusFacet = { status: string; count: number; channels?: string[] };
 export type StatusFacets = { statuses: StatusFacet[]; canales: string[] };
 
 export type SubscriptionRow = {

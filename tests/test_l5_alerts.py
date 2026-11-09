@@ -221,6 +221,27 @@ def test_heartbeat_is_degraded_with_an_old_sync_or_a_stopped_scheduler(db_sessio
     assert set(body["problems"]) == {"sync_stale", "scheduler_stopped"}
 
 
+def test_qa15_heartbeat_flags_a_channel_whose_last_run_failed_after_succeeding(db_session, monkeypatch):
+    """QA-15: Toku sincronizo bien hace 21 h y despues fallo dos veces: el latido lo dice (antes respondia ok)."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    ok_at, fail_1, fail_2 = now - timedelta(hours=21), now - timedelta(hours=10), now - timedelta(hours=2)
+    db_session.add(SyncRun(source="toku", status="completed", started_at=ok_at, finished_at=ok_at))
+    db_session.add(SyncRun(source="toku", status="failed", started_at=fail_1, finished_at=fail_1))
+    db_session.add(SyncRun(source="toku", status="failed", started_at=fail_2, finished_at=fail_2))
+    db_session.add(SyncRun(source="virtualpos1", status="completed", started_at=fail_2, finished_at=fail_2))
+    db_session.flush()
+    monkeypatch.setattr(health_routes, "_scheduler_expected", lambda: False)
+    body = _heartbeat(db_session, monkeypatch).json()
+    assert body["status"] == "degraded" and "sync_failing" in body["problems"]
+    assert body["sync"]["failing_channels"] == ["toku"]
+    db_session.add(SyncRun(source="toku", status="completed", started_at=now, finished_at=now))
+    db_session.flush()
+    body = _heartbeat(db_session, monkeypatch).json()
+    assert "sync_failing" not in body["problems"] and body["sync"]["failing_channels"] == []
+
+
 def test_heartbeat_returns_503_without_database(monkeypatch):
     class Broken:
         def execute(self, *a, **k):

@@ -84,31 +84,33 @@ export function RolesSubPanel({ canManage, allPermissions }: { canManage: boolea
         </form>
       ) : null}
       {loading ? <p className="muted-copy">Cargando…</p> : (
-        <table className="staging-table">
-          <thead>
-            <tr>
-              <th>Nombre</th><th>Descripción</th><th>Permisos</th>
-              {canManage ? <th>Acciones</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {roles.map((r) => (
-              <tr key={r.id}>
-                <td><code>{r.name}</code></td>
-                <td>{r.description ?? <em className="muted-copy">Sin descripción</em>}</td>
-                <td>{r.permission_codes.length}</td>
-                {canManage ? (
-                  <td>
-                    <button className="channel-btn" onClick={() => { setEditTarget(r); setMessage(null); }}>Editar</button>
-                    {r.name !== "admin" ? (
-                      <>{" "}<button className="channel-btn" onClick={() => handleDelete(r)}>Eliminar</button></>
-                    ) : null}
-                  </td>
-                ) : null}
+        <div className="table-wrap">
+          <table className="staging-table">
+            <thead>
+              <tr>
+                <th>Nombre</th><th>Descripción</th><th>Permisos</th>
+                {canManage ? <th>Acciones</th> : null}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {roles.map((r) => (
+                <tr key={r.id}>
+                  <td><code>{r.name}</code></td>
+                  <td>{r.description ?? <em className="muted-copy">Sin descripción</em>}</td>
+                  <td>{r.permission_codes.length}</td>
+                  {canManage ? (
+                    <td>
+                      <button className="channel-btn" onClick={() => { setEditTarget(r); setMessage(null); }}>Editar</button>
+                      {r.name !== "admin" ? (
+                        <>{" "}<button className="channel-btn" onClick={() => handleDelete(r)}>Eliminar</button></>
+                      ) : null}
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {editTarget ? (
         <div className="edit-dialog-backdrop" role="presentation" onClick={() => setEditTarget(null)}>

@@ -39,7 +39,7 @@ describe("VirtualPOS: errores de escritura con detalle {code, message}", () => {
   it("cliente nuevo: documento duplicado en el proveedor (409) muestra el texto del catálogo", async () => {
     mountApp("/virtualpos/clientes", [records([vpClient(1)]), ["POST", "/api/v1/writes/virtualpos/clients", coded(409, "virtualpos_client_duplicate_document")]]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     fireEvent.click(screen.getByRole("button", { name: "+ Nuevo cliente" }));
     const f = form("Crear cliente VirtualPOS");
     type(field(f, "Tipo de documento"), "1");

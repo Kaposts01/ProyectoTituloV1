@@ -16,7 +16,7 @@ describe("orden por columna con rótulo traducido", () => {
   it("ordenar por «Correo electrónico» pide sort_field=email y la URL guarda la clave Email", async () => {
     const app = mountApp("/virtualpos/clientes", [records]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     fireEvent.click(screen.getByTitle("Ordenar por Correo electrónico"));
     await waitFor(() => expect(lastRecordsCall(app).query.get("sort_field")).toBe("email"));
     expect(lastRecordsCall(app).query.get("sort_direction")).toBe("asc");
@@ -26,7 +26,7 @@ describe("orden por columna con rótulo traducido", () => {
   it("un enlace guardado con ?orden=Telefono sigue ordenando por teléfono", async () => {
     const app = mountApp("/virtualpos/clientes?orden=Telefono&direccion=desc", [records]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     await waitFor(() => expect(lastRecordsCall(app).query.get("sort_field")).toBe("phone_number"));
     expect(lastRecordsCall(app).query.get("sort_direction")).toBe("desc");
   });
@@ -34,7 +34,7 @@ describe("orden por columna con rótulo traducido", () => {
   it("el filtro por columna usa el campo, no el rótulo", async () => {
     const app = mountApp("/virtualpos/clientes", [records]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     fireEvent.change(screen.getByLabelText("Buscar por Correo electrónico"), { target: { value: "p1@" } });
     await waitFor(() => expect(lastRecordsCall(app).query.getAll("filters")).toContain("email:p1@"));
     await listSettled();

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -39,6 +40,27 @@ def csv_safe(value: Any) -> Any:
     return value
 
 
+_RUT_SHAPE = re.compile(r"^\d{1,9}[0-9K]$")
+
+
+def format_rut(value: Any) -> Any:
+    """Formato unico del RUT en los CSV (QA-08): `12.345.678-9`, igual que en la interfaz.
+
+    Lo que no tiene forma de RUT (otro documento, dato sintetico invalido) se deja tal cual; no se inventa un formato.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return value
+    compact = re.sub(r"[.\-\s]", "", value.strip().upper())
+    if not _RUT_SHAPE.match(compact):
+        return value
+    body = compact[:-1].lstrip("0") or "0"
+    return f"{int(body):,}".replace(",", ".") + "-" + compact[-1]
+
+
+def _cell(key: str, value: Any) -> Any:
+    return csv_safe(format_rut(value) if key == "rut" else value)
+
+
 def visible_columns(columns: Sequence[ExportColumn], include_pii: bool) -> list[ExportColumn]:
     return [c for c in columns if include_pii or not c.pii]
 
@@ -63,7 +85,7 @@ def csv_stream(
         buffer.seek(0)
         buffer.truncate()
         for row in rows:
-            writer.writerow([csv_safe(row.get(c.key)) for c in cols])
+            writer.writerow([_cell(c.key, row.get(c.key)) for c in cols])
             count += 1
             if count % chunk_rows == 0:
                 yield pending + buffer.getvalue().encode("utf-8")

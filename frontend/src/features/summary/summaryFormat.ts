@@ -40,3 +40,9 @@ export function formatDataDate(iso: string | null | undefined): string | null {
 export function tchDataDate(health: { tch?: { last_finished_at: string | null } }): string | null {
   return formatDataDate(health.tch?.last_finished_at);
 }
+
+/** Día del mes de hoy en hora de Chile (1–31), a partir de un instante en milisegundos (por defecto, el del servidor). */
+export function chileDayOfMonth(now: number): number {
+  const day = new Intl.DateTimeFormat("es-CL", { day: "numeric", timeZone: "America/Santiago" }).format(new Date(now));
+  return Number(day);
+}

@@ -114,7 +114,7 @@ describe("Clientes VirtualPOS: crear", () => {
       ["POST", "/api/v1/writes/virtualpos/clients", (call: Call) => created("client", "cli-9", call.body as Record<string, unknown>)],
     ]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     fireEvent.click(screen.getByRole("button", { name: "+ Nuevo cliente" }));
     const f = form("Crear cliente VirtualPOS");
     expect(within(f).getByText("Nuevo cliente")).toBeTruthy();
@@ -180,7 +180,7 @@ describe("Planes y suscripciones VirtualPOS: crear", () => {
       ["POST", "/api/v1/writes/virtualpos/subscriptions", (call: Call) => created("subscription", "sub-9", call.body as Record<string, unknown>)],
     ]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de suscripción 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de suscripción 11.111.111-1" });
     fireEvent.click(screen.getByRole("button", { name: "+ Nueva suscripción" }));
     const f = form("Crear suscripción VirtualPOS");
     fireEvent.submit(f);

@@ -4,6 +4,7 @@ import { clpOrDash } from "./format";
 import { recoveryAmount, recoveryDisplay, recoveryNestedValue, recoveryRowKey, recoveryValue, text } from "../shared/utils";
 import type { RecoveryRow } from "../shared/types";
 import type { RecoveryGroup, RecoveryTab } from "./recoveryQuery";
+import { Rut } from "../shared/RutCell";
 
 type Props = {
   tab: RecoveryTab;
@@ -61,7 +62,7 @@ export function RecoveryTable({ tab, group, items, selected, submitting, canRetr
           <tr key={key}>
             {tab === "retry" ? <td><input aria-label={`Seleccionar ${key}`} type="checkbox" checked={selected.has(key)} onChange={(event) => onToggle(key, event.target.checked)} /></td> : null}
             <td className="recovery-id">{recoveryDisplay(subscription)}</td>
-            {tab === "cancelled" ? <td className="mono">{text(recoveryValue(item, "rut"), "—")}</td> : null}
+            {tab === "cancelled" ? <td><Rut value={recoveryValue(item, "rut")} /></td> : null}
             <td>{recoveryDisplay(client)}</td>
             <td className="mono">{text(dateValue(item, tab, group), "—")}</td>
             <td>{labelOr("channel", recoveryValue(item, "account", "source"), "—")}</td>

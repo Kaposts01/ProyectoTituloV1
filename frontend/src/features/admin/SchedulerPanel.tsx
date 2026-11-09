@@ -5,7 +5,7 @@ import { invalidateCache } from "../../apiCache";
 import { label } from "../../i18n/label";
 import { CHANNEL_UNAVAILABLE_TITLE, useEnabledChannels } from "../shared/environment";
 import type { EtlRun, SchedulerJob, SseEvent } from "../shared/types";
-import { API_CHANNELS, phaseText, runTypeLabel } from "./schedulerLabels";
+import { API_CHANNELS, phaseText, failedChannelsLabel, runTypeLabel } from "./schedulerLabels";
 import { RunResourceStats } from "./RunResourceStats";
 import { SseLogEntry } from "./SseLogEntry";
 
@@ -421,7 +421,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
                   <td className="runs-date hide-mobile">{fmtDate(run.finished_at)}</td>
                   <td className="runs-dur">{isThisRunActive && globalPct !== null ? <span className="runs-live-dur">⟳ {globalPct}%</span> : fmtDuration(run.started_at, run.finished_at)}</td>
                   <td>{statusBadge(run.status)}</td>
-                  <td className="runs-type">{runTypeLabel(run.channels_processed, enabled)}</td>
+                  <td className="runs-type">{runTypeLabel(run.channels_processed, enabled)}{failedChannelsLabel(run.channels_failed) ? <span className="runs-failed"> · {failedChannelsLabel(run.channels_failed)}</span> : null}</td>
                   <td className="runs-rec">{run.records_upserted != null ? <span className="runs-rec-val">{run.records_upserted.toLocaleString("es-CL")}</span> : <span className="muted-copy">—</span>}</td>
                   <td>{run.status === "running" ? (isThisRunActive ? <span className="runs-watching-dot" title="Viendo en vivo">●</span> : <button className="runs-ver-btn" onClick={() => { setActiveRunId(run.id); setTriggeredChannels(undefined); }}>Ver en vivo</button>) : <button className="runs-ver-btn" aria-expanded={showDetail} onClick={() => setDetailRunId(showDetail ? null : run.id)}>{showDetail ? "Ocultar" : "Detalle"}</button>}</td>
                 </tr>
