@@ -15,11 +15,19 @@ $script:CryptoIterations = 600000
 $script:CryptoChunk = 1MB
 $script:KeyEnvVar = 'CRM_BACKUP_KEY'
 
+function Resolve-FullPath {
+    # Ruta absoluta resolviendo las relativas contra la ubicacion ACTUAL de PowerShell (Set-Location), no contra el
+    # directorio del proceso, que es lo que haria [IO.Path]::GetFullPath solo. No exige que la ruta exista.
+    param([Parameter(Mandatory)][string]$Path)
+    $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    return [System.IO.Path]::GetFullPath($resolved)
+}
+
 function Test-PathInside {
     param([string]$Child, [string]$Parent)
     $sep = [System.IO.Path]::DirectorySeparatorChar
-    $c = [System.IO.Path]::GetFullPath($Child).TrimEnd($sep) + $sep
-    $p = [System.IO.Path]::GetFullPath($Parent).TrimEnd($sep) + $sep
+    $c = (Resolve-FullPath $Child).TrimEnd($sep) + $sep
+    $p = (Resolve-FullPath $Parent).TrimEnd($sep) + $sep
     return $c.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
@@ -32,13 +40,13 @@ function Get-BackupPassphrase {
     param([string]$KeyFile, [string]$RepoDir, [string[]]$DataPaths)
     if ($KeyFile) {
         if (-not (Test-Path -LiteralPath $KeyFile -PathType Leaf)) { throw 'No existe el archivo de clave indicado.' }
-        $keyFull = [System.IO.Path]::GetFullPath($KeyFile)
+        $keyFull = Resolve-FullPath $KeyFile
         if ($RepoDir -and (Test-PathInside $keyFull $RepoDir)) {
             throw 'RECHAZADO: el archivo de clave esta dentro del repo. Guardelo fuera (gestor de claves o un USB aparte).'
         }
         foreach ($p in $DataPaths) {
             if (-not $p) { continue }
-            $dir = Split-Path ([System.IO.Path]::GetFullPath($p)) -Parent
+            $dir = Split-Path (Resolve-FullPath $p) -Parent
             if (Test-PathInside $keyFull $dir) {
                 throw 'RECHAZADO: el archivo de clave esta en la misma carpeta que el respaldo. La clave nunca va junto al archivo.'
             }

@@ -12,6 +12,8 @@
   - Limite de 2 horas por ejecucion; no despierta al PC.
   - Si la tarea ya existe, se niega salvo con -Force (la reemplaza).
   - Con -WhatIf muestra lo que haria sin registrar nada.
+  - Las rutas se pasan entre comillas y sin barra final (una raiz como E:\ queda "E:\."), porque en la linea de
+    comandos de Windows \" escapa la comilla de cierre.
 
   Para quitarla: Unregister-ScheduledTask -TaskName "<TaskName>" -Confirm:$false
 
@@ -32,6 +34,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\backup_common.ps1"
 $script = Join-Path $PSScriptRoot 'backup_db.ps1'
 $repoDir = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 if (-not (Test-Path -LiteralPath $script)) { throw "No existe $script" }
@@ -39,9 +42,11 @@ if (-not (Test-Path -LiteralPath $script)) { throw "No existe $script" }
 $shell = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source
 if (-not $shell) { $shell = (Get-Command powershell.exe).Source }
 
-$argList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"",
-    '-Database', 'crm', '-Destination', "`"$Destination`"", '-RetentionDays', $RetentionDays)
-if ($ExternalCopyPath) { $argList += @('-ExternalCopyPath', "`"$ExternalCopyPath`"") }
+# Rutas entre comillas sin barra final: en la linea de comandos `\"` escapa la comilla, y `"E:\"` romperia los
+# argumentos. ConvertTo-TaskPathArgument quita la barra final y deja la raiz de una unidad como `E:\.`.
+$argList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (ConvertTo-TaskPathArgument $script),
+    '-Database', 'crm', '-Destination', (ConvertTo-TaskPathArgument $Destination), '-RetentionDays', $RetentionDays)
+if ($ExternalCopyPath) { $argList += @('-ExternalCopyPath', (ConvertTo-TaskPathArgument $ExternalCopyPath)) }
 if ($AlertOnFailure) { $argList += '-AlertOnFailure' }
 $arguments = $argList -join ' '
 

@@ -128,6 +128,106 @@ function Write-BackupLog {
     Write-Host $line
 }
 
+function Remove-OldBackups {
+    <#
+      Retencion de una carpeta. Borra solo:
+        - <db>_YYYYMMDD_HHmm.dump con mas de -Days dias, y
+        - <db>_YYYYMMDD_HHmm.dump.partial con mas de 1 dia (restos de un respaldo o copia que se corto a la mitad;
+          uno en curso es reciente y no se toca).
+      Nunca toca otros archivos (p. ej. crm_predeploy_*.dump). Devuelve la cantidad de archivos borrados.
+    #>
+    param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)][string]$Database, [Parameter(Mandatory)][int]$Days)
+    $base = '^' + [regex]::Escape($Database) + '_\d{8}_\d{4}\.dump'
+    $dumpPattern = $base + '$'
+    $partialPattern = $base + '\.partial$'
+    $limit = (Get-Date).AddDays(-$Days)
+    $partialLimit = (Get-Date).AddDays(-1)
+    $removed = 0
+    foreach ($f in Get-ChildItem -LiteralPath $Folder -File -Filter "$Database`_*") {
+        $old = ($f.Name -cmatch $dumpPattern -and $f.LastWriteTime -lt $limit) -or
+               ($f.Name -cmatch $partialPattern -and $f.LastWriteTime -lt $partialLimit)
+        if ($old) {
+            Remove-Item -LiteralPath $f.FullName -Force
+            $removed++
+        }
+    }
+    return $removed
+}
+
+function Copy-BackupToExternal {
+    <#
+      Copia atomica al disco externo: primero <nombre>.partial, se compara el tamano y recien entonces se renombra
+      al nombre definitivo. Si algo falla (disco que se desconecta a la mitad, sin espacio) se borra el .partial y se
+      relanza el error: nunca queda un archivo truncado con el nombre definitivo. Devuelve la ruta final.
+    #>
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Folder)
+    if (-not (Test-Path -LiteralPath $Folder -PathType Container)) {
+        throw "El destino externo no esta disponible: $Folder (disco desconectado?)."
+    }
+    $name = Split-Path $Source -Leaf
+    $dest = Join-Path $Folder $name
+    if (Test-Path -LiteralPath $dest) { throw "Ya existe $name en el destino externo (no se sobrescribe)." }
+    $tmp = "$dest.partial"
+    try {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction Stop }
+        Copy-Item -LiteralPath $Source -Destination $tmp -ErrorAction Stop
+        if ((Get-Item -LiteralPath $tmp).Length -ne (Get-Item -LiteralPath $Source).Length) {
+            throw 'La copia externa no tiene el mismo tamano que el original.'
+        }
+        Move-Item -LiteralPath $tmp -Destination $dest -ErrorAction Stop
+    } catch {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+        throw
+    }
+    return $dest
+}
+
+function Invoke-BackupCopyAndRetention {
+    <#
+      Pasos posteriores a un dump ya validado: copia externa opcional y retencion local.
+      La retencion local se aplica SIEMPRE, aunque la copia externa falle (con el disco desconectado la carpeta local
+      se seguiria llenando). Si la copia externa fallo, devuelve su mensaje de error (el llamador sale con 1 y avisa);
+      si todo salio bien devuelve $null. Un error de la retencion local se lanza como excepcion.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$DumpFile,
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)][string]$Database,
+        [Parameter(Mandatory)][int]$RetentionDays,
+        [Parameter(Mandatory)][string]$LogFile,
+        [string]$ExternalCopyPath
+    )
+    $externalError = $null
+    if ($ExternalCopyPath) {
+        try {
+            [void](Copy-BackupToExternal -Source $DumpFile -Folder $ExternalCopyPath)
+            $extRemoved = Remove-OldBackups -Folder $ExternalCopyPath -Database $Database -Days $RetentionDays
+            Write-BackupLog $LogFile "Copia externa OK en $ExternalCopyPath (borrados por retencion: $extRemoved)."
+        } catch {
+            $externalError = Get-ShortError $_.Exception.Message
+            Write-BackupLog $LogFile "Copia externa fallida: $externalError Se sigue con la retencion local." 'WARN'
+        }
+    }
+    $removed = Remove-OldBackups -Folder $Destination -Database $Database -Days $RetentionDays
+    Write-BackupLog $LogFile "Retencion: $removed archivo(s) de '$Database' borrado(s) ($RetentionDays dias; .partial de mas de 1 dia)."
+    return $externalError
+}
+
+function ConvertTo-TaskPathArgument {
+    <#
+      Ruta entre comillas para la linea de argumentos de una tarea programada. En la linea de comandos de Windows
+      `\"` escapa la comilla, asi que una ruta que termina en barra (p. ej. la raiz `E:\`) quedaria `"E:\"` y se
+      comeria la comilla de cierre y el resto de los argumentos. Se quitan las barras finales; si queda una raiz de
+      unidad (`E:`) se normaliza a `E:\.`, que sigue siendo la raiz y no termina en barra.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+    if ($Path.Contains('"')) { throw "Ruta invalida (contiene comillas): $Path" }
+    $p = $Path.TrimEnd('\', '/')
+    if (-not $p) { throw "Ruta invalida: '$Path'." }
+    if ($p -match '^[A-Za-z]:$') { $p += '\.' }
+    return '"' + $p + '"'
+}
+
 function Get-DumpTocCount {
     <# Valida un dump -Fc con `pg_restore --list` (enviado por stdin). Devuelve la cantidad de entradas del TOC. #>
     param([Parameter(Mandatory)][string]$ProjectDir, [Parameter(Mandatory)][string]$DumpFile)

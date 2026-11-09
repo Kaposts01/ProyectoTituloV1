@@ -20,10 +20,16 @@ Runbook de respaldo, cifrado y restauración de PostgreSQL del CRM. Todos los sc
      No se crean archivos dentro del contenedor.
    - Se valida con `pg_restore --list` (el archivo entra por stdin). Si no es un archivo válido, se borra el
      `.partial` y el script sale con código 1.
-   - Con `-ExternalCopyPath E:\CRM_backups` copia el dump al disco externo y comprueba el tamaño.
+   - Con `-ExternalCopyPath E:\CRM_backups` copia el dump al disco externo de forma atómica: primero a
+     `<nombre>.dump.partial`, compara el tamaño y recién entonces lo renombra al nombre definitivo. Si la copia se
+     corta (disco desconectado a la mitad, sin espacio) se borra el `.partial`: nunca queda un dump truncado con el
+     nombre definitivo.
    - Retención: borra los archivos de más de 14 días (`-RetentionDays`) que calcen **exactamente** con
-     `<db>_YYYYMMDD_HHmm.dump`, en la carpeta local y en la externa. Nunca toca otros archivos
+     `<db>_YYYYMMDD_HHmm.dump`, en la carpeta local y en la externa, y los `<db>_YYYYMMDD_HHmm.dump.partial` de
+     más de 1 día (restos de una ejecución cortada). Nunca toca otros archivos
      (por ejemplo `crm_predeploy_D127_20261103_0039.dump`).
+   - La retención **local** se aplica siempre, aunque falle la copia externa: con el disco desconectado la carpeta
+     local no se sigue llenando. Igual el script sale con código 1 y avisa (etapa `copia externa`).
    - Log: `CRM_backups\logs\backup_db.log` (fecha, base, archivo, tamaño, entradas del TOC, duración, estado).
      Sin datos personales ni credenciales; los errores se recortan a su primera línea.
    - Con `-AlertOnFailure`, si algo falla manda un aviso por el mismo SMTP de las alertas
@@ -128,7 +134,7 @@ un correo "respaldo de la base crm fallido".
 | `usuario de postgres` | Docker Desktop apagado o el contenedor caído | Abrir Docker Desktop, `docker compose up -d postgres`, correr el respaldo a mano. |
 | `pg_dump` | Base inexistente, disco del contenedor lleno, conexión cortada | Leer el mensaje del log; `docker compose logs postgres`. |
 | `validacion` | Dump truncado o corrupto | Revisar espacio libre en el disco de `CRM_backups`; reintentar. |
-| `copia externa` | Disco externo desconectado o con otra letra | Conectarlo; el respaldo local ya quedó bien (está en el log como `OK`). |
+| `copia externa` | Disco externo desconectado o con otra letra | Conectarlo; el respaldo local ya quedó bien (está en el log como `OK`) y la retención local se aplicó igual. |
 | `retencion` | Archivo en uso o sin permisos | El respaldo ya quedó; revisar permisos de la carpeta. |
 
 Reintento manual: `.\scripts\maintenance\backup_db.ps1` (mismos parámetros que la tarea). Si fallan dos días
@@ -142,6 +148,8 @@ seguidos, tratarlo como incidente: sin respaldo reciente no hay forma de recuper
 2. Ver lo que registraría: `.\scripts\maintenance\register_backup_task.ps1 -AlertOnFailure -WhatIf`.
 3. Registrar: `.\scripts\maintenance\register_backup_task.ps1 -AlertOnFailure` (agregar
    `-ExternalCopyPath E:\CRM_backups` si el disco externo queda conectado; si no, copiarlo a mano semanalmente).
+   Las rutas se guardan entre comillas y sin barra final: una raíz como `E:\` queda `"E:\."` (misma carpeta),
+   porque en la línea de comandos de Windows `\"` escapa la comilla y rompería los argumentos de la tarea.
 4. Probar la tarea: `Start-ScheduledTask -TaskName 'SynkmetriX - Respaldo diario crm'` y revisar el log.
 5. Definir la frase de cifrado, guardarla fuera del PC y subir el primer `.dump.enc` a la nube.
 

@@ -32,7 +32,7 @@ try {
         if ($InputFile -notmatch '\.enc$') { throw 'Indique -OutputFile (la entrada no termina en .enc).' }
         $OutputFile = $InputFile -replace '\.enc$', ''
     }
-    $OutputFile = [System.IO.Path]::GetFullPath($OutputFile)
+    $OutputFile = Resolve-FullPath $OutputFile
     if (Test-Path -LiteralPath $OutputFile) { throw "Ya existe el archivo de salida: $OutputFile (no se sobrescribe)." }
 
     $pass = Get-BackupPassphrase -KeyFile $KeyFile -RepoDir $repoDir -DataPaths @($InputFile, $OutputFile)

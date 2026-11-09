@@ -6,9 +6,11 @@
   1. pg_dump -Fc dentro del contenedor `postgres`; el dump sale por stdout y se escribe en
      <Destination>\<db>_YYYYMMDD_HHmm.dump (primero como .partial; se renombra solo si todo sale bien).
   2. Valida el archivo con `pg_restore --list` (enviado por stdin al contenedor).
-  3. Copia opcional a un disco externo (-ExternalCopyPath), con la misma retencion.
-  4. Borra los respaldos mas viejos que -RetentionDays que calcen EXACTAMENTE con <db>_YYYYMMDD_HHmm.dump
-     (nunca toca otros archivos, p. ej. crm_predeploy_*.dump).
+  3. Copia opcional a un disco externo (-ExternalCopyPath), atomica (<nombre>.partial y renombre al final), con la
+     misma retencion.
+  4. Borra los respaldos mas viejos que -RetentionDays que calcen EXACTAMENTE con <db>_YYYYMMDD_HHmm.dump, y los
+     <db>_YYYYMMDD_HHmm.dump.partial de mas de 1 dia (nunca toca otros archivos, p. ej. crm_predeploy_*.dump).
+     La retencion local se aplica aunque falle la copia externa; en ese caso el script igual sale con 1 y avisa.
   5. Log en <Destination>\logs\backup_db.log: fecha, base, nombre del archivo, tamano, entradas del TOC y estado.
      Sin datos personales ni credenciales.
   Sale con 0 si todo salio bien y con 1 si algo fallo. Con -AlertOnFailure, ademas manda un aviso por el
@@ -36,20 +38,6 @@ if (-not $ProjectDir) { $ProjectDir = Get-DefaultProjectDir }
 $logFile = Join-Path $Destination 'logs\backup_db.log'
 $partial = $null
 $failureStage = 'inicio'
-
-function Remove-OldBackups {
-    param([string]$Folder, [string]$Db, [int]$Days)
-    $pattern = '^' + [regex]::Escape($Db) + '_\d{8}_\d{4}\.dump$'
-    $limit = (Get-Date).AddDays(-$Days)
-    $removed = 0
-    foreach ($f in Get-ChildItem -LiteralPath $Folder -File -Filter "$Db`_*.dump") {
-        if ($f.Name -cmatch $pattern -and $f.LastWriteTime -lt $limit) {
-            Remove-Item -LiteralPath $f.FullName -Force
-            $removed++
-        }
-    }
-    return $removed
-}
 
 try {
     Assert-DatabaseName $Database
@@ -80,22 +68,14 @@ try {
     $secs = [int]((Get-Date) - $started).TotalSeconds
     Write-BackupLog $logFile ("OK {0} ({1:N1} MB, {2} entradas en el TOC, {3} s)." -f $name, ($size / 1MB), $toc, $secs)
 
-    if ($ExternalCopyPath) {
-        $failureStage = 'copia externa'
-        if (-not (Test-Path -LiteralPath $ExternalCopyPath)) {
-            throw "El destino externo no esta disponible: $ExternalCopyPath (disco desconectado?)."
-        }
-        Copy-Item -LiteralPath $final -Destination (Join-Path $ExternalCopyPath $name)
-        if ((Get-Item -LiteralPath (Join-Path $ExternalCopyPath $name)).Length -ne $size) {
-            throw 'La copia externa no tiene el mismo tamano que el original.'
-        }
-        $extRemoved = Remove-OldBackups -Folder $ExternalCopyPath -Db $Database -Days $RetentionDays
-        Write-BackupLog $logFile "Copia externa OK en $ExternalCopyPath (borrados por retencion: $extRemoved)."
-    }
-
+    # Copia externa y retencion local: la retencion local corre siempre, aunque la copia externa falle.
     $failureStage = 'retencion'
-    $removed = Remove-OldBackups -Folder $Destination -Db $Database -Days $RetentionDays
-    Write-BackupLog $logFile "Retencion: $removed respaldo(s) de '$Database' con mas de $RetentionDays dias borrado(s)."
+    $externalError = Invoke-BackupCopyAndRetention -DumpFile $final -Destination $Destination -Database $Database `
+        -RetentionDays $RetentionDays -LogFile $logFile -ExternalCopyPath $ExternalCopyPath
+    if ($externalError) {
+        $failureStage = 'copia externa'
+        throw $externalError
+    }
     exit 0
 }
 catch {

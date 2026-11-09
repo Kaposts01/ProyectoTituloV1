@@ -37,7 +37,7 @@ try {
     if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw "No existe el archivo de entrada: $InputFile" }
     $InputFile = (Resolve-Path -LiteralPath $InputFile).ProviderPath
     if (-not $OutputFile) { $OutputFile = "$InputFile.enc" }
-    $OutputFile = [System.IO.Path]::GetFullPath($OutputFile)
+    $OutputFile = Resolve-FullPath $OutputFile
     if (Test-Path -LiteralPath $OutputFile) { throw "Ya existe el archivo de salida: $OutputFile (no se sobrescribe)." }
 
     $pass = Get-BackupPassphrase -KeyFile $KeyFile -RepoDir $repoDir -DataPaths @($InputFile, $OutputFile)
