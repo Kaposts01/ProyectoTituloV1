@@ -1,8 +1,8 @@
-# Handoff: CRM SynkmetriX (estado al 2026-11-07, sprint S6)
+# Handoff: CRM SynkmetriX (estado al 2026-11-09, sprint S6)
 
 Documento para quien retome el trabajo (persona o Claude). Léelo completo antes de tocar nada. No contiene secretos: las variables de entorno aparecen solo por nombre y las cifras de datos son agregadas (sin datos personales).
 
-> **El plan y el estado de cada tarea viven en [`docs/tasks.md`](docs/tasks.md)** (tablero en §2, sprint activo S6 en §3.10, filas en §4 y las tareas de la auditoría del 2026-10-29 en §4.14). Este documento conserva lo que no cabe allí: reglas de trabajo, cómo levantar cada ambiente, el estado real de las bases, banderas, riesgos, incidentes y cómo trabajar con el usuario. Reescrito por completo el 2026-11-07 (DOC-13, ficha d162); la versión anterior era del 2026-10-29 y describía una rama sin remoto y `crm` en `0041`.
+> **El plan y el estado de cada tarea viven en [`docs/tasks.md`](docs/tasks.md)** (tablero en §2, sprint activo S6 en §3.10, filas en §4 y las tareas de la auditoría del 2026-10-29 en §4.14). Este documento conserva lo que no cabe allí: reglas de trabajo, cómo levantar cada ambiente, el estado real de las bases, banderas, riesgos, incidentes y cómo trabajar con el usuario. Reescrito por completo el 2026-11-07 (DOC-13, ficha d162) y actualizado el 2026-11-09 con los PR #8 y #10; la versión anterior era del 2026-10-29 y describía una rama sin remoto y `crm` en `0041`.
 
 ## Índice
 
@@ -25,9 +25,9 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 
 | Tema | Estado |
 |---|---|
-| Rama | **`master` al día en `65b21c9`** (local igual a `origin/master`). PR #6 (`sprint-5/sync-confiable`, sprints 4 y 5A y olas 1 a 7) integrado el 2026-11-04 (merge `fdf51bc`); PR #7 (test inestable de exportación) integrado el 2026-11-05. Abierto: **PR #8** (`ops/bck-01a-respaldos`, BCK-01a, respaldos) sin integrar. Las ramas `lote/*` y `sprint-*` ya están contenidas en `master` o son históricas |
+| Rama | **`master` al día en `65b21c9`** (local igual a `origin/master`). PR #6 (`sprint-5/sync-confiable`, sprints 4 y 5A y olas 1 a 7) integrado el 2026-11-04 (merge `fdf51bc`); PR #7 (test inestable de exportación) integrado el 2026-11-05. Abiertos sin integrar (2026-11-09): **PR #8** (`ops/bck-01a-respaldos`, BCK-01a, respaldos), **PR #9** (`docs/reconciliar-plan`, DOC-12 y DOC-13, este documento) y **PR #10** (`lote/l8-qa`, L8-QA y SEC-03). Las ramas `lote/*` y `sprint-*` ya están contenidas en `master` o son históricas |
 | CI | **En verde** en `master` (corrida del merge del PR #7, 2026-11-05). La corrida del merge del PR #6 falló por el test inestable que arregló el PR #7. CI corre `ruff`, `pytest` contra PostgreSQL 17 con `alembic upgrade head`, `npm run lint`, `npm test` y `npm run build`; **no mide cobertura** (MET-01) |
-| Pruebas | Backend 2.751 y frontend 1.381 en CI (cifras del plan revisado del 2026-11-05; no se volvieron a correr para escribir este documento) |
+| Pruebas | En `master`: backend 2.751 y frontend 1.381 en CI (cifras del plan revisado del 2026-11-05). Tras el PR #10: backend 2.759 (2 omitidas) y frontend 1.407 en su CI. No se volvieron a correr para escribir este documento |
 | Migraciones | Head del código **`20261104_0071`**. `crm` (producción local) en **`0068`**: falta la `0071` (solo siembra el permiso de importar reportes de Payku). `crm_sandbox` en `0071` desde el 2026-11-04 (integración de L7-IMPORT; verificado por el orquestador) |
 | Sprint activo | **S6** (2026-11-06 a 2026-11-13): plan fiel, producción segura y pedidos finales a terceros. Entrega a fines de noviembre (d153); congelamiento de código el 2026-11-21 (d158) |
 | Producción | Local, un PC como servidor (d155). Backend 8000 y front 5173 sobre `crm`. Sin respaldo automatizado todavía (BCK-01a en PR #8); último respaldo manual: `crm_predeploy_D127_20261103_0039.dump` (2026-11-03, fuera del repositorio) |
@@ -37,7 +37,7 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 ## 2. Reglas de trabajo (leer primero)
 
 1. **Nunca mostrar ni copiar valores del `.env`.** Leer solo nombres de variables. Para modificarlo, scripts que no impriman nada. Existe una guarda de arranque que compara credenciales de sandbox con las de producción.
-2. **Un solo `.env`.** No existe `.env.sandbox` en el backend (solo `frontend/.env.sandbox`, sin secretos: puerto y proxy de Vite). Con `APP_ENV=sandbox` la app usa **solo** las variables `*_SANDBOX_*` y `SANDBOX_DATABASE_URL`. **`APP_ENV=development` equivale a producción** (`is_production` es verdadero y las guardas de sandbox no corren). Un valor desconocido de `APP_ENV` falla al arrancar.
+2. **Un solo `.env`.** No existe `.env.sandbox` en el backend (solo `frontend/.env.sandbox`, sin secretos: puerto y proxy de Vite). Con `APP_ENV=sandbox` la app usa **solo** las variables `*_SANDBOX_*` y `SANDBOX_DATABASE_URL`. **`APP_ENV=development` equivale a producción** (`is_production` es verdadero y las guardas de sandbox no corren). Un valor desconocido de `APP_ENV` falla al arrancar. **Con el PR #10 (SEC-03), con `APP_ENV=sandbox` o `qa` es obligatoria `SANDBOX_AUTH_JWT_SECRET`** (al menos 32 caracteres y distinta de `AUTH_JWT_SECRET`): sin ella no arrancan el backend 8001, los scripts de sandbox, `tests_contract` ni el agente `sandbox-tester`. Al definirla se cierran las sesiones abiertas del sandbox.
 3. **`crm` NO es el sandbox.** `crm` es la base local con datos reales de producción; el sandbox es `crm_sandbox` y solo se activa con `APP_ENV=sandbox` en el proceso. **Fijar `APP_ENV` y cualquier `DATABASE_URL` ANTES de importar `settings`**: `alembic/env.py` y los scripts leen `settings.database_url` al importar. Todo script de depuración debe fijar la base `_test` antes de importar y fallar cerrado si no termina en `_test` (o `sandbox` donde se autorice).
 4. **Regla de oro del usuario: en sandbox sin problema; en producción siempre con el usuario y con más cuidado.** Ante la duda sobre qué ambiente es, se trata como producción (Toku comparte host con producción). Aprobado en el [runbook](docs/operations/sandbox-testing-and-decisions.md) (DEC-27). Las validaciones en sandbox las ejecuta el orquestador avisando (d104).
 5. **Escrituras al proveedor solo en sandbox y solo con variables de proceso**, nunca dejando banderas encendidas en `.env`. Producción: todas apagadas.
@@ -63,7 +63,7 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 | PostgreSQL 17 | 5433 | `crm`, `crm_sandbox`, `crm_test` | `docker compose up -d` (servicio `postgres` de `compose.yaml`, volumen `postgres_data`) |
 | Backend producción | 8000 | `crm` | `.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000` (con `--reload` si se está desarrollando) |
 | Front producción | 5173 | — | `cd frontend; npm run dev` (proxy `/api` a `127.0.0.1:8000`) |
-| Backend sandbox | 8001 | `crm_sandbox` | `scripts/run_sandbox_backend.ps1` (fija `APP_ENV=sandbox`; **sin recarga automática**; scheduler apagado por defecto con `SANDBOX_SCHEDULER_ENABLED=false`) |
+| Backend sandbox | 8001 | `crm_sandbox` | `scripts/run_sandbox_backend.ps1` (fija `APP_ENV=sandbox`; **sin recarga automática**; scheduler apagado por defecto con `SANDBOX_SCHEDULER_ENABLED=false`; con el PR #10 exige `SANDBOX_AUTH_JWT_SECRET` en el `.env`, regla 2) |
 | Front sandbox | 5174 | — | `cd frontend; npm run dev:sandbox` |
 
 - **Orden para levantar:** PostgreSQL, luego backend, luego front. Comprobar `GET /health` y, tras cambios de backend, `GET /openapi.json` (rutas nuevas). Los backends no recargan solos si se arrancan sin `--reload`.
@@ -81,7 +81,7 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 | Base | Revisión | Notas |
 |---|---|---|
 | `crm` (producción local) | **`20261103_0068`** | Migrada de `0041` a `0068` el 2026-11-03 (d127) con `seed_roles.py` (soporte 36 permisos, ejecutivo 35) y respaldo previo verificado con `pg_restore --list`. Verificado entonces: un solo head, sin `core_charges` con el source antiguo «virtualpos», 0 de 9.028 `vp_subscriptions` con monto NULL. **Pendiente: `0071`** en la ventana de S6 (OPS-11). Las tablas de reportes de Toku siguen vacías hasta cargar pepper y reportes (TK-PAR-01). La recarga completa de TCH (d121) no se ha hecho |
-| `crm_sandbox` | `20261104_0071` (desde el 2026-11-04, integración de L7-IMPORT; verificado por el orquestador) | Datos de VirtualPOS sandbox (cuenta 1) y sintéticos `DEMO-`. Su lista de clientes de VirtualPOS muestra RUT y nombres que **parecen reales**: no subir capturas con filas |
+| `crm_sandbox` | `20261104_0071` (desde el 2026-11-04, integración de L7-IMPORT; verificado por el orquestador) | Datos de VirtualPOS sandbox (cuenta 1) y sintéticos `DEMO-`. **Contiene datos personales reales** (QA-04, informe de QA del 2026-11-05: un cliente de VirtualPOS creado contra el sandbox con datos de una persona real y luego sincronizado; decisión del usuario pendiente en la ficha d163). Mientras tanto rige la regla 14 del [runbook](docs/operations/sandbox-testing-and-decisions.md) (PR #10): tratarla como base con datos personales y no subir capturas con filas |
 | `crm_test` | Se recrea en cada sesión de pytest | Solo para pruebas |
 
 - Cadena de migraciones desde la `0051`: `0052 → 0056 → 0057 → 0055 → 0053 → 0054 → 0062 → 0063 → 0059 → 0060 → 0061 → 0066 → 0064 → 0065 → 0068 → 0071`. Números fuera de orden y huecos (`0058`, `0067`, `0069`, `0070`): la cadena es lineal y válida; **no se renombran** (no se editan migraciones históricas).
@@ -110,7 +110,7 @@ Peppers opcionales sin valor en `.env.example`: `TOKU_REPORT_HASH_PEPPER` (oblig
 | 1 | Pérdida de datos: `crm` vive en un volumen Docker de un solo PC, sin respaldo automático | BCK-01a (PR #8) con copia cifrada en disco externo y nube (d156) y simulacro en `crm_restore_test`; primer respaldo antes de cualquier otro paso de la ventana |
 | 2 | La memoria y la defensa compiten con correcciones | DOC-14 continua desde S6; congelamiento el 2026-11-21 (d158) |
 | 3 | Datos personales expuestos (reportes, la plantilla de D40 con 1.408 nombres, capturas, demo, contexto de agentes); Ley 21.719 vigente desde el 2026-12-01 | SEC-01; mover el archivo de D40; demo en vivo sobre producción **solo con el modo que enmascara datos (SEC-02, d161)** |
-| 4 | JWT de producción posiblemente expuesto por los túneles del 26 al 29 de octubre (USR-12) | Rotarlo en la ventana de la `0071` (d157); nunca túnel a producción (d150); secreto distinto en sandbox |
+| 4 | JWT de producción posiblemente expuesto por los túneles del 26 al 29 de octubre (USR-12) | Rotarlo en la ventana de la `0071` (d157); nunca túnel a producción (d150). El secreto compartido entre producción y sandbox queda resuelto con SEC-03 en el PR #10 (`SANDBOX_AUTH_JWT_SECRET`), al integrarlo |
 | 5 | Terceros que no responden dejan 24 tareas abiertas | TER-01 con fecha en S6 y corte al cierre de S7 (d154) |
 | 6 | Documentación desfasada | Chequeo de desfase al integrar cada ola (d117) |
 | 7 | Demo en vivo que falla | Guion, ensayos y video de respaldo (DOC-15) |
@@ -121,7 +121,8 @@ Peppers opcionales sin valor en `.env.example`: `TOKU_REPORT_HASH_PEPPER` (oblig
 
 Detalle y definición de hecho en `docs/tasks.md` §3.9 a §3.12.
 
-- **S6 (2026-11-06 a 2026-11-13).** Equipo: DOC-12 y DOC-13 (esta reconciliación), BCK-01a (PR #8), SEC-01, TER-01, SYNC-01, TK-PAR-04 (dry-run en sandbox), DOC-14 (esqueleto de la memoria).
+- **S6 (2026-11-06 a 2026-11-13).** Equipo: DOC-12 y DOC-13 (esta reconciliación, PR #9), BCK-01a (PR #8, con tres correcciones menores pendientes de la revisión del 2026-11-09), L8-QA (PR #10: hallazgos altos y medios QA-01 a QA-16 del informe de QA del sandbox del 2026-11-05, más SEC-03), SEC-01, TER-01, SYNC-01, TK-PAR-04 (dry-run en sandbox), DOC-14 (esqueleto de la memoria). Quedan para otro lote los hallazgos bajos QA-17 a QA-30. Del usuario, fuera de la ventana: la decisión sobre QA-04 (datos personales reales en `crm_sandbox`, ficha d163) y definir `SANDBOX_AUTH_JWT_SECRET` antes de reiniciar el 8001 con el PR #10.
+- **Sandbox de Payku:** las variables `PAYKU_SANDBOX_BASE_URL`, `PAYKU_SANDBOX_PUBLIC_TOKEN` y `PAYKU_SANDBOX_PRIVATE_TOKEN` existen pero están vacías; las llena el usuario cuando Payku entregue el sandbox (USR-04). Mientras tanto Payku sigue deshabilitado en sandbox. Ojo: Payku **no tiene guardas de escritura duras como Toku** (`app/integrations/toku/write_guard.py`); solo la bandera `PAYKU_WRITES_ENABLED` / `PAYKU_SANDBOX_WRITES_ENABLED`, así que cualquier escritura de prueba exige la misma cautela que en producción.
 - **S7 (2026-11-14 a 2026-11-21, congelamiento al cierre).** MET-01 (cobertura en CI), MET-02 (métricas desde tablas existentes, d159), MET-03 (2 a 3 sesiones con SUS, d160), SEC-02 (modo demo con datos enmascarados, antes del congelamiento), UX-16, DOC-15; corte de terceros.
 - **S8 (2026-11-22 hasta la entrega a fines de noviembre).** DOC-14, DOC-16, correcciones de defectos y dos ensayos.
 
@@ -138,10 +139,11 @@ Rescate: si un paso falla, restaurar el respaldo del paso 1.
 
 ## 8. Incidentes y errores cometidos
 
-### Recientes (2 al 7 de noviembre)
+### Recientes (2 al 9 de noviembre)
 - **CI en rojo desde el 20/10 sin que nadie lo notara.** Al abrir el PR #6 aparecieron cuatro causas: (1) `.python-version` decía `3.14.5`, que no existe para el runner de Ubuntu 26.04: pasó a `3.14` (`882f5bc`); (2) los paneles de sync formateaban los números sin idioma (en inglés salía «1,234»): ahora es-CL (`882f5bc`); (3) **74 tests perdían la cookie `Secure`** porque el cliente de pruebas usaba `http://`: ahora usan `https://testserver` sin tocar la app (`c5ae5c4`); (4) `test_health` y `test_payku_client` dependían del `.env` local (`c5ae5c4`).
 - **Test inestable en `master`:** la corrida de CI del merge del PR #6 falló en `export.integration` porque el test usaba el campo «Monto mínimo» antes de que apareciera. Corregido con una espera explícita (`d278aee`, PR #7). Desde entonces la CI de `master` está en verde.
-- **Documentación desfasada 178 commits** pese a d117; corregido en DOC-12 y DOC-13 (este documento).
+- **Documentación desfasada unos 175 commits desde el 2026-10-30 (411 en total en el PR #6)** pese a d117; corregido en DOC-12 y DOC-13 (este documento).
+- **Test de foco de billing inestable:** en la CI del PR #9 falló una vez `billing.ui.test.tsx` («el foco entra al dialogo y vuelve al cerrar con Escape»), sin relación con el cambio (solo documentación). Corregido con esperas amplias en `36cd115`, dentro del PR #10; hasta integrarlo puede volver a fallar en otros PR.
 - **Despliegue de `crm`** (d127, 2026-11-03): sin incidentes; hecho por el orquestador con autorización en el chat y respaldo previo.
 
 ### Anteriores (resumen; detalle en `docs/tasks.md` §7.2)
@@ -211,9 +213,9 @@ Medir qué cuenta cada campo antes de reportar una cifra; tests nunca contra `cr
 
 ## 14. Primeros pasos para retomar
 
-1. Leer `docs/tasks.md` (§2, §3.10 y §4.14) y este documento. `git switch master`, `git pull`, `git log --oneline -10` y `gh pr list` (¿el PR #8 de BCK-01a sigue abierto?).
+1. Leer `docs/tasks.md` (§2, §3.10 y §4.14) y este documento. `git switch master`, `git pull`, `git log --oneline -10` y `gh pr list` (¿siguen abiertos los PR #8, #9 y #10?).
 2. Verificar sin tocar nada: CI de `master` en verde (`gh run list --branch master --limit 3`); `alembic heads` leyendo los archivos (debe dar `20261104_0071`); en local, `pytest -q --basetemp=<scratchpad>\pt`, y en `frontend/`, `npm test`, `npm run build` y `npm run lint`.
 3. Correr el chequeo de desfase de `docs/tasks.md` (§1.4, regla 8). Si sale algo nuevo, actualizar la fila antes de seguir.
 4. Preguntar al usuario, por la Bandeja, por la ventana de despliegue (sección 7) y por la fecha exacta de entrega y el formato de la universidad (d153 no trae nota).
-5. Siguiente trabajo del equipo, en este orden: revisar e integrar BCK-01a (PR #8, con su simulacro en `crm_restore_test`); SEC-01; TER-01 (redactar los pedidos para que el usuario los envíe); esqueleto de la memoria (DOC-14); luego, en S7, SEC-02 antes del congelamiento, MET-01 y MET-02.
+5. Siguiente trabajo del equipo, en este orden: aplicar las tres correcciones de BCK-01a e integrarlo (PR #8, con su simulacro en `crm_restore_test`); integrar L8-QA (PR #10) avisando antes al usuario de `SANDBOX_AUTH_JWT_SECRET`; SEC-01; TER-01 (redactar los pedidos para que el usuario los envíe); esqueleto de la memoria (DOC-14); luego, en S7, SEC-02 antes del congelamiento, MET-01 y MET-02.
 6. Antes de cualquier prueba con escritura real, releer el [runbook](docs/operations/sandbox-testing-and-decisions.md) y la sección 2.

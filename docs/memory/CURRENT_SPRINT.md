@@ -6,8 +6,8 @@
 
 **Plan fiel, producción segura y pedidos finales a terceros.** Detalle, tareas y definición de hecho en [tasks.md, sección 3.10](../tasks.md#310-s6-plan-fiel-producción-segura-y-pedidos-finales-a-terceros-2026-11-06-a-2026-11-13).
 
-- Equipo: DOC-12 y DOC-13 (reconciliación del plan y del handoff), BCK-01a (respaldo local, PR #8), SEC-01 (inventario de datos personales), TER-01 (pedidos finales a terceros), SYNC-01, TK-PAR-04 (dry-run), DOC-14 (esqueleto de la memoria).
-- Usuario: ventana de despliegue OPS-11 (respaldo, migración `0071` en `crm`, `seed_roles.py`, rotar el JWT, reinicio, recarga de TCH, backfill de Toku, SMTP), usuarios por rol, mover el reporte con nombres (D40), enviar los pedidos a terceros.
+- Equipo: DOC-12 y DOC-13 (reconciliación del plan y del handoff, PR #9), BCK-01a (respaldo local, PR #8), L8-QA (hallazgos del QA del sandbox del 2026-11-05 y SEC-03, PR #10; los bajos QA-17 a QA-30 quedan para otro lote), SEC-01 (inventario de datos personales), TER-01 (pedidos finales a terceros), SYNC-01, TK-PAR-04 (dry-run), DOC-14 (esqueleto de la memoria).
+- Usuario: ventana de despliegue OPS-11 (respaldo, migración `0071` en `crm`, `seed_roles.py`, rotar el JWT, reinicio, recarga de TCH, backfill de Toku, SMTP), usuarios por rol, mover el reporte con nombres (D40), enviar los pedidos a terceros, decidir QA-04 (datos personales reales en `crm_sandbox`, ficha d163) y definir `SANDBOX_AUTH_JWT_SECRET` antes de reiniciar el sandbox con el PR #10.
 - Siguen: S7 (2026-11-14 a 2026-11-21, congelamiento de código al cierre) y S8 (hasta la entrega a fines de noviembre). Ver [tasks.md, secciones 3.9 a 3.12](../tasks.md#39-plan-post-mvp-calendario-y-reglas).
 
 ## Dónde está cada cosa
