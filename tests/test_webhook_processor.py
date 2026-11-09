@@ -197,6 +197,40 @@ def test_virtualpos_subscription_callback_and_unknowns(db_session) -> None:
     assert (_reload(db_session, payout).status, _reload(db_session, payout).last_error_code) == ("ignored", "IGNORED_KIND")
 
 
+@pytest.mark.parametrize("event_type", ["charge_paid", "charge_reject"])
+def test_virtualpos_pat_charge_rereads_its_subscription(db_session, event_type) -> None:
+    db_session.add_all([
+        VpSubscription(platform="virtualpos1", external_id="vp-sub-pat", status="ACTIVA", raw_payload={}),
+        VpCharge(platform="virtualpos2", external_id="ch-pat-1", subscription_external_id="vp-sub-pat2", raw_payload={}),
+    ])
+    by_sub = _add(db_session, "virtualpos", event_type, resource="ch-desconocido", sub="vp-sub-pat")
+    by_charge = _add(db_session, "virtualpos", event_type, resource="ch-pat-1")
+    unknown = _add(db_session, "virtualpos", event_type, resource="ch-no-existe", sub="vp-sub-no-existe")
+    rec = Recorder()
+    _run(db_session, rec)
+    assert sorted((c[0], c[1]) for c in rec.calls) == [("virtualpos1", "vp-sub-pat"), ("virtualpos2", "vp-sub-pat2")]
+    assert _reload(db_session, by_sub).status == "done"
+    assert _reload(db_session, by_charge).status == "done"
+    assert (_reload(db_session, unknown).status, _reload(db_session, unknown).last_error_code) == ("ignored", "NO_RESOURCE")
+
+
+def test_virtualpos_card_change_rereads_subscription(db_session) -> None:
+    db_session.add(VpSubscription(platform="virtualpos2", external_id="vp-sub-card", status="ACTIVA", raw_payload={}))
+    ev = _add(db_session, "virtualpos", "card_change", resource="vp-sub-card", sub="vp-sub-card")
+    unknown = _add(db_session, "virtualpos", "card_change", resource=None, sub=None)
+    rec = Recorder()
+    _run(db_session, rec)
+    assert [(c[0], c[1]) for c in rec.calls] == [("virtualpos2", "vp-sub-card")]
+    assert _reload(db_session, ev).status == "done"
+    assert (_reload(db_session, unknown).status, _reload(db_session, unknown).last_error_code) == ("ignored", "NO_RESOURCE")
+
+
+def test_virtualpos_unlisted_event_is_unknown(db_session) -> None:
+    ev = _add(db_session, "virtualpos", "suscription_failed", resource="vp-sub-x")
+    _run(db_session, Recorder())
+    assert (_reload(db_session, ev).status, _reload(db_session, ev).last_error_code) == ("ignored", "UNKNOWN_EVENT")
+
+
 def test_payku_rules(db_session) -> None:
     db_session.add(PaykuTransaction(external_id="trx-1", subscription_id="su-from-db", raw_payload={}))
     sub = _add(db_session, "payku", "subscription", resource="su-1", sub="su-1")
