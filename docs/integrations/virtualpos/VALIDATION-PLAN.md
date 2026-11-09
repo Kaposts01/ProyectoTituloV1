@@ -171,7 +171,7 @@ Guardar ambos uuids (antes y despues del reintento) y el conteo de `authorizatio
 1. Ambiente sandbox (`https://api.virtualpos-sandbox.com`). No ejecutar contra produccion.
 2. Un plan de tipo `MONTO_FIJO` activo en el portal de sandbox.
 3. Una suscripcion ACTIVA sobre ese plan (`suscription_id` anotado) con tarjeta aprobada (VISA de prueba de la tabla de preparacion).
-4. Fecha `charge_date` igual o posterior a hoy (`E-078`) y un `internal_code` unico de prueba (es llave de idempotencia, `E-086`).
+4. Fecha `charge_date` igual o posterior a hoy (`E-078`) y un `internal_code` unico de prueba (trazabilidad; no es llave de idempotencia documentada: `E-086` habla de "autorizar" un cargo y en sandbox no se disparo al crear).
 
 **Request Postman (WR-VP-05 / V-5).**
 
@@ -196,7 +196,7 @@ Signature: {{jwt_token}}
 
 **Resultados esperados.**
 - Caso A (funciona): HTTP 200 con `charge.status = "pendiente"` sobre el plan fijo. WR-VP-05 puede usar el flujo de cargos sobre planes fijos.
-- Caso B (falla con E-113, segun la documentacion): el cambio de monto mediante cargos no es viable sobre planes `MONTO_FIJO`. El flujo de WR-VP-05 no debe activarse.
+- Caso B (falla con E-113, segun nuestra inferencia del mensaje de E-113; la doc no lo afirma): el cambio de monto mediante cargos no es viable sobre planes `MONTO_FIJO`. El flujo de WR-VP-05 no debe activarse.
 
 **Como documentar el resultado.**
 Anotar en "Resultados observados V-5" la fecha, el codigo HTTP y el `code`/mensaje de error recibido (sin `api_key`, `Signature` ni datos de tarjeta), el tipo de plan usado y el `suscription_id` de prueba. Si hubo Caso A, cancelar el cargo de prueba con `DELETE {{base_url}}/v3/charge/{{charge_id}}` (solo pendientes) para no dejar cobros programados en sandbox.
@@ -235,14 +235,19 @@ Anotar en "Resultados observados V-5" la fecha, el codigo HTTP y el `code`/mensa
 
 **Acceso.** Base URL: `https://api.virtualpos-sandbox.com`. Portal de llaves: `https://comercios.virtualpos-sandbox.com` → Perfil > Configuracion de cuenta > Integracion. Checkout: `https://pay.virtualpos-sandbox.com/...`.
 
-**Datos de tarjeta.**
+**Datos de tarjeta.** Tarjetas de prueba oficiales de sandbox (fuente: https://virtualpos.readme.io/reference/datos-de-prueba-sandbox, revisada 2026-11-09). Son numeros publicos de prueba; solo sirven en sandbox. En las de credito y prepago vale cualquier fecha de expiracion.
 
-| Resultado | Tipo | Numero | CVV |
-|---|---|---|---|
-| Aprobada (V-1, V-2, V-3) | Credito VISA | `4051 8856 0044 6623` | `123` |
-| Rechazada (V-4) | Credito MASTERCARD | `5186 0595 5959 0568` | `123` |
+| Resultado | Tipo | Numero | CVV | Uso en este plan |
+|---|---|---|---|---|
+| Aprobada | Credito VISA | `4051 8856 0044 6623` | `123` | V-1, V-2, V-3 |
+| Aprobada | Credito AMEX | `3700 0000 0002 032` | `1234` | |
+| Rechazada | Credito MASTERCARD | `5186 0595 5959 0568` | `123` | V-4 |
+| Aprobada | Debito | `4051 8842 3993 7763` | (no indicado) | |
+| Rechazada | Debito | `5186 0085 4123 3829` | (no indicado) | |
+| Aprobada | Prepago VISA | `4051 8860 0005 6590` | `123` | |
+| Rechazada | Prepago MASTERCARD | `5186 1741 1062 9480` | `123` | |
 
-Simulador de banco: RUT `11.111.111-1`, clave `123`.
+Simulador de banco (formulario de autenticacion con RUT y clave): RUT `11.111.111-1`, clave `123`.
 
 **Preparacion para V-1, V-2, V-3.**
 1. Crear un plan de monto fijo (o variable) en el portal de sandbox.
@@ -292,3 +297,76 @@ El informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado
 | V-5 (Caso A) | `docs/memory/CURRENT_SPRINT.md` y `tasks.md` WR-VP-05: activar bandera y completar. `integrations/virtualpos/resources/charges.md`: quitar la inferencia MONTO_VARIABLE. |
 | V-5 (Caso B) | `tasks.md` WR-VP-05: registrar que no es viable por cargos. `docs/memory/PROJECT_STATE.md`: revisar enfoque de planes fijos. |
 | V-1 a V-4 (cualquiera) | `docs/integrations/virtualpos/workflows/seguimiento-cobros.md` § 8 Pendientes: marcar la pregunta como resuelta con fecha y resultado. |
+
+---
+
+## Medicion pendiente: renovacion automatica en planes fijos (d186, no ejecutada)
+
+Pendiente de correr contra la base `crm` (solo lectura, solo agregados, sin datos personales). No se ejecuto el 2026-11-09 porque la base no estaba arriba.
+
+**De donde sale cada dato.**
+
+- `vp_subscriptions.automatic_renewal`: se sincroniza hoy desde el campo `renewal` (o `automatic_renewal`) de *Recuperar/Listar Suscription* (`channel_store.extract_vp_subscription`). Valores `T`/`F`.
+- Tipo de plan: `vp_plans.plan_type` (campo `type` del plan: `MONTO_FIJO`, `MONTO_VARIABLE`, `PROGRAMA_DE_PAGOS`), unido por `platform` y `plan_external_id = vp_plans.external_id`.
+- Fin estimado, dos fuentes: (a) el ultimo `vp_charges.charge_date` de la suscripcion (los cargos programados que ya trae la sync); (b) `suscription_date + num_charges x frecuencia`, con `num_charges` y `frequency_type` leidos de `vp_plans.raw_payload` (no tienen columna propia). Si ninguna existe, la fila cae en "sin fecha".
+- Si `automatic_renewal` saliera mayoritariamente nulo, el dato no esta llegando en el listado: hay que traerlo con *Recuperar una Suscription* (`renewal`) y, del plan, `automatic_renewal`, `num_charges` y `frequency_type` como columnas de `vp_plans`.
+
+```sql
+-- Solo lectura. Agregados por plataforma, estado y mes estimado de fin. Sin ids, nombres, RUT ni correos.
+WITH subs AS (
+    SELECT s.platform,
+           s.status,
+           s.suscription_date,
+           s.external_id,
+           p.raw_payload ->> 'frequency_type' AS frequency_type,
+           CASE WHEN (p.raw_payload ->> 'num_charges') ~ '^[0-9]+$'
+                THEN (p.raw_payload ->> 'num_charges')::int END AS num_charges
+    FROM vp_subscriptions s
+    JOIN vp_plans p
+      ON p.platform = s.platform AND p.external_id = s.plan_external_id
+    WHERE upper(p.plan_type) = 'MONTO_FIJO'
+      AND upper(coalesce(s.automatic_renewal, '')) = 'F'
+      AND s.removed_at IS NULL
+),
+last_charge AS (
+    SELECT c.platform, c.subscription_external_id, max(c.charge_date) AS last_charge_date
+    FROM vp_charges c
+    GROUP BY c.platform, c.subscription_external_id
+),
+estimated AS (
+    SELECT subs.platform,
+           subs.status,
+           coalesce(
+               lc.last_charge_date,
+               (subs.suscription_date + subs.num_charges * CASE lower(subs.frequency_type)
+                    WHEN 'diario'    THEN interval '1 day'
+                    WHEN 'semanal'   THEN interval '7 days'
+                    WHEN 'mensual'   THEN interval '1 month'
+                    WHEN 'semestral' THEN interval '6 months'
+                    WHEN 'anual'     THEN interval '1 year'
+                END)::date
+           ) AS estimated_end,
+           CASE WHEN lc.last_charge_date IS NOT NULL THEN 'ultimo_cargo'
+                WHEN subs.num_charges IS NOT NULL AND subs.frequency_type IS NOT NULL THEN 'num_charges'
+                ELSE 'sin_fecha' END AS end_source
+    FROM subs
+    LEFT JOIN last_charge lc
+      ON lc.platform = subs.platform AND lc.subscription_external_id = subs.external_id
+)
+SELECT platform,
+       status,
+       end_source,
+       date_trunc('month', estimated_end)::date AS estimated_end_month,
+       count(*) AS subscriptions
+FROM estimated
+GROUP BY platform, status, end_source, date_trunc('month', estimated_end)
+ORDER BY platform, status, estimated_end_month NULLS LAST;
+
+-- Control de cobertura (cuantas suscripciones de plan fijo tienen el dato de renovacion):
+SELECT s.platform, upper(coalesce(s.automatic_renewal, 'NULO')) AS automatic_renewal, count(*) AS subscriptions
+FROM vp_subscriptions s
+JOIN vp_plans p ON p.platform = s.platform AND p.external_id = s.plan_external_id
+WHERE upper(p.plan_type) = 'MONTO_FIJO' AND s.removed_at IS NULL
+GROUP BY 1, 2
+ORDER BY 1, 2;
+```

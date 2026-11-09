@@ -78,7 +78,7 @@ Base URL: `https://api.virtualpos-sandbox.com` (sandbox) · `https://api.virtual
 
 ### Propósito
 
-Programa un cargo en una suscripción para una fecha futura (o hoy). Típico de planes `MONTO_VARIABLE`.
+Programa un cargo en una suscripción para una fecha futura (o hoy). La doc no restringe el tipo de plan; asociarlo a `MONTO_VARIABLE` era una inferencia nuestra desde el mensaje de `E-113` (y en sandbox se aceptó sobre `MONTO_FIJO`, ver abajo).
 
 ### Autenticación
 
@@ -174,11 +174,11 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 ### Consideraciones
 
 - `charge_date` ≥ hoy (`E-078`), formato `YYYY-MM-DD`.
-- `internal_code` funciona como **llave de idempotencia**: `E-086` = "El internal_code ya ha sido utilizado para autorizar un cargo". Úsalo siempre (ej. `<socio>-<periodo>`).
-- Por los mensajes `E-112`/`E-113`, se infiere que exige plan activo y de tipo `MONTO_VARIABLE` (relación inferida desde el catálogo de errores).
+- `internal_code`: la doc solo lo describe como "Identificador del servicio". El catálogo trae `E-086` = "El internal_code ya ha sido utilizado para **autorizar** un cargo": habla de autorización, no de creación, así que **no** es una llave de idempotencia documentada (leerlo así fue una inferencia nuestra, y en sandbox no se cumplió, ver abajo). Úsalo igual como referencia trazable (ej. `<socio>-<periodo>`).
+- La doc **no** dice qué endpoint ni qué caso devuelven `E-112`/`E-113`. Que *Crear Charge* exija plan `MONTO_VARIABLE` fue una **inferencia nuestra** a partir del texto de esos errores, no una afirmación de la doc.
 - **Nota sandbox 2026-10-27:** [CLAIM:VP-C05] la inferencia anterior **no se observó**. `POST /v3/charge` fue aceptado sobre una suscripción activa de plan `MONTO_FIJO` (cargo `pendiente`, luego cancelado; no apareció E-113). El mensaje oficial de E-113 se conserva arriba sin cambios. Límites y pendientes en [VALIDATION-PLAN.md](../VALIDATION-PLAN.md) (V-5). Falta confirmar en producción.
 - Límite mensual de cargos (`E-087`).
-- **Observado en sandbox 2026-10-27** [CLAIM:VP-C07] (DRIFT): `internal_code` **no** es idempotente. Dos `POST /v3/charge` con el mismo `internal_code` crearon dos cargos (HTTP 200, sin E-086). La afirmación de arriba sobre la llave de idempotencia queda contradicha por esta prueba. El CRM debe deduplicar consultando los cargos de la suscripción antes de crear.
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C07] (DRIFT): `internal_code` **no** es idempotente. Dos `POST /v3/charge` con el mismo `internal_code` crearon dos cargos (HTTP 200, sin E-086). Confirma que `internal_code` no debe tratarse como llave de idempotencia (la doc nunca lo afirmó). El CRM debe deduplicar consultando los cargos de la suscripción antes de crear.
 - **Observado en sandbox 2026-10-27** [CLAIM:VP-C21] (DRIFT): E-078 (`charge_date` pasada) llega con HTTP 200 y cuerpo `{"status":"NOK","code":400,"error":{...}}`, no con HTTP 400. Ver [errors.md](errors.md#objeto-error).
 
 ### Ejemplo práctico
