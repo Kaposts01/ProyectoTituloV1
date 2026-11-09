@@ -109,6 +109,13 @@ Aborto común de las CT-xx: la suscripción de prueba no existe o no es del sand
 
 El «sandbox» de Toku usa la **misma URL base que producción**; solo cambia la llave, y las escrituras no están verificadas ([`write_guard.py`](../../app/integrations/toku/write_guard.py), tasks.md §3.5). Por eso no hay escenarios catalogados con escritura.
 
+**Confirmado por el soporte de Toku (DEC-26 pregunta 1, ficha d167, 2026-11-09) y por la documentación oficial ([Conexión y ambientes](https://docs.trytoku.com/reference/conexion-y-ambientes)):** Toku tiene un **único ambiente productivo**, `https://api.trytoku.com`, sin sandbox oficial de API. Lo que llamamos «sandbox de Toku» son **llaves de prueba sobre el host productivo**. Consecuencias para el plan de pruebas:
+
+- **VAL-TK-01 (suite de contrato):** empieza solo con lecturas (TK-LEC). Cada corrida comprueba antes de la primera llamada que `APP_ENV=sandbox`, que la llave es la `TOKU_SANDBOX_*` y que el host es exactamente `api.trytoku.com`; si algo no calza, aborta sin llamar.
+- **TK-16 (guardas de escritura):** se verifica primero sin red (TK-GUARD). Una escritura real de verificación (prefijo `TEST-`, con `TOKU_SANDBOX_ALLOW_WRITES_ARMED`, lista blanca y tope de 3) es TK-ESC: siempre con el usuario y anunciada en el chat justo antes (ficha d166). Como el host es el productivo, la llave equivocada escribiría en datos reales: por eso nunca se arma con la llave de producción y la guarda de credenciales de arranque debe estar activa.
+- **TK-17 (modelos e importador de reportes):** no llama a la API: se prueba con un reporte **sintético** importado en `crm_sandbox` (sin datos personales), así que no depende de Toku.
+- Las preguntas 2 a 6 de DEC-26 y DEC-01 (`flow_name`) siguen abiertas: hay respuestas parciales anotadas en las fichas d168 a d173, pero falta la respuesta formal del soporte.
+
 | ID | Estado | Clase | Qué hace |
 |---|---|---|---|
 | TK-LEC | Disponible (script en scratchpad, aún no hay `tests_contract/toku`: VAL-TK-01) | Automática | `GET` con llave de sandbox y `APP_ENV=sandbox`; imprime solo conteos, nombres de claves y códigos HTTP, nunca valores ni PII. Incluye `GET /reports/{entity}/columns` |
