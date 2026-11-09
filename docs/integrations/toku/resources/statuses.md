@@ -104,7 +104,7 @@ La doc no define ninguno. **[I]** `AUTHORIZED` ≈ aplicado con éxito; `PAC_PEN
 
 Definición oficial ([payment-method-object](https://docs.trytoku.com/reference/payment-method-object)): `initialized` y `pending_activation` mientras la inscripción no termina, `chargeable` cuando quedó lista para cobrar, `temporary_failed` tras una falla que se puede reintentar, `permanent_failed` tras una que no, `inscription_failed` cuando la inscripción nunca se completó, y `pending_deletion`, `deleted`, `cancelled` o `finished` cuando el medio dejó de estar vigente.
 
-Respuesta del soporte (ficha d169), que acota el alcance:
+Nota de la ficha d169 (documentación de Toku, pendiente de confirmar como respuesta del soporte), que acota el alcance:
 - `permanent_failed` es un estado del **Payment Method**, no de la Invoice: la Invoice no tiene `PERMANENT_FAILED` (sus estados son `UNPAID`, `PAID`, `PARTIALLY_PAID`, `EXTERNALLY_PAID`, `VOID`, `DELETED`, `EXPIRED` y las variantes `_PAYMENT_IN_PROGRESS`).
 - Los rechazos tienen gravedad **PE** (permanente: reintentar no ayuda; cambiar el medio o contactar soporte) o **TE** (temporal: reintentar con backoff) ([códigos de pago rechazado](https://docs.trytoku.com/reference/codigos-de-pago-rechazado)).
 - `max_collection_attempts` (campo de la Invoice) fija el máximo de intentos de cobro automático; `remaining_collection_attempts` se descuenta en cada intento y se reinicia si se cambia el máximo (string vacío = sin límite). Al agotarse, la Invoice deja de cobrarse automáticamente pero **sigue `UNPAID`**.

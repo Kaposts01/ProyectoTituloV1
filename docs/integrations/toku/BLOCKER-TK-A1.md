@@ -1,7 +1,7 @@
 # Bloqueante BLQ-TK-01 — Checkout ENROLLMENT sin flow_name
 
 > Creado: 2026-10-15. Tarea: BLQ-TK-01. Última revisión: 2026-10-24 (TK-10).  
-> **Estado actual:** Toku respondió (soporte, ficha d173, 2026-11): los flows se configuran desde la webapp de Toku, no por API. Bloqueado hasta revisar el backoffice y obtener el `flow_name` de inscripción (ver «Respuesta del soporte de Toku»).
+> **Estado actual:** Según la nota de la ficha d173 (documentación de Toku, pendiente de confirmar como respuesta del soporte, ficha d191): los flows se configuran desde la webapp de Toku, no por API. Bloqueado hasta revisar el backoffice y obtener el `flow_name` de inscripción (ver «Respuesta del soporte de Toku»).
 > Fuentes: alta-socio.md, link-inscripcion.md, enroll-payment-method.md, cambiar-monto.md, payment-methods.md, subscriptions.md.
 
 ---
@@ -12,7 +12,7 @@
 
 `flow_name` es un parametro **opcional** en el schema del body de `POST /cl/checkout-sessions` (`CheckoutSessionRequestV2Decryption` solo exige `billing_data` y `mode`; `flow_name` admite `string` o `null`, [doc oficial](https://docs.trytoku.com/reference/open_checkout_session_endpoint)). En la practica, para `ENROLLMENT` la sesion necesita un flujo de inscripcion configurado en la cuenta. Identifica el **flujo de inscripcion de medio de pago** que Toku debe presentarle al socio: que metodos de pago estan disponibles (tarjeta via Transbank Oneclick, PAC, etc.), que pantallas se muestran y que logica de validacion se aplica.
 
-Los flows **se configuran desde la webapp de Toku** (portal de administracion / backoffice), no desde la API [Confirmado por soporte, d173]. No es un valor que se invente en el request: debe existir previamente en la configuracion de la cuenta.
+Los flows **se configuran desde la webapp de Toku** (portal de administracion / backoffice), no desde la API [Nota de la ficha d173: documentación de Toku, pendiente de confirmar como respuesta del soporte]. No es un valor que se invente en el request: debe existir previamente en la configuracion de la cuenta.
 
 `id_checkout` permite elegir el checkout de la cuenta en ese flujo **o el checkout Default de ese flujo**; si se omite, se usa el de la cuenta ([doc oficial](https://docs.trytoku.com/reference/open_checkout_session_endpoint)).
 
@@ -45,7 +45,7 @@ El error aplica tanto al alta de un socio nuevo (alta-socio.md) como a cualquier
 
 ---
 
-## Respuesta del soporte de Toku (d173)
+## Nota de la ficha d173 (documentación de Toku, pendiente de confirmar como respuesta del soporte)
 
 > «Los flows se configuran desde la webapp de Toku (portal de administración), no desde la API. Para conocer los flow_name disponibles para tu organización, debes: revisar tu panel de administración de Toku.»
 
@@ -105,7 +105,7 @@ Solo en escenario de prueba o aprendizaje, cuando no se puede esperar la resoluc
 
 ### Paso 1: Contactar a Toku
 
-> **Actualizacion (d173):** el soporte ya respondio que los flows se configuran en la webapp de Toku. Antes de reenviar este texto, revisar el backoffice; usarlo solo para las preguntas 3 y 4 o si el flujo no aparece.
+> **Actualizacion (d173):** la nota de la ficha d173 (documentación de Toku, pendiente de confirmar como respuesta del soporte) dice que los flows se configuran en la webapp de Toku. Antes de reenviar este texto, revisar el backoffice; usarlo solo para las preguntas 3 y 4 o si el flujo no aparece.
 
 **A quien contactar:** canal de soporte o el ejecutivo tecnico asignado a la cuenta de TECHO en Toku. Si no hay ejecutivo asignado, usar el correo de soporte tecnico documentado en authentication.md de Toku.
 

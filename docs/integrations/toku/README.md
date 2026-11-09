@@ -55,7 +55,7 @@ El archivo [docs/integrations/toku.md](../toku.md) contiene:
 
 | Clave | Descripcion | Impacto |
 |---|---|---|
-| **BLQ-TK-01 / T-A1** | Falta el `flow_name` de inscripcion para el Checkout `ENROLLMENT` (opcional en el schema, pero sin flujo la sesion devuelve `4xx`). Segun el soporte (d173), los flows se configuran desde la webapp de Toku, no por API: hay que revisarlo en el backoffice. | **Bloquea completamente** los flujos de alta y de cambio de tarjeta (link-inscripcion, alta-socio) |
+| **BLQ-TK-01 / T-A1** | Falta el `flow_name` de inscripcion para el Checkout `ENROLLMENT` (opcional en el schema, pero sin flujo la sesion devuelve `4xx`). Segun la nota de la ficha d173 (documentación de Toku, pendiente de confirmar como respuesta del soporte), los flows se configuran desde la webapp de Toku, no por API: hay que revisarlo en el backoffice. | **Bloquea completamente** los flujos de alta y de cambio de tarjeta (link-inscripcion, alta-socio) |
 | **T-A2** | Host real del Checkout de Toku desconocido hasta la primera sesion real. La lista de hosts permitidos de la capa comun no puede completarse antes. | Bloquea la validacion de origen del link en produccion |
 | **T-S1** | Ambiguedad sobre si `start_date`/`end_date` de `GET /transactions` filtra por `transaction_date` o `initialization_date`. | Afecta la ventana del job diario de seguimiento |
 | **Webhooks** | Toku tiene un unico ambiente productivo (`api.trytoku.com`); lo que el CRM llama «sandbox» son llaves de prueba sobre el mismo host. La primera prueba usa HTTPS temporal. Tiempo de espera del proveedor: **120 s** ([docs/webhooks](https://docs.trytoku.com/docs/webhooks)); la guia pide responder `2xx`. | Receptor implementado (WH-02); falta configurar webhooks y procesarlos (TK-12) |
