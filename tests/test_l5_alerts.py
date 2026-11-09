@@ -76,13 +76,13 @@ class _NoClose:
 
 def test_minimal_package_is_what_stays_active_with_only_alerts_enabled(smtp, monkeypatch):
     for flag in ("webhook_processor_enabled", "sync_removal_detection_enabled", "alert_business_enabled",
-                 "alert_report_age_enabled", "alert_write_failed_enabled"):
+                 "alert_report_age_enabled", "alert_write_failed_enabled", "alert_vp_ending_soon_enabled"):
         monkeypatch.setattr(settings, flag, False)
     monkeypatch.setattr(settings, "alert_webhook_silence_hours", 0)
     assert set(alerts.active_kinds()) == MINIMAL_PACKAGE
     registered = set(alerts.registered_kinds())
     assert {"webhook_failed", "webhook_lag", "webhook_silence", "removal_aborted", "report_stale", "write_failed",
-            *business_alerts.KINDS} <= registered - MINIMAL_PACKAGE
+            "vp_subscriptions_ending_soon", *business_alerts.KINDS} <= registered - MINIMAL_PACKAGE
 
 
 def test_each_flag_turns_on_only_its_kinds(smtp, monkeypatch):
@@ -91,6 +91,7 @@ def test_each_flag_turns_on_only_its_kinds(smtp, monkeypatch):
     monkeypatch.setattr(settings, "alert_business_enabled", True)
     monkeypatch.setattr(settings, "alert_report_age_enabled", True)
     monkeypatch.setattr(settings, "alert_write_failed_enabled", True)
+    monkeypatch.setattr(settings, "alert_vp_ending_soon_enabled", True)
     assert set(alerts.active_kinds()) == set(alerts.registered_kinds())
 
 

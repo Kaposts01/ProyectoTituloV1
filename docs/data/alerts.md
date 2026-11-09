@@ -1,10 +1,10 @@
 # Alertas por correo de sincronización (SYNC-D-08, L5-ALERTAS)
 
 > Código: `app/services/alerts.py`, `app/services/billing_alerts.py` (BILL-22), `app/services/ops_alerts.py` y
-> `app/services/business_alerts.py` (d139), `app/scheduler/jobs/alert_jobs.py` (job `alerts_check`),
+> `app/services/business_alerts.py` (d139), `app/services/vp_ending_alerts.py` (d189), `app/scheduler/jobs/alert_jobs.py` (job `alerts_check`),
 > `app/api/v1/routes/health.py` (heartbeat). Scripts: `scripts/maintenance/send_test_alert.py`,
 > `scripts/maintenance/debug_smtp_server.py`, `scripts/maintenance/heartbeat_check.py`.
-> Pruebas: `tests/test_alerts.py`, `tests/test_billing_alerts.py`, `tests/test_l5_alerts.py`.
+> Pruebas: `tests/test_alerts.py`, `tests/test_billing_alerts.py`, `tests/test_l5_alerts.py`, `tests/test_vp_ending_alerts.py`.
 > **Estado: listo y probado con un servidor SMTP falso en memoria y con el SMTP de depuración local. Apagado por defecto
 > (`ALERTS_ENABLED=false`). Nunca se envió un correo real.**
 > Decisión D15: las alertas van por correo; el destinatario se define SOLO por variable de entorno, nunca en el código ni en documentos.
@@ -38,6 +38,8 @@ cada 6 h y el aviso «Recuperado». `alerts.active_kinds()` devuelve las que se 
 | `business_churn:<canal>` | Panel: «Churn rate elevado» (> 20 %) | `ALERT_BUSINESS_ENABLED` | Apagada |
 | `business_rejection_streak:<canal>` | Panel: «Racha de rechazos» (más de 20 suscripciones activas con 2+ rechazos seguidos) | `ALERT_BUSINESS_ENABLED` | Apagada |
 | `business_no_recent_charge:<canal>` | Panel: «Sin cobro reciente» (> 40 % de activas sin cobro exitoso en 6 meses) | `ALERT_BUSINESS_ENABLED` | Apagada |
+| `vp_subscriptions_ending_soon:upcoming` | Suscripciones de VirtualPOS `ACTIVA`, plan `MONTO_FIJO`, `automatic_renewal = 'F'`, cuyo fin estimado cae entre hoy y hoy + `ALERT_VP_ENDING_SOON_DAYS` (60) días (d189). Solo conteos por plataforma y mes | `ALERT_VP_ENDING_SOON_ENABLED` | Apagada |
+| `vp_subscriptions_ending_soon:past_end` | Las mismas suscripciones que siguen `ACTIVA` aunque su fin estimado ya pasó (posible desfase del sync). Solo conteos por plataforma y mes | `ALERT_VP_ENDING_SOON_ENABLED` | Apagada |
 
 Notas:
 
@@ -46,6 +48,15 @@ Notas:
   y toma solo las de severidad `alta`. Como esos tableros son pesados, se reevalúan como máximo cada
   `ALERT_BUSINESS_EVAL_MINUTES` (60). Si un tablero falla, se conservan sus últimas condiciones (no se envía un «Recuperado» falso).
   De las de rechazo por canal y mes solo cuentan el mes actual y el anterior: el panel muestra toda la historia.
+- **Suscripciones de VirtualPOS que terminan (d189, propuesta APAGADA hasta validarla):** el fin estimado es la fecha del
+  último `vp_charges.charge_date` de la suscripción; si no tiene cargos, `suscription_date + num_charges × frecuencia`
+  (`vp_plans.raw_payload`). Sin fecha estimable no cuenta. Es la regla de la medición de VALIDATION-PLAN.md («Medición
+  pendiente»): 6.002 activas de monto fijo, 99,7 % con `automatic_renewal = 'F'`, 364 con el último cargo en octubre de
+  2026 (ya pasado). El correo lleva **solo conteos por plataforma y mes** (sin nombres, RUT, correos ni ids) y la
+  advertencia de que `automatic_renewal = F` podría ser el valor normal en VirtualPOS (pendiente de confirmar, TER-01).
+  El enlace va a `/virtualpos/suscripciones` (listado con sesión y permisos; no filtra por fin estimado). Como hay
+  suscripciones por terminar casi siempre, la condición `upcoming` quedaría activa de forma permanente y enviaría el
+  recordatorio cada 6 h: decidirlo al validarla, antes de encenderla.
 - Si se apaga la bandera de una fuente con una condición ya avisada, el siguiente chequeo envía su «Recuperado».
 - **etl_run fallido (d139b):** `POST /etl/full-sync` ya no deja `completed` cuando falla un canal: queda `partial` (algún canal
   sincronizó) o `failed` (ninguno), con `channels_failed`, igual que el job nocturno. Así lo ven `/sync-runs/health` y el reintento.
@@ -79,6 +90,7 @@ nombres de archivo ni textos libres. Los fallos del SMTP solo dejan en el log el
 | `ALERT_BUSINESS_ENABLED`, `ALERT_BUSINESS_EVAL_MINUTES` | Alertas de negocio (apagadas; 60 min entre recálculos) |
 | `ALERT_REPORT_AGE_ENABLED` | Reportes Toku/TCH viejos (apagada) |
 | `ALERT_WRITE_FAILED_ENABLED` | Escrituras fallidas (apagada) |
+| `ALERT_VP_ENDING_SOON_ENABLED`, `ALERT_VP_ENDING_SOON_DAYS` | Suscripciones de VirtualPOS que terminan pronto (apagada; ventana de 60 días) |
 | `HEARTBEAT_MAX_SYNC_AGE_HOURS` | Horas sin sync exitosa para que el heartbeat diga `degraded` (36) |
 
 Timeout de conexión: 10 s. Con `ALERTS_ENABLED=false` el job no abre ninguna sesión ni conexión.
@@ -167,7 +179,7 @@ Nada de esto lo hace un agente.
 2. Definir en su `.env` real (nunca en Git ni en el chat): `ALERT_SMTP_HOST`, `ALERT_SMTP_PORT`, `ALERT_SMTP_USER`, `ALERT_SMTP_PASSWORD`,
    `ALERT_SMTP_STARTTLS`, `ALERT_EMAIL_FROM` y `ALERT_EMAIL_TO` (uno o varios correos separados por coma).
 3. Encender `ALERTS_ENABLED=true` (paquete mínimo). Encender las banderas extra que quiera (`ALERT_BUSINESS_ENABLED`,
-   `ALERT_REPORT_AGE_ENABLED`, `ALERT_WRITE_FAILED_ENABLED`).
+   `ALERT_REPORT_AGE_ENABLED`, `ALERT_WRITE_FAILED_ENABLED`; `ALERT_VP_ENDING_SOON_ENABLED` solo después de validarla, d189).
 4. **Reiniciar el backend** (no se recarga solo). Las alertas no requieren migración (la 20261103_0068 es del permiso d136).
 5. Verificar: el job `alerts_check` aparece en `GET /api/v1/scheduler/jobs`; `GET /api/v1/health/heartbeat` responde `ok`.
 6. Opcional: registrar `heartbeat_check.py` en el Programador de tareas.
