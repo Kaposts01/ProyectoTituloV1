@@ -91,9 +91,9 @@ La doc no define ninguno. **[I]** `AUTHORIZED` ≈ aplicado con éxito; `PAC_PEN
 | Payment Method | `pending_activation` | [?] Esperando activación (por ejemplo, mandato PAC) | Pendiente |
 | Payment Method | `chargeable` | [I] Se puede cobrar | **Medio activo** |
 | Payment Method | `manually_chargeable` | [?] Cobrable solo manualmente | Activo con restricción |
-| Payment Method | `temporary_failed` | [I] Falla temporal | Alerta suave |
-| Payment Method | `permanent_failed` | [I] Falla permanente | Pedir un nuevo medio |
-| Payment Method | `inscription_failed` | [I] La inscripción falló | Pedir reintento |
+| Payment Method | `temporary_failed` | [C] Tras una falla que **se puede reintentar** ([payment-method-object](https://docs.trytoku.com/reference/payment-method-object)) | Alerta suave |
+| Payment Method | `permanent_failed` | [C] Tras una falla que **no** se puede reintentar | Pedir un nuevo medio |
+| Payment Method | `inscription_failed` | [C] La inscripción **nunca se completó** | Pedir reintento |
 | Payment Method | `three_ds_required` | [C] **Heredado, ya no se usa** | — |
 | Payment Method | `finished` | [?] | Inactivo |
 | Payment Method | `cancelled` | [?] | Inactivo |
@@ -101,6 +101,14 @@ La doc no define ninguno. **[I]** `AUTHORIZED` ≈ aplicado con éxito; `PAC_PEN
 | Payment Method | `deleted` | [C] Borrado lógico (excluido del listado) | Inactivo |
 | Payment Method | `permanent_deletion_in_progress` | [?] | Inactivo |
 | Payment Method | `permanently_deleted` | [?] | Inactivo |
+
+Definición oficial ([payment-method-object](https://docs.trytoku.com/reference/payment-method-object)): `initialized` y `pending_activation` mientras la inscripción no termina, `chargeable` cuando quedó lista para cobrar, `temporary_failed` tras una falla que se puede reintentar, `permanent_failed` tras una que no, `inscription_failed` cuando la inscripción nunca se completó, y `pending_deletion`, `deleted`, `cancelled` o `finished` cuando el medio dejó de estar vigente.
+
+Respuesta del soporte (ficha d169), que acota el alcance:
+- `permanent_failed` es un estado del **Payment Method**, no de la Invoice: la Invoice no tiene `PERMANENT_FAILED` (sus estados son `UNPAID`, `PAID`, `PARTIALLY_PAID`, `EXTERNALLY_PAID`, `VOID`, `DELETED`, `EXPIRED` y las variantes `_PAYMENT_IN_PROGRESS`).
+- Los rechazos tienen gravedad **PE** (permanente: reintentar no ayuda; cambiar el medio o contactar soporte) o **TE** (temporal: reintentar con backoff) ([códigos de pago rechazado](https://docs.trytoku.com/reference/codigos-de-pago-rechazado)).
+- `max_collection_attempts` (campo de la Invoice) fija el máximo de intentos de cobro automático; `remaining_collection_attempts` se descuenta en cada intento y se reinicia si se cambia el máximo (string vacío = sin límite). Al agotarse, la Invoice deja de cobrarse automáticamente pero **sigue `UNPAID`**.
+- **[I]** No está documentado qué código PE o cuántos TE llevan el medio a `permanent_failed`; validarlo con datos reales.
 
 ## Otros
 

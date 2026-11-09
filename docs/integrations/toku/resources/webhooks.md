@@ -19,8 +19,8 @@ Los endpoints son **de la organización**. Cada evento llega a **todos** los end
 | Operación | Endpoint | Doc |
 |---|---|---|
 | Listar | `GET /webhook_endpoints` (array, **incluye `secret`**) | [get_webhook_endpoints](https://docs.trytoku.com/reference/get_webhook_endpoints) |
-| Crear (upsert por URL) | `POST /webhook_endpoints` | [create_webhook_endpoint](https://docs.trytoku.com/reference/create_webhook_endpoint) |
-| Obtener | listado en la referencia | [get_webhook_endpoint](https://docs.trytoku.com/reference/get_webhook_endpoint) (**ruta no verificada**) |
+| Crear (upsert por URL **y** eventos) | `POST /webhook_endpoints` | [create_webhook_endpoint](https://docs.trytoku.com/reference/create_webhook_endpoint) |
+| Obtener | `GET /webhook_endpoints/{webhook_endpoint_id}` | [get_webhook_endpoint](https://docs.trytoku.com/reference/get_webhook_endpoint) |
 | Editar | `PUT /webhook_endpoints/{webhook_endpoint_id}` | [edit_webhook_endpoint](https://docs.trytoku.com/reference/edit_webhook_endpoint) |
 
 No hay un endpoint `DELETE` documentado. Para apagar uno se usa `status: "disabled"`.
@@ -39,7 +39,10 @@ No hay un endpoint `DELETE` documentado. Para apagar uno se usa `status: "disabl
 Respuesta: `{ id: "whe_…", secret: "whesec_…", enabled_events, url, status, webhook_version, custom_headers_keys }`.
 
 Reglas [Confirmado]:
-- Si ya existe un endpoint con la misma URL, **se actualiza** en vez de duplicarse.
+- Una URL puede tener varios endpoints mientras ninguno comparta eventos con otro ([create_webhook_endpoint](https://docs.trytoku.com/reference/create_webhook_endpoint)):
+  - misma URL y **exactamente los mismos eventos** → **se actualiza** el endpoint existente;
+  - misma URL y **solo algunos eventos en común** → `409` (la respuesta indica el ID del otro endpoint y los eventos compartidos);
+  - misma URL y **eventos distintos** → se crea **otro endpoint**, con su propio `id` y su propio `secret`.
 - No se pueden declarar eventos deprecados. Un endpoint que ya los tiene no admite cambios de eventos, URL ni estado mientras los conserve.
 - `disabled` **descarta los reintentos pendientes**: esos eventos se pierden y no se acumulan. → Por eso la sincronización periódica es obligatoria.
 - Los valores de `custom_headers` nunca se devuelven; solo los nombres.
