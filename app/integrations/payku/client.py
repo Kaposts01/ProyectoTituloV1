@@ -13,6 +13,19 @@ from app.integrations.payku.write_guard import (
 )
 
 
+def normalize_base_url(url: str) -> str:
+    """Base URL sin `/` final ni sufijo `/api` (d183).
+
+    La doc oficial publica la base como `https://des.payku.cl/api` / `https://app.payku.cl/api`, pero las rutas
+    del cliente ya incluyen `/api/...` (y la firma `Sign` se calcula sobre esa ruta). Si la variable trae `/api`,
+    se quita para no pedir `/api/api/...`.
+    """
+    base = url.strip().rstrip("/")
+    if base.lower().endswith("/api"):
+        base = base[: -len("/api")].rstrip("/")
+    return base
+
+
 class PaykuClient:
     """Client for the Payku API (/api/* endpoints)."""
 
@@ -30,7 +43,7 @@ class PaykuClient:
             )
             raise ChannelConfigError("Payku sin credenciales", missing)
         self._client = httpx.AsyncClient(
-            base_url=settings.payku_base_url.rstrip("/"),
+            base_url=normalize_base_url(settings.payku_base_url),
             timeout=settings.payku_timeout_seconds,
             headers={
                 "Accept": "application/json",

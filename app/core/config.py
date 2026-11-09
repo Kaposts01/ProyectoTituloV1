@@ -12,7 +12,8 @@ NON_PRODUCTION_ENVS = ("sandbox", "qa")
 LEGACY_PRODUCTION_ALIASES = ("production", "prod", "development", "dev", "local")
 
 # Hosts por proveedor (docs/integrations/...). Toku usa el mismo host en sandbox y produccion
-# (se distingue solo por las llaves); Payku aun no tiene sandbox confirmado.
+# (se distingue solo por las llaves). Payku publica des.payku.cl como sandbox en su doc oficial
+# (base `https://des.payku.cl/api`); las credenciales de sandbox las genera el usuario en su cuenta.
 VP_PRODUCTION_HOST = "api.virtualpos.cl"
 VP_SANDBOX_HOST = "api.virtualpos-sandbox.com"
 PAYKU_PRODUCTION_HOST = "app.payku.cl"
