@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.integrations.payku.client import PaykuClient
+from app.integrations.payku.write_guard import PaykuWriteBlockedError
 from app.models.crm import Client, Subscription
 from app.models.write_run import WriteRun
 from app.services.read_only_provider_sync import safe_error_message, sanitize_record
@@ -36,6 +37,14 @@ def _as_text(value: Any) -> str | None:
 
 def _all_secrets() -> tuple[str, ...]:
     return (settings.payku_api_key, settings.payku_secret_key)
+
+
+def _mark_blocked(db: Session, write_run: WriteRun, exc: PaykuWriteBlockedError) -> None:
+    """Registra en write_runs una escritura frenada por las guardas duras (nunca llego a la red)."""
+    write_run.status = "blocked"
+    write_run.error_message = f"{exc.code}: {exc.message}"[:500]
+    write_run.finished_at = datetime.now(UTC)
+    db.commit()
 
 
 def _client_from_response(response: Any) -> dict[str, Any] | None:
@@ -97,6 +106,9 @@ async def update_client(db: Session, client_id: str, changes: dict[str, Any], *,
                 refreshed = _client_from_response(await provider.get_client(client_id))
             except Exception:
                 refreshed = None
+    except PaykuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
@@ -154,6 +166,9 @@ async def delete_client(db: Session, client_id: str, *, requested_by_user_id: uu
     try:
         async with PaykuClient() as provider:
             await provider.delete_client(client_id)
+    except PaykuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())
@@ -210,6 +225,9 @@ async def delete_subscription(db: Session, subscription_id: str, *, requested_by
     try:
         async with PaykuClient() as provider:
             await provider.delete_subscription(subscription_id)
+    except PaykuWriteBlockedError as exc:
+        _mark_blocked(db, write_run, exc)
+        raise
     except Exception as exc:
         write_run.status = "failed"
         write_run.error_message = safe_error_message(exc, _all_secrets())

@@ -7,6 +7,10 @@ from app.core.channel_errors import ChannelConfigError
 from app.core.config import settings
 from app.integrations.http_retry import send_with_retries
 from app.integrations.payku.auth import build_sign
+from app.integrations.payku.write_guard import (
+    PROCESS_STATE,
+    assert_sandbox_write_allowed,
+)
 
 
 class PaykuClient:
@@ -273,7 +277,13 @@ class PaykuClient:
         response.raise_for_status()
         return response.json()
 
+    def _guard_write(self, method: str, path: str, data: Any) -> None:
+        """Fuera de produccion toda escritura pasa por las guardas duras (antes de tocar la red). d165."""
+        if not settings.is_production:
+            assert_sandbox_write_allowed(method, path, data, settings, PROCESS_STATE)
+
     async def _post(self, path: str, data: dict[str, Any]) -> Any:
+        self._guard_write("POST", path, data)
         body = json.dumps(data, separators=(",", ":"))
         sign = build_sign(path, data, settings.payku_secret_key)
         response = await self._client.post(
@@ -285,6 +295,7 @@ class PaykuClient:
         return response.json()
 
     async def _put(self, path: str, data: dict[str, Any]) -> Any:
+        self._guard_write("PUT", path, data)
         body = json.dumps(data, separators=(",", ":"))
         sign = build_sign(path, data, settings.payku_secret_key)
         response = await self._client.put(
@@ -296,6 +307,7 @@ class PaykuClient:
         return response.json()
 
     async def _delete(self, path: str) -> Any:
+        self._guard_write("DELETE", path, None)
         response = await self._client.delete(
             path,
             headers={"Sign": build_sign(path, {}, settings.payku_secret_key)},

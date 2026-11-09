@@ -117,13 +117,14 @@ El «sandbox» de Toku usa la **misma URL base que producción**; solo cambia la
 
 TK-LEC y TK-GUARD no crean ni limpian nada. Tope (aprobado): 100 GET por corrida, sin ráfagas. Variables: `APP_ENV` (llaves `TOKU_SANDBOX_*` ya están en `.env`; no se leen). TK-GUARD con la suite normal usa `pytest` y se rige por la regla de una sola sesión. Para armar una escritura Toku (cuando el usuario la autorice) se necesitarían `TOKU_SANDBOX_WRITES_ENABLED`, `TOKU_SANDBOX_ALLOW_WRITES_ARMED=1`, opcionalmente `TOKU_SANDBOX_ALLOWED_IDS` y `TOKU_SANDBOX_MAX_WRITES` (por defecto 25); todas como variables de proceso. Aborto: HTTP 401/403, un host distinto de `api.trytoku.com`, cualquier respuesta con datos que no estén en la organización de sandbox conocida, o una guarda que **deje pasar** una escritura (eso es un hallazgo crítico: se detiene todo y va al usuario).
 
-### 3.3 Payku (bloqueado)
+### 3.3 Payku (pendiente de credenciales; escrituras con guardas)
 
-| ID | Estado | Clase |
-|---|---|---|
-| PK-VAL | **BLOQUEADO**: variables `PAYKU_SANDBOX_*` vacías y sin sandbox (DEC-10, USR-04) | Cualquier llamada real: siempre con el usuario |
+| ID | Estado | Clase | Qué hace |
+|---|---|---|---|
+| PK-VAL | **Pendiente de credenciales**: variables `PAYKU_SANDBOX_*` vacías y sin sandbox confirmado (DEC-10, USR-04); escrituras con guardas duras (d165) | Cualquier llamada real: siempre con el usuario | Procedimientos de `VALIDATION-PLAN.md`, aún no catalogados |
+| PK-GUARD | Disponible | Automática | Verifica que las guardas bloqueen: `tests/test_payku_write_guard.py` (pruebas unitarias sin red); no llama a Payku |
 
-No se ejecuta nada contra Payku. Lo avanzable sin credenciales es código y diseño (PK-06 y la parte 1 de VAL-PK-01, `tests_contract/payku` que se omite sola sin credenciales), y eso lo hace el orquestador, no el probador. Al llegar las credenciales, el procedimiento está en [`VALIDATION-PLAN.md`](../integrations/payku/VALIDATION-PLAN.md) (Q-27, Q-06, Q-08, Q-11, Q-29); cada procedimiento de ese plan se catalogará aquí antes de ejecutarse, con su tope y su limpieza. El probador informa `BLOQUEADO`.
+No se ejecuta nada contra Payku. Lo avanzable sin credenciales es código y diseño (PK-06 y la parte 1 de VAL-PK-01, `tests_contract/payku` que se omite sola sin credenciales), y eso lo hace el orquestador, no el probador. Al llegar las credenciales, el procedimiento está en [`VALIDATION-PLAN.md`](../integrations/payku/VALIDATION-PLAN.md) (Q-27, Q-06, Q-08, Q-11, Q-29); cada procedimiento de ese plan se catalogará aquí antes de ejecutarse, con su tope y su limpieza. Para PK-VAL el probador informa `BLOQUEADO` mientras falten credenciales. Las escrituras, cuando el usuario las autorice, pasan por las guardas duras de `app/integrations/payku/write_guard.py` (d165): `PAYKU_SANDBOX_WRITES_ENABLED`, `PAYKU_SANDBOX_ALLOW_WRITES_ARMED=1`, `PAYKU_SANDBOX_ALLOWED_IDS` para recursos existentes y `PAYKU_SANDBOX_MAX_WRITES` (por defecto 25), las tres últimas como variables de proceso; detalle en [`authentication.md` § 8](../integrations/payku/resources/authentication.md). Una guarda que **deje pasar** una escritura es un hallazgo crítico.
 
 ### 3.4 TCH (Excel sintético)
 
