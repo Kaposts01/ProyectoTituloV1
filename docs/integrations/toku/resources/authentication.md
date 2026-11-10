@@ -63,7 +63,7 @@ Content-Type: application/json
 
 - **Un único ambiente productivo**: `https://api.trytoku.com`.
 - **No existe un ambiente sandbox separado** ([Conexión y ambientes](https://docs.trytoku.com/reference/conexion-y-ambientes); el soporte lo repitió en la ficha d167). Lo que el CRM llama «sandbox» son **llaves de prueba sobre el mismo host** `api.trytoku.com`. Cualquier `POST`, `PUT` o `DELETE` debe tratarse como si afectara datos reales y pudiera disparar comunicaciones reales a personas.
-- Para probar inscripciones PAC (Chile), la nota de la ficha d168 (documentación de Toku, pendiente de confirmar como respuesta del soporte) indica que el **portal en modo demo** acepta el RUT `11.111.111-1` con cualquier contraseña; las coordenadas `00 00 00` simulan un rechazo y cualquier otra, una inscripción exitosa (guía oficial «Subir deudas y recibir pagos»). No hay tarjetas ni montos de prueba para simular rechazos de tarjeta. **[No verificado en nuestra cuenta]**
+- Para probar inscripciones PAC (Chile), el soporte (d168) indica que el **portal en modo demo** acepta el RUT `11.111.111-1` con cualquier contraseña; las coordenadas `00 00 00` simulan un rechazo y cualquier otra, una inscripción exitosa (guía oficial «Subir deudas y recibir pagos»). No hay tarjetas ni montos de prueba para simular rechazos de tarjeta. **[No verificado en nuestra cuenta]**
 
 **[Recomendación]** Reglas para probar en producción:
 1. Usar identificadores reconocibles: `external_id` y `product_id` que empiecen con `TEST-`.
