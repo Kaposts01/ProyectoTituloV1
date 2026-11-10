@@ -300,7 +300,9 @@ El informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado
 
 ---
 
-## Medicion pendiente: renovacion automatica en planes fijos (d186, no ejecutada)
+## Medicion: renovacion automatica en planes fijos (d186, ejecutada el 2026-11-09)
+
+> **Resultado (solo conteos, transaccion READ ONLY sobre `crm`, d189):** 6.002 suscripciones ACTIVAS de plan fijo; `automatic_renewal = F` en 1.283 de virtualpos1 y 4.703 de virtualpos2 (9 y 7 con `T`, ninguna nula). Fin estimado por el ultimo cargo: 364 en octubre de 2026 (ya pasado) y unas 1.300 entre noviembre de 2026 y marzo de 2027. **Dato del usuario (d190, 2026-11-10):** si la suscripcion sigue activa, VirtualPOS le vuelve a cargar un plan de cobros al llegar a su ultimo cobro, asi que `F` no indicaria fin. Pendiente: respuesta oficial de VirtualPOS (TER-01) y confirmar si el sync trae esa recarga (las 364 con ultimo cargo en octubre).
 
 Pendiente de correr contra la base `crm` (solo lectura, solo agregados, sin datos personales). No se ejecuto el 2026-11-09 porque la base no estaba arriba.
 
