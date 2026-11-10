@@ -57,6 +57,10 @@ Notas:
   El enlace va a `/virtualpos/suscripciones` (listado con sesión y permisos; no filtra por fin estimado). Como hay
   suscripciones por terminar casi siempre, la condición `upcoming` quedaría activa de forma permanente y enviaría el
   recordatorio cada 6 h: decidirlo al validarla, antes de encenderla.
+  **Dato del usuario (ficha d190, 2026-11-10; pendiente de la respuesta oficial de VirtualPOS):** si la suscripción
+  sigue activa, VirtualPOS le vuelve a cargar un plan de cobros al llegar a su último cobro. Si se confirma,
+  `automatic_renewal = F` no indica que la suscripción termine: `upcoming` sería ruido y conviene dejar solo
+  `past_end`, que detecta suscripciones activas cuya recarga de cobros el sync no trajo.
 - Si se apaga la bandera de una fuente con una condición ya avisada, el siguiente chequeo envía su «Recuperado».
 - **etl_run fallido (d139b):** `POST /etl/full-sync` ya no deja `completed` cuando falla un canal: queda `partial` (algún canal
   sincronizó) o `failed` (ninguno), con `channels_failed`, igual que el job nocturno. Así lo ven `/sync-runs/health` y el reintento.
