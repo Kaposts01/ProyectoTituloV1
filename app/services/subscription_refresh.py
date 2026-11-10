@@ -27,7 +27,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.integrations.payku.client import PaykuClient
+from app.integrations.payku.client import PaykuClient, is_failed_response
 from app.integrations.toku.client import TokuClient
 from app.integrations.virtualpos.client import VirtualPOSClient
 from app.models.crm import Subscription
@@ -175,7 +175,13 @@ async def _read_toku(external_id: str) -> _Snapshot:
 
 async def _read_payku(external_id: str) -> _Snapshot:
     async with PaykuClient() as provider:
-        payload = _unwrap(await provider.get_subscription(external_id), ("data", "subscription"))
+        response = await provider.get_subscription(external_id)
+    # d188: el cliente ya lanza PaykuApiError ante `status: "failed"`; esta guarda evita guardar el dict de error como
+    # suscripcion si llegara por otra via (p. ej. un cliente sustituto). Solo el nivel superior: dentro de `data`, el
+    # `status` es el de la suscripcion.
+    if is_failed_response(response):
+        raise RefreshError("PROVIDER_READ_FAILED")
+    payload = _unwrap(response, ("data", "subscription"))
     if not payload:
         raise RefreshError("EMPTY_SUBSCRIPTION")
     subscription = sanitize_payload(payload)

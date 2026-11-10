@@ -12,6 +12,56 @@ from app.integrations.payku.write_guard import (
     assert_sandbox_write_allowed,
 )
 
+_ERROR_DETAIL_MAX = 200
+
+
+class PaykuApiError(Exception):
+    """Error de negocio de Payku: HTTP 2xx con cuerpo `{"status": "failed", ...}` (d188).
+
+    La doc oficial indica que muchos errores llegan con HTTP 200, asi que el codigo HTTP no basta. `http_status` es el
+    HTTP real; `error_type` y `detail` salen de los campos `type`/`message` del cuerpo (recortados). El cuerpo completo
+    no se guarda en el mensaje.
+    """
+
+    def __init__(self, method: str, error_type: str | None, detail: str | None, http_status: int) -> None:
+        self.method = method
+        self.error_type = error_type
+        self.detail = detail
+        self.http_status = http_status
+        label = error_type or "sin tipo"
+        suffix = f": {detail}" if detail and detail != error_type else ""
+        super().__init__(f"Payku rechazo la operacion {method} ({label}, HTTP {http_status}){suffix}")
+
+
+def _short(value: Any) -> str | None:
+    text = " ".join(str(value).split()) if value is not None else ""
+    return text[:_ERROR_DETAIL_MAX] or None
+
+
+def is_failed_response(body: Any) -> bool:
+    """True si el cuerpo es un error de negocio de Payku (`status: "failed"`, sin importar mayusculas)."""
+    return isinstance(body, dict) and str(body.get("status") or "").strip().lower() == "failed"
+
+
+def is_no_records_response(body: Any) -> bool:
+    """Pagina vacia de un listado: `{"status": "failed", "type": "there are no records"}`.
+
+    Payku la devuelve al pedir una pagina posterior a la ultima (siempre que el total es multiplo de `per_page`) o
+    cuando no hay registros. Se identifica por `status == "failed"` y el texto "no records" en el campo `type`. Solo
+    los listados la tratan como coleccion vacia; en cualquier otro endpoint es un error.
+    """
+    return is_failed_response(body) and "no records" in str(body.get("type") or "").lower()
+
+
+def _raise_for_failed_body(method: str, response: httpx.Response, body: Any, *, allow_no_records: bool) -> None:
+    if not is_failed_response(body):
+        return
+    if allow_no_records and is_no_records_response(body):
+        return
+    error_type = _short(body.get("type"))
+    detail = _short(body.get("message") or body.get("message_error") or body.get("error"))
+    raise PaykuApiError(method, error_type, detail, response.status_code)
+
 
 def normalize_base_url(url: str) -> str:
     """Base URL sin `/` final ni sufijo `/api` (d183).
@@ -74,7 +124,9 @@ class PaykuClient:
         return await self._delete(f"/api/suclient/{identifier}")
 
     async def list_clients(self, page: int = 1, per_page: int = 50) -> Any:
-        return await self._get("/api/suclient/customers", params={"page": page, "per_page": per_page})
+        return await self._get(
+            "/api/suclient/customers", params={"page": page, "per_page": per_page}, allow_no_records=True
+        )
 
     # ------------------------------------------------------------------ #
     # Planes de Suscripción (/api/suplan)                                  #
@@ -87,7 +139,7 @@ class PaykuClient:
         return await self._get(f"/api/suplan/{identifier}")
 
     async def list_plans(self) -> Any:
-        return await self._get("/api/suplan/plans")
+        return await self._get("/api/suplan/plans", allow_no_records=True)
 
     # ------------------------------------------------------------------ #
     # Suscripciones (/api/sususcription)                                   #
@@ -117,7 +169,7 @@ class PaykuClient:
             params["date_end"] = date_end
         if status is not None:
             params["status"] = status
-        return await self._get("/api/sususcription", params=params)
+        return await self._get("/api/sususcription", params=params, allow_no_records=True)
 
     async def list_subscriptions_v3(
         self,
@@ -134,7 +186,7 @@ class PaykuClient:
             params["date_end"] = date_end
         if active is not None:
             params["active"] = str(active).lower()
-        return await self._get("/api/sususcriptionv3", params=params)
+        return await self._get("/api/sususcriptionv3", params=params, allow_no_records=True)
 
     async def affiliate_card(self, data: dict[str, Any]) -> Any:
         return await self._post("/api/suinscriptionscards", data)
@@ -176,7 +228,7 @@ class PaykuClient:
             params["pending"] = str(pending).lower()
         if rejected is not None:
             params["rejected"] = str(rejected).lower()
-        return await self._get("/api/transaction", params=params)
+        return await self._get("/api/transaction", params=params, allow_no_records=True)
 
     # ------------------------------------------------------------------ #
     # Wallet (/api/wallet)                                                 #
@@ -186,7 +238,9 @@ class PaykuClient:
         return await self._get("/api/wallet")
 
     async def list_wallet_movements(self, page: int = 1, per_page: int = 50) -> Any:
-        return await self._get("/api/wallet/list", params={"page": page, "per_page": per_page})
+        return await self._get(
+            "/api/wallet/list", params={"page": page, "per_page": per_page}, allow_no_records=True
+        )
 
     async def get_wallet_movement(self, identifier: str) -> Any:
         return await self._get(f"/api/wallet/{identifier}")
@@ -281,14 +335,27 @@ class PaykuClient:
     # HTTP primitives                                                      #
     # ------------------------------------------------------------------ #
 
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    @staticmethod
+    def _decode(method: str, response: httpx.Response, *, allow_no_records: bool = False) -> Any:
+        """HTTP no-2xx -> HTTPStatusError; 2xx con `status: "failed"` -> PaykuApiError (d188).
+
+        Excepcion: con `allow_no_records` (solo listados) la pagina vacia "there are no records" se devuelve tal cual
+        y el llamador la trata como coleccion vacia.
+        """
+        response.raise_for_status()
+        body = response.json()
+        _raise_for_failed_body(method, response, body, allow_no_records=allow_no_records)
+        return body
+
+    async def _get(
+        self, path: str, params: dict[str, Any] | None = None, *, allow_no_records: bool = False
+    ) -> Any:
         # SYNC-D-10: solo las lecturas se reintentan (red, 429 y 5xx, con Retry-After y tope). POST/PUT/DELETE: un intento.
         headers = {"Sign": build_sign(path, params or {}, settings.payku_secret_key)}
         response = await send_with_retries(
             lambda: self._client.get(path, params=params, headers=headers), retries=settings.payku_read_retries
         )
-        response.raise_for_status()
-        return response.json()
+        return self._decode("GET", response, allow_no_records=allow_no_records)
 
     def _guard_write(self, method: str, path: str, data: Any) -> None:
         """Fuera de produccion toda escritura pasa por las guardas duras (antes de tocar la red). d165."""
@@ -304,8 +371,7 @@ class PaykuClient:
             content=body,
             headers={"Content-Type": "application/json", "Sign": sign},
         )
-        response.raise_for_status()
-        return response.json()
+        return self._decode("POST", response)
 
     async def _put(self, path: str, data: dict[str, Any]) -> Any:
         self._guard_write("PUT", path, data)
@@ -316,8 +382,7 @@ class PaykuClient:
             content=body,
             headers={"Content-Type": "application/json", "Sign": sign},
         )
-        response.raise_for_status()
-        return response.json()
+        return self._decode("PUT", response)
 
     async def _delete(self, path: str) -> Any:
         self._guard_write("DELETE", path, None)
@@ -325,5 +390,4 @@ class PaykuClient:
             path,
             headers={"Sign": build_sign(path, {}, settings.payku_secret_key)},
         )
-        response.raise_for_status()
-        return response.json()
+        return self._decode("DELETE", response)

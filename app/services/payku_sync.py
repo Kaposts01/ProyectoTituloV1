@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.integrations.payku.client import PaykuClient
+from app.integrations.payku.client import PaykuClient, is_no_records_response
 from app.models.sync_run import SyncRun
 from app.services.channel_removals import detect_removals
 from app.services.channel_store import store_payku_resources
@@ -46,9 +46,8 @@ def _records_from(response: Any) -> list[dict[str, Any]]:
 
 
 def _is_empty_page(response: dict[str, Any]) -> bool:
-    if str(response.get("status", "")).lower() != "failed":
-        return False
-    return "no records" in str(response.get("type", "")).lower()
+    # La forma exacta vive en el cliente (d188): los listados la reciben tal cual; el resto de "failed" ya lanza.
+    return is_no_records_response(response)
 
 
 def _has_more(records: list, per_page: int) -> bool:

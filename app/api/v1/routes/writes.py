@@ -13,6 +13,7 @@ from app.core.security import (
     require_permissions,
     require_role,
 )
+from app.integrations.payku.client import PaykuApiError
 from app.integrations.payku.write_guard import PaykuWriteBlockedError
 from app.integrations.toku.write_guard import TokuWriteBlockedError
 from app.integrations.virtualpos.client import VirtualPOSAPIError
@@ -845,6 +846,8 @@ async def update_payku_client(
         raise HTTPException(status_code=404, detail={"code": "payku_client_not_found", "message": "Cliente Payku no encontrado"}) from None
     except HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail={"code": "payku_rejected_update", "message": "Payku rechazó la actualización"}) from None
+    except PaykuApiError:  # d188: HTTP 2xx con status "failed"
+        raise HTTPException(status_code=502, detail={"code": "payku_rejected_update", "message": "Payku rechazó la actualización"}) from None
     except PaykuReconciliationRequiredError:
         raise HTTPException(status_code=503, detail={"code": "update_requires_reconciliation", "message": "La actualización requiere reconciliación local"}) from None
 
@@ -872,6 +875,8 @@ async def delete_payku_client(
         raise HTTPException(status_code=404, detail={"code": "payku_client_not_found", "message": "Cliente Payku no encontrado"}) from None
     except HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail={"code": "payku_rejected_deletion", "message": "Payku rechazó la eliminación"}) from None
+    except PaykuApiError:  # d188: HTTP 2xx con status "failed"
+        raise HTTPException(status_code=502, detail={"code": "payku_rejected_deletion", "message": "Payku rechazó la eliminación"}) from None
     except PaykuReconciliationRequiredError:
         raise HTTPException(status_code=503, detail={"code": "deletion_requires_reconciliation", "message": "La eliminación requiere reconciliación local"}) from None
 
@@ -899,6 +904,8 @@ async def delete_payku_subscription(
         raise HTTPException(status_code=404, detail={"code": "payku_subscription_not_found", "message": "Suscripción Payku no encontrada"}) from None
     except HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail={"code": "payku_rejected_cancellation", "message": "Payku rechazó la cancelación"}) from None
+    except PaykuApiError:  # d188: HTTP 2xx con status "failed"
+        raise HTTPException(status_code=502, detail={"code": "payku_rejected_cancellation", "message": "Payku rechazó la cancelación"}) from None
     except PaykuReconciliationRequiredError:
         raise HTTPException(status_code=503, detail={"code": "cancellation_requires_reconciliation", "message": "La cancelación requiere reconciliación local"}) from None
 
