@@ -125,6 +125,7 @@ def test_payku_sandbox_base_url_does_not_duplicate_api(monkeypatch, base: str) -
         app_env="sandbox",
         database_url="postgresql+psycopg://u:p@localhost/crm",
         sandbox_database_url="postgresql+psycopg://u:p@localhost/crm_sandbox",
+        sandbox_auth_jwt_secret="sbx-jwt-secret-sintetico-de-al-menos-32-caracteres",
         payku_sandbox_base_url=base,
         payku_sandbox_public_token="sbx-pk-public",
         payku_sandbox_private_token="sbx-pk-private",
