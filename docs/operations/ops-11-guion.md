@@ -49,6 +49,7 @@ Set-Location $repo
 | 0.7 | Sandbox 8001 | No se toca. `Invoke-RestMethod http://127.0.0.1:8001/health` solo para confirmar que sigue arriba | `status: ok` | Ignorar; no es parte de la ventana |
 | 0.8 | Aviso a usuarios | Avisar con anticipación que el CRM estará **fuera de servicio** durante la ventana y que **todas las sesiones se cerrarán** (paso 3): habrá que volver a iniciar sesión | Avisado | No empezar sin aviso |
 | 0.9 | Que no haya cargas en curso | Ninguna importación TCH ni sincronización abierta en la pantalla de administración. El ETL de TCH sale con código 2 si hay una corrida activa en `etl_runs` | — | Esperar a que termine |
+| 0.9b | Lanzadores del venv (regenerados el 2026-11-10 tras mover el repo a `Downloads\Proyectos`) | `.venv\Scripts\uvicorn.exe --version; .venv\Scripts\alembic.exe --help \| Select-Object -First 1; .venv\Scripts\pytest.exe --version` | Cada uno responde (uvicorn 0.52.4, ayuda de alembic, pytest 8.4.2) sin «Fatal error in launcher» | Usar la forma con módulo, que no depende de los lanzadores: `.venv\Scripts\python.exe -m uvicorn ...` y `.venv\Scripts\python.exe -m alembic ...` en los pasos 2 y 3 |
 | 0.10 | **Detener el backend 8000** | En su terminal: `Ctrl+C` | El proceso termina; `Invoke-RestMethod http://127.0.0.1:8000/health` falla con conexión rechazada | — |
 
 El backend se detiene **antes** del respaldo para que nada (scheduler, usuarios) escriba en `crm` entre el respaldo, el
@@ -256,6 +257,8 @@ Set-Location $repo
 Remove-Item Env:APP_ENV, Env:DATABASE_URL, Env:SANDBOX_DATABASE_URL -ErrorAction SilentlyContinue
 .venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+Si el lanzador falla (paso 0.9b), el mismo arranque con módulo: `.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload`. Antes de seguir con 3.4, comprobar en la consola que aparece «Application startup complete» y que no hay errores de importación.
 
 `--reload` vigila el código, no el `.env`: **cada cambio posterior del `.env` (pasos 5 y 6) exige `Ctrl+C` y volver a
 lanzar este comando.**
