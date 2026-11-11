@@ -746,6 +746,7 @@ export const es = {
     "payku rejected deletion": "Payku rechazó la eliminación.",
     "payku rejected update": "Payku rechazó la actualización.",
     "payku subscription not found": "No se encontró la suscripción en Payku.",
+    "payku write blocked": "Una guarda del sandbox de Payku bloqueó la escritura.",
     "payku writes disabled": "Las escrituras a Payku están deshabilitadas en este ambiente.",
     "payment not found": "No se encontró el pago.",
     "permission denied": "No tienes permiso para realizar esta acción.",
