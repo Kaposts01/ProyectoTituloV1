@@ -16,7 +16,7 @@
 | 1 | Respaldo de `crm`, verificación y simulacro en `crm_restore_test` | No | 25 a 35 min |
 | 2 | `alembic upgrade head` (`0068 → 0071`) y `seed_roles.py` | Sí (liviano) | 10 min |
 | 3 | Rotar `AUTH_JWT_SECRET` y arrancar el 8000 | No (solo `.env`) | 10 min |
-| 4 | Recarga completa de TCH, ETL Core de TCH, consolidación y paridad | Sí (pesado) | 60 a 120 min ⚠ verificar (nunca se midió en `crm`) |
+| 4 | Recarga completa de TCH, ETL Core de TCH, consolidación y paridad | Sí (pesado) | 60 a 120 min (estimación desde el código y tiempos registrados; ver «Duración» en el paso 4) |
 | 5 | `TOKU_REPORT_HASH_PEPPER`, carga de reportes de Toku y backfill TK-PAR-04 | Sí | 30 a 45 min |
 | 6 | SMTP y destinatarios (d140), `ALERTS_ENABLED=true` y correo de prueba | No (solo `.env`) | 15 a 20 min |
 | 7 | Usuarios por rol (USR-07) y mover la plantilla de D40 | Sí (usuarios) | 15 min |
@@ -45,7 +45,7 @@ Set-Location $repo
 | 0.3 | ¿PR #8 (BCK-01a) integrado? | `Test-Path .\scripts\maintenance\backup_db.ps1` | `True` → variante 1A; `False` → variante 1B o 1A desde el worktree | — |
 | 0.4 | Docker y PostgreSQL arriba | `docker compose ps` | Servicio `postgres` en `running (healthy)`, puerto `5433` | `docker compose up -d` y repetir |
 | 0.5 | Espacio en disco | `Get-PSDrive C \| Select-Object Used,Free` | Libre ≥ 10 GB (el respaldo del 2026-11-03 pesó 430 MB; la recarga de TCH reescribe ~1,5 M filas) | Liberar espacio o abortar |
-| 0.6 | Reportes TCH presentes | `(Get-ChildItem "$repo\docs\Reportes_TCH" -Filter *.xlsx).Count` | `30` (conteo del 2026-11-10) | ⚠ verificar carpeta (ver paso 4) |
+| 0.6 | Reportes TCH presentes | `(Get-ChildItem "$repo\docs\Reportes_TCH" -Filter *.xlsx).Count` | `30` (conteo del 2026-11-10) | ⚠ verificar carpeta: pendiente del usuario (ficha d196) (ver paso 4) |
 | 0.7 | Sandbox 8001 | No se toca. `Invoke-RestMethod http://127.0.0.1:8001/health` solo para confirmar que sigue arriba | `status: ok` | Ignorar; no es parte de la ventana |
 | 0.8 | Aviso a usuarios | Avisar con anticipación que el CRM estará **fuera de servicio** durante la ventana y que **todas las sesiones se cerrarán** (paso 3): habrá que volver a iniciar sesión | Avisado | No empezar sin aviso |
 | 0.9 | Que no haya cargas en curso | Ninguna importación TCH ni sincronización abierta en la pantalla de administración. El ETL de TCH sale con código 2 si hay una corrida activa en `etl_runs` | — | Esperar a que termine |
@@ -79,7 +79,13 @@ $bck = 'C:\Users\Usuario\Downloads\Proyectos\crm-wt-bck\scripts\maintenance'
 > `-ProjectDir $repo` es **obligatorio** desde el worktree: los scripts llaman a
 > `docker compose -f <ProjectDir>\compose.yaml --project-directory <ProjectDir>` (`backup_common.ps1`,
 > `Invoke-Compose`); sin él, el proyecto de compose sería `crm-wt-bck` (otro contenedor, sin `.env`) y fallaría.
-> Si la política de ejecución bloquea el `.ps1`: `pwsh -ExecutionPolicy Bypass -File "$bck\backup_db.ps1" ...` ⚠ verificar.
+> Política de ejecución (verificado el 2026-11-10): `CurrentUser` y `LocalMachine` están en `RemoteSigned` y los `.ps1`
+> no tienen marca de descarga (`Zone.Identifier`), así que **no hace falta `Bypass`**: los docs del PR #8
+> (`backups.md`) los invocan directo (`.\scripts\maintenance\backup_db.ps1 ...`). Solo la tarea programada usa
+> `-ExecutionPolicy Bypass` (`register_backup_task.ps1`, línea 47). Si aun así apareciera «no está firmado digitalmente»,
+> usar el mismo patrón que la tarea, que afecta solo a ese proceso y no cambia la política del equipo:
+> `pwsh -NoProfile -ExecutionPolicy Bypass -File "$bck\backup_db.ps1" -Database crm -Destination $bkdir -ProjectDir $repo`
+> (o la variante sin `$bck`/`-ProjectDir` si el PR #8 está en `master`). No usar `Set-ExecutionPolicy` ni `Unblock-File`.
 
 **Salida esperada:** una línea `... [INFO] OK crm_YYYYMMDD_HHmm.dump (NNN,N MB, NNN entradas en el TOC, NN s).`
 (también queda en `$bkdir\logs\backup_db.log`). Código de salida `0` (`$LASTEXITCODE`).
@@ -278,14 +284,22 @@ Procedimiento: `docs/data/tch-reload.md`. Script: `scripts/etl_tch.py` (banderas
 `--tolerance-total`, `--backfill-source-records`). La recarga borra y reconstruye todo `tch_*`; es transaccional
 (todo o nada) y concilia contra `tch_recaudacion_mensual` antes de confirmar.
 
-**⚠ verificar la carpeta:** `tch-reload.md` indica `C:\Users\Usuario\Downloads\CRM_reportes\TCH`, que **no existe** en
+**⚠ verificar la carpeta, pendiente del usuario (ficha d196):** `tch-reload.md` indica `C:\Users\Usuario\Downloads\CRM_reportes\TCH`, que **no existe** en
 este equipo (comprobado el 2026-11-10). Los Excel de TCH están en `$repo\docs\Reportes_TCH` (30 `.xlsx`, ignorado por
 git). Confirmar en el chat cuál es el juego correcto antes del dry-run.
 
 Usar la misma terminal de la ventana (ambiente fijado en 2.1; repetir 2.1 si se abrió otra).
 
+**Duración (estimada; nunca se midió una recarga completa en `crm`):** los 30 `.xlsx` suman ~276 MB (el mayor,
+~12,5 MB). Tiempos registrados (`docs/planning/auditoria-2026-10-29/research_sync_opt.md`): el ETL de archivo de TCH
+procesa ~1.500 filas/s (80 a 102 s por archivo de 125 a 161 mil filas) y la consolidación ~1.150 filas/s (1,47 M filas
+≈ 1.280 s). Con ~1,0 a 1,47 M filas: dry-run 4.1 ≈ 12 a 20 min y apply 4.2 otro tanto (el dry-run hace todo el trabajo
+y luego ROLLBACK; el modo full además crea un `source_records` por fila), ETL Core 4.3 ≈ 10 a 20 min (sin medición de
+carga completa; mismo orden de filas), consolidación 4.4 ≈ 15 a 21 min y paridad 4.5 ≈ 2 a 5 min. Total ≈ 55 a 90 min;
+se mantiene la reserva de **60 a 120 min**. Anotar los tiempos reales de cada subpaso para la próxima vez.
+
 ```powershell
-$tch   = "$repo\docs\Reportes_TCH"      # ⚠ verificar
+$tch   = "$repo\docs\Reportes_TCH"      # ⚠ verificar: pendiente del usuario (ficha d196)
 $excl  = '2023-01,2023-02,2023-03,2023-04,2023-05,2023-06,2023-07,2023-08,2023-09,2023-10,2023-11,2023-12'
 ```
 
@@ -313,23 +327,33 @@ Esperado: la misma tabla de conciliación y `Recarga CONFIRMADA. Total procesado
 
 ### 4.3 ETL Core de TCH (clientes, suscripciones, `core_charges`, pagos)
 
-No hay script de línea de comandos: la ruta es `POST /api/v1/etl/core/tch` (`app/api/v1/routes/etl.py`, permiso
-`etl.run` y cabecera CSRF), que corre `run_tch_core_etl` (`app/services/core_tch_etl.py`) y confirma. La interfaz no
-tiene botón para ella. Equivalente directo, mismo ambiente fijado en 2.1 (imprime solo conteos):
+Verificado el 2026-11-10: **no existe CLI** para el ETL Core de TCH (nada en `scripts/` llama a `run_tch_core_etl`;
+`etl_tch.py` solo importa `normalize_tch_currency`, y la noche no lo corre: en `sync_all.py`, `_CORE_ETL_RUNNERS`
+excluye TCH). Las dos formas reales son la ruta `POST /api/v1/etl/core/tch` (`app/api/v1/routes/etl.py`, permiso
+`etl.run` y cabecera CSRF; la interfaz no tiene botón) y la función `run_tch_core_etl(db)`
+(`app/services/core_tch_etl.py`), que hace su propio `db.commit()` y devuelve solo conteos. La línea siguiente es
+exactamente lo que hace la ruta en `_run_core_etl_background` (`fn(db)` y `db.commit()`; para TCH la ruta no registra
+marca de frescura), salvo la fila de `etl_runs` y el lock exclusivo de corridas. Mismo ambiente fijado en 2.1, desde
+`$repo`:
 
 ```powershell
 .venv\Scripts\python.exe -c "from app.db.session import SessionLocal; from app.services.core_tch_etl import run_tch_core_etl; db = SessionLocal(); r = run_tch_core_etl(db); db.commit(); db.close(); print(r)"
 ```
 
-⚠ verificar: esta línea no está documentada como procedimiento (es lo que hace la ruta en `_run_core_etl_background`,
-sin crear la fila de `etl_runs`). Alternativa: llamar la ruta con la sesión de administrador (más pasos: login + CSRF).
+Como no toma el lock exclusivo, correrla sin corridas activas (ninguna sincronización ni importación en curso durante
+la ventana). Esperado: un diccionario con `clients_created`, `attributes_inserted`, `subscriptions_upserted`,
+`charges_inserted` y los pagos. Alternativa equivalente: la ruta con sesión de administrador (login + CSRF), que además
+deja la fila en `etl_runs`.
 
 ### 4.4 Consolidación de TCH a las tablas centralizadas (`charges`, `payments`)
 
-`tch-reload.md` pide «la consolidación de `charges`» sin dar el comando. El script que la hace a mano, tras una carga
-histórica, es `scripts/maintenance/consolidate_baseline.py` (`--source tch`, `--apply`, `--confirm-database`), que
-marca los eventos como línea base (no cuentan como novedad del día). ⚠ verificar que sea el camino elegido; si no, la
-consolidación nocturna lo hará igual en la siguiente corrida.
+`tch-reload.md` pide «la consolidación de `charges`» sin dar el comando. Verificado el 2026-11-10: el script es
+`scripts/maintenance/consolidate_baseline.py`, con banderas `--source` (repetible; `virtualpos`, `toku`, `payku`,
+`tch`; sin ella, todos), `--apply` y `--confirm-database` (debe coincidir exactamente con `current_database()`; si no,
+sale con código 2). Llama a `consolidate_to_centralized(db, ['tch'], baseline=True)` y confirma, así que los eventos
+quedan `is_baseline=true` y no cuentan como novedad del día (su docstring lo indica «tras una carga histórica»). Es el
+camino correcto: dejarlo a la consolidación nocturna (`sync_all.py` consolida `tch` tras una carga nueva) marcaría la
+recarga entera como novedades. Requiere la migración `20261029_0042` (si falta, lo dice y no escribe).
 
 ```powershell
 .venv\Scripts\python.exe scripts\maintenance\consolidate_baseline.py --source tch
@@ -390,12 +414,12 @@ comando de 3.3) para que la ruta `/api/v1/imports/toku-reports` lo lea.
 
 ### 5.2 Reportes de Toku
 
-⚠ verificar qué juego cargar: `$repo\docs\Reportes_Toku` tiene 14 `.xlsx` (posiblemente dos generaciones, 2026-08-09 y
+⚠ verificar qué juego cargar, pendiente del usuario (ficha d196): `$repo\docs\Reportes_Toku` tiene 14 `.xlsx` (posiblemente dos generaciones, 2026-08-09 y
 2026-10-20). Basta el más reciente; cargar uno viejo sobre uno nuevo deja filas «obsoletas». Lo ideal (TK-PAR-01,
 USR-09) es exportar reportes nuevos del Backoffice, incluido **Deudas**, a una carpeta **fuera del repo**.
 
 ```powershell
-$toku = '<carpeta con los reportes de Toku más recientes>'   # ⚠ verificar
+$toku = '<carpeta con los reportes de Toku más recientes>'   # ⚠ verificar: pendiente del usuario (ficha d196)
 .venv\Scripts\python.exe scripts\maintenance\import_toku_reports.py --dir $toku
 .venv\Scripts\python.exe scripts\maintenance\import_toku_reports.py --dir $toku --apply
 ```
@@ -520,7 +544,7 @@ una ventana privada y comprobar que **no** ve la pestaña de Administración.
 Comprobado el 2026-11-10: el archivo **sigue** en el checkout principal (ignorado por git) y ningún código lo referencia.
 
 ```powershell
-$priv = 'C:\Users\Usuario\Documents\CRM_privado'      # carpeta fuera del proyecto y de la nube; ⚠ verificar destino
+$priv = 'C:\Users\Usuario\Documents\CRM_privado'      # carpeta fuera del proyecto y de la nube; ⚠ verificar destino: pendiente del usuario (ficha d196)
 New-Item -ItemType Directory -Force $priv | Out-Null
 Move-Item "$repo\app\templates\reports\virtualpos.html" "$priv\virtualpos.html"
 Test-Path "$repo\app\templates\reports\virtualpos.html"
@@ -586,10 +610,17 @@ Con `RESPALDO_1` se puede repetir el paso 1B de conteos para comparar con lo ano
 
 ## Lista de «⚠ verificar»
 
+Abiertos, pendiente del usuario (ficha d196):
+
 1. Carpeta de los Excel de TCH: la de `tch-reload.md` no existe; candidata `docs\Reportes_TCH` (paso 4).
-2. Duración real de la recarga de TCH en `crm` (nunca medida).
-3. ETL Core de TCH por línea de Python (no hay script; la ruta oficial es `POST /api/v1/etl/core/tch`) (paso 4.3).
-4. Consolidación de TCH con `consolidate_baseline.py --source tch` como camino elegido (paso 4.4).
 5. Qué juego de reportes de Toku cargar y su carpeta (paso 5.2).
-6. `-ExecutionPolicy Bypass` si el `.ps1` del respaldo está bloqueado (paso 1A).
 7. Carpeta de destino de la plantilla de D40 (paso 7.2).
+
+Cerrados el 2026-11-10 (verificados en código y documentación):
+
+2. Duración de la recarga de TCH: estimada en 55 a 90 min con tiempos registrados; se mantiene la reserva de 60 a
+   120 min (paso 4, «Duración»). Sigue sin medirse en `crm`: anotar los tiempos reales.
+3. ETL Core de TCH: no hay CLI; la línea de Python reproduce `_run_core_etl_background` (paso 4.3).
+4. Consolidación: `consolidate_baseline.py --source tch` y luego `--apply --confirm-database crm` es el camino
+   correcto (paso 4.4).
+6. `-ExecutionPolicy Bypass`: no hace falta (`RemoteSigned` y scripts locales); comando de respaldo en el paso 1A.
