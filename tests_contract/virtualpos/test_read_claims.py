@@ -217,7 +217,7 @@ def test_vp_c26_filters_of_date(claim):
                 and all(str(c.get("charge_date")) <= dates[0] for c in rows_to))
 
 
-# --- DEC-42: V-2 y V-3 del VALIDATION-PLAN como pruebas de solo lectura -------------------------------------
+# --- DEC-46: V-2 y V-3 del VALIDATION-PLAN como pruebas de solo lectura -------------------------------------
 # Guardan solo nombres de campos, conteos y booleanos; nunca uuid, montos, datos de cliente ni de tarjeta.
 
 MAX_PAID_SAMPLE = 10  # cargos pagados que se inspeccionan con GET /v3/charge/{id}

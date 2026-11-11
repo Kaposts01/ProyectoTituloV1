@@ -286,7 +286,7 @@ La suite de contrato (`tests_contract/`, excluida por defecto de pytest) compara
 
 El informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado, en `.gitignore`) recoge 29 afirmaciones y 12 discrepancias de la ejecución del 2026-10-27 (cuenta 1, sandbox). Las notas "Observado en sandbox 2026-10-27" de los recursos citan cada afirmación con su ID `[CLAIM:VP-Cnn]`. Resultado: V-1 resuelta (VP-C01); V-2, V-3 y V-4 seguian pendientes porque requerian tarjeta y cobro real; V-5 tiene resultado (sección anterior).
 
-**Actualizacion 2026-11-10** (informe del probador sobre master `248d515`, sandbox): V-2 y V-3 resueltas en Caso A (tabla anterior); V-4 bloqueada por falta de cargos rechazados. La suite suma dos pruebas de solo lectura que repiten V-2 y V-3 en cada corrida (DEC-42); guardan solo nombres de campos, conteos y booleanos.
+**Actualizacion 2026-11-10** (informe del probador sobre master `248d515`, sandbox): V-2 y V-3 resueltas en Caso A (tabla anterior); V-4 bloqueada por falta de cargos rechazados. La suite suma dos pruebas de solo lectura que repiten V-2 y V-3 en cada corrida (DEC-46); guardan solo nombres de campos, conteos y booleanos.
 
 ---
 

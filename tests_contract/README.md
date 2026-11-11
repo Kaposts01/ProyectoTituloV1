@@ -26,7 +26,7 @@ $env:APP_ENV='sandbox'; $env:CONTRACT_TESTS='1'; $env:CONTRACT_WRITES='1'; $env:
 | 2 (VP-ESC) | `virtualpos/test_write_claims.py` | 9 | `contract` + `contract_write` | Catalogado, avisar |
 | 3 (CT-xx, BILL-11) | `virtualpos/test_p0_option_a.py` | 8 recetas P0 | `contract` + `contract_write` | **Escritas, sin ejecutar; pendientes de aprobacion en bloque** (DEC-45) |
 
-- VP-C30 y VP-C31 (DEC-42) repiten V-2 y V-3 del `VALIDATION-PLAN`: el detalle de un cargo pagado trae
+- VP-C30 y VP-C31 (DEC-46) repiten V-2 y V-3 del `VALIDATION-PLAN`: el detalle de un cargo pagado trae
   `payment.order.uuid` y ese uuid aparece en `/v3/payments` con `payment_method` PAT. El informe guarda solo
   nombres de campos, conteos y booleanos (nunca uuid, montos ni datos de cliente).
 - Si el worktree no tiene `.env`, pasar la ruta del `.env` del repo principal en `CRM_DOTENV_PATH` (variable de proceso).
