@@ -249,6 +249,8 @@ Anotar en "Resultados observados V-5" la fecha, el codigo HTTP y el `code`/mensa
 
 Simulador de banco (formulario de autenticacion con RUT y clave): RUT `11.111.111-1`, clave `123`.
 
+Fuente oficial de las tarjetas y del simulador: https://virtualpos.readme.io/reference/datos-de-prueba-sandbox. Verificado el 2026-11-10: las dos tarjetas y el simulador de esta seccion coinciden con la pagina oficial (que ademas lista otras de credito, debito y prepago). Para VirtualPOS se usan las tarjetas oficiales (DEC-09, ficha d193); ante cualquier diferencia futura manda la pagina oficial.
+
 **Preparacion para V-1, V-2, V-3.**
 1. Crear un plan de monto fijo (o variable) en el portal de sandbox.
 2. Llamar a `POST /v3/suscription` con la tarjeta VISA aprobada para crear una suscripcion activa.
@@ -271,9 +273,9 @@ Simulador de banco (formulario de autenticacion con RUT y clave): RUT `11.111.11
 | # | Fecha | Resultado (A/B) | Evidencia resumida | Conclusion |
 |---|---|---|---|---|
 | V-1 | 2026-10-27 | A (confirmado) | `GET /v3/suscriptions` trae `charge_program[]` igual a `GET /v3/suscription/{id}/charges` en 5 suscripciones ([CLAIM:VP-C01]) | Resuelta. Caso A: el job masivo no necesita llamadas adicionales |
-| V-2 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
-| V-3 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
-| V-4 | — | — | — | Pendiente (requiere tarjeta y cobro real) |
+| V-2 | 2026-11-10 | A (confirmado) | 29 de 29 cargos `pagado` de 18 suscripciones de prueba traen `charge.payment.order.uuid` no nulo y distinto entre si | Resuelta para cuotas pagadas: el PASO 3 del job diario funciona como esta disenado. Cuotas rechazadas: ver V-4 |
+| V-3 | 2026-11-10 | A (confirmado) | `GET /v3/payments` con `authorization_from/to` trae 12 de 12 de esos uuid; sin filtros, 29 de 29. Los recurrentes llevan `order.payment_method = "PAT"`; `order.merchant_internal_code` viene vacio en los PAT. Paginacion en objeto `pagination{limit,page,pages,total}` | Resuelta: el PASO 4 cubre spot y recurrentes. El vinculo cuota → transaccion es `payment.order.uuid` (V-2), no `merchant_internal_code` |
+| V-4 | 2026-11-10 | Bloqueada | No hay cargos rechazados en el sandbox | Pendiente del usuario: escenario nuevo con la tarjeta de rechazo oficial (borrador VP-V4 en `docs/operations/sandbox-testing-and-decisions.md` §3.1) |
 | V-5 | 2026-10-27 | A (aceptado en plan fijo, con limites) | `POST /v3/charge` aceptado sobre plan `MONTO_FIJO` sin E-113; cargo de prueba cancelado | Ejecutada en sandbox. Pendiente: continuidad de cobros mensuales y prueba controlada en produccion |
 
 ---
@@ -282,7 +284,9 @@ Simulador de banco (formulario de autenticacion con RUT y clave): RUT `11.111.11
 
 La suite de contrato (`tests_contract/`, excluida por defecto de pytest) compara la documentación de `docs/integrations/virtualpos/` con el sandbox real. Ejecución, variables y guardas en [tests_contract/README.md](../../../tests_contract/README.md). Cada prueba registra esperado frente a observado; un desacuerdo no falla la prueba.
 
-El informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado, en `.gitignore`) recoge 29 afirmaciones y 12 discrepancias de la ejecución del 2026-10-27 (cuenta 1, sandbox). Las notas "Observado en sandbox 2026-10-27" de los recursos citan cada afirmación con su ID `[CLAIM:VP-Cnn]`. Resultado: V-1 resuelta (VP-C01); V-2, V-3 y V-4 siguen pendientes porque requieren tarjeta y cobro real; V-5 tiene resultado (sección anterior).
+El informe `reports/contract/virtualpos/drift-20261027-122121.md` (no versionado, en `.gitignore`) recoge 29 afirmaciones y 12 discrepancias de la ejecución del 2026-10-27 (cuenta 1, sandbox). Las notas "Observado en sandbox 2026-10-27" de los recursos citan cada afirmación con su ID `[CLAIM:VP-Cnn]`. Resultado: V-1 resuelta (VP-C01); V-2, V-3 y V-4 seguian pendientes porque requerian tarjeta y cobro real; V-5 tiene resultado (sección anterior).
+
+**Actualizacion 2026-11-10** (informe del probador sobre master `248d515`, sandbox): V-2 y V-3 resueltas en Caso A (tabla anterior); V-4 bloqueada por falta de cargos rechazados. La suite suma dos pruebas de solo lectura que repiten V-2 y V-3 en cada corrida (DEC-42); guardan solo nombres de campos, conteos y booleanos.
 
 ---
 
