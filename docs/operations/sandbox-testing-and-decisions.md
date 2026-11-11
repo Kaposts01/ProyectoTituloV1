@@ -193,6 +193,7 @@ El decisor devuelve texto; no edita archivos. Si el informe es insuficiente para
     - las exportaciones de prueba («Exportar») se descargan al scratchpad y se borran al terminar;
     - nadie (ni agentes ni scripts) anonimiza ni borra esas filas por su cuenta: es una decisión «siempre con el usuario» (§2.3), porque toca datos y el vínculo con el proveedor;
     - al crear datos en los sandboxes de los proveedores se usan solo nombres, RUT y correos sintéticos (dominio `example.test`).
+    - la suscripción de sandbox `940cad2ddb` (que la suite usaba por defecto como plan variable) pertenece a ese cliente con datos reales: no se usa en pruebas; la suite usa `efc751c04e` (2026-11-10). Se verificó que su correo no quedó en commits, fixtures ni informes de drift.
 
 ## 6. Qué ve el usuario después de cada ciclo
 
