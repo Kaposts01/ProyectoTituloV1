@@ -10,6 +10,7 @@ cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.5.0
 colorama==0.4.6
+coverage==7.17.2
 dnspython==2.8.0
 email-validator==2.3.0
 et_xmlfile==2.0.0
@@ -39,6 +40,7 @@ pydantic_core==2.46.5
 Pygments==2.21.0
 PyJWT==2.14.0
 pytest==8.4.2
+pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
 pytz==2026.3.post1
