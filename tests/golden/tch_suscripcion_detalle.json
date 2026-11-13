@@ -1,4 +1,5 @@
 [
+ ".baja_antes_del_alta",
  ".banco_nombre",
  ".captador",
  ".centro_costo",
@@ -7,8 +8,10 @@
  ".equivalente_pesos",
  ".estado",
  ".fecha_activacion",
+ ".fecha_alta_efectiva",
  ".fecha_eliminacion",
  ".fecha_fin",
+ ".fecha_ingreso",
  ".fecha_rechazo",
  ".id",
  ".last_paid_date",

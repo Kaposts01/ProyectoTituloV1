@@ -2,6 +2,7 @@
  ".activaciones_fuente",
  ".activaciones_fuente.fecha_activacion",
  ".activaciones_fuente.fecha_entrega_banco",
+ ".activaciones_fuente.fecha_ingreso",
  ".activaciones_fuente.fecha_primer_cobro",
  ".activaciones_fuente.nota",
  ".activaciones_fuente.sin_fecha",
