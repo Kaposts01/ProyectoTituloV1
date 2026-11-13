@@ -21,6 +21,7 @@ from app.models.crm import Charge as CCharge
 from app.models.crm import Payment as CPayment
 from app.models.crm import Subscription as CSub
 from app.models.tch import TchMonthlyCollection, TchSubscription, TchTransaction
+from app.models.vp import VpCharge
 from app.services import rejected_month
 from app.services.charge_stats import (
     charge_outcome,
@@ -129,6 +130,26 @@ def _cancellation_condition_csub(sources: tuple[str, ...]) -> Any:
     ])
 
 
+def _csub_signup_date() -> Any:
+    """Fecha de alta de una suscripcion canonica (texto ISO).
+
+    `suscription_date` del proveedor; si no es fecha y la suscripcion es de VirtualPOS (payload sin fecha), la del
+    PRIMER cobro de esa suscripcion (min `vp_charges.charge_date`). Ese respaldo es una ESTIMACION (el alta es
+    anterior o igual al primer cobro) y se cuenta aparte en `calidad_datos.altas_fecha_estimada`.
+    """
+    first_vp_charge = (
+        select(func.to_char(func.min(VpCharge.charge_date), "YYYY-MM-DD"))
+        .where(VpCharge.platform == CSub.source, VpCharge.subscription_external_id == CSub.external_id)
+        .correlate(CSub)
+        .scalar_subquery()
+    )
+    return case(
+        (CSub.suscription_date.op("~")(_DATE10), CSub.suscription_date),
+        (CSub.source.in_(_CHANNEL_SOURCES["virtualpos"]), first_vp_charge),
+        else_=None,
+    )
+
+
 def _subscription_histograms(
     db: Session, channels: list[str]
 ) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]], dict[str, int]]:
@@ -139,7 +160,9 @@ def _subscription_histograms(
     """
     signups: dict[str, dict[str, int]] = {c: defaultdict(int) for c in channels}
     cancellations: dict[str, dict[str, int]] = {c: defaultdict(int) for c in channels}
-    quality = {"altas_sin_fecha": 0, "bajas_sin_fecha": 0}
+    # `bajas_antes_del_alta`: de las `bajas_sin_fecha`, las que tienen ambas fechas pero la baja es anterior al alta.
+    # Solo se marcan para revision (dato inconsistente de la fuente): no se corrigen ni se borran.
+    quality = {"altas_sin_fecha": 0, "bajas_sin_fecha": 0, "bajas_antes_del_alta": 0, "altas_fecha_estimada": 0}
 
     online = [c for c in channels if c in _CHANNEL_SOURCES]
     if online:
@@ -150,10 +173,11 @@ def _subscription_histograms(
             (CSub.source == "payku") & (status == _PAYKU_NEVER_ACTIVATED),
         )
         not_failed = func.coalesce(never_signed_up, False).is_(False)
-        valid_signup = CSub.suscription_date.op("~")(_DATE10)
+        signup_date = _csub_signup_date()
+        valid_signup = signup_date.op("~")(_DATE10)
         valid_cancellation = CSub.canceled_at.op("~")(_DATE10)
         is_cancelled = _cancellation_condition_csub(sources)
-        signup_month = func.substring(CSub.suscription_date, 1, 7)
+        signup_month = func.substring(signup_date, 1, 7)
         cancellation_month = func.substring(CSub.canceled_at, 1, 7)
         for source, month, n in db.execute(
             select(CSub.source, signup_month, func.count())
@@ -165,7 +189,7 @@ def _subscription_histograms(
             select(CSub.source, cancellation_month, func.count())
             .where(
                 CSub.source.in_(sources), is_cancelled, valid_cancellation, valid_signup, not_failed,
-                func.substring(CSub.canceled_at, 1, 10) >= func.substring(CSub.suscription_date, 1, 10),
+                func.substring(CSub.canceled_at, 1, 10) >= func.substring(signup_date, 1, 10),
             )
             .group_by(CSub.source, cancellation_month)
         ):
@@ -177,13 +201,24 @@ def _subscription_histograms(
             select(func.count()).select_from(CSub).where(
                 CSub.source.in_(sources), is_cancelled, not_failed,
                 or_(_invalid(valid_cancellation), _invalid(valid_signup),
-                    func.substring(CSub.canceled_at, 1, 10) < func.substring(CSub.suscription_date, 1, 10)),
+                    func.substring(CSub.canceled_at, 1, 10) < func.substring(signup_date, 1, 10)),
+            )
+        ) or 0
+        quality["bajas_antes_del_alta"] += db.scalar(
+            select(func.count()).select_from(CSub).where(
+                CSub.source.in_(sources), is_cancelled, not_failed, valid_cancellation, valid_signup,
+                func.substring(CSub.canceled_at, 1, 10) < func.substring(signup_date, 1, 10),
+            )
+        ) or 0
+        quality["altas_fecha_estimada"] += db.scalar(
+            select(func.count()).select_from(CSub).where(
+                CSub.source.in_(sources), not_failed, valid_signup, _invalid(CSub.suscription_date.op("~")(_DATE10)),
             )
         ) or 0
 
     if "tch" in channels:
         # TCH-PAR-17 (L6-DASH): la misma fecha de alta que el dashboard de TCH. Desde jul-2025 el reporte ya no trae la
-        # fecha de activacion; se usa la del primer cobro y, si falta, la de entrega al banco. Antes el resumen solo
+        # fecha de activacion; se usa la del primer cobro, si falta la de entrega al banco y si falta la de ingreso. Antes el resumen solo
         # miraba `fecha_activacion` y perdia todas esas altas. Un mandato RECHAZADA nunca fue alta (igual que la vista
         # de suscripciones): no entra ni a las altas ni a la calidad de datos.
         from app.api.v1.routes.tch import (
@@ -218,6 +253,12 @@ def _subscription_histograms(
                 is_cancelled, not_rejected,
                 or_(_invalid(valid_cancellation), _invalid(valid_signup),
                     func.substring(TchSubscription.deletion_date, 1, 10) < func.substring(activation, 1, 10)),
+            )
+        ) or 0
+        quality["bajas_antes_del_alta"] += db.scalar(
+            select(func.count()).select_from(TchSubscription).where(
+                is_cancelled, not_rejected, valid_cancellation, valid_signup,
+                func.substring(TchSubscription.deletion_date, 1, 10) < func.substring(activation, 1, 10),
             )
         ) or 0
     return signups, cancellations, quality
