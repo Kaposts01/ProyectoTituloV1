@@ -126,7 +126,8 @@ export type EtlRun = {
   channels_failed?: string[] | null;
   error_message: string | null;
 };
-export type SchedulerJob = { id: string; name: string; cron: string; next_run: string | null; last_run: EtlRun | null; status: string; active_run_id?: string | null };
+/** 13D: `manual_run` = admite POST /scheduler/jobs/{id}/run; `kind` = sincronización de canales o mantenimiento. */
+export type SchedulerJob = { id: string; name: string; cron: string; next_run: string | null; last_run: EtlRun | null; status: string; active_run_id?: string | null; manual_run?: boolean; kind?: "sync" | "maintenance" };
 export type SseEvent = { type: string; phase?: string; pct?: number | null; resource?: string; records?: number; msg?: string; total_records?: number; duration_s?: number };
 export type ClientEditField = { name: string; label: string; type?: string; options?: { value: string; label: string }[] };
 export type AuthUser = { id: string; username: string; is_active: boolean; roles: { id: string; name: string }[]; permissions: string[]; created_at?: string | null };

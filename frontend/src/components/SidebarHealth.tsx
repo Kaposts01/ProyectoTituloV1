@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { ChannelHealthMap, HealthLevel } from "../hooks/useChannelHealth";
-import { CHANNEL_NAME, CHANNEL_ORDER, GLOBAL_LABEL, channelText } from "./healthLabels";
+import { CHANNEL_NAME, CHANNEL_ORDER, GLOBAL_LABEL, STATE_SEVERITY, channelText, entryState } from "./healthLabels";
 
 /** Peor nivel gana: error > atrasado > sin datos > ok. */
 const SEVERITY: Record<HealthLevel, number> = { ok: 0, unknown: 1, warn: 2, error: 3 };
@@ -15,6 +15,8 @@ export function SidebarHealth({ health }: { health?: ChannelHealthMap }) {
   const entries = CHANNEL_ORDER.map((channel) => health?.[channel]).filter((entry) => entry !== undefined);
   if (entries.length === 0) return null;
   const worst = entries.reduce((acc, entry) => (SEVERITY[entry.level] > SEVERITY[acc] ? entry.level : acc), entries[0].level);
+  // 13B: el texto sale del peor ESTADO (falló, atrasada, en curso…); el color, del peor nivel.
+  const worstState = entries.map(entryState).reduce((acc, state) => (STATE_SEVERITY[state] > STATE_SEVERITY[acc] ? state : acc));
   return (
     <div className="sidebar-health">
       <button
@@ -25,15 +27,15 @@ export function SidebarHealth({ health }: { health?: ChannelHealthMap }) {
         onClick={() => setOpen((value) => !value)}
       >
         <span className={`health-dot mono ${worst}`} data-level={worst} data-scope="global" aria-hidden="true" />
-        <span className="sidebar-health-text">{GLOBAL_LABEL[worst]}</span>
+        <span className="sidebar-health-text">{GLOBAL_LABEL[worstState]}</span>
         <span className="sidebar-health-glyph" aria-hidden="true">{open ? "−" : "+"}</span>
       </button>
       {open ? (
         <ul id={listId} className="sidebar-health-list" aria-label="Sincronización por canal">
           {entries.map((entry) => {
-            const text = channelText(entry.level, entry.age_hours);
+            const text = channelText(entry);
             return (
-              <li key={entry.channel}>
+              <li key={entry.channel} data-state={entryState(entry)}>
                 <span className={`health-dot mono ${entry.level}`} aria-hidden="true" data-level={entry.level} />
                 <span>{CHANNEL_NAME[entry.channel]}</span>
                 <span className="sidebar-health-age">{text}</span>

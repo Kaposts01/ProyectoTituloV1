@@ -242,7 +242,7 @@ describe("Resumen unificado: salud de canal", () => {
     const health = await screen.findByRole("region", { name: "Sincronización por canal" });
     expect(calls.some((url) => url.pathname === "/api/v1/sync-runs/health")).toBe(true);
     expect(within(health).getByText("VirtualPOS")).toBeTruthy();
-    expect(within(health).getByText(/Sincronizado: hace 3 h/)).toBeTruthy();
+    expect(within(health).getByText(/Al día · hace 3 h/)).toBeTruthy();
     expect(within(health).getByText("TCH")).toBeTruthy();
     expect(within(health).queryByText("Toku")).toBeNull(); // sin dato de salud: no se pinta
   });

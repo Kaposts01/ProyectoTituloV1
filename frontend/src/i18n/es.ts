@@ -164,6 +164,14 @@ export const es = {
     idle: "Inactivo",
     scheduled: "Programado",
   },
+  /** 13B: estado de sincronización de un canal (GET /sync-runs/health, campo `state`). */
+  syncState: {
+    ok: "Al día",
+    stale: "Atrasada",
+    failed: "Falló",
+    running: "En curso",
+    unknown: "Sin datos de sincronización",
+  },
   /** Fase de una corrida de sincronización. */
   phase: {
     starting: "Iniciando",

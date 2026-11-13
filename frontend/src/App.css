@@ -320,6 +320,7 @@ td:first-child { font-weight: 700; }
 .badge-orange { background: #ffedd5; color: #9a3412; }
 .badge-gray   { background: #f3f4f6; color: #6b7280; }
 .badge-blue   { background: #dbeafe; color: #1e40af; }
+.badge-red    { background: #fee2e2; color: #991b1b; }
 
 /* ── Dashboard alerts ────────────────────────────────────────────── */
 .dashboard-alerts-panel { margin-bottom: 1.5rem; }
@@ -497,6 +498,26 @@ td:first-child { font-weight: 700; }
 .sjc-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
 .sjc-btn { padding: 0.4rem 0.9rem; font-size: 0.825rem; }
 .sjc-btn-live { background: #2563EB !important; }
+/* 13D: procesos (tipo, nota de solo automático, ejecutar todos, avance por proceso) y estado por canal (13B) */
+.sjc-title { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.sjc-kind { font-family: var(--font-mono); font-size: 10px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-alt, var(--bg-hover)); color: var(--text-muted); }
+.sjc-auto-note { font-size: 0.8rem; color: var(--text-muted); }
+.scheduler-processes-header { margin-top: 1.5rem; align-items: center; }
+.sjc-run-all { padding: 0.45rem 0.9rem; font-size: 0.825rem; }
+.scheduler-confirm { margin: 0 0 0.75rem; }
+.scheduler-confirm-list { flex-basis: 100%; margin: 0; padding-left: 1.25rem; font-size: 0.85rem; }
+.scheduler-batch { border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+.scheduler-batch-head { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.5rem; }
+.scheduler-batch-head .text-button { margin-left: auto; }
+.scheduler-batch-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.scheduler-batch-list li { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
+.scheduler-batch-name { flex: 1 1 12rem; }
+.scheduler-batch-dur { font-size: 0.8rem; color: var(--text-muted); }
+.scheduler-batch-note { flex-basis: 100%; font-size: 0.78rem; color: var(--text-muted); }
+.scheduler-health-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; }
+.scheduler-health-list li { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; }
+.scheduler-health-name { font-weight: 600; }
+.scheduler-health-text { color: var(--text-muted); font-size: 0.78rem; }
 
 /* ── Historial table ── */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }

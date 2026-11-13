@@ -199,8 +199,8 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
     expect(document.querySelectorAll('.health-dot[data-scope="global"]')).toHaveLength(1);
     fireEvent.click(toggle);
     const list = screen.getByRole("list", { name: "Sincronización por canal" });
-    expect(within(list).getByText("Sincronizado: hace 3 h")).toBeTruthy();
-    expect(within(list).getByText("Sincronización atrasada: hace 30 h")).toBeTruthy();
+    expect(within(list).getByText("Al día · hace 3 h")).toBeTruthy();
+    expect(within(list).getByText("Atrasada · hace 30 h")).toBeTruthy();
   });
 
   // Cambio deliberado (UX-09): Cobros ya existe y aparece en Cartera; Identidad sigue fuera (UX-11).

@@ -2,12 +2,15 @@ import type { ChangeEvent } from "react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { getJson, postJson, postForm, friendlyError } from "../../api";
 import { invalidateCache } from "../../apiCache";
+import { CHANNEL_NAME, CHANNEL_ORDER, ageText, channelText, entryState } from "../../components/healthLabels";
+import { useChannelHealth } from "../../hooks/useChannelHealth";
 import { label } from "../../i18n/label";
 import { CHANNEL_UNAVAILABLE_TITLE, useEnabledChannels } from "../shared/environment";
 import type { EtlRun, SchedulerJob, SseEvent } from "../shared/types";
-import { API_CHANNELS, phaseText, failedChannelsLabel, runTypeLabel } from "./schedulerLabels";
+import { API_CHANNELS, phaseText, failedChannelsLabel, fmtDuration, jobBadge, runTypeLabel } from "./schedulerLabels";
 import { RunResourceStats } from "./RunResourceStats";
 import { SseLogEntry } from "./SseLogEntry";
+import { BatchBusyError, SYNC_JOB_ID, isManualJob, manualJobsInOrder, runJobsSequentially, type BatchStep } from "./jobBatch";
 
 type ChannelKey = "all" | "virtualpos" | "toku" | "payku" | "tch";
 type VpSubKey = "both" | "vp1" | "vp2";
@@ -77,8 +80,27 @@ export function isTerminalSseEvent(ev: { type: string; phase?: string | null }):
   return ev.type === "completed" || (ev.type === "error" && ev.phase === "fatal");
 }
 
-export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync: boolean; canViewRuns: boolean; canImportTch: boolean }) {
+const STEP_BADGE: Record<BatchStep["state"], string> = {
+  queued: "badge-gray", running: "badge-blue", completed: "badge-green", partial: "badge-orange", failed: "badge-red", skipped: "badge-gray",
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export function SchedulerPanel({ canSync, canViewRuns, canImportTch, batchPollMs = 3000 }: { canSync: boolean; canViewRuns: boolean; canImportTch: boolean; batchPollMs?: number }) {
   const { enabled } = useEnabledChannels();
+  const health = useChannelHealth(canViewRuns);
+  const [batchSteps, setBatchSteps] = useState<BatchStep[] | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  // 13D: confirmación inline (mismo patrón que «Sync completo», QA-02): "all" = todos los procesos, o el id del job.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const unmountedRef = useRef(false);
+  // Reloj del panel para «hace X» y la duración en vivo de cada paso (cada 1 s mientras corre una ejecución).
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), batchRunning ? 1000 : 30000);
+    return () => clearInterval(timer);
+  }, [batchRunning]);
+  useEffect(() => { unmountedRef.current = false; return () => { unmountedRef.current = true; }; }, []);
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [runs, setRuns] = useState<{ total: number; items: EtlRun[] }>({ total: 0, items: [] });
   const [runsOffset, setRunsOffset] = useState(0);
@@ -165,26 +187,70 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     };
   }, [activeRunId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function triggerSync() {
+  /** Canales que pide la sincronización según el selector (null = todos los habilitados). */
+  function selectedSyncChannels(): string[] | null {
     const opt = CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)!;
     const vpOpts = vpSubOptions(enabled);
     const vpChosen = vpOpts.find((o) => o.key === vpSubKey) ?? vpOpts[0];
     const selected = selectedChannelKey === "virtualpos" ? (vpChosen?.channels ?? []) : opt.channels;
-    const channels = syncPayloadChannels(selected, enabled);
-    if (channels !== null && channels.length === 0) {
-      setTriggerError("No hay canales habilitados para sincronizar en este ambiente.");
-      return;
+    return syncPayloadChannels(selected, enabled);
+  }
+
+  /** Lanza un job; la sincronización de canales además abre el progreso en vivo por fase. */
+  async function triggerJob(job: SchedulerJob): Promise<string> {
+    const isSync = job.id === SYNC_JOB_ID;
+    const channels = isSync ? selectedSyncChannels() : undefined;
+    if (isSync && channels && channels.length === 0) {
+      throw new Error("No hay canales habilitados para sincronizar en este ambiente.");
     }
-    setTriggeredChannels(channels);
-    setTriggering(true);
-    setTriggerError(null);
     try {
-      const r = await postJson<{ run_id: string }>("/api/v1/scheduler/jobs/sync_all_channels/run", { channels });
-      setActiveRunId(r.run_id);
-      setTimeout(refreshData, 600);
+      const r = await postJson<{ run_id: string }>(`/api/v1/scheduler/jobs/${job.id}/run`, isSync ? { channels } : {});
+      if (isSync) { setTriggeredChannels(channels); setActiveRunId(r.run_id); }
+      return r.run_id;
     } catch (err) {
-      setTriggerError(friendlyError(err, "No se pudo iniciar la sincronización."));
-    } finally { setTriggering(false); }
+      if ((err as { status?: number } | null)?.status === 409) {
+        // Ya hay una corrida activa: el paso queda «Omitida» y se muestra el texto del catálogo.
+        setTriggerError(friendlyError(err, "Ya hay una sincronización en curso. Espera a que termine."));
+        throw new BatchBusyError("busy");
+      }
+      throw new Error(friendlyError(err, "No se pudo iniciar el proceso."));
+    }
+  }
+
+  /** Espera a que el job deje de estar en curso (lee /scheduler/jobs) y devuelve el estado de su última corrida. */
+  async function waitJobDone(job: SchedulerJob, runId: string): Promise<string> {
+    for (;;) {
+      await sleep(batchPollMs);
+      if (unmountedRef.current) return "failed";
+      let data: SchedulerJob[];
+      try { data = await getJson<SchedulerJob[]>("/api/v1/scheduler/jobs"); } catch { continue; }
+      setJobs(data);
+      const current = data.find((j) => j.id === job.id);
+      if (!current) return "failed";
+      if (current.status === "running" && (!current.active_run_id || current.active_run_id === runId)) continue;
+      return current.last_run?.status ?? "completed";
+    }
+  }
+
+  /** 13D: corre los procesos uno tras otro (respeta el lock: nunca dos a la vez) y muestra el avance de cada uno. */
+  async function runBatch(list: SchedulerJob[]) {
+    setConfirming(null);
+    setTriggerError(null);
+    setBatchRunning(true);
+    try {
+      await runJobsSequentially(list, {
+        trigger: triggerJob,
+        waitDone: waitJobDone,
+        onUpdate: (steps) => { if (!unmountedRef.current) setBatchSteps(steps); },
+        cancelled: () => unmountedRef.current,
+      });
+    } finally {
+      if (!unmountedRef.current) {
+        setBatchRunning(false);
+        invalidateCache();
+        refreshData();
+      }
+    }
   }
 
   async function importTchReport(event: ChangeEvent<HTMLInputElement>) {
@@ -258,13 +324,6 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     const min = d.getMinutes().toString().padStart(2, "0");
     return `${dd}/${mm} ${hh}:${min}`;
   }
-  function fmtDuration(start: string | null, end: string | null): string {
-    if (!start || !end) return "—";
-    const s = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000);
-    if (s < 60) return `${s}s`;
-    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
-    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-  }
   function statusBadge(st: string) {
     // `partial`: corrida con errores parciales (p. ej. billing_renewal_check). Advertencia, no error ni éxito.
     const cls = st === "completed" ? "badge-green" : st === "failed" ? "badge-red" : st === "running" ? "badge-blue" : st === "partial" ? "badge-orange" : "badge-gray";
@@ -290,7 +349,29 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
     if (!channelAvailable(selectedChannelKey)) setSelectedChannelKey("all");
   }, [enabled, selectedChannelKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const isRunning = jobs.some((j) => j.status === "running");
+  const busy = isRunning || triggering || batchRunning;
   const hasMore = runs.items.length < runs.total;
+  const manualJobs = manualJobsInOrder(jobs);
+  const automaticCount = jobs.length - manualJobs.length;
+  const channelLabel = selectedChannelKey === "all" ? "todos los canales habilitados" : CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)?.label ?? "";
+  const healthEntries = CHANNEL_ORDER.map((channel) => health[channel]).filter((entry) => entry !== undefined);
+
+  function confirmBox(id: string, list: SchedulerJob[]) {
+    if (confirming !== id || busy) return null;
+    const includesSync = list.some((j) => j.id === SYNC_JOB_ID);
+    return (
+      <div role="alertdialog" aria-label={id === "all" ? "Confirmar ejecutar todos los procesos" : `Confirmar ${list[0]?.name ?? "proceso"}`} className="environment-confirm scheduler-confirm">
+        <p>
+          {id === "all" ? <>Se van a ejecutar <strong className="mono">{list.length}</strong> procesos, uno tras otro (nunca dos a la vez):</> : <>Se va a ejecutar <strong>{list[0]?.name}</strong>.</>}
+        </p>
+        {id === "all" ? <ol className="scheduler-confirm-list">{list.map((j) => <li key={j.id}>{j.name}</li>)}</ol> : null}
+        {includesSync ? <p>La sincronización lee las APIs de {channelLabel} y luego consolida la base unificada; puede tardar varios minutos. TCH no se lee: entra por su Excel.</p> : null}
+        {id === "all" && automaticCount > 0 ? <p className="muted-copy">{automaticCount === 1 ? "1 proceso solo corre por calendario y no se incluye." : `${automaticCount} procesos solo corren por calendario y no se incluyen.`}</p> : null}
+        <button type="button" className="primary-button" onClick={() => void runBatch(list)}>{id === "all" ? `Sí, ejecutar ${list.length} procesos` : "Sí, ejecutar"}</button>
+        <button type="button" className="secondary-button" onClick={() => setConfirming(null)}>Cancelar</button>
+      </div>
+    );
+  }
 
   return (
     <section className="panel scheduler-panel">
@@ -314,48 +395,104 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch }: { canSync
           {unavailableNote ? <p className="channel-unavailable-note">{unavailableNote}</p> : null}
         </div>
       ) : null}
-      <h3 className="scheduler-section-title">Jobs programados</h3>
+      {healthEntries.length > 0 ? (
+        <section className="scheduler-health" aria-label="Estado de sincronización por canal">
+          <ul className="scheduler-health-list">
+            {healthEntries.map((entry) => (
+              <li key={entry.channel} data-state={entryState(entry)}>
+                <span className={`health-dot ${entry.level}`} data-level={entry.level} aria-hidden="true" />
+                <span className="scheduler-health-name">{CHANNEL_NAME[entry.channel]}</span>
+                <span className="scheduler-health-text mono">{channelText(entry)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <div className="scheduler-section-header scheduler-processes-header">
+        <h3 className="scheduler-section-title">Procesos programados</h3>
+        {canSync && manualJobs.length > 0 ? (
+          <button type="button" className="primary-button sjc-run-all" disabled={busy} aria-expanded={confirming === "all"} onClick={() => setConfirming("all")}>
+            {batchRunning ? "Ejecutando procesos…" : `Ejecutar todos (${manualJobs.length})`}
+          </button>
+        ) : null}
+      </div>
+      {confirmBox("all", manualJobs)}
       {triggerError ? <p className="scheduler-error">{triggerError}</p> : null}
+      {batchSteps ? (
+        <section className="scheduler-batch" aria-label="Avance de la ejecución">
+          <div className="scheduler-batch-head">
+            <strong>{batchRunning ? "Ejecutando procesos" : "Última ejecución manual"}</strong>
+            <span className="muted-copy mono">{batchSteps.filter((st) => st.state !== "queued" && st.state !== "running").length}/{batchSteps.length}</span>
+            {!batchRunning ? <button type="button" className="text-button" onClick={() => setBatchSteps(null)}>Ocultar</button> : null}
+          </div>
+          <ol className="scheduler-batch-list">
+            {batchSteps.map((st) => (
+              <li key={st.jobId} data-state={st.state}>
+                <span className={`badge ${STEP_BADGE[st.state]}`}>{label("runStatus", st.state)}</span>
+                <span className="scheduler-batch-name">{st.name}</span>
+                <span className="mono scheduler-batch-dur">{st.startedAt ? fmtDuration(st.startedAt, st.finishedAt ?? nowMs) : "—"}</span>
+                {st.note ? <span className="scheduler-batch-note">{st.note}</span> : null}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
       {jobs.length === 0 && jobsError ? (
         <p className="muted-copy">No se pudieron cargar los jobs. <button className="text-button" onClick={refreshData}>Reintentar</button></p>
       ) : jobs.length === 0 ? (
         <p className="muted-copy">
           No hay jobs programados. Puede que el scheduler esté apagado en este ambiente: revise su configuración{canSync ? " o use el selector de Canal para sincronizar manualmente" : ""}.
         </p>
-      ) : jobs.map((job) => (
-        <div key={job.id} className="scheduler-job-card">
-          <div className="sjc-top">
-            <span className="sjc-name">{job.name}</span>
-            <div className="sjc-top-right">
-              {statusBadge(job.status)}
-              {job.status === "running" && globalPct !== null ? <span className="sjc-live-pct">{globalPct}%</span> : null}
+      ) : jobs.map((job) => {
+        const badge = jobBadge(job);
+        const manual = isManualJob(job);
+        const isSync = job.id === SYNC_JOB_ID;
+        const last = job.last_run;
+        const lastAge = last?.finished_at ? ageText((nowMs - new Date(last.finished_at).getTime()) / 3_600_000) : null;
+        return (
+          <div key={job.id} className="scheduler-job-card" data-job={job.id}>
+            <div className="sjc-top">
+              <div className="sjc-title">
+                <span className="sjc-name">{job.name}</span>
+                <span className="sjc-kind">{job.kind === "sync" || isSync ? "Sincronización" : "Mantenimiento"}</span>
+              </div>
+              <div className="sjc-top-right">
+                <span className={`badge ${badge.cls}`}>{badge.text}</span>
+                {job.status === "running" && isSync && globalPct !== null ? <span className="sjc-live-pct">{globalPct}%</span> : null}
+              </div>
             </div>
-          </div>
-          <div className="sjc-meta">
-            <span className="sjc-schedule">{cronLabel(job.cron)}</span>
-            <span className="sjc-next">Próx: {fmtDate(job.next_run)}</span>
-            {job.last_run ? <span className="sjc-last">Último: {fmtDate(job.last_run.started_at)}</span> : null}
-          </div>
-          {job.status === "running" && globalPct !== null ? (
-            <div className="sjc-progress-wrap"><div className="sjc-progress-fill" style={{ width: `${globalPct}%` }} /></div>
-          ) : null}
-          <div className="sjc-actions">
-            {selectedChannelKey === "tch" && canImportTch && !isRunning ? (
-              <>
-                <input ref={reportInputRef} type="file" accept=".xlsx" hidden onChange={importTchReport} />
-                <button className="save-button sjc-btn" disabled={triggering} onClick={() => reportInputRef.current?.click()}>{triggering ? "Importando…" : "Importar reporte"}</button>
-              </>
-            ) : canSync && !isRunning ? (
-              <button className="save-button sjc-btn" disabled={triggering} onClick={triggerSync}>
-                {triggering ? "Iniciando…" : selectedChannelKey === "all" ? "Sincronizar todos" : `Sincronizar ${CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)?.label}`}
-              </button>
+            <div className="sjc-meta">
+              <span className="sjc-schedule">{cronLabel(job.cron)}</span>
+              <span className="sjc-next">Próx: <span className="mono">{fmtDate(job.next_run)}</span></span>
+              {last ? (
+                <>
+                  <span className="sjc-last">Última: <span className="mono">{fmtDate(last.started_at)}</span>{lastAge ? ` (${lastAge})` : ""}</span>
+                  <span className="sjc-dur">Duración: <span className="mono">{fmtDuration(last.started_at, last.finished_at)}</span></span>
+                </>
+              ) : <span className="sjc-last">Sin corridas registradas</span>}
+            </div>
+            {job.status === "running" && isSync && globalPct !== null ? (
+              <div className="sjc-progress-wrap"><div className="sjc-progress-fill" style={{ width: `${globalPct}%` }} /></div>
             ) : null}
-            {job.status === "running" && job.active_run_id ? (
-              <button className="save-button sjc-btn sjc-btn-live" onClick={() => { setActiveRunId(job.active_run_id!); setTriggeredChannels(undefined); }}>Ver progreso en vivo</button>
-            ) : null}
+            <div className="sjc-actions">
+              {isSync && selectedChannelKey === "tch" && canImportTch && !busy ? (
+                <>
+                  <input ref={reportInputRef} type="file" accept=".xlsx" hidden onChange={importTchReport} />
+                  <button className="save-button sjc-btn" disabled={triggering} onClick={() => reportInputRef.current?.click()}>{triggering ? "Importando…" : "Importar reporte"}</button>
+                </>
+              ) : canSync && manual ? (
+                <button className="save-button sjc-btn" disabled={busy} aria-expanded={confirming === job.id} onClick={() => setConfirming(job.id)}>
+                  {isSync ? (selectedChannelKey === "all" ? "Sincronizar todos los canales" : `Sincronizar ${CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)?.label}`) : "Ejecutar"}
+                </button>
+              ) : !manual ? <span className="sjc-auto-note">Solo automático: corre según su calendario.</span> : null}
+              {job.status === "running" && isSync && job.active_run_id ? (
+                <button className="save-button sjc-btn sjc-btn-live" onClick={() => { setActiveRunId(job.active_run_id!); setTriggeredChannels(undefined); }}>Ver progreso en vivo</button>
+              ) : null}
+            </div>
+            {confirmBox(job.id, [job])}
           </div>
-        </div>
-      ))}
+        );
+      })}
       {activeRunId ? (
         <div className="sse-panel">
           <div className="sse-header">
