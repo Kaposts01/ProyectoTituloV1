@@ -100,6 +100,8 @@ def build_rows() -> dict[str, list[dict[str, Any]]]:
 
 
 def _models() -> dict[str, Any]:
+    import app.models.core  # registra las tablas destino de las FK
+    import app.models.source_record  # noqa: F401
     from app.models.crm import Charge, Payment, Subscription
 
     return {"subscriptions": Subscription, "charges": Charge, "payments": Payment}
