@@ -29,8 +29,9 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import join as orm_join
 
-from app.models.core import CoreCharge, CoreClientAttribute, CoreSubscription
+from app.models.core import CoreCharge, CoreClientAttribute, CorePayment, CoreSubscription
 from app.models.crm import Charge as CCharge
 from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment
@@ -301,25 +302,52 @@ def _blank_to_null(expr: Any) -> Any:
     return func.nullif(func.trim(expr), "")
 
 
-def _core_subscription_name() -> Any:
-    """Nombre del cliente centralizado vinculado a la suscripcion (`core_subscriptions.client_id`), observado en la
-    MISMA fuente que la suscripcion (sin jerarquia entre proveedores, ADR-001). El vinculo lo fijo el ETL con sus reglas
-    (identidad externa o RUT unico dentro de la plataforma, REV-01); aqui solo se lee, no se infiere identidad."""
+def _core_name_select(from_: Any, core_sub: Any) -> Any:
+    """Ultimo nombre observado del cliente centralizado de `core_sub`, en la misma fuente que la suscripcion."""
     attr = CoreClientAttribute
     return (
         select(attr.attribute_value)
-        .select_from(CoreSubscription)
-        .join(attr, and_(attr.client_id == CoreSubscription.client_id, attr.source == CoreSubscription.source,
-                         attr.attribute_type == "name"))
-        .where(CoreSubscription.source == CSub.source, CoreSubscription.external_id == CSub.external_id)
+        .select_from(from_)
+        .join(attr, and_(attr.client_id == core_sub.client_id, attr.source == core_sub.source, attr.attribute_type == "name"))
         .order_by(attr.observed_at.desc().nullslast(), attr.created_at.desc(), attr.attribute_value)
         .limit(1)
-        .correlate(CSub)
+    )
+
+
+def _core_subscription_name(sub: Any = CSub) -> Any:
+    """Nombre del cliente centralizado vinculado a la suscripcion (`core_subscriptions.client_id`), observado en la
+    MISMA fuente que la suscripcion (sin jerarquia entre proveedores, ADR-001). El vinculo lo fijo el ETL con sus reglas
+    (identidad externa o RUT unico dentro de la plataforma, REV-01); aqui solo se lee, no se infiere identidad."""
+    core = aliased(CoreSubscription)
+    return (
+        _core_name_select(core, core)
+        .where(core.source == sub.source, core.external_id == sub.external_id)
+        .correlate(sub)
         .scalar_subquery()
     )
 
 
-def _subs_client_name(client: Any, embedded: bool) -> Any:
+def _core_payment_name() -> Any:
+    """Pagos (13C): nombre del cliente centralizado de la suscripcion vinculada al pago en `core_payments`, observado en
+    la misma fuente. Solo lee el vinculo que fijo el ETL; nunca cruza por RUT (ADR-001)."""
+    core = aliased(CoreSubscription)
+    return (
+        _core_name_select(orm_join(CorePayment, core, core.id == CorePayment.subscription_id), core)
+        .where(CorePayment.source == CPayment.source, CorePayment.external_id == CPayment.external_id,
+               core.source == CPayment.source)
+        .correlate(CPayment)
+        .scalar_subquery()
+    )
+
+
+def _embedded_name(payload: Any) -> Any:
+    """Nombre del cliente embebido en un payload de VirtualPOS (`raw_payload.client`), o NULL si viene vacio."""
+    raw_client = payload["client"]
+    return _blank_to_null(func.concat_ws(
+        " ", raw_client["first_name"].astext, raw_client["last_name"].astext, raw_client["name"].astext))
+
+
+def _subs_client_name(client: Any, embedded: bool, sub: Any = CSub) -> Any:
     """Nombre del socio de una suscripcion `crm`, en orden (13C):
 
     1. Cliente del mismo canal enlazado por `client_external_id` (vinculo explicito del proveedor).
@@ -332,10 +360,8 @@ def _subs_client_name(client: Any, embedded: bool) -> Any:
     """
     parts = [_blank_to_null(_name(client.first_name, client.last_name))]
     if embedded:
-        raw_client = CSub.raw_payload["client"]
-        parts.append(_blank_to_null(func.concat_ws(
-            " ", raw_client["first_name"].astext, raw_client["last_name"].astext, raw_client["name"].astext)))
-    parts.append(_core_subscription_name())
+        parts.append(_embedded_name(sub.raw_payload))
+    parts.append(_core_subscription_name(sub))
     return func.coalesce(*parts)
 
 
@@ -446,7 +472,10 @@ def _charges_post(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, embedded: bool = False) -> Any:
+    """Cobros de las tablas `crm` (VirtualPOS, Toku). Con `embedded` (VirtualPOS, 13C) el nombre sigue el mismo orden
+    de respaldo que la cartera de suscripciones: cliente enlazado por ID > cliente embebido en el payload del cargo o
+    de su suscripcion > cliente centralizado vinculado a la suscripcion (misma fuente). Nunca por RUT (ADR-001)."""
     core = aliased(CoreCharge)
     # PAT de VirtualPOS (fuente de verdad de la glosa, D4/D5): solo filas con la cuenta resuelta (D6) y rechazadas.
     rpt = aliased(VpReportPayment)
@@ -460,9 +489,13 @@ def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> A
     ]
     if pii:
         sub, cli = aliased(CSub), aliased(CClient)
+        if embedded:
+            name = func.coalesce(_blank_to_null(_name(cli.first_name, cli.last_name)), _embedded_name(CCharge.raw_payload),
+                                 _embedded_name(sub.raw_payload), _core_subscription_name(sub))
+        else:
+            name = _name(cli.first_name, cli.last_name)
         stmt = (
-            select(*cols, func.coalesce(cli.social_id, sub.client_social_id).label("rut"),
-                   _name(cli.first_name, cli.last_name).label("name"))
+            select(*cols, func.coalesce(cli.social_id, sub.client_social_id).label("rut"), name.label("name"))
             .select_from(CCharge)
             .outerjoin(sub, and_(sub.source == CCharge.source, sub.external_id == CCharge.subscription_external_id))
             .outerjoin(cli, and_(cli.source == CCharge.source,
@@ -558,7 +591,10 @@ def _charges_payku_cycles(_sources: tuple[str, ...], f: ExportFilters, pii: bool
 # ----------------------------------------------------------------------------- pagos
 
 
-def _payments_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
+def _payments_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, embedded: bool = False) -> Any:
+    """Pagos de las tablas `crm`. Con `embedded` (VirtualPOS, 13C): cliente enlazado por ID > cliente embebido en el
+    payload del pago (VirtualPOS lo trae ahi, sin ID de cliente ni de cargo) > cliente centralizado de la suscripcion
+    vinculada al pago (misma fuente). Nunca por RUT (ADR-001)."""
     cols = [
         CPayment.source.label("channel"), CPayment.external_id.label("payment_id"), CPayment.charge_external_id.label("charge_id"),
         CPayment.status.label("status"), CPayment.payment_date.label("payment_date"), CPayment.amount.label("amount"),
@@ -567,8 +603,13 @@ def _payments_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool) -> 
     if pii:
         cli = aliased(CClient)
         rut = func.coalesce(cli.social_id, CPayment.raw_payload["client"]["social_id"].astext)
+        if embedded:
+            name = func.coalesce(_blank_to_null(_name(cli.first_name, cli.last_name)), _embedded_name(CPayment.raw_payload),
+                                 _core_payment_name())
+        else:
+            name = _name(cli.first_name, cli.last_name)
         stmt = (
-            select(*cols, rut.label("rut"), _name(cli.first_name, cli.last_name).label("name"))
+            select(*cols, rut.label("rut"), name.label("name"))
             .select_from(CPayment)
             .outerjoin(cli, and_(cli.source == CPayment.source, cli.external_id == CPayment.client_external_id))
         )
@@ -606,14 +647,14 @@ ENTITY_SPECS: dict[str, tuple[ChannelSpec, ...]] = {
         ChannelSpec("tch", "tch.suscripciones.view", ("tch",), _subs_tch, _subs_post),
     ),
     "cobros": (
-        ChannelSpec("virtualpos", "virtualpos.charges.view", ("virtualpos1", "virtualpos2"), _charges_cclient,
+        ChannelSpec("virtualpos", "virtualpos.charges.view", ("virtualpos1", "virtualpos2"), _vp(_charges_cclient, True),
                     _charges_post),
         ChannelSpec("toku", "toku.invoices.view", ("toku",), _charges_cclient, _charges_post),
         ChannelSpec("payku", "payku.transactions.view", ("payku",), _charges_payku_cycles, _charges_post),
         ChannelSpec("tch", "tch.transacciones.view", ("tch",), _charges_tch, _charges_post),
     ),
     "pagos": (
-        ChannelSpec("virtualpos", "virtualpos.payments.view", ("virtualpos1", "virtualpos2"), _payments_cclient),
+        ChannelSpec("virtualpos", "virtualpos.payments.view", ("virtualpos1", "virtualpos2"), _vp(_payments_cclient, True)),
         ChannelSpec("toku", "toku.transactions.view", ("toku",), _payments_cclient),
         ChannelSpec("payku", "payku.transactions.view", ("payku",), _payments_cclient),
     ),
