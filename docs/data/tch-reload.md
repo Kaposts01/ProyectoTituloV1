@@ -78,6 +78,13 @@ Bajas sin fecha: el reporte solo trae «Fecha Eliminado» (ya cargada en `fecha_
 (fichas que desaparecen del ultimo reporte) no tienen fecha en ninguna columna del IG; seguiran contando en
 `bajas_sin_fecha` salvo que se decida otra regla (p. ej. el periodo del primer reporte donde la ficha ya no aparece).
 
+### TCH-PAR-21: `fecha_entrega_banco` no se actualizaba
+
+El upsert de `tch_suscripciones` no incluia `fecha_entrega_banco`: una ficha conservaba la entrega al banco de su
+primera carga (o NULL) aunque reportes posteriores la trajeran o corrigieran. Corregido en esta rama (prueba
+`tests/test_tch_par21.py`). Como es el tercer respaldo de la fecha de alta, la misma recarga de la ventana OPS-11
+(ficha d209) la deja al dia.
+
 ## Mientras no se recargue
 
 Una carga incremental (`--mode incremental` o la importacion de la pantalla de administracion) se rechaza si la base
