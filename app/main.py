@@ -57,8 +57,9 @@ def _cleanup_zombie_runs() -> None:
     from app.db.session import SessionLocal
     from app.models.etl_run import EtlRun
     from app.models.sync_run import SyncRun
+    from app.scheduler.run_lock import RESTART_MESSAGE
 
-    mensaje = "Servidor reiniciado durante la sincronización."
+    mensaje = RESTART_MESSAGE
     finished_at = datetime.now(timezone.utc)
 
     db = SessionLocal()

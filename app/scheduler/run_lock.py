@@ -29,6 +29,11 @@ from app.models.etl_run import EtlRun
 logger = logging.getLogger(__name__)
 
 ABANDONED_MESSAGE = "Corrida abandonada: sin finalizar tras el limite de horas (proceso caido)."
+# Texto con que el arranque del servidor cierra las corridas que quedaron `running` (app.main._cleanup_zombie_runs).
+RESTART_MESSAGE = "Servidor reiniciado durante la sincronización."
+# 13B: corridas cerradas como `failed` por el propio CRM (reinicio o abandono), no por un fallo del proveedor. La salud
+# de sincronizacion no las cuenta como «falló»: el canal queda «atrasado» segun su ultimo exito.
+INTERRUPTED_MESSAGES = (RESTART_MESSAGE, ABANDONED_MESSAGE)
 
 
 def _lock_key() -> int:

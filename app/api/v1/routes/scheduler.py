@@ -19,8 +19,7 @@ from app.core.security import get_current_user, get_db, require_permissions
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
-from app.scheduler.engine import JOB_SYNC_ALL, get_scheduler
-from app.scheduler.jobs.alert_jobs import JOB_ALERTS
+from app.scheduler.engine import JOB_SYNC_ALL, JOB_SYNC_RETRY, get_scheduler
 from app.scheduler.jobs.billing_jobs import (
     BILLING_JOB_IDS,
     JOB_BILLING_EXPIRE,
@@ -45,6 +44,13 @@ _VALID_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch
 
 class TriggerBody(BaseModel):
     channels: list[str] | None = None
+
+
+# 13D: jobs que corren una sincronizacion global (`etl_runs`); su ultima corrida es la del orquestador.
+_ETL_JOB_IDS = frozenset({JOB_SYNC_ALL, JOB_SYNC_RETRY, "sync_tier_hot", "sync_tier_cold"})
+# 13D: jobs que admite POST /jobs/{id}/run. El resto (webhooks, alertas, paridad, consistencia, reintento y niveles)
+# solo corre por calendario; la UI lo dice en vez de mostrar un boton que lanzaria otra cosa.
+_MANUAL_JOB_IDS = frozenset({JOB_SYNC_ALL, *BILLING_JOB_IDS, *CANCELLATION_JOB_IDS})
 
 
 # Una fila `running` mas vieja que esto se considera abandonada (proceso caido): no bloquea para siempre el 409.
@@ -96,6 +102,8 @@ def _billing_job_json(db: Session, job) -> dict:
         } if last else None,
         "status": "running" if running else "scheduled",
         "active_run_id": str(last.id) if running else None,
+        "manual_run": job.id in _MANUAL_JOB_IDS,
+        "kind": "maintenance",
     }
 
 
@@ -108,7 +116,10 @@ def list_jobs(
     sched = get_scheduler()
     result = []
     for job in sched.get_jobs():
-        if job.id in BILLING_JOB_IDS or job.id in CANCELLATION_JOB_IDS or job.id == JOB_ALERTS:  # alertas: sin filas en sync_runs (last_run = null)
+        # 13D: solo los jobs de sincronizacion global muestran la corrida del orquestador. Antes cualquier otro job
+        # (webhooks, paridad, consistencia…) mostraba esa misma corrida y su estado «En curso»; ahora cada uno lee sus
+        # propias filas de `sync_runs` (source = id del job) y, si no tiene, queda sin ultima corrida.
+        if job.id not in _ETL_JOB_IDS:
             result.append(_billing_job_json(db, job))
             continue
         # Último EtlRun completado o fallido para este job
@@ -135,6 +146,8 @@ def list_jobs(
             "last_run": _serialize_run(last_run) if last_run else None,
             "status": job_status,
             "active_run_id": str(active_run.id) if active_run else None,
+            "manual_run": job.id in _MANUAL_JOB_IDS,
+            "kind": "sync",
         })
     return result
 

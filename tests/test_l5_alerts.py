@@ -243,6 +243,22 @@ def test_qa15_heartbeat_flags_a_channel_whose_last_run_failed_after_succeeding(d
     assert "sync_failing" not in body["problems"] and body["sync"]["failing_channels"] == []
 
 
+def test_13b_heartbeat_ignores_a_run_closed_by_server_restart(db_session, monkeypatch):
+    """13B: el cierre `failed` por reinicio no es un fallo del canal: el latido no marca `sync_failing`."""
+    from datetime import UTC, datetime
+
+    from app.scheduler.run_lock import RESTART_MESSAGE
+
+    now = datetime.now(UTC)
+    ok_at, cut = now - timedelta(hours=5), now - timedelta(hours=1)
+    db_session.add(SyncRun(source="toku", status="completed", started_at=ok_at, finished_at=ok_at))
+    db_session.add(SyncRun(source="toku", status="failed", started_at=cut, finished_at=cut, error_message=RESTART_MESSAGE))
+    db_session.flush()
+    monkeypatch.setattr(health_routes, "_scheduler_expected", lambda: False)
+    body = _heartbeat(db_session, monkeypatch).json()
+    assert "sync_failing" not in body["problems"] and body["sync"]["failing_channels"] == []
+
+
 def test_heartbeat_returns_503_without_database(monkeypatch):
     class Broken:
         def execute(self, *a, **k):

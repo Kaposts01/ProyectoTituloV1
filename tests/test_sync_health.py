@@ -50,11 +50,15 @@ def _by_channel(db):
     return {item["channel"]: item for item in sync_runs._compute_health(db, NOW)}
 
 
-@pytest.mark.parametrize("hours,level", [(1, "ok"), (23.9, "ok"), (24, "warn"), (71, "warn"), (72, "error"), (200, "error")])
-def test_level_by_age(db_session, hours, level) -> None:
+@pytest.mark.parametrize("hours,level,state", [
+    (1, "ok", "ok"), (23.9, "ok", "ok"), (24, "warn", "stale"), (71, "warn", "stale"),
+    (72, "warn", "stale"), (200, "warn", "stale"),  # 13B: la antiguedad sola nunca es «error»
+])
+def test_level_by_age(db_session, hours, level, state) -> None:
     _run(db_session, "toku", "completed", hours)
     item = _by_channel(db_session)["toku"]
     assert item["level"] == level
+    assert item["state"] == state
     assert item["age_hours"] == round(hours, 1)
     assert item["last_finished_at"] is not None
 
@@ -65,7 +69,7 @@ def test_no_runs_is_unknown(db_session) -> None:
     for item in items.values():
         assert item == {
             "channel": item["channel"], "level": "unknown", "last_finished_at": None, "age_hours": None,
-            "status": "unknown", "consecutive_failures": 0, "days_without_success": None,
+            "status": "unknown", "consecutive_failures": 0, "days_without_success": None, "state": "unknown",
         }
 
 
@@ -157,7 +161,7 @@ def test_endpoint_does_not_leak_error_message_and_is_cached(db_session) -> None:
         first = client.get("/api/v1/sync-runs/health")
         assert first.status_code == 200
         assert "SECRET-DETAIL" not in first.text and "error_message" not in first.text
-        assert all(set(i) == {"channel", "level", "last_finished_at", "age_hours", "status", "consecutive_failures", "days_without_success"} for i in first.json())
+        assert all(set(i) == {"channel", "level", "last_finished_at", "age_hours", "status", "consecutive_failures", "days_without_success", "state"} for i in first.json())
         assert {i["channel"]: i["level"] for i in first.json()}["toku"] == "error"
 
         db_session.execute(delete(SyncRun))
@@ -232,3 +236,55 @@ def test_partial_etl_run_counts_as_success_for_tch(db_session) -> None:
     item = _by_channel(db_session)["tch"]
     assert item["status"] == "ok"
     assert item["level"] == "ok"
+
+
+# --- 13B: «al dia», «atrasada», «fallo» y «en curso» -------------------------------------------------------------
+
+
+def test_13b_four_days_without_runs_is_stale_not_error(db_session) -> None:
+    """Backend apagado 4 dias: ninguna corrida fallo, todos los canales quedan «atrasados» (antes «error»)."""
+    for source in ("virtualpos1", "virtualpos2", "toku", "payku"):
+        _run(db_session, source, "completed", 96)
+    started = NOW - timedelta(hours=96)
+    db_session.add(EtlRun(status="completed", channels_processed=["tch"], started_at=started, finished_at=started))
+    db_session.flush()
+    for item in _by_channel(db_session).values():
+        assert (item["level"], item["state"], item["age_hours"]) == ("warn", "stale", 96.0), item["channel"]
+        assert item["days_without_success"] == 4
+
+
+def test_13b_last_run_failed_is_failed(db_session) -> None:
+    _run(db_session, "toku", "completed", 30)
+    _run(db_session, "toku", "failed", 2)
+    item = _by_channel(db_session)["toku"]
+    assert (item["level"], item["state"]) == ("error", "failed")
+
+
+def test_13b_run_closed_by_server_restart_is_not_a_failure(db_session) -> None:
+    """El arranque cierra como `failed` lo que quedo `running`; eso no es un fallo del canal."""
+    from app.scheduler.run_lock import RESTART_MESSAGE
+
+    _run(db_session, "payku", "completed", 96)
+    _run(db_session, "payku", "failed", 95, error=RESTART_MESSAGE)
+    item = _by_channel(db_session)["payku"]
+    assert (item["level"], item["state"], item["consecutive_failures"]) == ("warn", "stale", 0)
+    _run(db_session, "payku", "failed", 1, error="timeout del proveedor")
+    assert _by_channel(db_session)["payku"]["state"] == "failed"
+
+
+def test_13b_recent_running_is_running_and_hung_is_failed(db_session) -> None:
+    _run(db_session, "toku", "completed", 30)
+    _run(db_session, "toku", "running", 0.2, finished=False)
+    _run(db_session, "payku", "completed", 2)
+    _run(db_session, "payku", "running", 100, finished=False)
+    items = _by_channel(db_session)
+    assert items["toku"]["state"] == "running"
+    assert items["payku"]["state"] == "failed"
+
+
+def test_13b_virtualpos_running_account_wins_and_never_ran_is_unknown(db_session) -> None:
+    _run(db_session, "virtualpos1", "completed", 1)
+    _run(db_session, "virtualpos2", "running", 0.1, finished=False)
+    items = _by_channel(db_session)
+    assert items["virtualpos"]["state"] == "running"
+    assert items["toku"]["state"] == "unknown"

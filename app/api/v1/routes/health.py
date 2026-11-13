@@ -24,6 +24,7 @@ from app.db.session import SessionLocal
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import engine
+from app.scheduler.run_lock import INTERRUPTED_MESSAGES
 
 router = APIRouter()
 
@@ -69,8 +70,11 @@ def heartbeat_payload(now: datetime | None = None) -> tuple[int, dict[str, Any]]
         failing = sorted({
             _SOURCE_CHANNEL[source] for source in _SOURCE_CHANNEL
             if channels[_SOURCE_CHANNEL[source]] is not None and db.scalar(
-                select(SyncRun.status).where(SyncRun.source == source, SyncRun.status != "running")
-                .order_by(SyncRun.started_at.desc()).limit(1)
+                select(SyncRun.status).where(
+                    SyncRun.source == source, SyncRun.status != "running",
+                    # 13B: el cierre por reinicio/abandono no es un fallo del canal
+                    SyncRun.error_message.is_(None) | SyncRun.error_message.not_in(INTERRUPTED_MESSAGES),
+                ).order_by(SyncRun.started_at.desc()).limit(1)
             ) == "failed"
         })
     except Exception:  # noqa: BLE001 - sin base no hay latido sano; no se expone el detalle
