@@ -246,6 +246,9 @@ def test_no_app_module_reads_core_payments_outside_the_reviewed_allowlist() -> N
         "app/services/vp_report_import.py",  # revisado: solo UPDATE de charge_id (vinculo pago->cobro de VirtualPOS)
         "app/services/recovery_tch.py",  # revisado (REC-06): solo lee source='tch'; nunca ve las filas FAILED de Toku
         "app/services/recovery_payku.py",  # revisado (REC-05): solo lee source='payku'; nunca ve las FAILED de Toku
+        # revisado (d205 a): solo el vinculo pago->suscripcion para el NOMBRE del socio en Pagos de VirtualPOS (misma
+        # fuente que el pago); no cuenta pagos ni alimenta KPIs, y nunca ve las filas FAILED de Toku.
+        "app/services/export_queries.py",
     }
     found = {
         path.relative_to(ROOT).as_posix()
