@@ -80,6 +80,14 @@ describe("permiso de exportacion", () => {
     expect(screen.queryByText(/Exportar CSV/)).toBeNull();
     noPerm.unmount();
   });
+  it("sin export.pii avisa que el CSV no incluye datos personales (d199)", async () => {
+    const view = render(<RecoveryPanel channel="virtualpos" can={(p) => p !== "export.pii"} />);
+    (await screen.findAllByText("Buscar"))[0].click();
+    expect(await screen.findByText(/Exportar CSV/)).toBeTruthy();
+    expect(screen.getByText(/no incluye datos personales/)).toBeTruthy();
+    expect(screen.queryByText(/contiene datos personales/)).toBeNull();
+    view.unmount();
+  });
 });
 
 describe("RecoveryTable", () => {
