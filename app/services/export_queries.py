@@ -30,7 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session, aliased
 
-from app.models.core import CoreCharge
+from app.models.core import CoreCharge, CoreClientAttribute, CoreSubscription
 from app.models.crm import Charge as CCharge
 from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment
@@ -297,10 +297,52 @@ def _subs_search(f: ExportFilters, id_col: Any, client_name: Any, rut_col: Any, 
     return _search(f, {"id": id_col, "rut": rut_col, "client": client_name, "platform": literal(platform), "status": status_col}, "rut")
 
 
+def _blank_to_null(expr: Any) -> Any:
+    return func.nullif(func.trim(expr), "")
+
+
+def _core_subscription_name() -> Any:
+    """Nombre del cliente centralizado vinculado a la suscripcion (`core_subscriptions.client_id`), observado en la
+    MISMA fuente que la suscripcion (sin jerarquia entre proveedores, ADR-001). El vinculo lo fijo el ETL con sus reglas
+    (identidad externa o RUT unico dentro de la plataforma, REV-01); aqui solo se lee, no se infiere identidad."""
+    attr = CoreClientAttribute
+    return (
+        select(attr.attribute_value)
+        .select_from(CoreSubscription)
+        .join(attr, and_(attr.client_id == CoreSubscription.client_id, attr.source == CoreSubscription.source,
+                         attr.attribute_type == "name"))
+        .where(CoreSubscription.source == CSub.source, CoreSubscription.external_id == CSub.external_id)
+        .order_by(attr.observed_at.desc().nullslast(), attr.created_at.desc(), attr.attribute_value)
+        .limit(1)
+        .correlate(CSub)
+        .scalar_subquery()
+    )
+
+
+def _subs_client_name(client: Any, embedded: bool) -> Any:
+    """Nombre del socio de una suscripcion `crm`, en orden (13C):
+
+    1. Cliente del mismo canal enlazado por `client_external_id` (vinculo explicito del proveedor).
+    2. Solo VirtualPOS: el cliente embebido en el propio payload de la suscripcion (`raw_payload.client`). VirtualPOS
+       no entrega el ID del cliente en la suscripcion (solo RUT y datos del cliente), asi que el paso 1 casi nunca
+       resuelve; es el mismo respaldo que usa la ficha por canal (`staging._vp_subscription_client_values`).
+    3. Cliente centralizado vinculado a la suscripcion, con el nombre observado en la misma fuente.
+
+    Nunca se cruza por RUT contra otros clientes: el RUT no es identidad universal (ADR-001).
+    """
+    parts = [_blank_to_null(_name(client.first_name, client.last_name))]
+    if embedded:
+        raw_client = CSub.raw_payload["client"]
+        parts.append(_blank_to_null(func.concat_ws(
+            " ", raw_client["first_name"].astext, raw_client["last_name"].astext, raw_client["name"].astext)))
+    parts.append(_core_subscription_name())
+    return func.coalesce(*parts)
+
+
 def _subs_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, platform: str) -> Any:
     client = CClient
     rut_col = func.coalesce(CSub.client_social_id, client.social_id)
-    client_name = _name(client.first_name, client.last_name)
+    client_name = _subs_client_name(client, embedded=platform == "VirtualPOS")
     last_paid = (
         select(func.max(CCharge.charge_date))
         .where(CCharge.source == CSub.source, CCharge.subscription_external_id == CSub.external_id,
