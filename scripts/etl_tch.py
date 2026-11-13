@@ -1575,6 +1575,8 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
                 "eli_mes": pg_insert(TchSubscription).excluded.eli_mes,
                 "equivalente_pesos": pg_insert(TchSubscription).excluded.equivalente_pesos,
                 "fecha_activacion": pg_insert(TchSubscription).excluded.fecha_activacion,
+                # TCH-PAR-21: antes faltaba; la ficha quedaba con la entrega al banco de su primera carga.
+                "fecha_entrega_banco": pg_insert(TchSubscription).excluded.fecha_entrega_banco,
                 # El ingreso del mandato no cambia: un reporte sin la columna no borra el ya cargado.
                 "fecha_ingreso": func.coalesce(
                     pg_insert(TchSubscription).excluded.fecha_ingreso, TchSubscription.__table__.c.fecha_ingreso
