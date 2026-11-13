@@ -17,7 +17,7 @@ import sys
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -79,20 +79,23 @@ def _norm_rut(val: Any) -> str | None:
 
 
 def _norm_date(val: Any) -> str | None:
+    """Fecha ISO (yyyy-mm-dd) desde una celda del Excel: fecha/datetime, 'dd/mm/yyyy', 'dd-mm-yyyy', 'dd.mm.yyyy' o
+    'yyyy-mm-dd' (con o sin hora). Una fecha imposible (31/02) o un texto que no es fecha da None, no un ISO invalido."""
     if val is None or pd.isna(val):
         return None
     try:
         if hasattr(val, "date"):
             return val.date().isoformat()
         s = str(val).strip()
-        if "/" in s:
-            parts = s.split("/")
-            if len(parts) == 3:
-                d, m, y = int(parts[0]), int(parts[1]), int(parts[2])
-                return f"{y:04d}-{m:02d}-{d:02d}"
-        if re.match(r"\d{4}-\d{2}-\d{2}", s):
-            return s[:10]
-    except Exception:
+        iso = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
+        if iso:
+            y, m, d = (int(part) for part in iso.groups())
+            return date(y, m, d).isoformat()
+        parts = re.match(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)", s)
+        if parts:
+            d, m, y = (int(part) for part in parts.groups())
+            return date(y, m, d).isoformat()
+    except (TypeError, ValueError, OverflowError):
         pass
     return None
 
@@ -1021,6 +1024,9 @@ def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
     col_currency = _find_col(df, "moneda", "vigente")
     col_peso_equivalent = _find_col(df, "equivalente", "pesos")
     col_activation_date = _find_col(df, "activac")
+    # ('ANTECEDENTES Y ESTADO MANDATOS', 'Ingreso'): fecha de ingreso del mandato, llena en VIGENTES y ELIMINADOS.
+    # Rotulo exacto (no "contiene"): "ingreso" podria aparecer en otros rotulos de montos.
+    col_entry_date = _find_group_leaf(df, "antecedentes", "ingreso") or _find_group_leaf(df, "", "ingreso")
     col_bank_delivery_date = _find_col(df, "entrega", "banco")
     col_rejection_date = _find_col(df, "fecha", "rechazo")
     col_deletion_date = _find_col(df, "fecha", "eliminado") or _find_col(df, "fecha", "eliminac") or _find_col(df, "fecha", "baja")
@@ -1095,6 +1101,7 @@ def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
             "moneda": currency,
             "equivalente_pesos": _norm_amount(_col_val(row, col_peso_equivalent)),
             "fecha_activacion": _norm_date(_col_val(row, col_activation_date)),
+            "fecha_ingreso": _norm_date(_col_val(row, col_entry_date)),
             "fecha_entrega_banco": _norm_date(_col_val(row, col_bank_delivery_date)),
             "fecha_rechazo": _norm_date(_col_val(row, col_rejection_date)),
             "fecha_eliminacion": _norm_date(_col_val(row, col_deletion_date)),
@@ -1568,6 +1575,10 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
                 "eli_mes": pg_insert(TchSubscription).excluded.eli_mes,
                 "equivalente_pesos": pg_insert(TchSubscription).excluded.equivalente_pesos,
                 "fecha_activacion": pg_insert(TchSubscription).excluded.fecha_activacion,
+                # El ingreso del mandato no cambia: un reporte sin la columna no borra el ya cargado.
+                "fecha_ingreso": func.coalesce(
+                    pg_insert(TchSubscription).excluded.fecha_ingreso, TchSubscription.__table__.c.fecha_ingreso
+                ),
                 "fecha_rechazo": pg_insert(TchSubscription).excluded.fecha_rechazo,
                 "fecha_eliminacion": pg_insert(TchSubscription).excluded.fecha_eliminacion,
                 "razon_baja": pg_insert(TchSubscription).excluded.razon_baja,
