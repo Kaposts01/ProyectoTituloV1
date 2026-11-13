@@ -28,7 +28,12 @@ from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.auth import Permission, Role, User
-from app.models.core import CoreClient, CoreClientAttribute, CorePayment, CoreSubscription
+from app.models.core import (
+    CoreClient,
+    CoreClientAttribute,
+    CorePayment,
+    CoreSubscription,
+)
 from app.models.crm import Charge as CCharge
 from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment

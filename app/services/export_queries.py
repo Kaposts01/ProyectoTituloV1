@@ -31,7 +31,12 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.orm import join as orm_join
 
-from app.models.core import CoreCharge, CoreClientAttribute, CorePayment, CoreSubscription
+from app.models.core import (
+    CoreCharge,
+    CoreClientAttribute,
+    CorePayment,
+    CoreSubscription,
+)
 from app.models.crm import Charge as CCharge
 from app.models.crm import Client as CClient
 from app.models.crm import Payment as CPayment
