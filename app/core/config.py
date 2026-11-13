@@ -229,6 +229,10 @@ class Settings(BaseSettings):
     payku_timeout_seconds: float = 30
     payku_read_retries: int = 2
     payku_writes_enabled: bool = False
+    # CRM-14F: retiro de TODO el saldo de la billetera Payku a la cuenta bancaria del comercio (POST /api/wallet/withdraw).
+    # Flag propio, APAGADO por defecto; ademas exige PAYKU_WRITES_ENABLED y el permiso payku.wallet.withdraw. Fuera de
+    # produccion la guarda de sandbox bloquea el endpoint igual (no esta en su lista blanca).
+    payku_wallet_withdraw_enabled: bool = False
     payku_webhook_secret: str = ""
     payku_sandbox_base_url: str = ""
     payku_sandbox_public_token: str = ""

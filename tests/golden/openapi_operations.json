@@ -651,6 +651,9 @@
  "GET /api/v1/tch/transacciones/{}": [
   "cookie:crm_access_token"
  ],
+ "GET /api/v1/writes/payku/wallet": [
+  "cookie:crm_access_token"
+ ],
  "GET /api/v1/writes/virtualpos/charges/rejected": [
   "cookie:crm_access_token",
   "query:date_from",
@@ -806,6 +809,9 @@
  ],
  "POST /api/v1/webhooks/virtualpos/{}": [
   "header:Signature"
+ ],
+ "POST /api/v1/writes/payku/wallet/withdraw": [
+  "cookie:crm_access_token"
  ],
  "POST /api/v1/writes/toku/subscriptions/{}/status": [
   "cookie:crm_access_token"
