@@ -45,7 +45,7 @@ Set-Location $repo
 | 0.3 | ¿PR #8 (BCK-01a) integrado? | `Test-Path .\scripts\maintenance\backup_db.ps1` | `True` → variante 1A; `False` → variante 1B o 1A desde el worktree | — |
 | 0.4 | Docker y PostgreSQL arriba | `docker compose ps` | Servicio `postgres` en `running (healthy)`, puerto `5433` | `docker compose up -d` y repetir |
 | 0.5 | Espacio en disco | `Get-PSDrive C \| Select-Object Used,Free` | Libre ≥ 10 GB (el respaldo del 2026-11-03 pesó 430 MB; la recarga de TCH reescribe ~1,5 M filas) | Liberar espacio o abortar |
-| 0.6 | Reportes TCH presentes | `(Get-ChildItem "$repo\docs\Reportes_TCH" -Filter *.xlsx).Count` | `30` (conteo del 2026-11-10) | ⚠ verificar carpeta: pendiente del usuario (ficha d196) (ver paso 4) |
+| 0.6 | Reportes TCH presentes | `(Get-ChildItem "C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH" -Filter *.xlsx).Count` | `30` (conteo del 2026-11-13) | Confirmar el juego con el usuario (ficha d196) (ver paso 4) |
 | 0.7 | Sandbox 8001 | No se toca. `Invoke-RestMethod http://127.0.0.1:8001/health` solo para confirmar que sigue arriba | `status: ok` | Ignorar; no es parte de la ventana |
 | 0.8 | Aviso a usuarios | Avisar con anticipación que el CRM estará **fuera de servicio** durante la ventana y que **todas las sesiones se cerrarán** (paso 3): habrá que volver a iniciar sesión | Avisado | No empezar sin aviso |
 | 0.9 | Que no haya cargas en curso | Ninguna importación TCH ni sincronización abierta en la pantalla de administración. El ETL de TCH sale con código 2 si hay una corrida activa en `etl_runs` | — | Esperar a que termine |
@@ -288,8 +288,9 @@ Procedimiento: `docs/data/tch-reload.md`. Script: `scripts/etl_tch.py` (banderas
 (todo o nada) y concilia contra `tch_recaudacion_mensual` antes de confirmar.
 
 **⚠ verificar la carpeta, pendiente del usuario (ficha d196):** `tch-reload.md` indica `C:\Users\Usuario\Downloads\CRM_reportes\TCH`, que **no existe** en
-este equipo (comprobado el 2026-11-10). Los Excel de TCH están en `$repo\docs\Reportes_TCH` (30 `.xlsx`, ignorado por
-git). Confirmar en el chat cuál es el juego correcto antes del dry-run.
+este equipo (comprobado el 2026-11-10). Los Excel de TCH están en la ubicación única de reportes,
+`C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH` (30 archivos; desde el 2026-11-13 ya no hay copia en
+`docs\Reportes_*`, ficha d203). Confirmar en el chat cuál es el juego correcto antes del dry-run.
 
 Usar la misma terminal de la ventana (ambiente fijado en 2.1; repetir 2.1 si se abrió otra).
 
@@ -302,7 +303,7 @@ carga completa; mismo orden de filas), consolidación 4.4 ≈ 15 a 21 min y pari
 se mantiene la reserva de **60 a 120 min**. Anotar los tiempos reales de cada subpaso para la próxima vez.
 
 ```powershell
-$tch   = "$repo\docs\Reportes_TCH"      # ⚠ verificar: pendiente del usuario (ficha d196)
+$tch   = "C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH"   # ubicación única (d203); juego a confirmar en d196
 $excl  = '2023-01,2023-02,2023-03,2023-04,2023-05,2023-06,2023-07,2023-08,2023-09,2023-10,2023-11,2023-12'
 ```
 
@@ -417,8 +418,8 @@ comando de 3.3) para que la ruta `/api/v1/imports/toku-reports` lo lea.
 
 ### 5.2 Reportes de Toku
 
-⚠ verificar qué juego cargar, pendiente del usuario (ficha d196): `$repo\docs\Reportes_Toku` tiene 14 `.xlsx` (posiblemente dos generaciones, 2026-08-09 y
-2026-10-20). Basta el más reciente; cargar uno viejo sobre uno nuevo deja filas «obsoletas». Lo ideal (TK-PAR-01,
+⚠ verificar qué juego cargar, pendiente del usuario (ficha d196): `C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\Toku` (ubicación única desde el 2026-11-13, d203; 23 archivos, con
+varias generaciones de exportación, al menos 2026-08-09 y 2026-10-20). Basta el más reciente; cargar uno viejo sobre uno nuevo deja filas «obsoletas». Lo ideal (TK-PAR-01,
 USR-09) es exportar reportes nuevos del Backoffice, incluido **Deudas**, a una carpeta **fuera del repo**.
 
 ```powershell
@@ -615,7 +616,7 @@ Con `RESPALDO_1` se puede repetir el paso 1B de conteos para comparar con lo ano
 
 Abiertos, pendiente del usuario (ficha d196):
 
-1. Carpeta de los Excel de TCH: la de `tch-reload.md` no existe; candidata `docs\Reportes_TCH` (paso 4).
+1. Carpeta de los Excel de TCH: la de `tch-reload.md` no existe; usar la ubicación única `C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH` (paso 4; d203).
 5. Qué juego de reportes de Toku cargar y su carpeta (paso 5.2).
 7. Carpeta de destino de la plantilla de D40 (paso 7.2).
 
