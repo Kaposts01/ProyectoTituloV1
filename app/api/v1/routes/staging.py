@@ -40,6 +40,7 @@ from app.models.tch import (
     TchTransaction,
 )
 from app.services import rejected_month
+from app.services.account_masking import mask_account_fields
 from app.services.channel_churn import CHURN_WINDOW_LABEL, closed_month_churn
 from app.services.channel_consolidation import consolidate_to_centralized
 from app.services.charge_rejection_display import DETAIL_FIELD as REJECTION_DETAIL_FIELD
@@ -87,7 +88,7 @@ def _serialize(record: SourceRecord) -> dict[str, Any]:
         "source": record.source,
         "resource_type": record.resource_type,
         "external_id": record.external_id,
-        "payload": record.payload,
+        "payload": mask_account_fields(record.payload),
         "sync_context": record.sync_context,
         "first_seen_at": record.first_seen_at,
         "last_seen_at": record.last_seen_at,
@@ -1762,7 +1763,7 @@ def _cstg(record: Any, rtype: str, extra: dict | None = None) -> dict[str, Any]:
         "source": record.source,
         "resource_type": rtype,
         "external_id": record.external_id,
-        "payload": payload,
+        "payload": mask_account_fields(payload),  # d199 R1: nunca la cuenta bancaria completa
         "sync_context": {},
         "first_seen_at": None,
         "last_seen_at": str(record.updated_at) if record.updated_at else None,

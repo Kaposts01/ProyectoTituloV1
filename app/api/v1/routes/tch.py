@@ -31,6 +31,7 @@ from app.models.tch import (
 )
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
 from app.services import rejected_month, tch_report_registry
+from app.services.account_masking import mask_account_number
 from app.services.channel_churn import closed_month_churn
 from app.services.charge_stats import rejected_month_kpi
 
@@ -107,6 +108,8 @@ def _serialize_subscription(s: TchSubscription, last_paid: str | None = None) ->
         "banco_nombre": s.bank_name,
         "tipo_mandato": s.mandate_type,
         "tipo_cuenta": s.account_type,
+        # d199 R1: la cuenta bancaria solo sale enmascarada (ultimos 4 digitos); la base la guarda completa.
+        "numero_cuenta": mask_account_number(s.account_number),
         "origen": s.origin,
         "centro_costo": s.cost_center,
         "captador": s.recruiter,
