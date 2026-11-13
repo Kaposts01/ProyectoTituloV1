@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 import tempfile
 import uuid
 import zipfile
@@ -113,10 +114,14 @@ def _serialize_subscription(s: TchSubscription, last_paid: str | None = None) ->
         "monto": s.amount,
         "equivalente_pesos": s.peso_equivalent,
         "fecha_activacion": s.activation_date,
+        "fecha_ingreso": s.entry_date,
+        "fecha_alta_efectiva": effective_activation_value(s),
         "fecha_rechazo": s.rejection_date,
         "fecha_eliminacion": s.deletion_date,
         "fecha_fin": s.deletion_date or s.rejection_date,
         "razon_baja": s.cancellation_reason,
+        # Marca para revision (no se corrige): la fecha de baja es anterior a la fecha de alta efectiva.
+        "baja_antes_del_alta": cancelled_before_activation(s),
         "estado": s.status,
         "last_paid_date": last_paid,
         "secondary_status": _tch_secondary(s.status, last_paid),
@@ -225,19 +230,41 @@ def _monthly_collection_kpis(controls: list[TchMonthlyCollection]) -> dict | Non
 
 
 _ISO_DATE = r"^\d{4}-\d{2}-\d{2}$"
+# Orden de respaldo de la fecha de alta. "Ingreso" (ANTECEDENTES Y ESTADO MANDATOS) es el ingreso del mandato a TCH:
+# la primera fecha del ciclo (ingreso -> entrega al banco -> activacion -> primer cobro) y la mas lejana de la
+# activacion, pero la unica llena en todas las fichas. Va AL FINAL: solo da fecha a las fichas que no tienen ninguna
+# de las otras y no mueve de mes ninguna alta que ya tenia fecha.
 _ACTIVATION_FALLBACKS = (
     ("fecha_activacion", TchSubscription.activation_date),
     ("fecha_primer_cobro", TchSubscription.first_charge_date),
     ("fecha_entrega_banco", TchSubscription.bank_delivery_date),
+    ("fecha_ingreso", TchSubscription.entry_date),
 )
 ACTIVATION_SOURCE_NOTE = (
     "Desde julio de 2025 el reporte TCH ya no trae la fecha de activación del mandato. Para esas altas se usa la "
-    "fecha del primer cobro del mandato actual y, si falta, la de entrega al banco."
+    "fecha del primer cobro del mandato actual; si falta, la de entrega al banco, y si falta, la de ingreso del mandato."
 )
 
 
+def effective_activation_value(subscription: TchSubscription) -> str | None:
+    """La misma cadena de `_effective_activation_date` sobre una ficha ya cargada (detalle y listado)."""
+    for _, column in _ACTIVATION_FALLBACKS:
+        value = getattr(subscription, column.key)
+        if value and re.fullmatch(_ISO_DATE, value):
+            return value
+    return None
+
+
+def cancelled_before_activation(subscription: TchSubscription) -> bool:
+    """Baja anterior al alta efectiva: dato inconsistente de la fuente. Solo se marca para revision, no se corrige."""
+    signup = effective_activation_value(subscription)
+    deletion = subscription.deletion_date
+    return bool(signup and deletion and re.fullmatch(_ISO_DATE, deletion) and deletion < signup)
+
+
 def _effective_activation_date():
-    """Fecha del alta (ISO): activacion; si falta, primer cobro; si falta, entrega al banco; NULL sin ninguna."""
+    """Fecha del alta (ISO): activacion; si falta, primer cobro; si falta, entrega al banco; si falta, ingreso del
+    mandato; NULL sin ninguna."""
     return case(
         *((column.op("~")(_ISO_DATE), column) for _, column in _ACTIVATION_FALLBACKS),
         else_=None,
