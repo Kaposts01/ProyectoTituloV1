@@ -21,9 +21,9 @@ describe("catálogo de errores de la API frente a docs/data/error-codes.md", () 
   const codes = documentedCodes();
   const catalogKeys = Object.keys(es.apiError);
 
-  it("el documento declara 91 códigos distintos (el parser lee toda la tabla)", () => {
-    expect(codes).toHaveLength(91);
-    expect(new Set(codes).size).toBe(91);
+  it("el documento declara 96 códigos distintos (el parser lee toda la tabla)", () => {
+    expect(codes).toHaveLength(96);
+    expect(new Set(codes).size).toBe(96);
   });
 
   it("todo código del documento está traducido en el dominio apiError", () => {

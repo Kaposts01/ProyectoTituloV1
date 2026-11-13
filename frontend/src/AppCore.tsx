@@ -694,6 +694,7 @@ function AppCore() {
           onReport={setReportScope}
           onSync={syncChannel}
           syncUnavailable={!isChannelEnabled(channelData.source === "virtualpos" ? "virtualpos1" : channelData.source)}
+          canWithdrawWallet={can("payku.wallet.withdraw")}
         />
       )
     ) : (
