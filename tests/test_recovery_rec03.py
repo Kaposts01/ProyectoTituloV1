@@ -137,7 +137,7 @@ def test_export_endpoint_includes_pii_audits_without_content_and_view_cannot_exp
         db.commit()
     finally:
         db.close()
-    exporter = _login(monkeypatch, suffix + "e", ["virtualpos.recovery.export", "virtualpos.recovery.view"])
+    exporter = _login(monkeypatch, suffix + "e", ["virtualpos.recovery.export", "virtualpos.recovery.view", "export.pii"])
     resp = exporter.get("/api/v1/recovery/rejected/export", params={"rejection_code": code, "account": "virtualpos1"})
     assert resp.status_code == 200
     rows = list(csv.reader(io.StringIO(resp.content.decode("utf-8-sig"))))
@@ -160,6 +160,46 @@ def test_export_endpoint_includes_pii_audits_without_content_and_view_cannot_exp
     viewer = _login(monkeypatch, suffix + "v", ["virtualpos.recovery.view"])
     assert viewer.get("/api/v1/recovery/rejected/export").status_code == 403
     assert viewer.get("/api/v1/recovery/rejected", params={"rejection_code": code}).json()["total"] == 1
+
+
+def test_export_without_export_pii_omits_personal_columns_in_every_recovery_csv(monkeypatch) -> None:
+    """d199 (R3 de la ficha): `virtualpos.recovery.export` sin `export.pii` descarga el CSV sin RUT, nombre, correo ni
+    telefono, en los tres CSV del Recuperador, y la auditoria registra que no incluyo datos personales."""
+    suffix = uuid.uuid4().hex[:10]
+    code = f"=Y{suffix}"
+    db = SessionLocal()
+    try:
+        db.add_all([
+            Client(source="virtualpos1", external_id=f"cl-{suffix}", first_name="Ana", last_name="Rios", email=f"ana{suffix}@example.test",
+                   phone_number="+56900000000", social_id="11111111-1"),
+            Subscription(source="virtualpos1", external_id=f"sub-{suffix}", client_external_id=f"cl-{suffix}", status="activa"),
+            Charge(source="virtualpos1", external_id=f"ch-{suffix}", subscription_external_id=f"sub-{suffix}", status="rechazado",
+                   charge_date="2099-07-01", amount="1500", raw_payload={"rejected_object": {"code": code, "message": "m"}}),
+        ])
+        db.commit()
+    finally:
+        db.close()
+    exporter = _login(monkeypatch, suffix + "n", ["virtualpos.recovery.export", "virtualpos.recovery.view"])
+    resp = exporter.get("/api/v1/recovery/rejected/export", params={"rejection_code": code, "account": "virtualpos1"})
+    assert resp.status_code == 200
+    rows = list(csv.reader(io.StringIO(resp.content.decode("utf-8-sig"))))
+    assert rows[0] == [column.header for column in CSV_COLUMNS if not column.pii] and len(rows) == 2
+    body = resp.content.decode("utf-8-sig")
+    assert "11111111-1" not in body and "Ana" not in body and "example.test" not in body and "+5690" not in body
+    assert f"ch-{suffix}" in body
+    for path in ("/api/v1/recovery/group/export", "/api/v1/recovery/cancelled/export"):
+        other = exporter.get(path)
+        assert other.status_code == 200, path
+        header = next(csv.reader(io.StringIO(other.content.decode("utf-8-sig"))))
+        assert not {"RUT", "Nombre", "Correo", "Teléfono"} & set(header), path
+
+    db = SessionLocal()
+    try:
+        runs = db.scalars(select(WriteRun).where(WriteRun.operation == "export_csv",
+                                                 WriteRun.request_payload["username"].astext == f"r03-{suffix}n")).all()
+        assert len(runs) == 3 and all(run.request_payload["pii_included"] is False for run in runs)
+    finally:
+        db.close()
 
 
 def test_cancelled_rows_filter_before_pagination(db_session: Session) -> None:  # noqa: F811
