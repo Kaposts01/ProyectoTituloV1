@@ -14,6 +14,7 @@
  ".items[].id",
  ".items[].last_paid_date",
  ".items[].monto",
+ ".items[].numero_cuenta",
  ".items[].numero_ficha",
  ".items[].numero_mandato",
  ".items[].origen",
