@@ -20,3 +20,5 @@ Las rutas internas usan sesion con cookie HttpOnly, CSRF para operaciones mutabl
 **Status: TBD**
 
 Definir politicas de retencion, rectificacion y eliminacion de datos personales, junto con el gobierno de conflictos de identidad.
+
+El inventario de datos personales (dónde se guardan, quién los ve, por dónde salen, retención y riesgos) está en [`docs/security/pii-inventory.md`](../security/pii-inventory.md) (SEC-01). Es la base para definir esta política.
