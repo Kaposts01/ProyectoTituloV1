@@ -218,6 +218,24 @@ def seed_permissions(db: Session) -> None:
     db.flush()
 
 
+ADMIN_ROLE_NAME = "admin"
+ADMIN_ROLE_DESCRIPTION = "Full system administration"
+
+
+def ensure_admin_role(db: Session) -> Role:
+    """Crea el rol `admin` si no existe y lo deja con todo el catálogo (`seed_permissions`). Idempotente.
+
+    Es el mismo paso que hace `scripts/bootstrap_admin.py` antes de crear el administrador inicial."""
+    seed_permissions(db)
+    admin = db.scalar(select(Role).where(Role.name == ADMIN_ROLE_NAME))
+    if admin is None:
+        admin = Role(name=ADMIN_ROLE_NAME, description=ADMIN_ROLE_DESCRIPTION)
+        db.add(admin)
+        db.flush()
+        seed_permissions(db)
+    return admin
+
+
 def _ensure_role(db: Session, name: str, description: str, wanted: set[str]) -> int:
     by_code = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted))).all()}
     role = db.scalar(select(Role).where(Role.name == name))

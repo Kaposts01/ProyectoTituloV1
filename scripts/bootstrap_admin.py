@@ -8,8 +8,8 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.models.auth import Role, User
-from app.services.rbac import seed_default_roles, seed_permissions
+from app.models.auth import User
+from app.services.rbac import ensure_admin_role, seed_default_roles
 
 
 def main() -> None:
@@ -18,13 +18,7 @@ def main() -> None:
 
     db = SessionLocal()
     try:
-        seed_permissions(db)
-        admin_role = db.scalar(select(Role).where(Role.name == "admin"))
-        if admin_role is None:
-            admin_role = Role(name="admin", description="Full system administration")
-            db.add(admin_role)
-            db.flush()
-            seed_permissions(db)
+        admin_role = ensure_admin_role(db)
         seed_default_roles(db)
         if db.scalar(select(User).where(User.username == settings.initial_admin_username)):
             db.commit()
