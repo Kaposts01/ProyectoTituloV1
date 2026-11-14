@@ -5,7 +5,9 @@ eso solo entrega metadatos operativos: fechas del ultimo exito de sync por canal
 Nunca datos personales, mensajes de error, ids ni conteos de negocio.
 
 `status`: `ok`; `degraded` si la ultima sync exitosa (de cualquier canal) tiene mas de `HEARTBEAT_MAX_SYNC_AGE_HOURS`
-horas o si el scheduler deberia estar corriendo y no lo esta; `error` (HTTP 503) si la base no responde.
+horas, si el scheduler deberia estar corriendo y no lo esta, o (QA-15) si la ultima corrida de un canal que ya habia
+sincronizado bien termino `failed` (`sync_failing`, con el canal en `sync.failing_channels`); `error` (HTTP 503) si la
+base no responde. Un canal que nunca sincronizo bien (p. ej. sin credenciales) no marca `sync_failing`.
 """
 
 from __future__ import annotations
@@ -64,6 +66,13 @@ def heartbeat_payload(now: datetime | None = None) -> tuple[int, dict[str, Any]]
             select(func.max(EtlRun.finished_at)).where(EtlRun.status.in_(_SUCCESS), EtlRun.channels_processed.any("tch"))
         ))
         last_etl = _aware(db.scalar(select(func.max(EtlRun.finished_at)).where(EtlRun.status.in_(_SUCCESS))))
+        failing = sorted({
+            _SOURCE_CHANNEL[source] for source in _SOURCE_CHANNEL
+            if channels[_SOURCE_CHANNEL[source]] is not None and db.scalar(
+                select(SyncRun.status).where(SyncRun.source == source, SyncRun.status != "running")
+                .order_by(SyncRun.started_at.desc()).limit(1)
+            ) == "failed"
+        })
     except Exception:  # noqa: BLE001 - sin base no hay latido sano; no se expone el detalle
         return 503, {"status": "error", "checked_at": moment.isoformat(), "environment": settings.env_mode,
                      "database": "error"}
@@ -80,6 +89,8 @@ def heartbeat_payload(now: datetime | None = None) -> tuple[int, dict[str, Any]]
         problems.append("sync_stale")
     if expected and not running:
         problems.append("scheduler_stopped")
+    if failing:
+        problems.append("sync_failing")
     return 200, {
         "status": "degraded" if problems else "ok",
         "problems": problems,
@@ -91,6 +102,7 @@ def heartbeat_payload(now: datetime | None = None) -> tuple[int, dict[str, Any]]
             "age_hours": age_hours,
             "max_age_hours": int(settings.heartbeat_max_sync_age_hours),
             "channels": {name: _iso(value) for name, value in channels.items()},
+            "failing_channels": failing,
         },
         "scheduler": {
             "expected": expected,

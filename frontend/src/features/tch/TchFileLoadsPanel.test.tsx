@@ -56,7 +56,9 @@ describe("adaptTchFileLoads", () => {
   });
 
   it("formatea fecha y hash cortos", () => {
-    expect(shortDateTime("2026-11-02T10:05:59+00:00")).toBe("2026-11-02 10:05");
+    // QA-06: hora de Chile (UTC-3 en noviembre), como Sincronización
+    expect(shortDateTime("2026-11-02T10:05:59+00:00")).toBe("2026-11-02 07:05");
+    expect(shortDateTime("2026-11-03T01:41:00+00:00")).toBe("2026-11-02 22:41");
     expect(shortDateTime(null)).toBe("—");
     expect(shortHash(SHA_A)).toBe("aaaaaaaaaaaa");
   });
@@ -78,7 +80,7 @@ describe("TchFileLoadsPanel", () => {
 
     expect(await screen.findByText("20261031 TCH IG OCTUBRE 2026.xlsx")).toBeTruthy();
     expect(getJson).toHaveBeenCalledWith("/api/v1/tch/archivos?limit=50");
-    expect(screen.getByText("2026-11-02 10:05")).toBeTruthy();
+    expect(screen.getByText("2026-11-02 07:05")).toBeTruthy(); // QA-06: hora de Chile
     expect(screen.getByTitle(SHA_A).textContent).toBe("aaaaaaaaaaaa");
     expect(screen.getByText("2026-10")).toBeTruthy();
     expect(screen.getByText((1200).toLocaleString("es-CL"))).toBeTruthy(); // sin conciliación: filas cargadas como leídas
@@ -110,12 +112,26 @@ describe("TchFileLoadsPanel", () => {
 
     const row = (await screen.findByText("octubre.xlsx")).closest("tr")!;
     const cells = [...row.querySelectorAll("td")].map((td) => td.textContent);
-    expect(cells.slice(3, 9)).toEqual([(1234).toLocaleString("es-CL"), (1001).toLocaleString("es-CL"), "102", "13", "4", "Cuadra"]);
+    expect(cells[3]).toBe("Cargado"); // QA-14: el resultado va antes de los conteos, no cortado al final
+    expect(cells.slice(4, 10)).toEqual([(1234).toLocaleString("es-CL"), (1001).toLocaleString("es-CL"), "102", "13", "4", "Cuadra"]);
     const columns = [...document.querySelectorAll("th")].map((th) => th.textContent);
     expect(columns).toEqual(expect.arrayContaining(["Leídas", "Insertadas", "Actualizadas", "Omitidas", "Con error", "Control del Excel"]));
     const other = screen.getByText("septiembre.xlsx").closest("tr")!;
     expect(other.textContent).toContain("No cuadra");
     expect(other.textContent).toContain("2026-09: archivo 7/2 · control 8/2 (aceptadas/rechazadas)");
+  });
+
+  it("QA-14: los archivos sin conciliación guardada se explican en vez de quedar solo en «—»", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      items: [
+        { sha256: SHA_A, archivo: "viejo-1.xlsx", periodo: "2026-08", cargado_en: "2026-09-02T10:05:00+00:00", filas: null, resultado: "consolidado" },
+        { sha256: SHA_B, archivo: "viejo-2.xlsx", periodo: "2026-09", cargado_en: "2026-10-02T10:05:00+00:00", filas: null, resultado: "consolidado" },
+      ],
+    });
+    render(<TchFileLoadsPanel />);
+    await screen.findByText("viejo-1.xlsx");
+    expect(screen.getByRole("note").textContent).toMatch(/2 archivos se cargaron antes de que el CRM guardara\s+la conciliación/);
+    expect(screen.getByLabelText(/desplazable/)).toBeTruthy();
   });
 
   it("avisa cuando no hay reportes registrados", async () => {

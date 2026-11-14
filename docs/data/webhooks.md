@@ -13,8 +13,8 @@ Proveedor --POST--> receptor (FastAPI) --> webhook_events (pending) --> procesad
                           status_change_events <-- consolidación de ESA suscripción <-- refresh_subscription (MGT-06, solo GET)
 ```
 
-1. **Recepción** (`/api/v1/webhooks/toku`, `/virtualpos/{payment|subscription|payout}`, `/payku/{kind}`). El receptor solo valida y
-   encola; no llama al proveedor ni consolida. Orden: rate limit → (secreto/token/firma) → tope de body → JSON → `INSERT … ON CONFLICT DO NOTHING`
+1. **Recepción** (`/api/v1/webhooks/toku`, `/virtualpos/{payment|subscription|charge_paid|charge_reject|card_change|payout}`, `/payku/{kind}`). El receptor solo valida y
+   encola; no llama al proveedor ni consolida. Orden: rate limit → (secreto/token/firma) → tope de body → JSON (VirtualPOS acepta también `application/x-www-form-urlencoded`, que usan algunos envíos PAT) → `INSERT … ON CONFLICT DO NOTHING`
    en `webhook_events` → `200 {"status":"ok"}`. Los duplicados también responden 200.
 2. **Cola** `webhook_events`: `status` = `pending | processing | done | failed | ignored`, `attempts`, `next_attempt_at`, `locked_at`,
    `last_error_code` (código fijo, nunca texto del proveedor), `received_at`, `processed_at`, `payload_masked` (sin datos personales),
@@ -52,7 +52,9 @@ sin cambios (se pueden retirar en una migración futura cuando el usuario lo dec
 | Toku | `transaction.bulk_*`, `invoice.bulk_*` | `ignored` (`BULK_EVENT`): los cubre la conciliación |
 | Toku | cualquier otro (`customer.*`, …) | `ignored` (`UNKNOWN_EVENT`) |
 | VirtualPOS | `payment` (`uuid`) | suscripción del pago/cobro local (`vp_payments` → `vp_charges`); define la plataforma (`virtualpos1/2`) |
-| VirtualPOS | `subscription` (callback de inscripción) | esa suscripción si ya existe en `vp_subscriptions` |
+| VirtualPOS | `subscription` (callback de inscripción `{uuid}` o cuerpo POS `{status,code,suscription:{uuid}}`) | esa suscripción si ya existe en `vp_subscriptions` |
+| VirtualPOS | `charge_paid`, `charge_reject` (eventos PAT del Portal Comercio; cuerpo con `id` del cargo y `suscription_uuid`) | la suscripción si ya existe en `vp_subscriptions`, y/o la del cargo en `vp_charges`. Del cuerpo (trae cliente y pago) solo se guardan ids y estado |
+| VirtualPOS | `card_change` (evento PAT, `{uuid}` de la suscripción) | esa suscripción si ya existe en `vp_subscriptions` |
 | VirtualPOS | `payout` | `ignored` (`IGNORED_KIND`); se valida firma y se guarda, pero no dispara refresh |
 | Payku | `subscription` | refresh de esa suscripción (no exige fila local: sirve para altas) |
 | Payku | `payment`, `transaction`, `nullification` | suscripción del payload (`subscriptions.id`) o de `p_transactions` |
@@ -150,7 +152,7 @@ Nada de esto lo hizo ni lo hará un agente sin confirmación en el chat.
 2. **Definir `TOKU_WEBHOOK_SECRET`** en el `.env` real (nunca en el chat ni en Git). El valor `whesec_…` lo devuelve Toku al crear el endpoint (paso 3). Mientras esté vacío, el receptor de Toku responde 503.
 3. **Crear el endpoint en Toku**: `POST /webhook_endpoints` (hay una petición en Postman, «Crear Webhook Endpoint») con la URL pública `https://<dominio fijo>/api/v1/webhooks/toku` y `enabled_events` acotados:
    `subscription.created`, `subscription.updated`, `subscription.deleted`, `transaction.success`, `transaction.failed`, `invoice.paid`, `invoice.voided`, `payment_method.status_update`, `payment_method.deleted`.
-   Toku hace upsert por URL: una URL cambiante crea endpoints duplicados. Recomendado probar primero con la llave sandbox (ojo: comparte host con producción, DEC-26).
+   Toku hace upsert por URL **y eventos**: con la misma URL y exactamente los mismos eventos actualiza; si comparte solo algunos responde 409; con eventos distintos crea otro endpoint con su propio `secret`. Una URL cambiante crea endpoints duplicados. Recomendado probar primero con la llave sandbox (ojo: comparte host con producción, DEC-26).
 4. **Exponer SOLO `/api/v1/webhooks/*`** con el túnel nombrado de dominio fijo (D8), con lista de rutas permitidas (nada de frontend ni del resto de la API; el incidente de los túneles `trycloudflare` expuso el frontend). Activar `WEBHOOK_TRUST_FORWARDED_FOR=true` solo si el proxy es propio y arranca uvicorn con `--forwarded-allow-ips` acorde. Requiere confirmación previa en el chat.
 5. **Encender las banderas** en el `.env` y reiniciar el backend (no se recarga solo): `WEBHOOK_PROCESSOR_ENABLED=true` y, cuando se quiera la reconciliación, `TARGETED_RECONCILE_ENABLED=true`. Con ambas apagadas, la cola solo acumula y el scheduler no hace nada.
 6. (Opcional) VirtualPOS: `callback_url` por objeto al crear pagos/suscripciones nuevas (RT-09); Payku: `url_notify_suscription/payment` en el plan con `?k=` (RT-10; planes fijos, requiere autorización). Ninguno está hecho.

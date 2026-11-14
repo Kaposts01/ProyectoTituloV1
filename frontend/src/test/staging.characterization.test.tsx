@@ -19,7 +19,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
   it("pide la lista (source, resource_type, offset, limit) y muestra columnas, filas, contador y botón de alta", async () => {
     const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items))]);
     await appReady();
-    expect(await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" })).toBeTruthy();
     const calls = app.exact("GET", "/api/v1/staging/records");
     expect(calls).toHaveLength(1);
     const q = calls[0].query;
@@ -43,7 +43,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
   it("filtra por columna (debounce) con filters=campo:valor y reinicia el offset; «Limpiar filtros» los borra", async () => {
     const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items))]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     const clear = screen.getByRole("button", { name: "Limpiar filtros" }) as HTMLButtonElement;
     expect(clear.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Buscar por Correo electrónico"), { target: { value: "p1@" } });
@@ -56,7 +56,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
   it("ordena por columna (sort_field/sort_direction) y refleja orden y dirección en la URL", async () => {
     const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items))]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     fireEvent.click(screen.getByTitle(/Ordenar por Nombre/));
     await waitFor(() => expect([lastRecordsCall(app).query.get("sort_field"), lastRecordsCall(app).query.get("sort_direction")]).toEqual(["name", "asc"]));
     expect(window.location.search).toBe("?orden=Nombre&direccion=asc");
@@ -68,7 +68,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
   it("los botones de cuenta cambian source a virtualpos1/virtualpos2 y lo reflejan en ?cuenta", async () => {
     const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items))]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     const filter = document.querySelector(".vp-platform-filter") as HTMLElement;
     expect(Array.from(filter.querySelectorAll(".vp-platform-btn")).map((b) => b.textContent)).toEqual(["Todas", "VP 1", "VP 2"]);
     fireEvent.click(within(filter).getByRole("button", { name: "VP 2" }));
@@ -82,7 +82,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
   it("un enlace profundo con ?cuenta, ?orden y ?offset se aplica a la petición", async () => {
     const app = mountApp("/virtualpos/clientes?cuenta=virtualpos1&orden=Nombre&direccion=desc&offset=100", [recordsHandler(page(items, 150, 100))]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     const q = lastRecordsCall(app).query;
     expect([q.get("source"), q.get("sort_field"), q.get("sort_direction"), q.get("offset")]).toEqual(["virtualpos1", "name", "desc", "100"]);
   });
@@ -90,11 +90,11 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
   it("«Ver más» pide el siguiente offset y agrega los registros sin duplicar", async () => {
     const app = mountApp("/virtualpos/clientes", [recordsHandler((q: URLSearchParams) => (q.get("offset") === "0" ? page(items, 3) : page([items[1], vpClient(3)], 3, 100)))]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     expect(screen.getByText("Mostrando 2 de 3")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Ver más" }));
     await waitFor(() => expect(lastRecordsCall(app).query.get("offset")).toBe("100"));
-    expect(await screen.findByRole("button", { name: "Ver ficha de cliente 11111113-1" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.113-1" })).toBeTruthy();
     expect(screen.getAllByRole("row").length).toBe(2 + 3);
     expect(screen.queryByText(/Mostrando/)).toBeNull();
   });
@@ -134,7 +134,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     const list = [vpSubscription(1), vpSubscription(2, { status: "CANCELADA" }, { secondary_status: "inactiva" })];
     mountApp("/virtualpos/suscripciones", [recordsHandler(page(list))]);
     await appReady();
-    expect(await screen.findByRole("button", { name: "Ver ficha de suscripción 11111111-1" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Ver ficha de suscripción 11.111.111-1" })).toBeTruthy();
     expect(headers().slice(0, 9)).toEqual(["RUT cliente", "Estado", "Estado sec.", "Monto", "F. Inicio", "F. Cancelación", "Último cobro", "Plataforma", "Acciones"]);
     expect(screen.getAllByRole("button", { name: "Cancelar Sub" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "+ Cargo" })).toHaveLength(1);
@@ -149,7 +149,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
   it("suscripciones: los filtros de monto y fecha usan amount_min/date_from", async () => {
     const app = mountApp("/virtualpos/suscripciones", [recordsHandler(page([vpSubscription(1)]))]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de suscripción 11111111-1" });
+    await screen.findByRole("button", { name: "Ver ficha de suscripción 11.111.111-1" });
     fireEvent.change(screen.getByLabelText("Monto mínimo"), { target: { value: "5000" } });
     await waitFor(() => expect(lastRecordsCall(app).query.get("amount_min")).toBe("5000"));
     fireEvent.change(screen.getByLabelText("F. Inicio desde"), { target: { value: "2025-01-01" } });
@@ -187,7 +187,7 @@ describe("Listas Toku y Payku", () => {
   it("Toku clientes: controles de filtro (campo y búsqueda), petición con filter_field/query y «Restablecer»", async () => {
     const app = mountApp("/toku/clientes", [recordsHandler(page([tokuCustomer(1)]))]);
     await appReady();
-    expect(await screen.findByRole("button", { name: "Ver ficha de cliente 22222221-2" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Ver ficha de cliente 22.222.221-2" })).toBeTruthy();
     expect(screen.getByText("TOKU / STAGING")).toBeTruthy();
     expect(screen.getByText("Filtrar registros")).toBeTruthy();
     expect(headers()).toEqual(["RUT", "Nombre", "Correo electrónico", "Teléfono", "Acciones"]);

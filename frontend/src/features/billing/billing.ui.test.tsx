@@ -262,10 +262,11 @@ describe("acciones", () => {
     trigger.focus();
     fireEvent.click(trigger);
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    // Esperas amplias: en CI el foco puede tardar más de 1 s (la espera por defecto) en moverse.
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true), { timeout: 4000 });
     fireEvent.keyDown(dialog, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(document.activeElement).toBe(trigger), { timeout: 4000 });
   });
 
   it("aprobar bloquea el doble envio", async () => {

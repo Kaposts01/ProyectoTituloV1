@@ -63,6 +63,7 @@ _TOKU_SUBSCRIPTION_EVENTS = frozenset({
     "subscription.created", "subscription.updated", "subscription.deleted", "subscription.cancelled"})
 _TOKU_INVOICE_EVENTS = frozenset({"invoice.paid", "invoice.voided", "invoice.updated", "invoice.created"})
 _TOKU_TRANSACTION_EVENTS = frozenset({"transaction.success", "transaction.failed", "transaction.status_update"})
+_VP_EVENTS = frozenset({"payment", "subscription", "charge_paid", "charge_reject", "card_change"})
 _MAX_CUSTOMER_SUBSCRIPTIONS = 10
 _MAX_BACKOFF_SECONDS = 3600.0
 
@@ -280,14 +281,27 @@ def _decide_virtualpos(db: Session, ev: EventSnapshot) -> Decision:
     res = ev.resource_external_id
     if ev.event_type == "payout":
         return Decision(ignore_code=CODE_IGNORED_KIND)
-    if ev.event_type not in ("payment", "subscription"):
+    if ev.event_type not in _VP_EVENTS:
         return Decision(ignore_code=CODE_UNKNOWN_EVENT)
-    if not res:
+    if not res and not ev.subscription_external_id:
         return Decision(ignore_code=CODE_NO_RESOURCE)
     found: set[tuple[str, str]] = set()
-    if ev.event_type == "subscription":
-        for platform in db.scalars(select(VpSubscription.platform).where(VpSubscription.external_id == res)):
-            found.add((platform, res))
+    if ev.event_type in ("subscription", "card_change"):
+        sub = ev.subscription_external_id or res
+        for platform in db.scalars(select(VpSubscription.platform).where(VpSubscription.external_id == sub)):
+            found.add((platform, sub))
+    elif ev.event_type in ("charge_paid", "charge_reject"):
+        # Eventos PAT sin firma: el id del cargo y la suscripcion solo sirven para elegir que releer por API, y
+        # solo si ya existen localmente (cargo o suscripcion sincronizados).
+        sub = ev.subscription_external_id
+        if sub:
+            for platform in db.scalars(select(VpSubscription.platform).where(VpSubscription.external_id == sub)):
+                found.add((platform, sub))
+        if res:
+            for platform, charge_sub in db.execute(
+                    select(VpCharge.platform, VpCharge.subscription_external_id).where(VpCharge.external_id == res)):
+                if charge_sub:
+                    found.add((platform, charge_sub))
     else:  # payment: por uuid del pago, o del cobro si el uuid coincide con uno
         for platform, charge_id in db.execute(
                 select(VpPayment.platform, VpPayment.charge_external_id).where(VpPayment.external_id == res)):

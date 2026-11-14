@@ -49,7 +49,7 @@ def test_stream_has_bom_header_and_excludes_pii_columns_without_permission() -> 
     assert masked[0] == ["canal", "id"] and len(masked) == 3
     assert "11111111-1" not in str(masked) and "example.test" not in str(masked)
     full = _decode(csv_stream(COLUMNS, True, _rows(2)))
-    assert full[0] == ["canal", "id", "rut_cliente", "correo"] and full[1][2] == "11111111-1"
+    assert full[0] == ["canal", "id", "rut_cliente", "correo"] and full[1][2] == "11.111.111-1"
 
 
 def test_stream_neutralizes_formulas_in_cells() -> None:
@@ -111,3 +111,15 @@ def test_record_export_audit_writes_write_run() -> None:
         assert run.request_payload["rows"] == 5 and run.request_payload["pii_included"] is False
     finally:
         db.close()
+
+
+def test_qa08_el_rut_sale_con_formato_unico_es_cl():
+    """QA-08: el CSV lleva el RUT como la interfaz (12.345.678-9), venga con o sin puntos y guion."""
+    from app.services.exporter import format_rut
+
+    assert format_rut("197292059") == "19.729.205-9"
+    assert format_rut("19780113-1") == "19.780.113-1"
+    assert format_rut("42.000.150-9") == "42.000.150-9"
+    assert format_rut("7654321k") == "7.654.321-K"
+    assert format_rut("2222F3K92") == "2222F3K92"  # sin forma de RUT: tal cual
+    assert format_rut(None) is None and format_rut("") == ""

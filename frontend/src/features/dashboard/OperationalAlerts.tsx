@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { label } from "../../i18n/label";
 import { groupAlerts, normalizeSeverity } from "./alertGroups";
 import type { Alert, AlertDetailItem, AlertSeverity } from "./alertTypes";
+import { Rut } from "../shared/RutCell";
 
 export type { Alert, AlertDetailItem };
 
@@ -93,7 +94,7 @@ export function OperationalAlerts({
           <div className="alert-detail-table-wrap">
             <table className="alert-detail-table">
               <thead><tr><th>RUT</th><th>ID suscripción</th><th>Estado</th><th>Monto</th><th>Fecha suscripción</th>{alertDetail[0]?.lastCharge !== undefined && <th>Último cobro</th>}{alertDetail[0]?.lastChargeStatus !== undefined && <th>Estado último cobro</th>}{alertDetail[0]?.attempts !== undefined && <th>Intentos</th>}</tr></thead>
-              <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td className="mono">{item.rut ?? "—"}</td><td className="alert-detail-id mono">{item.externalId ?? "—"}</td><td>{item.status ? label("status", item.status) : "—"}</td><td className="mono" style={{ textAlign: "right" }}>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td className="mono">{item.subscriptionDate?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.lastCharge !== undefined && <td className="mono">{item.lastCharge?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.lastChargeStatus !== undefined && <td>{item.lastChargeStatus ? label("status", item.lastChargeStatus) : "—"}</td>}{alertDetail[0]?.attempts !== undefined && <td className="mono">{item.attempts}</td>}</tr>)}</tbody>
+              <tbody>{alertDetail.map((item, itemIndex) => <tr key={itemIndex}><td><Rut value={item.rut} /></td><td className="alert-detail-id mono">{item.externalId ?? "—"}</td><td>{item.status ? label("status", item.status) : "—"}</td><td className="mono" style={{ textAlign: "right" }}>{item.amount ? `$${item.amount.toLocaleString("es-CL")}` : "—"}</td><td className="mono">{item.subscriptionDate?.slice(0, 10) ?? "—"}</td>{alertDetail[0]?.lastCharge !== undefined && <td className="mono">{item.lastCharge?.slice(0, 10) ?? "—"}</td>}{alertDetail[0]?.lastChargeStatus !== undefined && <td>{item.lastChargeStatus ? label("status", item.lastChargeStatus) : "—"}</td>}{alertDetail[0]?.attempts !== undefined && <td className="mono">{item.attempts}</td>}</tr>)}</tbody>
             </table>
             <p className="alert-detail-count">{alertDetail.length} registro{alertDetail.length !== 1 ? "s" : ""}</p>
           </div>

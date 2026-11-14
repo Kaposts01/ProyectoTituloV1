@@ -6,6 +6,8 @@ import { ChannelTotals, UnifiedFilterBar, UnifiedPagination } from "./UnifiedCon
 import { StatusText, channelText, day, detailPath, money } from "./unifiedDisplay";
 import { VIEW_PERMISSIONS, canAny, type StatusFacets, type SubscriptionRow, type UnifiedPage } from "./unifiedTypes";
 import { cleanParams, useUnifiedGet } from "./useUnifiedList";
+import { Rut } from "../shared/RutCell";
+import { rutText } from "../shared/rut";
 
 const PAGE = 50;
 const FIELDS = [
@@ -100,7 +102,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
                       <td>{channelText(row.channel)}</td>
                       <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.subscription_id}</button> : row.subscription_id}</td>
                       <td>{row.name || "—"}</td>
-                      <td className="mono">{row.rut ? (member ? <button type="button" className="text-button" aria-label={`Ver socio ${row.rut}`} onClick={member}>{row.rut}</button> : row.rut) : "—"}</td>
+                      <td>{row.rut ? (member ? <button type="button" className="text-button" aria-label={`Ver socio ${rutText(row.rut)}`} onClick={member}><Rut value={row.rut} /></button> : <Rut value={row.rut} />) : "—"}</td>
                       <td><StatusText value={row.status} /></td>
                       <td><span className={`badge badge-${secondaryBadge(row.secondary_status)}`}>{labelOr("secondaryStatus", row.secondary_status, "—")}</span></td>
                       <td className="mono">{day(row.last_charge)}</td>

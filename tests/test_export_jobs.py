@@ -121,7 +121,7 @@ def test_count_reports_background_and_job_runs_downloads_and_audits(caplog) -> N
     assert download.status_code == 200 and "attachment" in download.headers["content-disposition"]
     rows = list(csv.DictReader(io.StringIO(download.content.decode("utf-8-sig"))))
     assert [r["ID de cobro"] for r in rows] == [f"c1-{sfx}", f"c2-{sfx}"]
-    assert rows[0]["RUT del cliente"] == SECRET_RUT  # con export.pii el archivo lleva PII
+    assert rows[0]["RUT del cliente"] == "77.777.777-7"  # con export.pii el archivo lleva PII (formato es-CL, QA-08)
 
     # nada personal en la tabla de jobs ni en los logs
     db = SessionLocal()
@@ -147,7 +147,7 @@ def test_job_without_pii_permission_omits_personal_columns() -> None:
     job = client.post("/api/v1/export/cobros/jobs", params=PARAMS, headers=csrf).json()
     assert job["include_pii"] is False
     content = client.get(job["download_url"]).content.decode("utf-8-sig")
-    assert "RUT del cliente" not in content and SECRET_RUT not in content
+    assert "RUT del cliente" not in content and SECRET_RUT not in content and "77.777.777-7" not in content
 
 
 def test_permissions_owner_only_and_limits() -> None:

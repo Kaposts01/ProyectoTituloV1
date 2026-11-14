@@ -62,7 +62,8 @@ Content-Type: application/json
 ## 3. Ambientes [Confirmado]
 
 - **Un único ambiente productivo**: `https://api.trytoku.com`.
-- **No existe sandbox documentado.** Cualquier `POST`, `PUT` o `DELETE` afecta datos reales y puede disparar comunicaciones reales a personas.
+- **No existe un ambiente sandbox separado** ([Conexión y ambientes](https://docs.trytoku.com/reference/conexion-y-ambientes); el soporte lo repitió en la ficha d167). Lo que el CRM llama «sandbox» son **llaves de prueba sobre el mismo host** `api.trytoku.com`. Cualquier `POST`, `PUT` o `DELETE` debe tratarse como si afectara datos reales y pudiera disparar comunicaciones reales a personas.
+- Para probar inscripciones PAC (Chile), el soporte (d168) indica que el **portal en modo demo** acepta el RUT `11.111.111-1` con cualquier contraseña; las coordenadas `00 00 00` simulan un rechazo y cualquier otra, una inscripción exitosa (guía oficial «Subir deudas y recibir pagos»). No hay tarjetas ni montos de prueba para simular rechazos de tarjeta. **[No verificado en nuestra cuenta]**
 
 **[Recomendación]** Reglas para probar en producción:
 1. Usar identificadores reconocibles: `external_id` y `product_id` que empiecen con `TEST-`.
@@ -74,7 +75,7 @@ Content-Type: application/json
 
 ### 3.1 "Sandbox" del CRM y guardas de escritura [Confirmado en código]
 
-En el CRM, `APP_ENV=sandbox|qa` usa la **misma URL base** (`api.trytoku.com`) y solo cambia la llave `x-api-key` (variables `TOKU_SANDBOX_*`). **No se ha verificado que esa llave vea datos aislados de producción**; se trata como no aislada. Por eso, fuera de producción:
+En el CRM, `APP_ENV=sandbox|qa` usa la **misma URL base** (`api.trytoku.com`, el único ambiente de Toku) y solo cambia la llave `x-api-key` (llaves de prueba en las variables `TOKU_SANDBOX_*`; el nombre de las variables se mantiene). **No se ha verificado que esa llave vea datos aislados de producción**; se trata como no aislada. Por eso, fuera de producción:
 
 - Config: `TOKU_BASE_SANDBOX_URL` debe ser `https` con host exacto `api.trytoku.com` (otro host falla al arrancar; el mensaje nombra la variable, no su valor) y se registra una advertencia de que el host se comparte. Sigue vigente que las llaves sandbox no pueden ser iguales a las de producción.
 - `TokuClient` llama a `assert_sandbox_write_allowed` (`app/integrations/toku/write_guard.py`) antes de cada POST/PUT/DELETE, antes de tocar la red. Producción no pasa por esta guarda. Reglas: `TOKU_SANDBOX_WRITES_ENABLED=true` **y** `TOKU_SANDBOX_ALLOW_WRITES_ARMED=1` (variable de proceso); lista blanca de endpoints (lo no contemplado se bloquea); batch/bulk bloqueados; claves de negocio (`external_id`, `product_id`, `invoice_external_id`, `unique_external_id`) con prefijo `TEST-`; invoices con `disable_automatic_payment: true` y checkout con `skip_message_trigger: true`; PUT/DELETE/void/status solo sobre IDs `TEST-` o listados en `TOKU_SANDBOX_ALLOWED_IDS`; tope `TOKU_SANDBOX_MAX_WRITES` (25) por proceso.

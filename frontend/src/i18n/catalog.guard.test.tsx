@@ -106,7 +106,7 @@ GUARDED_VIEWS.push(
       ["GET", /^\/api\/v1\/tch\/clientes\/[^/]+$/, tchCliente],
     ],
     ready: async () => {
-      fireEvent.click(await screen.findByRole("button", { name: "22222221-2" }));
+      fireEvent.click(await screen.findByRole("button", { name: "22.222.221-2" }));
       return screen.findByText("TCH / CLIENTE");
     },
   },
@@ -162,7 +162,7 @@ GUARDED_VIEWS.push(
       ["GET", /^\/api\/v1\/staging\/dashboard\/general\/clients\/[^/]+$/, { rut: "11111111-1", clients: [], subscriptions: [{ portal: "Toku", id_subscription: "1", external_id: "tsu-1", status: "CANCELLED" }], charges: [{ portal: "VirtualPOS", id_cargo: "2", external_id: "c-1", status: "PAID", amount: "1000" }], transactions: [] }],
     ],
     ready: async () => {
-      fireEvent.click(await screen.findByRole("button", { name: "11111111-1" }));
+      fireEvent.click(await screen.findByRole("button", { name: "11.111.111-1" }));
       return screen.findByText(/Ficha general/);
     },
   },

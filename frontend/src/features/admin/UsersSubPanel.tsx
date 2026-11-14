@@ -77,30 +77,32 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
         </form>
       ) : null}
       {loading ? <p className="muted-copy">Cargando…</p> : (
-        <table className="staging-table">
-          <thead>
-            <tr>
-              <th>Usuario</th><th>Roles</th><th>Estado</th><th>Creado</th>
-              {canManage ? <th>Acciones</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td>{u.username}</td>
-                <td>{u.roles.length ? u.roles.map((r) => r.name).join(", ") : <em className="muted-copy">Sin roles</em>}</td>
-                <td><span className={`badge ${u.is_active ? "badge-green" : "badge-gray"}`}>{u.is_active ? "Activo" : "Inactivo"}</span></td>
-                <td>{u.created_at ? new Date(u.created_at).toLocaleDateString("es-CL") : "-"}</td>
-                {canManage ? (
-                  <td>
-                    <button className="channel-btn" onClick={() => { setEditTarget(u); setMessage(null); }}>Editar</button>{" "}
-                    <button className="channel-btn" onClick={() => { setPwTarget(u); setMessage(null); }}>Contraseña</button>
-                  </td>
-                ) : null}
+        <div className="table-wrap">
+          <table className="staging-table">
+            <thead>
+              <tr>
+                <th>Usuario</th><th>Roles</th><th>Estado</th><th>Creado</th>
+                {canManage ? <th>Acciones</th> : null}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.username}</td>
+                  <td>{u.roles.length ? u.roles.map((r) => r.name).join(", ") : <em className="muted-copy">Sin roles</em>}</td>
+                  <td><span className={`badge ${u.is_active ? "badge-green" : "badge-gray"}`}>{u.is_active ? "Activo" : "Inactivo"}</span></td>
+                  <td>{u.created_at ? new Date(u.created_at).toLocaleDateString("es-CL") : "-"}</td>
+                  {canManage ? (
+                    <td>
+                      <button className="channel-btn" onClick={() => { setEditTarget(u); setMessage(null); }}>Editar</button>{" "}
+                      <button className="channel-btn" onClick={() => { setPwTarget(u); setMessage(null); }}>Contraseña</button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {editTarget ? (
         <div className="edit-dialog-backdrop" role="presentation" onClick={() => setEditTarget(null)}>

@@ -80,28 +80,30 @@ export function WebhookHealthPanel() {
             {health.processor_enabled ? "El procesador de la cola está encendido." : "El procesador de la cola está apagado: los avisos solo se acumulan."}
           </p>
           <div className="webhook-health-wrap">
-            <table className="webhook-health-table">
-              <thead>
-                <tr>
-                  <th>Canal</th>
-                  {STATUSES.map((s) => <th key={s}>{label("webhookStatus", s)}</th>)}
-                  <th>Demora del pendiente más antiguo</th>
-                  <th>Último recibido</th>
-                  <th>Procesados en 24 h</th>
-                </tr>
-              </thead>
-              <tbody>
-                {health.sources.map((s) => (
-                  <tr key={s.source}>
-                    <td>{label("channel", s.source)}</td>
-                    {STATUSES.map((st) => <td key={st} className="mono">{s.counts[st] ?? 0}</td>)}
-                    <td className="mono">{s.pending_lag_minutes === null ? "—" : `${s.pending_lag_minutes} min`}</td>
-                    <td className="mono">{when(s.last_received_at)}</td>
-                    <td className="mono">{s.done_last_24h}</td>
+            <div className="table-wrap">
+              <table className="webhook-health-table">
+                <thead>
+                  <tr>
+                    <th>Canal</th>
+                    {STATUSES.map((s) => <th key={s}>{label("webhookStatus", s)}</th>)}
+                    <th>Demora del pendiente más antiguo</th>
+                    <th>Último recibido</th>
+                    <th>Procesados en 24 h</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {health.sources.map((s) => (
+                    <tr key={s.source}>
+                      <td>{label("channel", s.source)}</td>
+                      {STATUSES.map((st) => <td key={st} className="mono">{s.counts[st] ?? 0}</td>)}
+                      <td className="mono">{s.pending_lag_minutes === null ? "—" : `${s.pending_lag_minutes} min`}</td>
+                      <td className="mono">{when(s.last_received_at)}</td>
+                      <td className="mono">{s.done_last_24h}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
           {health.error_codes_24h.length ? (
             <ul>
@@ -113,21 +115,23 @@ export function WebhookHealthPanel() {
             <>
               <button type="button" disabled={busy} onClick={() => void requeue({ all_failed: true })}>Reprocesar todos los fallidos</button>
               <div className="webhook-health-wrap">
-                <table className="webhook-health-table">
-                  <thead><tr><th>Canal</th><th>Tipo de aviso</th><th>Intentos</th><th>Motivo</th><th>Recibido</th><th /></tr></thead>
-                  <tbody>
-                    {failed.map((ev) => (
-                      <tr key={ev.id}>
-                        <td>{label("channel", ev.source)}</td>
-                        <td className="mono" data-raw-text>{ev.event_type}</td>
-                        <td className="mono">{ev.attempts}</td>
-                        <td>{labelOr("webhookErrorCode", ev.last_error_code, "—")}</td>
-                        <td className="mono">{when(ev.received_at)}</td>
-                        <td><button type="button" disabled={busy} onClick={() => void requeue({ ids: [ev.id] })}>Reprocesar</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="table-wrap">
+                  <table className="webhook-health-table">
+                    <thead><tr><th>Canal</th><th>Tipo de aviso</th><th>Intentos</th><th>Motivo</th><th>Recibido</th><th /></tr></thead>
+                    <tbody>
+                      {failed.map((ev) => (
+                        <tr key={ev.id}>
+                          <td>{label("channel", ev.source)}</td>
+                          <td className="mono" data-raw-text>{ev.event_type}</td>
+                          <td className="mono">{ev.attempts}</td>
+                          <td>{labelOr("webhookErrorCode", ev.last_error_code, "—")}</td>
+                          <td className="mono">{when(ev.received_at)}</td>
+                          <td><button type="button" disabled={busy} onClick={() => void requeue({ ids: [ev.id] })}>Reprocesar</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           ) : <p className="muted-copy">No hay eventos fallidos.</p>}

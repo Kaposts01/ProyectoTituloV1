@@ -12,7 +12,8 @@ Un chequeo (`run_alert_check`, lo llama el job cada 15 min) evalua condiciones y
 - `cancellation_stuck`: solicitudes de baja en `requires_reconciliation`, o en `applying` mas de 30 min.
 - `billing_stuck`: solicitudes de cambio de cobro en `requiere_conciliacion`, o en `aplicando` mas de 30 min.
 - Fuentes de otros modulos: `billing_reconciliation` (BILL-22), `removal_aborted` (SYNC-D-13), `report_stale` y
-  `write_failed` (`ops_alerts`, d139e/f) y `business_*` (`business_alerts`, d139d).
+  `write_failed` (`ops_alerts`, d139e/f), `business_*` (`business_alerts`, d139d) y `vp_subscriptions_ending_soon`
+  (`vp_ending_alerts`, d189).
 
 d138: cada fuente puede tener su bandera (`enabled`); con solo `ALERTS_ENABLED=true` quedan activas `sync_fail`,
 `core_lag`, `cancellation_stuck`, `billing_stuck` y `billing_reconciliation`. Ver `active_kinds()`.
@@ -570,4 +571,5 @@ from app.services import (  # noqa: E402
     billing_alerts,  # noqa: F401
     business_alerts,  # noqa: F401
     ops_alerts,  # noqa: F401
+    vp_ending_alerts,  # noqa: F401
 )

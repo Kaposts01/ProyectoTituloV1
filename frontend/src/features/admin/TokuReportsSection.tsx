@@ -100,27 +100,29 @@ export function TokuReportsSection({ permissions, nested = false }: { permission
       )}
       {status && status.reports.length === 0 && <p className="muted-copy">Todavía no se ha cargado ningún reporte.</p>}
       {status && status.reports.length > 0 && (
-        <table className="toku-reports-table">
-          <thead>
-            <tr><th>Reporte</th><th>Fecha del dato</th><th>Antigüedad</th><th>Cargado</th><th>Archivo</th><th>Filas</th><th>Resultado</th></tr>
-          </thead>
-          <tbody>
-            {status.reports.map((row) => (
-              <tr key={row.report_type} data-stale={row.is_stale ? "true" : undefined}>
-                <td>{label("tokuReportType", row.report_type)}</td>
-                <td className="mono">{formatDateTime(row.generated_at)}</td>
-                <td>
-                  <span className="mono">{row.age_days ?? "—"}</span>{row.age_days !== null ? " días" : ""}
-                  {row.is_stale ? <strong> (más de {maxAge} días)</strong> : null}
-                </td>
-                <td className="mono">{formatDateTime(row.loaded_at)}</td>
-                <td className="mono">{row.filename ?? "—"}</td>
-                <td className="mono">{row.rows_total}</td>
-                <td>{row.result ? label("reportImportResult", row.result) : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table className="toku-reports-table">
+            <thead>
+              <tr><th>Reporte</th><th>Fecha del dato</th><th>Antigüedad</th><th>Cargado</th><th>Archivo</th><th>Filas</th><th>Resultado</th></tr>
+            </thead>
+            <tbody>
+              {status.reports.map((row) => (
+                <tr key={row.report_type} data-stale={row.is_stale ? "true" : undefined}>
+                  <td>{label("tokuReportType", row.report_type)}</td>
+                  <td className="mono">{formatDateTime(row.generated_at)}</td>
+                  <td>
+                    <span className="mono">{row.age_days ?? "—"}</span>{row.age_days !== null ? " días" : ""}
+                    {row.is_stale ? <strong> (más de {maxAge} días)</strong> : null}
+                  </td>
+                  <td className="mono">{formatDateTime(row.loaded_at)}</td>
+                  <td className="mono">{row.filename ?? "—"}</td>
+                  <td className="mono">{row.rows_total.toLocaleString("es-CL")}</td>
+                  <td>{row.result ? label("reportImportResult", row.result) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <input ref={inputRef} type="file" accept=".xlsx" hidden aria-label="Archivo de reporte de Toku" onChange={upload} />
       <button type="button" className="primary-button" disabled={uploading} onClick={() => inputRef.current?.click()}>

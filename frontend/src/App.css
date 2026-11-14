@@ -419,11 +419,15 @@ td:first-child { font-weight: 700; }
 .alert-detail-id { font-family: monospace; font-size: 0.78rem; color: var(--text-muted); }
 .alert-detail-count { margin-top: 0.6rem; font-size: 0.8rem; color: var(--text-muted); text-align: right; }
 @media (max-width: 768px) {
-  .dashboard-alert-row { grid-template-columns: 4.5rem 1fr auto; grid-template-rows: auto auto; }
-  .dashboard-alert-tipo { grid-column: 2; }
-  .dashboard-alert-canal { grid-column: 1 / -1; }
+  /* QA-12: la fila se apila y ninguna celda puede ensanchar la página (antes llegaba a 430 px a 390 px de ancho). */
+  .dashboard-alert-row,
+  .dashboard-alert-subrow .dashboard-alert-row { grid-template-columns: 4.5rem minmax(0, 1fr) auto; grid-template-rows: auto auto; }
+  .dashboard-alert-row > * { min-width: 0; overflow-wrap: anywhere; }
+  .dashboard-alert-tipo { grid-column: 2; white-space: normal; }
+  .dashboard-alert-canal, .dashboard-alert-periodo { grid-column: 1 / -1; }
   .dashboard-alert-detalle { grid-column: 1 / -1; }
   .alert-ver-mas { grid-column: 3; grid-row: 1; }
+  .dashboard-alert-sublist { margin-left: 0.5rem; }
 }
 
 /* ── Profile panel ───────────────────────────────────────────────── */
@@ -507,6 +511,7 @@ td:first-child { font-weight: 700; }
 .runs-date { font-size: 0.82rem; white-space: nowrap; }
 .runs-dur { font-size: 0.82rem; white-space: nowrap; color: var(--text-muted); }
 .runs-type { font-size: 0.8rem; color: var(--text-1); white-space: nowrap; }
+.runs-failed { color: var(--status-rejected); font-weight: 600; }
 .runs-rec { font-size: 0.82rem; }
 .runs-rec-val { font-variant-numeric: tabular-nums; font-weight: 500; }
 /* SYNC-D-17: detalle por recurso de una ejecucion (cifras en JetBrains Mono, DESIGN.md). */
@@ -663,6 +668,13 @@ h1, h2, h3, .eyebrow {
   font-size: 0.88em;
   letter-spacing: 0;
 }
+/* RUT (QA-08): formato único 12.345.678-9 en mono, sin negrita heredada; el no válido lleva la marca en texto. */
+.rut { font-weight: 400; white-space: nowrap; }
+.rut-invalid-tag {
+  font-family: var(--font-body, 'General Sans', system-ui, sans-serif);
+  font-size: 10px; font-weight: 600; color: var(--status-rejected, #8b3030);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
 /* Columnas numéricas de tabla: alineadas a la derecha (DESIGN.md, Tables). */
 td.num { text-align: right; }
 
@@ -778,7 +790,19 @@ td.num { text-align: right; }
 .unified-summary { margin-bottom: 16px; }
 
 /* L7-IMPORT: panel «Importar reportes de plataformas». Contenedor sin tarjeta propia (no se anidan cards). */
-.platform-reports { display: grid; gap: var(--space-md, 16px); margin-top: var(--space-lg, 24px); }
+/* QA-03: la grilla usa una pista minmax(0, 1fr) y sus tarjetas min-width: 0; si no, una tabla ancha (Toku) ensanchaba
+   todas las tarjetas hermanas y la página llegaba a 1029 px en móvil. Las tablas van en .table-wrap con scroll propio. */
+.platform-reports { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md, 16px); margin-top: var(--space-lg, 24px); }
+.platform-reports > * { min-width: 0; }
 .platform-reports > .panel-heading h2 { margin: 0; }
 .platform-reports-table td.mono { font-variant-numeric: tabular-nums; }
 .platform-reports-card .primary-button { margin-top: 12px; }
+
+/* QA-07: aviso de mes en curso en el Resumen (datos parciales, sin variación contra el mes anterior). */
+.summary-partial {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  margin: 0 0 16px; padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: var(--r2, 6px);
+  background: var(--bg-muted); color: var(--text-1); font-size: 13px;
+}
+.summary-partial p { margin: 0; flex: 1 1 280px; }

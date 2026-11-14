@@ -21,6 +21,11 @@ describe("Panel ETL en Socios (/central/clientes)", () => {
     ]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "↻ Sync completo" }));
+    // QA-02: el primer clic no sincroniza; pide confirmación y dice qué canales va a leer
+    const dialog = screen.getByRole("alertdialog", { name: "Confirmar Sync completo" });
+    expect(dialog.textContent).toContain("VirtualPOS, Toku y Payku");
+    expect(app.find("POST", "/api/v1/etl/full-sync")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Sí, sincronizar VirtualPOS, Toku y Payku" }));
     await waitFor(() => expect(app.find("POST", "/api/v1/etl/full-sync")).toHaveLength(1));
     expect(app.find("POST", "/api/v1/etl/full-sync")[0].body).toEqual({ providers: ["virtualpos", "toku", "payku"] });
     const busy = screen.getByRole("button", { name: "Procesando…" });
@@ -31,10 +36,41 @@ describe("Panel ETL en Socios (/central/clientes)", () => {
     expect(app.find("GET", "/api/v1/etl/runs/run-1")).toHaveLength(1);
   }, 15000);
 
+  it("QA-02: Cancelar cierra la confirmación sin sincronizar; sin etl.run no hay botón", async () => {
+    const app = mountApp("/central/clientes", [clientsHandler, ["POST", "/api/v1/etl/full-sync", { run_id: "run-x" }]]);
+    await appReady();
+    fireEvent.click(await screen.findByRole("button", { name: "↻ Sync completo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(app.find("POST", "/api/v1/etl/full-sync")).toHaveLength(0);
+    resetApp();
+    mountApp("/central/clientes", [clientsHandler], { permissions: ["dashboard.view"] });
+    await appReady();
+    expect(await screen.findByRole("heading", { name: "Socios", level: 1 })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "↻ Sync completo" })).toBeNull();
+  });
+
+  it("QA-02/QA-10: la cabecera usa el patrón de Cartera y el chip muestra el ambiente real (nunca «Staging local»)", async () => {
+    mountApp("/central/clientes", [clientsHandler]);
+    await appReady();
+    expect(await screen.findByRole("heading", { name: "Socios", level: 1 })).toBeTruthy();
+    expect(await screen.findByText("Test", { selector: ".sync-state" })).toBeTruthy();
+    expect(screen.queryByText("Staging local")).toBeNull();
+    expect(screen.queryByText(/Operación consolidada/)).toBeNull();
+  });
+
+  it("QA-02: en producción el chip de ambiente desaparece", async () => {
+    mountApp("/central/clientes", [clientsHandler, ["GET", "/api/v1/system/environment", { app_env: "production", label: "Producción", is_production: true }]]);
+    await appReady();
+    await screen.findByRole("heading", { name: "Socios", level: 1 });
+    await waitFor(() => expect(document.querySelector(".topbar .sync-state")).toBeNull());
+  });
+
   it("Sync completo: si falla el inicio muestra el error y vuelve a habilitar el botón", async () => {
     mountApp("/central/clientes", [clientsHandler, ["POST", "/api/v1/etl/full-sync", failWith(409, "ya hay una corrida")]]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "↻ Sync completo" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Sí, sincronizar/ }));
     expect(await screen.findByText("ya hay una corrida")).toBeTruthy();
     expect((screen.getByRole("button", { name: "↻ Sync completo" }) as HTMLButtonElement).disabled).toBe(false);
   });
@@ -43,7 +79,7 @@ describe("Panel ETL en Socios (/central/clientes)", () => {
 const client = (n: number) => ({ rut: `1111111${n}-1`, name: `Persona Sintética ${n}`, origins: ["VirtualPOS", "Toku"], active_origins: n === 1 ? ["VirtualPOS"] : [] });
 
 describe("Clientes consolidados (/central/clientes)", () => {
-  const list = { items: [client(1), client(2)], total: 250, offset: 0, limit: 100 };
+  const list = { items: [client(1), client(2)], total: 250, offset: 0, limit: 50 };
 
   it("UX-10: filtros de canal y estado van a la API, el canal al Exportar y se avisa que el RUT no está verificado", async () => {
     const app = mountApp("/central/clientes", [
@@ -51,7 +87,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
       ["GET", "/api/v1/export/clientes/count", { entity: "clientes", rows: 3, canales: [], include_pii: false }],
     ]);
     await appReady();
-    await screen.findByRole("button", { name: "11111111-1" });
+    await screen.findByRole("button", { name: "11.111.111-1" });
     expect(screen.getByText(/no verificado/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Canal de los socios"), { target: { value: "tch" } });
     fireEvent.change(screen.getByLabelText("Estado de los socios"), { target: { value: "active" } });
@@ -68,7 +104,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
   it("d143: chips de filtros en Socios; «×» quita uno y «Limpiar filtros» los quita todos", async () => {
     const app = mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", list]]);
     await appReady();
-    await screen.findByRole("button", { name: "11111111-1" });
+    await screen.findByRole("button", { name: "11.111.111-1" });
     expect(document.querySelector(".filter-count")?.textContent).toBe("250 socios");
     fireEvent.change(screen.getByLabelText("Canal de los socios"), { target: { value: "tch" } });
     fireEvent.change(screen.getByLabelText("Estado de los socios"), { target: { value: "active" } });
@@ -87,9 +123,9 @@ describe("Clientes consolidados (/central/clientes)", () => {
   it("pide la primera página y muestra título, columnas, filas y paginación", async () => {
     const app = mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", list]]);
     await appReady();
-    expect(await screen.findByRole("button", { name: "11111111-1" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "11.111.111-1" })).toBeTruthy();
     const call = app.find("GET", "/api/v1/staging/dashboard/general/clients")[0];
-    expect(call.query.get("limit")).toBe("100");
+    expect(call.query.get("limit")).toBe("50"); // QA-10: 50 por página, como Cobros y Suscripciones
     expect(call.query.get("offset")).toBe("0");
     expect(call.query.get("filter_field")).toBe("all");
     expect(call.query.has("query")).toBe(false);
@@ -108,10 +144,10 @@ describe("Clientes consolidados (/central/clientes)", () => {
   it("buscar, cambiar el campo y paginar piden la lista con los parámetros y reflejan campo y offset en la URL", async () => {
     const app = mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", list]]);
     await appReady();
-    await screen.findByRole("button", { name: "11111111-1" });
+    await screen.findByRole("button", { name: "11.111.111-1" });
     fireEvent.click(screen.getByRole("button", { name: "Siguiente →" }));
-    await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)?.query.get("offset")).toBe("100"));
-    expect(window.location.search).toBe("?offset=100");
+    await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)?.query.get("offset")).toBe("50"));
+    expect(window.location.search).toBe("?offset=50");
     fireEvent.change(screen.getByLabelText("Campo de búsqueda de clientes"), { target: { value: "rut" } });
     await waitFor(() => {
       const last = app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)!;
@@ -126,7 +162,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
   it("un enlace profundo con ?campo y ?offset se aplica a la primera petición", async () => {
     const app = mountApp("/central/clientes?campo=email&offset=200", [["GET", "/api/v1/staging/dashboard/general/clients", { ...list, offset: 200 }]]);
     await appReady();
-    await screen.findByRole("button", { name: "11111111-1" });
+    await screen.findByRole("button", { name: "11.111.111-1" });
     const last = app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)!;
     expect(last.query.get("filter_field")).toBe("email");
     expect(last.query.get("offset")).toBe("200");
@@ -151,8 +187,8 @@ describe("Clientes consolidados (/central/clientes)", () => {
       ["GET", "/api/v1/staging/dashboard/general/clients/11111111-1", detail],
     ]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "11111111-1" }));
-    expect(await screen.findByText("Ficha general: 11111111-1")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "11.111.111-1" }));
+    expect(await screen.findByRole("heading", { name: "Ficha general: 11.111.111-1" })).toBeTruthy();
     expect(app.find("GET", "/api/v1/staging/dashboard/general/clients/11111111-1")).toHaveLength(1);
     for (const title of ["IDs de cliente", "Suscripciones", "Cargos", "Transacciones"]) expect(screen.getByRole("heading", { name: title })).toBeTruthy();
     expect(screen.getByText("$10.000")).toBeTruthy();
@@ -160,7 +196,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(screen.getByRole("button", { name: "← Volver a clientes" }));
-    expect(await screen.findByRole("button", { name: "11111111-1" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "11.111.111-1" })).toBeTruthy();
   });
 
   it("si falla la ficha muestra el error", async () => {
@@ -169,7 +205,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
       ["GET", "/api/v1/staging/dashboard/general/clients/11111111-1", failWith(500, "ficha rota")],
     ]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "11111111-1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "11.111.111-1" }));
     expect(await screen.findByText("ficha rota")).toBeTruthy();
   });
 });
@@ -214,7 +250,7 @@ describe("Suscripciones unificadas (/central/suscripciones)", () => {
     fireEvent.change(screen.getByLabelText("Buscar en"), { target: { value: "rut" } });
     fireEvent.change(screen.getByLabelText("Texto"), { target: { value: "1111" } });
     await waitFor(() => expect(Object.fromEntries(app.exact("GET", "/api/v1/general/subscriptions").at(-1)!.query)).toEqual({ canal: "tch", status: "ACTIVA", filter_field: "rut", query: "1111", offset: "0", limit: "50" }));
-    fireEvent.click(screen.getByRole("button", { name: "Ver socio 11111111-1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver socio 11.111.111-1" }));
     await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)?.query.get("filter_field")).toBe("rut"));
   });

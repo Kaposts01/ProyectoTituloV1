@@ -1,6 +1,6 @@
 # Webhooks y notificaciones
 
-> Fuentes: https://virtualpos.readme.io/reference/webhook · https://virtualpos.readme.io/reference/webhook-payout · Verificado: 2026-10-12
+> Fuentes: https://virtualpos.readme.io/reference/webhook · https://virtualpos.readme.io/reference/webhook-payout · Verificado: 2026-10-12; sección de eventos PAT, cuerpos de suscripción y cargos revisada el 2026-11-09
 
 ## 1. Resumen
 
@@ -8,9 +8,13 @@
 | --- | --- | --- | --- | --- |
 | **Payment** (webhook) | `callback_url` (Base64) en *Crear Payment* / *Web Checkout* | `HTTP POST` con el `uuid` del Payment | **No documentada** | `GET /v3/payment/{uuid}` y actualizar |
 | **Payment** (retorno del navegador) | `return_url` (Base64) | Redirección del navegador con `uuid` por `HTTP POST` | No | `GET /v3/payment/{uuid}` y mostrar resultado |
-| **Suscription** | `callback_url` (Base64) en *Crear Suscription* | Callback asíncrono al terminar la inscripción. **Contenido no documentado** | No documentada | `GET /v3/suscription/{id}` |
+| **Suscription** (API) | `callback_url` (Base64) en *Crear Suscription* | Callback asíncrono al terminar la inscripción (activa o fallida). Cuerpo `{"uuid": "<suscripción>"}` | No documentada | `GET /v3/suscription/{id}` |
+| **Suscription** (POS) | Portal Comercio → Webhooks → servicio PAT → evento `suscription_activated` | Cuerpo `{"status","code","suscription":{"uuid"}}` (`status`/`code` son de la notificación, no del negocio) | No documentada | `GET /v3/suscription/{suscription.uuid}` |
 | **Payout** | Se acuerda con VirtualPOS (obligatorio) | `HTTPS POST` con el **objeto payout** en el body | **HMAC-SHA256 del body** en header `Signature` | Validar firma → actualizar |
-| **Charge** (cobros recurrentes) | — | **No existe webhook documentado** | — | Polling (ver [sync](workflows/sync-virtualpos.md)) |
+| **Charge** (cobros PAT) | Portal Comercio → Webhooks → servicio PAT → eventos `charge_paid` / `charge_reject` | Detalle del cargo: `id`, `suscription_uuid`, `status`, y `payment` con datos del cliente y del pago (puede ser `null`) | No documentada | `GET /v3/charge/{id}`; no persistir el cuerpo |
+| **Cambio de tarjeta** | Portal Comercio → servicio PAT → evento `card_change` | `{"uuid": "<suscripción>"}` | No documentada | `GET /v3/suscription/{uuid}` |
+
+Eventos PAT configurables en el Portal Comercio (sección Webhooks: Agregar webhook → servicio PAT → evento → URL sin Base64): `suscription_activated`, `suscription_failed`, `charge_paid`, `charge_reject`, `card_change` (la doc conserva la grafía *suscription*). Varios cuerpos traen solo `uuid` y no el nombre del evento: la doc recomienda **una ruta por evento**. Algunos envíos PAT declaran `Content-Type: application/x-www-form-urlencoded`: el receptor debe aceptar JSON y form. La doc **no documenta firma ni IPs de origen** para estos eventos (solo Payout tiene HMAC). Las suscripciones creadas por API siguen usando su propio `callback_url`. Receptor del CRM: `app/api/v1/routes/webhooks_virtualpos.py` (rutas `payment`, `subscription`, `charge_paid`, `charge_reject`, `card_change`, `payout`; ver [docs/data/webhooks.md](../../../data/webhooks.md)).
 
 ## 2. Webhook de Payment
 
@@ -58,9 +62,9 @@ Por qué así:
 
 ## 3. Callback de Suscription
 
-La doc solo dice: "URL a la cual se realizará un callback asíncrono una vez que se haya finalizado el proceso de inscripción". Formato, parámetros y reintentos: No confirmado en la documentación oficial de VirtualPOS.
+La doc (revisada 2026-11-09) documenta el cuerpo: `{"uuid": "<suscripción>"}` para suscripciones creadas por API (se envía tanto si queda activa como si falla), y `{"status": "OK", "code": 200, "suscription": {"uuid": "..."}}` para suscripciones creadas en POS (evento PAT `suscription_activated`). El cuerpo no trae el estado de negocio: hay que consultar *Recuperar una Suscription*. Reintentos: No confirmado en la documentación oficial de VirtualPOS.
 
-**Recomendación:** misma estrategia que Payment. Acepta JSON o form, extrae cualquier identificador (`suscription_id`, `id`, `uuid`) y **guarda el body crudo** en staging para descubrir el formato real en sandbox. Como respaldo, al crear la suscripción guarda el `id` y programa una consulta a los 15 minutos / 1 hora / 24 horas mientras siga `SUSCRIBIENDO`.
+**Recomendación:** misma estrategia que Payment. Acepta JSON o form, extrae el identificador (`uuid` o `suscription.uuid`) y relee por API. Sin firma, no se persiste el cuerpo: solo el id. Como respaldo, al crear la suscripción guarda el `id` y programa una consulta a los 15 minutos / 1 hora / 24 horas mientras siga `SUSCRIBIENDO`.
 
 ## 4. Webhook de Payout
 
@@ -120,7 +124,7 @@ app.post('/webhooks/virtualpos/payout', express.raw({ type: '*/*' }), (req, res)
 - [ ] HTTPS público con certificado válido.
 - [ ] `callback_url` y `return_url` codificadas en **Base64** al enviarlas.
 - [ ] Responde `200` en < 2 s; procesa en cola.
-- [ ] Re-consulta el recurso (Payment/Suscription); nunca confíes en el body (salvo Payout con HMAC válido).
+- [ ] Re-consulta el recurso (Payment/Suscription/Charge); nunca confíes en el body (salvo Payout con HMAC válido).
 - [ ] `upsert` idempotente por ID.
-- [ ] Guarda el body crudo en staging (auditoría + descubrir formatos no documentados).
-- [ ] Polling de respaldo para lo que no tiene webhook (Charges) o por si el webhook no llega.
+- [ ] No guardes el body de los canales sin firma: los eventos de cargo traen datos del cliente y del pago. Guarda solo ids y estado.
+- [ ] Polling de respaldo por si el webhook no llega o el evento PAT no está configurado en el Portal Comercio.

@@ -176,9 +176,9 @@ Medir qué cuenta cada campo antes de reportar una cifra; tests nunca contra `cr
 
 | Afirmación de la documentación de VirtualPOS | Realidad |
 |---|---|
-| `POST /v3/charge` falla con E-113 en planes MONTO_FIJO | **Se acepta** |
+| `POST /v3/charge` falla con E-113 en planes MONTO_FIJO (*inferencia nuestra* a partir del mensaje de E-113; la doc no lo afirma) | **Se acepta** |
 | Los errores llegan con HTTP 400 | Llegan con **HTTP 200** y cuerpo `{"status":"NOK",...}` |
-| `internal_code` evita duplicados (E-086) | **No** |
+| `internal_code` evita duplicados (*lectura nuestra* de E-086, cuyo texto oficial es "ya ha sido utilizado para **autorizar** un cargo") | **No** al crear; sí aparece en listado y detalle de cargos |
 | Filtros `charge_date_from/to` en `/charges` | **Se ignoran** |
 | Cargo manual en un mes con automático pendiente | **Conviven ambos** (doble cobro si no se cancela el automático) |
 

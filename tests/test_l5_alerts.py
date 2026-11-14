@@ -76,13 +76,13 @@ class _NoClose:
 
 def test_minimal_package_is_what_stays_active_with_only_alerts_enabled(smtp, monkeypatch):
     for flag in ("webhook_processor_enabled", "sync_removal_detection_enabled", "alert_business_enabled",
-                 "alert_report_age_enabled", "alert_write_failed_enabled"):
+                 "alert_report_age_enabled", "alert_write_failed_enabled", "alert_vp_ending_soon_enabled"):
         monkeypatch.setattr(settings, flag, False)
     monkeypatch.setattr(settings, "alert_webhook_silence_hours", 0)
     assert set(alerts.active_kinds()) == MINIMAL_PACKAGE
     registered = set(alerts.registered_kinds())
     assert {"webhook_failed", "webhook_lag", "webhook_silence", "removal_aborted", "report_stale", "write_failed",
-            *business_alerts.KINDS} <= registered - MINIMAL_PACKAGE
+            "vp_subscriptions_ending_soon", *business_alerts.KINDS} <= registered - MINIMAL_PACKAGE
 
 
 def test_each_flag_turns_on_only_its_kinds(smtp, monkeypatch):
@@ -91,6 +91,7 @@ def test_each_flag_turns_on_only_its_kinds(smtp, monkeypatch):
     monkeypatch.setattr(settings, "alert_business_enabled", True)
     monkeypatch.setattr(settings, "alert_report_age_enabled", True)
     monkeypatch.setattr(settings, "alert_write_failed_enabled", True)
+    monkeypatch.setattr(settings, "alert_vp_ending_soon_enabled", True)
     assert set(alerts.active_kinds()) == set(alerts.registered_kinds())
 
 
@@ -219,6 +220,27 @@ def test_heartbeat_is_degraded_with_an_old_sync_or_a_stopped_scheduler(db_sessio
     body = _heartbeat(db_session, monkeypatch).json()
     assert body["status"] == "degraded"
     assert set(body["problems"]) == {"sync_stale", "scheduler_stopped"}
+
+
+def test_qa15_heartbeat_flags_a_channel_whose_last_run_failed_after_succeeding(db_session, monkeypatch):
+    """QA-15: Toku sincronizo bien hace 21 h y despues fallo dos veces: el latido lo dice (antes respondia ok)."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    ok_at, fail_1, fail_2 = now - timedelta(hours=21), now - timedelta(hours=10), now - timedelta(hours=2)
+    db_session.add(SyncRun(source="toku", status="completed", started_at=ok_at, finished_at=ok_at))
+    db_session.add(SyncRun(source="toku", status="failed", started_at=fail_1, finished_at=fail_1))
+    db_session.add(SyncRun(source="toku", status="failed", started_at=fail_2, finished_at=fail_2))
+    db_session.add(SyncRun(source="virtualpos1", status="completed", started_at=fail_2, finished_at=fail_2))
+    db_session.flush()
+    monkeypatch.setattr(health_routes, "_scheduler_expected", lambda: False)
+    body = _heartbeat(db_session, monkeypatch).json()
+    assert body["status"] == "degraded" and "sync_failing" in body["problems"]
+    assert body["sync"]["failing_channels"] == ["toku"]
+    db_session.add(SyncRun(source="toku", status="completed", started_at=now, finished_at=now))
+    db_session.flush()
+    body = _heartbeat(db_session, monkeypatch).json()
+    assert "sync_failing" not in body["problems"] and body["sync"]["failing_channels"] == []
 
 
 def test_heartbeat_returns_503_without_database(monkeypatch):

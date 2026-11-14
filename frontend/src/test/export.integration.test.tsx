@@ -68,7 +68,7 @@ describe("Exportar: listas de staging", () => {
   it("Toku clientes: entidad clientes, canal toku y la búsqueda activa", async () => {
     const app = mountApp("/toku/clientes", [recordsHandler(page([tokuCustomer(1)])), ...exportHandlers("clientes", 3)]);
     await appReady();
-    await screen.findByRole("button", { name: "Ver ficha de cliente 22222221-2" });
+    await screen.findByRole("button", { name: "Ver ficha de cliente 22.222.221-2" });
     fireEvent.change(screen.getByLabelText("Campo"), { target: { value: "government_id" } });
     fireEvent.change(screen.getByPlaceholderText("Buscar por RUT"), { target: { value: "2222" } });
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/records").at(-1)?.query.get("query")).toBe("2222"));

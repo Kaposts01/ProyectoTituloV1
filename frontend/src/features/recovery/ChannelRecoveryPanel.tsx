@@ -2,6 +2,7 @@ import { useState } from "react";
 import { friendlyError, getJson } from "../../api";
 import { labelOr, tryLabel } from "../../i18n/label";
 import { text } from "../shared/utils";
+import { rutText } from "../shared/rut";
 import { clpOrDash } from "./format";
 import {
   CHANNEL_RECOVERY, EMPTY_CHANNEL_FILTERS, EMPTY_REASON_TEXT, channelListPath, visibleColumns,
@@ -34,6 +35,7 @@ function cell(row: Row, column: RecoveryColumn): { content: string; mono: boolea
     case "status": return { content: labelOr("status", value, "—"), mono: false };
     case "tchStatus": return { content: tryLabel("tchStatus", value) ?? labelOr("status", value, "—"), mono: false };
     case "recoverableReason": return { content: labelOr("recoverableReason", value, "—"), mono: false };
+    case "rut": return { content: rutText(value), mono: true };
     case "id": case "date": case "number":
       return { content: typeof value === "number" ? value.toLocaleString("es-CL") : text(value, "—"), mono: true };
     default: return { content: text(value, "—"), mono: false };

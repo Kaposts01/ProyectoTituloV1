@@ -1,7 +1,7 @@
 # Bloqueante BLQ-TK-01 — Checkout ENROLLMENT sin flow_name
 
 > Creado: 2026-10-15. Tarea: BLQ-TK-01. Última revisión: 2026-10-24 (TK-10).  
-> **Estado actual:** Sin respuesta de Toku. Bloqueado. Escalado pendiente.
+> **Estado actual:** Toku respondió (soporte, ficha d173, 2026-11): los flows se configuran desde la webapp de Toku, no por API. Bloqueado hasta revisar el backoffice y obtener el `flow_name` de inscripción (ver «Respuesta del soporte de Toku»).
 > Fuentes: alta-socio.md, link-inscripcion.md, enroll-payment-method.md, cambiar-monto.md, payment-methods.md, subscriptions.md.
 
 ---
@@ -10,9 +10,11 @@
 
 ### Que es `flow_name`
 
-`flow_name` es un parametro requerido en el body de `POST /cl/checkout-sessions` cuando el modo es `ENROLLMENT`. Identifica el **flujo de inscripcion de medio de pago** que Toku debe presentarle al socio: que metodos de pago estan disponibles (tarjeta via Transbank Oneclick, PAC, etc.), que pantallas se muestran y que logica de validacion se aplica.
+`flow_name` es un parametro **opcional** en el schema del body de `POST /cl/checkout-sessions` (`CheckoutSessionRequestV2Decryption` solo exige `billing_data` y `mode`; `flow_name` admite `string` o `null`, [doc oficial](https://docs.trytoku.com/reference/open_checkout_session_endpoint)). En la practica, para `ENROLLMENT` la sesion necesita un flujo de inscripcion configurado en la cuenta. Identifica el **flujo de inscripcion de medio de pago** que Toku debe presentarle al socio: que metodos de pago estan disponibles (tarjeta via Transbank Oneclick, PAC, etc.), que pantallas se muestran y que logica de validacion se aplica.
 
-Toku configura este flujo del lado del proveedor, por cuenta de comercio. No es un valor que el comercio pueda definir libremente; debe existir en la configuracion de la cuenta de Toku previamente.
+Los flows **se configuran desde la webapp de Toku** (portal de administracion / backoffice), no desde la API [Confirmado por soporte, d173]. No es un valor que se invente en el request: debe existir previamente en la configuracion de la cuenta.
+
+`id_checkout` permite elegir el checkout de la cuenta en ese flujo **o el checkout Default de ese flujo**; si se omite, se usa el de la cuenta ([doc oficial](https://docs.trytoku.com/reference/open_checkout_session_endpoint)).
 
 ### Por que lo necesita Toku
 
@@ -40,6 +42,18 @@ El error aplica tanto al alta de un socio nuevo (alta-socio.md) como a cualquier
 | **Flujo de recuperacion de tarjeta vencida / cobros rechazados** (implicito en varios workflows) | Generacion del link de re-inscripcion | Un socio cuya tarjeta vencio no puede inscribir una nueva hasta que se resuelva este bloqueante. |
 
 **No afectado:** las operaciones que no usan Checkout `ENROLLMENT` funcionan normalmente: crear/editar Subscription (`PUT /subscriptions`), cambiar monto (`cambiar-monto.md`), consultar Subscriptions/Invoices/Payment Methods, inscribir PAC por API (camino B de `enroll-payment-method.md`) y webhooks.
+
+---
+
+## Respuesta del soporte de Toku (d173)
+
+> «Los flows se configuran desde la webapp de Toku (portal de administración), no desde la API. Para conocer los flow_name disponibles para tu organización, debes: revisar tu panel de administración de Toku.»
+
+Consecuencias:
+
+- El paso siguiente no es un ticket para que Toku configure algo, sino **revisar el backoffice de Toku** (con el usuario) y anotar el `flow_name` de inscripcion disponible.
+- **Duda abierta:** ¿el checkout **Default** de un flujo sirve para `mode: ENROLLMENT` (inscripcion de tarjeta/PAC) o solo para `PAYMENT`? La doc dice que `id_checkout` acepta el Default del flujo, pero no aclara si existe un flujo de inscripcion por defecto. Verificar en el backoffice; si no queda claro, preguntar al soporte.
+- Que `flow_name` sea opcional en el schema no garantiza que la sesion `ENROLLMENT` funcione sin el: el `4xx` observado sigue siendo el sintoma a resolver.
 
 ---
 
@@ -90,6 +104,8 @@ Solo en escenario de prueba o aprendizaje, cuando no se puede esperar la resoluc
 ## Plan de accion para resolver BLQ-TK-01
 
 ### Paso 1: Contactar a Toku
+
+> **Actualizacion (d173):** el soporte ya respondio que los flows se configuran en la webapp de Toku. Antes de reenviar este texto, revisar el backoffice; usarlo solo para las preguntas 3 y 4 o si el flujo no aparece.
 
 **A quien contactar:** canal de soporte o el ejecutivo tecnico asignado a la cuenta de TECHO en Toku. Si no hay ejecutivo asignado, usar el correo de soporte tecnico documentado en authentication.md de Toku.
 

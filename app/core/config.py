@@ -12,7 +12,8 @@ NON_PRODUCTION_ENVS = ("sandbox", "qa")
 LEGACY_PRODUCTION_ALIASES = ("production", "prod", "development", "dev", "local")
 
 # Hosts por proveedor (docs/integrations/...). Toku usa el mismo host en sandbox y produccion
-# (se distingue solo por las llaves); Payku aun no tiene sandbox confirmado.
+# (se distingue solo por las llaves). Payku publica des.payku.cl como sandbox en su doc oficial
+# (base `https://des.payku.cl/api`); las credenciales de sandbox las genera el usuario en su cuenta.
 VP_PRODUCTION_HOST = "api.virtualpos.cl"
 VP_SANDBOX_HOST = "api.virtualpos-sandbox.com"
 PAYKU_PRODUCTION_HOST = "app.payku.cl"
@@ -62,6 +63,9 @@ class Settings(BaseSettings):
     database_url: str
     # Solo con APP_ENV=sandbox/qa: reemplazan a las variables de produccion (nunca fallback).
     sandbox_database_url: str = ""
+    # Firma de los JWT en sandbox/qa (SANDBOX_AUTH_JWT_SECRET). Obligatoria y distinta de AUTH_JWT_SECRET: con un solo
+    # .env, produccion y sandbox compartian la llave y una sesion de un ambiente servia en el otro.
+    sandbox_auth_jwt_secret: str = ""
     # URLs del selector de ambiente (solo navegacion) y scheduler en sandbox/qa.
     sandbox_app_url: str = ""
     production_app_url: str = ""
@@ -147,6 +151,10 @@ class Settings(BaseSettings):
     alert_business_eval_minutes: int = 60  # los calculos del panel son pesados: se reevaluan como maximo cada N min
     alert_report_age_enabled: bool = False  # d139e: reporte Toku/TCH con mas de REPORT_MAX_AGE_DAYS dias (o sin cargas)
     alert_write_failed_enabled: bool = False  # d139f: write_runs fallidos (fuera de conciliacion) en las ultimas 24 h
+    # d189: suscripciones ACTIVA de plan de monto fijo de VirtualPOS cuyo fin estimado cae en los proximos N dias (y las
+    # que siguen ACTIVA con el fin ya pasado). APAGADA por defecto hasta validarla (TER-01). Ver docs/data/alerts.md.
+    alert_vp_ending_soon_enabled: bool = False
+    alert_vp_ending_soon_days: int = 60
     # d139c: script externo `scripts/maintenance/heartbeat_check.py`: horas sin sync exitosa que cuentan como «caido».
     heartbeat_max_sync_age_hours: int = 36
     # RT-11: SSE de cambios de estado (`GET /api/v1/events/stream`).
@@ -290,6 +298,16 @@ class Settings(BaseSettings):
             raise ValueError("SANDBOX_DATABASE_URL debe apuntar a una base cuyo nombre contenga 'sandbox' o 'qa'")
         if self.sandbox_database_url.strip() == self.database_url.strip():
             raise ValueError("SANDBOX_DATABASE_URL no puede ser igual a DATABASE_URL")
+        jwt_secret = self.sandbox_auth_jwt_secret.strip()
+        if not jwt_secret:
+            raise ValueError(
+                "SANDBOX_AUTH_JWT_SECRET es obligatoria cuando APP_ENV es sandbox o qa "
+                "(el sandbox no reutiliza AUTH_JWT_SECRET de produccion)"
+            )
+        if len(jwt_secret) < 32:
+            raise ValueError("SANDBOX_AUTH_JWT_SECRET debe tener al menos 32 caracteres")
+        if jwt_secret == self.auth_jwt_secret.strip():
+            raise ValueError("SANDBOX_AUTH_JWT_SECRET es igual a AUTH_JWT_SECRET de produccion")
         if _host(self.virtualpos_sandbox_base_url) == VP_PRODUCTION_HOST:
             raise ValueError(f"VIRTUALPOS_SANDBOX_BASE_URL apunta a produccion pero APP_ENV es {env}")
         if _host(self.payku_sandbox_base_url) == PAYKU_PRODUCTION_HOST:
@@ -325,6 +343,7 @@ class Settings(BaseSettings):
     def _apply_sandbox(self) -> None:
         """Reemplaza los campos efectivos solo con variables *_SANDBOX_* (sin fallback a produccion)."""
         self.database_url = self.sandbox_database_url.strip()
+        self.auth_jwt_secret = self.sandbox_auth_jwt_secret.strip()
         self.virtualpos_base_url = self.virtualpos_sandbox_base_url
         self.virtualpos_api_key = self.virtualpos_sandbox_api_key
         self.virtualpos_secret_key = self.virtualpos_sandbox_secret_key

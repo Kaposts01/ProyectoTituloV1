@@ -46,6 +46,7 @@ PROD = {
 }
 SBX = {
     "sandbox_database_url": SDB,
+    "sandbox_auth_jwt_secret": "sbx-jwt-secret-sintetico-de-al-menos-32-caracteres",
     "virtualpos_sandbox_base_url": "https://api.virtualpos-sandbox.com",
     "virtualpos_sandbox_api_key": "sbx-vk",
     "virtualpos_sandbox_secret_key": "sbx-vs",

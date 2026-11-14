@@ -109,6 +109,13 @@ Aborto común de las CT-xx: la suscripción de prueba no existe o no es del sand
 
 El «sandbox» de Toku usa la **misma URL base que producción**; solo cambia la llave, y las escrituras no están verificadas ([`write_guard.py`](../../app/integrations/toku/write_guard.py), tasks.md §3.5). Por eso no hay escenarios catalogados con escritura.
 
+**Confirmado por el soporte de Toku (DEC-26 pregunta 1, ficha d167, 2026-11-09) y por la documentación oficial ([Conexión y ambientes](https://docs.trytoku.com/reference/conexion-y-ambientes)):** Toku tiene un **único ambiente productivo**, `https://api.trytoku.com`, sin sandbox oficial de API. Lo que llamamos «sandbox de Toku» son **llaves de prueba sobre el host productivo**. Consecuencias para el plan de pruebas:
+
+- **VAL-TK-01 (suite de contrato):** empieza solo con lecturas (TK-LEC). Cada corrida comprueba antes de la primera llamada que `APP_ENV=sandbox`, que la llave es la `TOKU_SANDBOX_*` y que el host es exactamente `api.trytoku.com`; si algo no calza, aborta sin llamar.
+- **TK-16 (guardas de escritura):** se verifica primero sin red (TK-GUARD). Una escritura real de verificación (prefijo `TEST-`, con `TOKU_SANDBOX_ALLOW_WRITES_ARMED`, lista blanca y tope de 3) es TK-ESC: siempre con el usuario y anunciada en el chat justo antes (ficha d166). Como el host es el productivo, la llave equivocada escribiría en datos reales: por eso nunca se arma con la llave de producción y la guarda de credenciales de arranque debe estar activa.
+- **TK-17 (modelos e importador de reportes):** no llama a la API: se prueba con un reporte **sintético** importado en `crm_sandbox` (sin datos personales), así que no depende de Toku.
+- Las preguntas 2 a 6 de DEC-26 y DEC-01 (`flow_name`) quedaron **respondidas por Toku** (notas de las fichas d168 a d173, 2026-11-09). Efecto en el plan: TK-15 puede probar el rechazo de inscripción PAC en el portal demo (RUT `11.111.111-1`, coordenadas `00 00 00`), pero sigue sin tarjetas ni montos para TE, PE y UE; TK-12 ya no espera a Toku (falta crear el endpoint y cargar su secreto); TK-PAR-11 sigue necesitando probar `POST /reports/{entity}` con nuestra organización (TK-ESC, con el usuario); BLQ-TK-01 pasa a acción del usuario: buscar el `flow_name` de inscripción en la webapp de Toku.
+
 | ID | Estado | Clase | Qué hace |
 |---|---|---|---|
 | TK-LEC | Disponible (script en scratchpad, aún no hay `tests_contract/toku`: VAL-TK-01) | Automática | `GET` con llave de sandbox y `APP_ENV=sandbox`; imprime solo conteos, nombres de claves y códigos HTTP, nunca valores ni PII. Incluye `GET /reports/{entity}/columns` |
@@ -117,13 +124,14 @@ El «sandbox» de Toku usa la **misma URL base que producción**; solo cambia la
 
 TK-LEC y TK-GUARD no crean ni limpian nada. Tope (aprobado): 100 GET por corrida, sin ráfagas. Variables: `APP_ENV` (llaves `TOKU_SANDBOX_*` ya están en `.env`; no se leen). TK-GUARD con la suite normal usa `pytest` y se rige por la regla de una sola sesión. Para armar una escritura Toku (cuando el usuario la autorice) se necesitarían `TOKU_SANDBOX_WRITES_ENABLED`, `TOKU_SANDBOX_ALLOW_WRITES_ARMED=1`, opcionalmente `TOKU_SANDBOX_ALLOWED_IDS` y `TOKU_SANDBOX_MAX_WRITES` (por defecto 25); todas como variables de proceso. Aborto: HTTP 401/403, un host distinto de `api.trytoku.com`, cualquier respuesta con datos que no estén en la organización de sandbox conocida, o una guarda que **deje pasar** una escritura (eso es un hallazgo crítico: se detiene todo y va al usuario).
 
-### 3.3 Payku (bloqueado)
+### 3.3 Payku (pendiente de credenciales; escrituras con guardas)
 
-| ID | Estado | Clase |
-|---|---|---|
-| PK-VAL | **BLOQUEADO**: variables `PAYKU_SANDBOX_*` vacías y sin sandbox (DEC-10, USR-04) | Cualquier llamada real: siempre con el usuario |
+| ID | Estado | Clase | Qué hace |
+|---|---|---|---|
+| PK-VAL | **Pendiente de credenciales**: variables `PAYKU_SANDBOX_*` vacías y sin sandbox confirmado (DEC-10, USR-04); escrituras con guardas duras (d165) | Cualquier llamada real: siempre con el usuario | Procedimientos de `VALIDATION-PLAN.md`, aún no catalogados |
+| PK-GUARD | Disponible | Automática | Verifica que las guardas bloqueen: `tests/test_payku_write_guard.py` (pruebas unitarias sin red); no llama a Payku |
 
-No se ejecuta nada contra Payku. Lo avanzable sin credenciales es código y diseño (PK-06 y la parte 1 de VAL-PK-01, `tests_contract/payku` que se omite sola sin credenciales), y eso lo hace el orquestador, no el probador. Al llegar las credenciales, el procedimiento está en [`VALIDATION-PLAN.md`](../integrations/payku/VALIDATION-PLAN.md) (Q-27, Q-06, Q-08, Q-11, Q-29); cada procedimiento de ese plan se catalogará aquí antes de ejecutarse, con su tope y su limpieza. El probador informa `BLOQUEADO`.
+No se ejecuta nada contra Payku. Lo avanzable sin credenciales es código y diseño (PK-06 y la parte 1 de VAL-PK-01, `tests_contract/payku` que se omite sola sin credenciales), y eso lo hace el orquestador, no el probador. Al llegar las credenciales, el procedimiento está en [`VALIDATION-PLAN.md`](../integrations/payku/VALIDATION-PLAN.md) (Q-27, Q-06, Q-08, Q-11, Q-29); cada procedimiento de ese plan se catalogará aquí antes de ejecutarse, con su tope y su limpieza. Para PK-VAL el probador informa `BLOQUEADO` mientras falten credenciales. Las escrituras, cuando el usuario las autorice, pasan por las guardas duras de `app/integrations/payku/write_guard.py` (d165): `PAYKU_SANDBOX_WRITES_ENABLED`, `PAYKU_SANDBOX_ALLOW_WRITES_ARMED=1`, `PAYKU_SANDBOX_ALLOWED_IDS` para recursos existentes y `PAYKU_SANDBOX_MAX_WRITES` (por defecto 25), las tres últimas como variables de proceso; detalle en [`authentication.md` § 8](../integrations/payku/resources/authentication.md). Una guarda que **deje pasar** una escritura es un hallazgo crítico.
 
 ### 3.4 TCH (Excel sintético)
 
@@ -178,6 +186,11 @@ El decisor devuelve texto; no edita archivos. Si el informe es insuficiente para
 11. CLAUDE.md §9 exige autorización explícita para pruebas con escrituras externas reales. La aprobación del usuario del 2026-10-28 es esa autorización explícita, **limitada a sandbox** y a los escenarios catalogados (sección 3). Nada de esto se extiende a producción: allí siempre con el usuario y con más cuidado.
 12. Regla de oro: producción siempre con el usuario. Ante la duda sobre el ambiente (Toku comparte host; `APP_ENV=development` equivale a producción), se trata como producción.
 13. **Los agentes nunca ejecutan la CLI de Alembic** (`upgrade`, `downgrade`, `stamp`, `current`) contra ninguna base; las migraciones solo se prueban por pytest (`crm_test`); aplicar migraciones a `crm` es siempre del usuario (a `crm_sandbox`, el orquestador avisando). Incidente del 2026-10-28 (handoff §9 #20); `alembic/env.py` además bloquea los `downgrade` sobre bases no seguras (OPS-10).
+14. **`crm_sandbox` puede contener datos personales reales (QA-04, 2026-11-05).** El QA encontró en Socios un cliente de VirtualPOS (canal `virtualpos1`) con nombre de aspecto real y un correo personal: se creó contra el sandbox de VirtualPOS con datos de una persona real y luego se sincronizó. Hasta que el usuario decida qué hacer (anonimizar en `crm_sandbox`, pedir el borrado en el sandbox de VirtualPOS o ambas cosas):
+    - tratar `crm_sandbox` como si tuviera PII: sin capturas, CSV ni extractos de Socios, Cobros o Suscripciones en informes, fichas o PR, salvo filas sintéticas reconocibles (`DEMO-`, `TEST`, «AmigoPrueba»);
+    - las exportaciones de prueba («Exportar») se descargan al scratchpad y se borran al terminar;
+    - nadie (ni agentes ni scripts) anonimiza ni borra esas filas por su cuenta: es una decisión «siempre con el usuario» (§2.3), porque toca datos y el vínculo con el proveedor;
+    - al crear datos en los sandboxes de los proveedores se usan solo nombres, RUT y correos sintéticos (dominio `example.test`).
 
 ## 6. Qué ve el usuario después de cada ciclo
 

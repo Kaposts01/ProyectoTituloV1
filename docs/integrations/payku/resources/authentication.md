@@ -201,6 +201,30 @@ Checklist ante un 401 con firma:
 
 ---
 
+## 8. "Sandbox" del CRM y guardas duras de escritura (d165)
+
+Estado: **pendiente de credenciales**. Las variables `PAYKU_SANDBOX_*` aún no están cargadas y el host de sandbox de Payku no está confirmado por soporte. Las guardas existen **antes** de habilitar cualquier escritura, con el mismo mecanismo que Toku ([`../../toku/resources/authentication.md`](../../toku/resources/authentication.md) § 3.1).
+
+Con `APP_ENV=sandbox|qa`, `PaykuClient` llama a `assert_sandbox_write_allowed` (`app/integrations/payku/write_guard.py`) antes de cada POST/PUT/DELETE, **antes de tocar la red**. Producción no pasa por esta guarda: sus escrituras siguen gobernadas solo por `PAYKU_WRITES_ENABLED` (apagada), sin cambios. Las lecturas (GET) no se guardan.
+
+| Regla | Detalle | Código de bloqueo |
+|---|---|---|
+| Llave 1 | `PAYKU_SANDBOX_WRITES_ENABLED=true` (.env) | `WRITES_DISABLED` |
+| Host | `https`, puerto 443, sin credenciales en la URL, host en la lista de hosts de sandbox conocidos (`SANDBOX_HOSTS["payku_base_url"]`, hoy `des.payku.cl`) y nunca `app.payku.cl`. Un host nuevo exige cambio de código revisado | `HOST_NOT_ALLOWED` |
+| Llave 2 | `PAYKU_SANDBOX_ALLOW_WRITES_ARMED=1`, **variable de proceso** (no se lee del `.env`) | `NOT_ARMED` |
+| Lista blanca de endpoints | Solo `POST /api/suclient`, `PUT`/`DELETE /api/suclient/{id}`, `POST /api/suplan`, `POST /api/sususcription`, `DELETE /api/sususcription/{id}`. Todo lo demás se bloquea, en particular lo que mueve dinero (`transaction`, `sutransaction`, tarjetas, `wallet`/`payout`, `mall`, `nullification`, `escrow`, marketplace, `event`) y también `POST /api/conciliation` aunque sea una consulta | `ENDPOINT_NOT_ALLOWED` |
+| Datos sintéticos al crear | `name` con prefijo `TEST-`; en clientes, `email` del dominio `example.test`. En `PUT /api/suclient/{id}`, si vienen `name`/`email` deben cumplir lo mismo | `PREFIX_REQUIRED`, `EMAIL_DOMAIN_REQUIRED`, `FIELD_MISSING` |
+| Recursos existentes | El id del path (PUT/DELETE) y las referencias `client` y `plan` de `POST /api/sususcription` deben empezar por `TEST-` o estar en `PAYKU_SANDBOX_ALLOWED_IDS` (variable de proceso, separada por comas). Los ids que genera Payku (`cl…`, `su…`, `pl…`) no llevan `TEST-`: hay que listarlos | `ID_NOT_ALLOWED` |
+| Tope | `PAYKU_SANDBOX_MAX_WRITES` (variable de proceso; default 25, máximo 500, `0` bloquea todo). Por proceso: se reinicia al reiniciar y se multiplica con N workers. Solo cuentan las escrituras que pasaron las demás guardas | `CAP_REACHED` |
+| Forma | Body en lista, rutas con `..`, `?`, `#`, `%`, `\` o `//`, body que no es objeto | `BULK_BLOCKED`, `PATH_INVALID`, `BODY_INVALID` |
+| Ambiente | Si la guarda recibe una configuración productiva, falla cerrado | `ENV_NOT_SANDBOX` |
+
+- Un bloqueo devuelve HTTP 403 (`payku_write_blocked`, solo con el código) en `/writes/payku/*` y queda en `write_runs` con estado `blocked` y el mensaje completo (sin valores ni PII).
+- Las variables de proceso no deben dejarse en `.env`. Con `APP_ENV=development/dev/local` (alias de producción) las variables `PAYKU_SANDBOX_*` se ignoran y estas guardas no corren.
+- Pruebas: `tests/test_payku_write_guard.py` (sin red, transporte falso).
+
+---
+
 ## Tarjetas de prueba (sandbox)
 
 Documentación: https://docs.payku.com/cl/test-cards/ ✅
