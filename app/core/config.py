@@ -151,6 +151,10 @@ class Settings(BaseSettings):
     alert_business_eval_minutes: int = 60  # los calculos del panel son pesados: se reevaluan como maximo cada N min
     alert_report_age_enabled: bool = False  # d139e: reporte Toku/TCH con mas de REPORT_MAX_AGE_DAYS dias (o sin cargas)
     alert_write_failed_enabled: bool = False  # d139f: write_runs fallidos (fuera de conciliacion) en las ultimas 24 h
+    # d189: suscripciones ACTIVA de plan de monto fijo de VirtualPOS cuyo fin estimado cae en los proximos N dias (y las
+    # que siguen ACTIVA con el fin ya pasado). APAGADA por defecto hasta validarla (TER-01). Ver docs/data/alerts.md.
+    alert_vp_ending_soon_enabled: bool = False
+    alert_vp_ending_soon_days: int = 60
     # d139c: script externo `scripts/maintenance/heartbeat_check.py`: horas sin sync exitosa que cuentan como «caido».
     heartbeat_max_sync_age_hours: int = 36
     # RT-11: SSE de cambios de estado (`GET /api/v1/events/stream`).
