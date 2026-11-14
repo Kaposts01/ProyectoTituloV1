@@ -784,5 +784,21 @@ Ejecutada por la sesión CRM con autorización del usuario en el chat. Estado ac
 | 9 | Correo de prueba recibido por los 2 destinatarios; `ALERTS_ENABLED=true` |
 | 10 | Un usuario activo por rol (admin, coordinador, ejecutivo, jefatura, soporte). Error de formulario corregido en el PR #43. D40 ya estaba fuera del repo |
 | 10A | `SYNC_CORE_ETL_ENABLED=true` (d215 = a) |
-| 11 | Corrida directa de `sync_all_channels`: virtualpos1 862, virtualpos2 1.524, toku 417; payku en curso al escribir esto |
-| 12 | Pendiente al escribir esto |
+| 11 | Corrida directa de `sync_all_channels`, `completed` (15:02 a 17:59 hora local, 432.848 registros): virtualpos1 862, virtualpos2 1.524, toku 417, payku 258. Marcas del ETL Core automático (10A) con hora posterior al inicio |
+| 12.2 | Glosas en `core_payments`: payku 1.475, virtualpos1 11.000, virtualpos2 17.884 (siguieron subiendo). d214: 0. d212: 0 valores. TCH igual que antes (29.295 sin monto, 8 activas con baja) porque su recarga va con d223 |
+| 12.1 | Revisión del usuario en pantalla: «Datos incompletos» pasó de 969 / 728 a **441 / 728**; VirtualPOS con nombres; motivo de rechazo visible en los rechazos. Hallazgo nuevo: los estados de cobro no están unificados entre canales (tarea aparte, no bloquea el cierre) |
+
+Desglose de «Datos incompletos» tras la ventana (`_subscription_histograms`, consulta de solo lectura):
+
+| Canal | Altas sin fecha | Bajas sin fecha | De ellas, baja antes del alta |
+|---|---|---|---|
+| VirtualPOS | 0 | 0 | 0 |
+| Toku | 8 | 0 | 0 |
+| Payku | 0 | 307 | 0 |
+| TCH | 433 | 421 | 38 |
+| **Total** | **441** | **728** | 38 |
+
+Las 728 no bajaron porque ningún paso de la ventana tocó a sus dueños: las 421 de TCH esperan la recarga de d223, y las
+307 de Payku están en estado `delete` sin fecha de baja en la fuente (no dependen de d223; se revisan aparte).
+
+**OPS-11 cerrada el 2026-11-14.** Pendientes que salen de ella: paso 4 y d211 (d223), d217, estados de cobro unificados.

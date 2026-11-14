@@ -23,7 +23,9 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
   `VP_REPORT_HASH_PEPPER` (respaldadas por el usuario en su gestor; cambiarlas invalida los hashes guardados),
   `ALERT_*` con `ALERTS_ENABLED=true`, `SYNC_CORE_ETL_ENABLED=true` (d215) y las `GOOGLE_OAUTH_*` (CRM-16B; el código
   aún no las lee y `GOOGLE_OAUTH_ENABLED=false`).
-- Hecho: pasos 0 a 3, 5 a 10A y d220 (dependencias). Detalle y conteos en `ops-11-guion.md`, «Resultado de la ventana».
+- Hecho: pasos 0 a 3, 5 a 12 y d220 (dependencias). OPS-11 cerrada. Detalle y conteos en `ops-11-guion.md`,
+  «Resultado de la ventana». «Datos incompletos» quedó en 441 / 728 (las 728 son 421 de TCH, que esperan d223, y 307
+  de Payku en estado `delete` sin fecha de baja en la fuente).
 - **No hecho: paso 4 (recarga completa de TCH) y d211.** El ensayo no cuadró por la clave de deduplicación de
   `scripts/etl_tch.py` (historial y CARGOS con cuotas distintas). Ficha d223 (aprobada «a»: conciliar solo los meses
   con CARGOS). TCH queda con datos hasta 2026-09; octubre 2026 entra con esa recarga.
@@ -38,6 +40,7 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 | d221 (resto) | `/docs` apagado en producción y cabeceras de seguridad | Pendiente (el Postgres local ya está hecho) |
 | d217 | `.wslconfig` con 8 GB para Docker | El usuario corre `Downloads\limitar_memoria_docker.ps1`; reinicia Docker y baja también vpbase |
 | Frontend | vite 8.2.4 y source-map-js 1.2.2 (solo desarrollo) | PR pendiente |
+| Estados de cobro | Unificar los nombres de estado entre canales en el filtro de cobros | Propuesta de mapeo en la Bandeja |
 
 ## Trampas conocidas
 
