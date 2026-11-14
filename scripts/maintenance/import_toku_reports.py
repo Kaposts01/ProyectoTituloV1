@@ -38,7 +38,7 @@ from app.services.toku_report_parser import (
     open_report,
 )
 
-LOAD_ORDER = ("productos", "medios_pago", "inscripciones", "deudas", "intentos")
+LOAD_ORDER = ("productos", "clientes", "medios_pago", "inscripciones", "deudas", "intentos", "pagos", "liquidaciones")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
