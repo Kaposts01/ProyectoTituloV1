@@ -41,6 +41,7 @@ Los archivos en [resources/](resources/) cubren el contrato detallado de cada re
 - [consumption-subscriptions.md](resources/consumption-subscriptions.md) — Suscripciones de consumo a demanda
 - [webhooks.md](resources/webhooks.md) — Callbacks de suscripcion y cobro (sin firma documentada)
 - [errors.md](resources/errors.md) — HTTP 200 con `status: failed`, formatos de error
+- [rejection-reasons.md](resources/rejection-reasons.md) — Motivo, monto y periodo de un cobro rechazado: que entrega Payku y que no (CRM-15C)
 - [pagination.md](resources/pagination.md) — page/per_page, filtros de fecha, limites
 - [statuses.md](resources/statuses.md) — Inventario de estados de Payku (Listas A y B)
 - [data-model.md](resources/data-model.md) — Relaciones, identificadores, que va a STG

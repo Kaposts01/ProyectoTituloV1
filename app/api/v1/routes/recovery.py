@@ -22,6 +22,7 @@ from app.models.auth import User
 from app.models.charge_recovery import ChargeRecovery
 from app.models.core import CoreCharge
 from app.models.crm import Charge, Client, Payment, Subscription
+from app.models.vp_report import VpReportPayment
 from app.models.write_run import WriteRun
 from app.services import recovery_payku, recovery_tch, recovery_toku
 from app.services.charge_recovery import PAID_STATUSES, needs_card_change
@@ -144,7 +145,7 @@ def _num(value: Any) -> float | None:
         return None
 
 
-def _reason(charge: Charge, core: CoreCharge | None = None) -> tuple[str | None, str | None]:
+def _reason(charge: Charge, core: CoreCharge | _ReportRejection | None = None) -> tuple[str | None, str | None]:
     """Rejection (code, raw reason): CoreCharge.latest_rejection_* first, raw_payload as fallback."""
     payload = charge.raw_payload or {}
     rejected = payload.get("rejected_object") if isinstance(payload.get("rejected_object"), dict) else {}
@@ -156,12 +157,42 @@ def _reason(charge: Charge, core: CoreCharge | None = None) -> tuple[str | None,
     return code, (core_reason or str(raw_reason) or None)
 
 
-def _core_rejections(db: Session) -> dict[tuple[str, str], CoreCharge]:
+@dataclass(frozen=True)
+class _ReportRejection:
+    """Glosa del reporte PAT con la forma de `CoreCharge.latest_rejection_*` (lo que leen `_reason`/`_rejection_fields`)."""
+
+    latest_rejection_code: str | None
+    latest_rejection_reason: str | None
+    latest_rejection_at: datetime | None
+
+
+def _core_rejections(db: Session) -> dict[tuple[str, str], CoreCharge | _ReportRejection]:
+    """Ultimo rechazo por cobro: la glosa del reporte PAT (`vp_report_payments`, fuente de verdad D4/D5) y, si no hay,
+    `CoreCharge.latest_rejection_*`.
+
+    CRM-15A: el PAT se lee directo para que el recuperador muestre la glosa apenas se importa el reporte, sin esperar
+    a que el ETL Core la proyecte a `core_charges` (misma regla que `charge_rejection_display` y la vista de Cobros).
+    Solo filas con la cuenta resuelta, rechazadas y con glosa.
+    """
     query = select(CoreCharge).where(
         CoreCharge.source.in_(_SOURCES),
         CoreCharge.latest_rejection_code.is_not(None) | CoreCharge.latest_rejection_reason.is_not(None) | CoreCharge.latest_rejection_at.is_not(None),
     )
-    return {(c.source, c.external_id): c for c in db.scalars(query)}
+    found: dict[tuple[str, str], CoreCharge | _ReportRejection] = {(c.source, c.external_id): c for c in db.scalars(query)}
+    report = select(
+        VpReportPayment.platform, VpReportPayment.charge_external_id, VpReportPayment.response_code,
+        VpReportPayment.response_text, VpReportPayment.scheduled_date,
+    ).where(
+        VpReportPayment.platform.in_(_SOURCES), VpReportPayment.platform_status == "resolved",
+        VpReportPayment.charge_status == "rechazado", func.coalesce(VpReportPayment.response_text, "") != "",
+    )
+    for row in db.execute(report):
+        core = found.get((row.platform, row.charge_external_id))
+        at = core.latest_rejection_at if core is not None and core.latest_rejection_at else (
+            datetime.combine(row.scheduled_date, datetime.min.time(), tzinfo=timezone.utc) if row.scheduled_date else None
+        )
+        found[(row.platform, row.charge_external_id)] = _ReportRejection(row.response_code or None, row.response_text, at)
+    return found
 
 
 def _charge_stats(charges: list[Charge], today: date | None = None) -> dict[tuple[str, str], dict]:
@@ -190,7 +221,7 @@ def _charge_stats(charges: list[Charge], today: date | None = None) -> dict[tupl
     return stats
 
 
-def _rejection_fields(charge: Charge | None, core: CoreCharge | None) -> dict:
+def _rejection_fields(charge: Charge | None, core: CoreCharge | _ReportRejection | None) -> dict:
     if charge is None:
         return {"rejection_code": None, "rejection_reason_raw": None, "rejection_reason": None, "rejection_at": None}
     code, raw = _reason(charge, core)

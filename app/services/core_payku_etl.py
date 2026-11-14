@@ -37,7 +37,10 @@ from app.models.payku_channel import (
 from app.services.channel_consolidation import _payku_last_transition_date
 from app.services.channel_store import extract_payku_cycles
 from app.services.core_materialization import materialize_core_clients
-from app.services.payku_rejection_codes import payku_subscription_rejection_status
+from app.services.payku_rejection_codes import (
+    payku_gateway_rejection,
+    payku_subscription_rejection_status,
+)
 from app.services.payku_status import (
     COMMON_STATUS_UNKNOWN,
     PAYKU_COMMON_STATUS,
@@ -367,6 +370,7 @@ def _materialize_payments(db: Session) -> int:
             skipped += 1
             continue
         is_rejected = (t.status or "").lower() == "rejected"
+        code, reason = _gateway_rejection(t) if is_rejected else (None, None)
         rows.append({
             "id": uuid.uuid4(),
             "source": _SOURCE,
@@ -377,8 +381,8 @@ def _materialize_payments(db: Session) -> int:
             "occurred_at": _parse_datetime_cl(t.created_at_api),
             "amount": _parse_amount(t.amount),
             "currency": _DEFAULT_CURRENCY,
-            "rejection_code": None,
-            "rejection_reason": None,
+            "rejection_code": code,
+            "rejection_reason": reason,
             "rejection_reported_at": _parse_datetime_cl(t.created_at_api) if is_rejected else None,
         })
 
@@ -394,7 +398,44 @@ def _materialize_payments(db: Session) -> int:
         )
     after = db.scalar(select(func.count()).select_from(CorePayment).where(CorePayment.source == _SOURCE)) or 0
     _refresh_payment_times(db, {r["external_id"]: (r["occurred_at"], r["rejection_reported_at"]) for r in rows})
+    _refresh_payment_rejections(db, {
+        r["external_id"]: (r["rejection_code"], r["rejection_reason"])
+        for r in rows if r["rejection_code"] is not None or r["rejection_reason"] is not None
+    })
     return after - before
+
+
+def _gateway_rejection(t: PaykuTransaction) -> tuple[str | None, str | None]:
+    """(codigo, glosa) del `gateway_response` de la transaccion, si el payload lo trae (CRM-15C).
+
+    El payload embebido de la suscripcion (`transactions[]`, lo que hoy guarda el sync) NO lo trae; solo
+    `GET /api/transaction/{id}` y su listado. Asi, el mapeo queda listo para cuando el sync o un enriquecimiento
+    (PK-PAR-05) guarde esa respuesta en `p_transactions.raw_payload`, sin inventar nada mientras tanto.
+    """
+    payload = t.raw_payload if isinstance(t.raw_payload, dict) else {}
+    return payku_gateway_rejection(payload.get("gateway_response"))
+
+
+def _refresh_payment_rejections(db: Session, found: dict[str, tuple[str | None, str | None]]) -> int:
+    """UPDATE explicito de `rejection_code`/`rejection_reason` de pagos ya existentes desde el `gateway_response`.
+
+    El insert usa `on_conflict_do_nothing`; sin este paso un pago cargado antes del dato nunca lo tomaria. Solo escribe
+    valores no nulos (nunca borra un motivo ya guardado) y solo filas que cambian. Idempotente.
+    """
+    if not found:
+        return 0
+    updates: list[dict] = []
+    for row in db.execute(
+        select(CorePayment.id, CorePayment.external_id, CorePayment.rejection_code, CorePayment.rejection_reason)
+        .where(CorePayment.source == _SOURCE, CorePayment.external_id.in_(list(found)))
+    ):
+        code, reason = found[row.external_id]
+        target = (code or row.rejection_code, reason or row.rejection_reason)
+        if target != (row.rejection_code, row.rejection_reason):
+            updates.append({"id": row.id, "rejection_code": target[0], "rejection_reason": target[1]})
+    for i in range(0, len(updates), 1000):
+        db.execute(update(CorePayment), updates[i : i + 1000])
+    return len(updates)
 
 
 def _refresh_payment_times(db: Session, times: dict[str, tuple[datetime | None, datetime | None]]) -> int:

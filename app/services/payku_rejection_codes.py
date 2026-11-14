@@ -7,6 +7,7 @@ agrupar y presentar. Un mensaje que no esté aquí no tiene categoría y se mues
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 # Categoría -> etiqueta legible.
@@ -62,3 +63,32 @@ def payku_rejection_category(message: str | None) -> str | None:
     if message is None or not str(message).strip():
         return None
     return _MESSAGE_TO_CATEGORY.get(_key(str(message)))
+
+
+# CRM-15C: forma real observada (2026-11-13, solo GET, solo nombres de campos) de `GET /api/transaction/{id}` y del
+# listado `GET /api/transaction?rejected=true` para cobros de suscripcion rechazados: `gateway_response.status` =
+# `rejected` y `gateway_response.message` = un CODIGO numerico negativo con espacio final (p. ej. `-11 `), no uno de
+# los siete textos de la documentacion. Payku no documenta la glosa de esos codigos: se guarda el codigo tal cual
+# (`rejection_code`) y nunca se inventa el texto (d120). El payload embebido de la suscripcion (`transactions[]`) no
+# trae `gateway_response`. Ver docs/integrations/payku/resources/rejection-reasons.md.
+_CODE_RE = re.compile(r"-?\d{1,6}")
+
+
+def payku_gateway_rejection(gateway_response: object) -> tuple[str | None, str | None]:
+    """(codigo, glosa) de un `gateway_response` de Payku rechazado; (None, None) si no es rechazo o no trae dato.
+
+    * mensaje con forma de codigo (`-11`, `-3 `) -> (`-11`, None);
+    * mensaje de texto (los siete de la documentacion u otro) -> (None, texto limpio);
+    * `status` distinto de `rejected` o mensaje vacio -> (None, None).
+    """
+    if not isinstance(gateway_response, dict):
+        return None, None
+    if str(gateway_response.get("status") or "").strip().casefold() != "rejected":
+        return None, None
+    message = " ".join(str(gateway_response.get("message") or "").split())
+    if not message:
+        return None, None
+    if _CODE_RE.fullmatch(message):
+        return message, None
+    return None, message
+
