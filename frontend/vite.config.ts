@@ -26,6 +26,14 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: 'jsdom',
       setupFiles: ['./src/test-setup.ts'],
+      // MET-01: solo se mide con `--coverage` (`npm run test:coverage`, lo usa la CI). Sin umbrales: es reporte.
+      coverage: {
+        provider: 'v8',
+        reporter: ['text-summary', 'json-summary', 'lcov'],
+        reportsDirectory: 'coverage',
+        include: ['src/**/*.{ts,tsx}'],
+        exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/test-setup.ts', 'src/main.tsx', 'src/**/*.d.ts'],
+      },
     },
     server: {
       host: true,

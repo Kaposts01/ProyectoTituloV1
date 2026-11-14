@@ -18,6 +18,9 @@ build/
 
 # Test and application artifacts
 coverage.xml
+.coverage
+.coverage.*
+coverage.md
 htmlcov/
 *.sqlite3
 logs/
