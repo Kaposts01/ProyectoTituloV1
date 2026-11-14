@@ -11,6 +11,7 @@ Solo fixtures SINTETICAS (Excel/CSV generados en el test). Autenticacion real (J
 
 import importlib.util
 import logging
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -70,6 +71,14 @@ def env(monkeypatch):
     app.dependency_overrides.pop(security_get_db, None)
 
 
+_AUDITED_TABLES = ("p_report_files", "p_report_transactions", "write_runs")
+_GENERATED_VALUE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"  # UUID
+    r"|\b[0-9a-f]{32,}\b"  # sha256 / HMAC en hex
+    r"|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?"  # marca de tiempo ISO
+)
+
+
 class World:
     def __init__(self, db: Session):
         self.db = db
@@ -78,6 +87,8 @@ class World:
         self.soporte = make_user(db, make_role(db, "soporte", support_permission_codes()))
         self.ejecutivo = make_user(db, make_role(db, "ejecutivo", executive_permission_codes()))
         self.payku_only = make_user(db, make_role(db, "carga_payku", {PERMISSION}))
+        # Filas que ya estaban (confirmadas por otros tests con SessionLocal): no son de este test y no se revisan.
+        self.preexisting = {t: set(db.scalars(text(f"SELECT id FROM {t}"))) for t in _AUDITED_TABLES}
 
     def post(self, who, url, path: Path, *, csrf=True, name=None, content=None, content_type=XLSX):
         client, headers = client_for(self.db, getattr(self, who))
@@ -102,14 +113,31 @@ def _files(db) -> int:
     return db.scalar(select(func.count()).select_from(PkReportFile))
 
 
-def _all_text(db) -> str:
+def _all_text(world: World) -> str:
+    """Texto de las filas que este test dejo en las tablas auditadas.
+
+    Solo filas nuevas: las que otros tests confirmaron antes quedan fuera, asi el resultado no depende del orden.
+    Y sin los valores que genera el sistema (UUID, digests hex, marcas de tiempo ISO): no pueden traer PII, pero son
+    aleatorios y por azar pueden contener un sentinela corto como "4242".
+    """
     parts = []
-    for table in ("p_report_files", "p_report_transactions", "write_runs"):
-        parts += [r[0] for r in db.execute(text(f"SELECT to_jsonb(t)::text FROM {table} t"))]
+    for table in _AUDITED_TABLES:
+        rows = world.db.execute(text(f"SELECT id, to_jsonb(t)::text FROM {table} t"))
+        parts += [_GENERATED_VALUE.sub("<gen>", doc) for row_id, doc in rows if row_id not in world.preexisting[table]]
     return "\n".join(parts)
 
 
 # ---- Payku: POST /api/v1/imports/payku-reports -------------------------------------------------------------------
+
+
+def test_all_text_still_sees_pii_written_by_this_test(world):
+    # Guarda de la verificacion de PII: filtrar filas ajenas y valores generados no debe ocultar una fuga real.
+    world.db.add(WriteRun(source="payku", resource_type="report_import", external_id=f"pii-probe-{uuid.uuid4().hex}",
+                          operation="import_report", status="completed",
+                          request_payload={"nombre": PII[0], "correo": PII[1], "fono": PII[2], "last4": PII[3]}))
+    world.db.flush()
+    found = _all_text(world)
+    assert all(s in found for s in PII)
 
 
 def test_payku_valid_report_returns_a_summary_without_personal_data(world, tmp_path, caplog):
@@ -123,7 +151,7 @@ def test_payku_valid_report_returns_a_summary_without_personal_data(world, tmp_p
     assert body["sheets"] == ["data_transacciones"]
     assert world.db.scalar(select(func.count()).select_from(PkReportTransaction)) == 2
     assert not any(s in r.text for s in PII) and not any(s in caplog.text for s in PII)
-    assert not any(s in _all_text(world.db) for s in PII)
+    assert not any(s in _all_text(world) for s in PII)
     (run,) = _runs(world.db)
     assert (run.status, run.resource_type) == ("completed", "report_import")
     assert run.request_payload["filename"] == path.name and len(run.request_payload["sha256"]) == 64

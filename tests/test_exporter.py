@@ -4,7 +4,7 @@ import csv
 import io
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.session import SessionLocal
 from app.models.write_run import WriteRun
@@ -110,6 +110,10 @@ def test_record_export_audit_writes_write_run() -> None:
         assert run.operation == "export_csv" and run.status == "aborted" and run.started_at is not None
         assert run.request_payload["rows"] == 5 and run.request_payload["pii_included"] is False
     finally:
+        # record_export_audit confirma la fila: se borra para no dejarla a los tests que revisan toda write_runs.
+        db.rollback()
+        db.execute(delete(WriteRun).where(WriteRun.external_id == f"export/test-{suffix}"))
+        db.commit()
         db.close()
 
 

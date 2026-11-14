@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.routes.recovery import (
@@ -240,6 +240,17 @@ def _setup_recovery_viewer(monkeypatch, suffix: str) -> tuple[TestClient, dict]:
     return client, {"X-CSRF-Token": login.json()["csrf_token"]}
 
 
+def _delete_write_runs(*external_ids: str) -> None:
+    """Borra las WriteRun que el test confirmo con SessionLocal: si quedan en la base, los tests posteriores
+    que revisan toda la tabla write_runs ven filas ajenas (y dependen del orden)."""
+    db = SessionLocal()
+    try:
+        db.execute(delete(WriteRun).where(WriteRun.external_id.in_(external_ids)))
+        db.commit()
+    finally:
+        db.close()
+
+
 def test_retry_history_endpoint_returns_items_and_total(monkeypatch) -> None:
     # T1: GET /recovery/retry-history retorna estructura {items, total, offset, limit} con datos
     # Found by /review on 2026-10-20
@@ -256,13 +267,16 @@ def test_retry_history_endpoint_returns_items_and_total(monkeypatch) -> None:
     finally:
         db.close()
 
-    resp = client.get("/api/v1/recovery/retry-history")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "items" in data and "total" in data
-    assert data["total"] >= 1
-    ids = {r["external_id"] for r in data["items"]}
-    assert f"ep-charge-{suffix}" in ids
+    try:
+        resp = client.get("/api/v1/recovery/retry-history")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "items" in data and "total" in data
+        assert data["total"] >= 1
+        ids = {r["external_id"] for r in data["items"]}
+        assert f"ep-charge-{suffix}" in ids
+    finally:
+        _delete_write_runs(f"ep-charge-{suffix}")
 
 
 def test_retry_history_endpoint_date_filter_excludes_outside_range(monkeypatch) -> None:
@@ -289,8 +303,11 @@ def test_retry_history_endpoint_date_filter_excludes_outside_range(monkeypatch) 
     finally:
         db.close()
 
-    resp = client.get("/api/v1/recovery/retry-history?date_from=2099-06-01&date_to=2099-06-30")
-    assert resp.status_code == 200
-    ids = {r["external_id"] for r in resp.json()["items"]}
-    assert f"in-range-ep-{suffix}" in ids
-    assert f"out-range-ep-{suffix}" not in ids
+    try:
+        resp = client.get("/api/v1/recovery/retry-history?date_from=2099-06-01&date_to=2099-06-30")
+        assert resp.status_code == 200
+        ids = {r["external_id"] for r in resp.json()["items"]}
+        assert f"in-range-ep-{suffix}" in ids
+        assert f"out-range-ep-{suffix}" not in ids
+    finally:
+        _delete_write_runs(f"in-range-ep-{suffix}", f"out-range-ep-{suffix}")
