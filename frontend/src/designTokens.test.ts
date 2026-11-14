@@ -61,8 +61,25 @@ function ratio(a: string, b: string): number {
 }
 
 describe("C1 ancho fijo del menu lateral", () => {
-  it("define --sidebar-w: 220px", () => {
-    expect(lightTokens["--sidebar-w"]).toBe("220px");
+  // Cambio deliberado (2026-11-13, menú rail): el aside reserva 64 px de íconos; desplegado o fijado mide 232 px.
+  it("define --sidebar-w: 64px (rail) y --sidebar-w-open: 232px; fijado usa el ancho abierto", () => {
+    expect(lightTokens["--sidebar-w"]).toBe("64px");
+    expect(lightTokens["--sidebar-w-open"]).toBe("232px");
+    expect(finalDecl(appCss, ".sidebar.is-pinned", "--sidebar-w")).toBe("var(--sidebar-w-open)");
+    expect(finalDecl(appCss, '.sidebar[data-state="expanded"] .sidebar-panel', "width")).toBe("var(--sidebar-w-open)");
+  });
+  it("el panel desplegado por hover es absoluto (no empuja el contenido) y anima 150-250 ms", () => {
+    // la primera regla es la de escritorio; el drawer móvil (media query) la vuelve relativa
+    expect(declsOf(bodiesFor(appCss, ".sidebar-panel")[0]).position).toBe("absolute");
+    const transition = finalDecl(appCss, ".sidebar-panel", "transition") ?? "";
+    for (const ms of transition.matchAll(/(\d+)ms/g)) {
+      expect(Number(ms[1])).toBeGreaterThanOrEqual(150);
+      expect(Number(ms[1])).toBeLessThanOrEqual(250);
+    }
+  });
+  it("prefers-reduced-motion y data-motion=reduced quitan transiciones y animaciones del menú", () => {
+    expect(appCss).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.sidebar, \.sidebar \*[^}]*transition: none !important; animation: none !important;/);
+    expect(appCss).toMatch(/\.sidebar\[data-motion="reduced"\][^{]*\{\s*transition: none !important; animation: none !important;/);
   });
   it("el aside usa solo la variable, sin encogerse (flex-shrink 0) y sin auto/max-content", () => {
     const bodies = bodiesFor(allCss, ".sidebar");

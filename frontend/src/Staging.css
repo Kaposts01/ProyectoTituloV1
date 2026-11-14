@@ -1070,9 +1070,9 @@
 
 /* ── Sidebar section labels ──────────────────────────────────────── */
 /* Titulos de grupo resaltados (Cartera, Operacion, Sistema): display, 11px, mas claros
-   que los items y con un separador sutil entre grupos. El ancho del menu no cambia. */
+   que los items y con un separador sutil entre grupos. Aire reducido en el rail (2026-11-13). */
 .sidebar-section-label {
-  padding: 4px 10px 6px;
+  padding: 6px 10px 2px;
   color: var(--sidebar-heading);
   font-family: var(--font-display);
   font-size: 11px;
@@ -1081,8 +1081,8 @@
   text-transform: uppercase;
 }
 .sidebar-group + .sidebar-group {
-  margin-top: 16px;
-  padding-top: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--sidebar-border);
 }
 

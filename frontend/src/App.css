@@ -19,83 +19,19 @@ html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: 
 .environment-confirm p { flex-basis: 100%; margin: 0; }
 
 /* ── Sidebar ─────────────────────────────────────────────────────── */
+/* El aside reserva el ancho en el flujo (rail de 64 px, o el ancho abierto si está fijado). El panel interior
+   es absoluto: al desplegarse por hover se superpone al contenido sin moverlo. Estilos en «Menú rail». */
 .sidebar {
-  position: sticky; top: 0; align-self: flex-start;
+  position: sticky; top: 0; align-self: flex-start; z-index: 60;
   width: var(--sidebar-w); min-width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
   height: 100vh; box-sizing: border-box;
-  padding: 24px 14px;
-  border-right: 1px solid var(--border);
+  padding: 0;
   background: var(--bg-sidebar);
-  display: flex; flex-direction: column;
 }
-.sidebar-brand {
-  display: flex; align-items: center; gap: 9px;
-  width: 100%; margin: 0; padding: 0 10px;
-  border: 0; color: var(--text-1); background: transparent;
-  cursor: pointer; font: inherit; text-align: left;
-}
-.sidebar-brand span {
-  display: grid; place-items: center;
-  width: 31px; height: 31px; border-radius: 9px;
-  color: var(--brand-text); background: var(--color-primary);
-  font-size: 12px; font-weight: 800;
-}
-.sidebar-brand strong { font-size: 15px; letter-spacing: -.04em; }
-
-.sidebar-toprow {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 30px;
-}
-.sidebar-close {
-  display: none;
-  flex-shrink: 0; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border: 0; border-radius: 8px;
-  color: var(--text-3); background: transparent; cursor: pointer; font-size: 18px;
-}
-.sidebar-close:hover { color: var(--text-1); background: var(--bg-hover); }
+.sidebar.is-pinned { --sidebar-w: var(--sidebar-w-open); }
 
 .burger-btn { display: none; }
 .sidebar-overlay { display: none; }
-
-.sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-.sidebar-group { margin-top: 17px; }
-.sidebar-toggle {
-  display: flex; justify-content: space-between;
-  width: 100%; padding: 6px 10px; border: 0;
-  color: var(--text-4); background: transparent;
-  cursor: pointer; font: inherit; font-size: 10px; font-weight: 800;
-  letter-spacing: .12em; text-align: left; text-transform: uppercase;
-}
-.sidebar-toggle span {
-  display: grid; place-items: center;
-  width: 16px; height: 16px; border-radius: 50%;
-  color: var(--text-3); background: var(--bg-expand);
-  font-size: 14px; letter-spacing: 0;
-}
-.sidebar-item {
-  width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
-  color: var(--text-2); background: transparent;
-  cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; text-align: left;
-}
-.sidebar-item.nested { padding-left: 20px; }
-.sidebar-item:hover { color: var(--text-1); background: var(--bg-hover); }
-.sidebar-item.active { color: var(--text-on-primary); background: var(--color-primary); }
-
-.sidebar-footer {
-  margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border-subtle);
-}
-.theme-btn {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
-  color: var(--text-3); background: transparent;
-  cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; text-align: left;
-}
-.theme-btn:hover { color: var(--text-1); background: var(--bg-hover); }
-.theme-btn-icon {
-  display: grid; place-items: center;
-  width: 22px; height: 22px; border-radius: 6px;
-  background: var(--bg-muted); font-size: 13px; flex-shrink: 0;
-}
 
 /* ── Shell ───────────────────────────────────────────────────────── */
 .app-shell {
@@ -591,10 +527,6 @@ td:first-child { font-weight: 700; }
 /* ── Sidebar azul marino (D1) — fondo siempre oscuro, texto claro ─────
    Todos los colores salen de tokens --sidebar-* (index.css) con contraste vigilado
    por designTokens.test.ts. El acento teal queda solo para interaccion fuera del menu. */
-.sidebar {
-  background: var(--bg-sidebar);
-  border-right: none;
-}
 .sidebar-brand,
 .sidebar-brand strong { color: var(--sidebar-text-strong); }
 .sidebar-brand span {
@@ -604,18 +536,15 @@ td:first-child { font-weight: 700; }
 .sidebar-item { color: var(--sidebar-text); font-weight: 500; }
 .sidebar-item:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
 .sidebar-item.active { color: var(--sidebar-active-text); background: var(--sidebar-active-bg); font-weight: 700; }
-.sidebar-item:focus-visible, .sidebar-toggle:focus-visible, .channel-dashboard:focus-visible, .sidebar-expand:focus-visible, .theme-btn:focus-visible {
-  outline: 2px solid var(--series-4); outline-offset: 1px;
+.sidebar-item:focus-visible, .sidebar-toggle:focus-visible, .channel-dashboard:focus-visible, .sidebar-expand:focus-visible,
+.sidebar-brand:focus-visible, .sidebar-detail-toggle:focus-visible, .sidebar-close:focus-visible {
+  outline: 2px solid var(--series-4); outline-offset: -2px;
 }
 .sidebar-toggle { color: var(--sidebar-label); }
 .sidebar-toggle span { color: var(--sidebar-text); background: var(--sidebar-hover-bg); }
-.sidebar-section-label { color: var(--sidebar-label); }
 .sidebar-close { color: var(--sidebar-text); }
 .sidebar-close:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
 .sidebar-footer { border-top: 1px solid var(--sidebar-border); }
-.theme-btn { color: var(--sidebar-text); }
-.theme-btn:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
-.theme-btn-icon { background: var(--sidebar-hover-bg); }
 
 /* ── Provider group headings in sidebar ─────────────────────────────── */
 .channel-heading {
@@ -678,51 +607,174 @@ h1, h2, h3, .eyebrow {
 /* Columnas numéricas de tabla: alineadas a la derecha (DESIGN.md, Tables). */
 td.num { text-align: right; }
 
-/* ── Menú de un solo nivel (UX-05, D29) ─────────────────────────────────
-   Grupos con etiqueta, ítems planos, salud global compacta, buscador y el grupo
-   transitorio «Detalle por canal». Todo con tokens --sidebar-* (contraste vigilado). */
-.sidebar-nav { min-height: 0; overflow-y: auto; }
-.sidebar-group { margin-top: 14px; }
+/* ── Menú de un solo nivel (UX-05, D29) como rail compacto (2026-11-13) ──────────
+   Grupos con etiqueta, ítems con ícono, salud global, buscador y el grupo transitorio «Detalle por canal».
+   Compacto = 64 px de íconos; se despliega con hover (intención 150 ms), con «Mantener menú abierto» (fijado,
+   recordado por navegador) o cuando el teclado entra al buscador o a un desplegable. El panel es absoluto: al
+   desplegarse se superpone al contenido sin reflujo. Los íconos no se mueven: cada fila tiene la misma altura
+   en ambos estados y el ícono queda centrado en el rail (12 px de margen + 10 px de relleno + 20 px de ícono).
+   Animaciones de 150-200 ms (ancho del panel, opacidad y desplazamiento de los rótulos, giro del chevron); con
+   prefers-reduced-motion o data-motion="reduced" no hay transición. Todo con tokens --sidebar-*. */
+.sidebar-panel {
+  position: absolute; inset: 0 auto 0 0; z-index: 1;
+  display: flex; flex-direction: column;
+  width: var(--sidebar-w); box-sizing: border-box;
+  padding: 16px 12px 12px;
+  overflow: hidden;
+  background: var(--bg-sidebar);
+  transition: width 200ms cubic-bezier(.2, .7, .2, 1), box-shadow 200ms ease;
+}
+.sidebar[data-state="expanded"] .sidebar-panel { width: var(--sidebar-w-open); }
+.sidebar[data-state="expanded"]:not(.is-pinned) .sidebar-panel { box-shadow: var(--sidebar-float-shadow); }
+
+/* Rótulos: se desvanecen y se corren 6 px; nunca cambian la altura de su fila. */
+.sidebar-label, .sidebar-detail-chevron, .sidebar-health-text, .sidebar-health-glyph {
+  white-space: nowrap;
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(.2, .7, .2, 1);
+}
+.sidebar[data-state="compact"] .sidebar-label,
+.sidebar[data-state="compact"] .sidebar-detail-chevron,
+.sidebar[data-state="compact"] .sidebar-health-text,
+.sidebar[data-state="compact"] .sidebar-health-glyph {
+  opacity: 0; transform: translateX(-6px); pointer-events: none;
+}
+.sidebar[data-state="compact"] .sidebar-search input::placeholder { opacity: 0; }
+.sidebar-icon { flex: none; width: 20px; height: 20px; }
+
+/* Encabezado: marca y cierre (el cierre solo en el drawer móvil). */
+.sidebar-toprow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.sidebar-brand {
+  display: flex; align-items: center; gap: 12px;
+  min-width: 0; margin: 0; padding: 2px 4px; border: 0; border-radius: 8px;
+  background: transparent; cursor: pointer; font: inherit; text-align: left;
+}
+.sidebar-brand span {
+  display: grid; place-items: center; flex: none;
+  width: 32px; height: 32px; border-radius: 9px;
+  font-family: var(--font-display); font-size: 12px; font-weight: 800;
+}
+.sidebar-brand strong { font-family: var(--font-display); font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
+.sidebar-close {
+  display: none; flex: none; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+}
+
+/* Ítems: 36 px de alto con ícono; activo = fondo + texto blanco + peso 700 + aria-current (no solo color). */
+.sidebar-item, .sidebar-detail-toggle {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 36px; padding: 0 10px; box-sizing: border-box;
+  border: 0; border-radius: 8px;
+  background: transparent; cursor: pointer;
+  font: inherit; font-size: 13px; text-align: left;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.sidebar-item .sidebar-icon { transition: transform 200ms cubic-bezier(.2, .7, .2, 1); }
+.sidebar-item:hover .sidebar-icon { transform: scale(1.08); }
+.sidebar-item:active .sidebar-icon { transform: scale(.92); }
+/* activo: además del fondo y el peso 700, un filo interior tenue que lo separa del hover */
+.sidebar-item.active { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 7%); }
+.sidebar-label { overflow: hidden; text-overflow: ellipsis; }
+
+.sidebar-nav {
+  display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--sidebar-border) transparent;
+}
+.sidebar-group { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
 .sidebar-group:first-child { margin-top: 0; }
-.sidebar-section-label { padding: 6px 10px 4px; }
-.sidebar-note { margin: 4px 10px 8px; color: var(--sidebar-label); font-size: 11px; line-height: 1.4; }
-.sidebar-search { margin: 0 0 14px; }
+/* Encabezado de grupo: en compacto queda una raya corta centrada (misma altura: los íconos no saltan). */
+.sidebar-section-label { position: relative; height: 24px; box-sizing: border-box; overflow: hidden; white-space: nowrap; transition: color 180ms ease; }
+.sidebar-section-label::after {
+  content: ""; position: absolute; left: 14px; top: 11px; width: 12px; height: 2px; border-radius: 9999px;
+  background: var(--sidebar-label); opacity: 0; transition: opacity 180ms ease;
+}
+.sidebar[data-state="compact"] .sidebar-section-label { color: transparent; }
+.sidebar[data-state="compact"] .sidebar-section-label::after { opacity: .6; }
+.sidebar-note { margin: 4px 10px 8px; color: var(--sidebar-label); font-size: 11px; line-height: 1.4; white-space: normal; }
+
+/* Buscador: en compacto es una caja de 40 px con la lupa; al enfocarlo el rail se despliega. */
+.sidebar-search { position: relative; min-width: 0; margin: 0 0 12px; }
+.sidebar-search-icon { position: absolute; left: 10px; top: 50%; width: 20px; height: 20px; color: var(--sidebar-label); transform: translateY(-50%); pointer-events: none; }
 .sidebar-search input {
-  width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px;
+  width: 100%; min-height: 36px; box-sizing: border-box; padding: 7px 10px 7px 40px; border: 1px solid transparent; border-radius: 8px;
   color: var(--sidebar-text-strong); background: var(--sidebar-active-bg);
   font: inherit; font-size: 13px;
 }
-.sidebar-search input::placeholder { color: var(--sidebar-label); opacity: 1; }
-.sidebar-search input:focus-visible { outline: 2px solid var(--series-4); outline-offset: 1px; }
-.sidebar-health { margin: -14px 0 12px; }
+.sidebar-search input::placeholder { color: var(--sidebar-label); opacity: 1; transition: opacity 180ms ease; }
+.sidebar-search input:focus-visible { outline: 2px solid var(--series-4); outline-offset: -2px; }
+/* compacto: sin relleno lateral (si no, 40 px de relleno ensancharían la caja más allá del rail) */
+.sidebar[data-state="compact"] .sidebar-search input { padding-left: 0; padding-right: 0; color: transparent; }
+
+/* Salud global: el punto ocupa la columna del ícono. */
+.sidebar-health { margin: 0 0 8px; }
 .sidebar-health-toggle {
-  display: flex; align-items: center; gap: 4px; width: 100%; padding: 6px 10px; border: 0; border-radius: 8px;
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: 8px;
   color: var(--sidebar-text); background: transparent; cursor: pointer; font: inherit; font-size: 12px; text-align: left;
 }
+.sidebar-health-toggle .health-dot[data-scope="global"] { width: 8px; height: 8px; margin: 0 6px; box-shadow: 0 0 0 3px var(--sidebar-hover-bg); }
 .sidebar-health-toggle:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
-.sidebar-health-toggle:focus-visible { outline: 2px solid var(--series-4); outline-offset: 1px; }
+.sidebar-health-toggle:focus-visible { outline: 2px solid var(--series-4); outline-offset: -2px; }
 .sidebar-health-text { flex: 1; }
 .sidebar-health-glyph { color: var(--sidebar-label); font-size: 14px; line-height: 1; }
-.sidebar-health-list { margin: 2px 0 0; padding: 0 10px; list-style: none; }
-.sidebar-health-list li { display: flex; align-items: center; gap: 4px; padding: 3px 0; color: var(--sidebar-text); font-size: 11px; }
+.sidebar-health-list { margin: 2px 0 0; padding: 0 10px; list-style: none; animation: sidebar-reveal 200ms cubic-bezier(.2, .7, .2, 1); }
+.sidebar-health-list li { display: flex; align-items: center; gap: 4px; padding: 3px 0; color: var(--sidebar-text); font-size: 11px; white-space: nowrap; }
 .sidebar-health-list .health-dot { margin: 0 4px 0 0; }
 .sidebar-health-age { margin-left: auto; color: var(--sidebar-label); text-align: right; }
-.sidebar-detail-toggle {
-  display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; border-radius: 8px;
-}
+.sidebar[data-state="compact"] .sidebar-health-list { display: none; }
+
+/* «Detalle por canal»: submenú plegable; el chevron gira y el cuerpo entra con opacidad + desplazamiento. */
+.sidebar-detail-toggle { color: var(--sidebar-text); font-weight: 500; }
+.sidebar-detail-toggle:hover:not(:disabled) { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.sidebar-detail-toggle.has-active { color: var(--sidebar-text-strong); }
+.sidebar[data-state="compact"] .sidebar-detail-toggle.has-active { background: var(--sidebar-active-bg); }
 .sidebar-detail-toggle:disabled { cursor: default; }
-.sidebar-detail-toggle > span:first-child { flex: 1; }
+.sidebar-detail-toggle { min-height: 42px; }
+.sidebar-detail-text { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.2; }
+/* «Transitorio» como antetítulo bajo el rótulo (antes una píldora que truncaba «Detalle por canal»). */
 .sidebar-transient {
-  padding: 1px 6px; border: 1px solid var(--sidebar-label); border-radius: 9999px;
-  font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--sidebar-label); font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
 }
-.sidebar-detail-glyph { font-size: 16px; line-height: 1; }
-.sidebar-subgroup { margin-top: 8px; }
-.sidebar-subheading { padding: 4px 10px 2px; color: var(--sidebar-label); font-size: 11px; font-weight: 700; }
-.sidebar-subgroup .sidebar-item { padding-left: 20px; font-size: 12px; }
+.sidebar-detail-chevron { flex: none; width: 16px; height: 16px; color: var(--sidebar-label); }
+.sidebar-detail-toggle[aria-expanded="true"] .sidebar-detail-chevron { transform: rotate(90deg); }
+.sidebar-detail-body { animation: sidebar-reveal 200ms cubic-bezier(.2, .7, .2, 1); }
+.sidebar[data-state="compact"] .sidebar-detail-body { display: none; }
+.sidebar-subgroup { display: flex; flex-direction: column; gap: 1px; margin: 6px 0 0 19px; padding-left: 8px; border-left: 1px solid var(--sidebar-border); }
+.sidebar-subheading { padding: 4px 10px 2px; color: var(--sidebar-label); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.sidebar-subgroup .sidebar-item { min-height: 30px; font-size: 12px; white-space: nowrap; }
+@keyframes sidebar-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* Pie: fijar, tema, perfil y salir con el mismo formato de ítem. */
+.sidebar-footer { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; }
+.sidebar-footer .sidebar-item { min-height: 34px; font-size: 12px; }
+.sidebar-pin[aria-pressed="true"] { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.sidebar-pin[aria-pressed="true"] .sidebar-icon { transform: scaleX(-1); }
+
+/* Tooltip del modo compacto (foco de teclado): fuera del panel para no recortarse. */
+.sidebar-tooltip {
+  position: fixed; z-index: 400; transform: translateY(-50%);
+  padding: 5px 9px; border-radius: 6px;
+  color: var(--sidebar-active-text); background: var(--sidebar-active-bg);
+  box-shadow: var(--sidebar-float-shadow);
+  font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: none;
+  animation: sidebar-tip 150ms ease-out;
+}
+@keyframes sidebar-tip { from { opacity: 0; transform: translate(-4px, -50%); } to { opacity: 1; transform: translateY(-50%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .sidebar *, .sidebar *::after, .sidebar-tooltip { transition: none !important; animation: none !important; }
+}
+.sidebar[data-motion="reduced"], .sidebar[data-motion="reduced"] *, .sidebar[data-motion="reduced"] *::after { transition: none !important; animation: none !important; }
+
 @media (max-width: 800px) {
+  /* Drawer móvil: siempre desplegado (sin rail, sin fijar, sin tooltip). */
+  .sidebar-panel, .sidebar[data-state] .sidebar-panel { position: relative; inset: auto; width: 100%; height: 100%; box-shadow: none; }
+  /* con el drawer abierto la hamburguesa no tapa la marca (el foco vuelve a ella al cerrar) */
+  .burger-btn[aria-expanded="true"] { visibility: hidden; }
+  .sidebar-pin, .sidebar-tooltip { display: none; }
+  .sidebar-close { display: flex; }
   .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
   .sidebar-search input { min-height: 44px; }
+  .sidebar-item { min-height: 44px; }
 }
 
 /* ── Vistas unificadas de Cartera (UX-08, UX-09) ── */
