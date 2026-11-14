@@ -22,6 +22,7 @@ export function RolesSubPanel({ canManage, allPermissions }: { canManage: boolea
 
   async function createRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formEl = event.currentTarget; // tras un await, React deja currentTarget en null
     const form = new FormData(event.currentTarget);
     try {
       await postJson("/api/v1/admin/roles", {
@@ -29,7 +30,7 @@ export function RolesSubPanel({ canManage, allPermissions }: { canManage: boolea
         description: (form.get("description") as string).trim() || null,
         permission_codes: form.getAll("permission_codes"),
       });
-      event.currentTarget.reset();
+      formEl.reset();
       setCreating(false);
       setMessage("Rol creado.");
       reload();
