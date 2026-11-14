@@ -1,6 +1,8 @@
 [
  ".calidad_datos",
+ ".calidad_datos.altas_fecha_estimada",
  ".calidad_datos.altas_sin_fecha",
+ ".calidad_datos.bajas_antes_del_alta",
  ".calidad_datos.bajas_sin_fecha",
  ".channels",
  ".generated_at",

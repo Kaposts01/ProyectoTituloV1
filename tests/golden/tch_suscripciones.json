@@ -1,5 +1,6 @@
 [
  ".items",
+ ".items[].baja_antes_del_alta",
  ".items[].banco_nombre",
  ".items[].captador",
  ".items[].centro_costo",
@@ -8,8 +9,10 @@
  ".items[].equivalente_pesos",
  ".items[].estado",
  ".items[].fecha_activacion",
+ ".items[].fecha_alta_efectiva",
  ".items[].fecha_eliminacion",
  ".items[].fecha_fin",
+ ".items[].fecha_ingreso",
  ".items[].fecha_rechazo",
  ".items[].id",
  ".items[].last_paid_date",

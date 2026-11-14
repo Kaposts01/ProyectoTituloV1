@@ -107,7 +107,7 @@ Ejemplo real generado con datos sintéticos de las pruebas (ahora fijo = 2026-10
     "bajas": [{"month": "2026-09", "valor": 1}, {"month": "2026-10", "valor": 4}],
     "socios_totales": [{"month": "2026-09", "valor": 9}, {"month": "2026-10", "valor": 8}]
   },
-  "calidad_datos": {"altas_sin_fecha": 0, "bajas_sin_fecha": 0}
+  "calidad_datos": {"altas_sin_fecha": 0, "bajas_sin_fecha": 0, "bajas_antes_del_alta": 0, "altas_fecha_estimada": 0}
 }
 ```
 
@@ -122,7 +122,7 @@ Ejemplo real generado con datos sintéticos de las pruebas (ahora fijo = 2026-10
 | `channels` | string[] | Canales efectivos (los pedidos y permitidos), en orden fijo `virtualpos, toku, payku, tch`. |
 | `kpis` | objeto | Ver abajo. |
 | `series` | objeto | Ver abajo. |
-| `calidad_datos` | objeto | `altas_sin_fecha`: suscripciones sin fecha de alta válida (no entran a socios, altas ni bajas). `bajas_sin_fecha`: suscripciones en estado de baja sin fecha de baja válida (o anterior a su alta); no se pueden ubicar en un mes. Enteros ≥ 0 sobre los canales efectivos. |
+| `calidad_datos` | objeto | `altas_sin_fecha`: suscripciones sin fecha de alta válida (no entran a socios, altas ni bajas). `bajas_sin_fecha`: suscripciones en estado de baja sin fecha de baja válida (o anterior a su alta); no se pueden ubicar en un mes. `bajas_antes_del_alta`: de las anteriores, las que tienen ambas fechas pero la baja es anterior al alta (dato inconsistente de la fuente, marcado para revisión, no corregido). `altas_fecha_estimada`: suscripciones VirtualPOS sin fecha de alta en el payload cuya alta se estimó con la fecha de su primer cobro (`min(vp_charges.charge_date)`). Enteros ≥ 0 sobre los canales efectivos. |
 
 ### Objeto KPI (todos los de `kpis` y cada elemento de `ingreso_por_canal`)
 
@@ -144,7 +144,7 @@ KPIs con campos extra: `socios_totales` (`socios_totales_nota`, `socios_totales_
 | Clave | Definición |
 |---|---|
 | `socios_totales` | Suscripciones activas **al cierre del mes** = altas con fecha ≤ fin de mes − bajas con fecha ≤ fin de mes. **Suma por canal, NO deduplicada** y sin afirmar un total único de socios: `socios_totales_nota` = «suma por canal, no deduplicada» hasta que exista el trabajo sobre Core (ADR-001). La unidad es la suscripción (`socios_totales_unidad: "suscripciones"`), no el RUT. |
-| `activaciones` | Altas del mes: suscripciones cuya fecha de alta cae en el mes (`suscription_date`; TCH la fecha de alta efectiva de TCH-PAR-17: `fecha_activacion`, si falta `fecha_primer_cobro` y si falta `fecha_entrega_banco`, la misma del dashboard de TCH). Se excluyen las que nunca fueron alta: VirtualPOS `SUSCRIPCION_FALLIDA`, Payku `register` (inscripción de tarjeta sin completar) y TCH `RECHAZADA`. Toku sin fila en el reporte de Productos no tiene alta (d141: el `anchor` de la API es el próximo cobro) y cuenta en `calidad_datos.altas_sin_fecha`. |
+| `activaciones` | Altas del mes: suscripciones cuya fecha de alta cae en el mes (`suscription_date`; VirtualPOS sin `suscription_date` usa la fecha de su primer cobro, estimada; TCH la fecha de alta efectiva de TCH-PAR-17: `fecha_activacion`, si falta `fecha_primer_cobro`, si falta `fecha_entrega_banco` y si falta `fecha_ingreso`, la misma del dashboard de TCH). Se excluyen las que nunca fueron alta: VirtualPOS `SUSCRIPCION_FALLIDA`, Payku `register` (inscripción de tarjeta sin completar) y TCH `RECHAZADA`. Toku sin fila en el reporte de Productos no tiene alta (d141: el `anchor` de la API es el próximo cobro) y cuenta en `calidad_datos.altas_sin_fecha`. |
 | `bajas` | Bajas del mes: suscripciones en **estado de baja del canal** (`BAJA_STATES` de `app/services/status_history.py`; TCH además `ELIMINADA`) con **fecha de baja** en el mes (`canceled_at`; TCH `fecha_eliminacion`) y alta válida anterior o igual. No depende de `status_change_events` (su historia empieza al aplicar la migración 0042). |
 | `crecimiento_neto` | `activaciones - bajas`. |
 | `churn` | **Propuesta**: `bajas del mes ÷ socios al inicio del mes × 100` (socios al cierre del mes anterior), 1 decimal, misma fórmula para los 4 canales. `null` sin socios al inicio. El resumen la calcula para el mes elegido; los dashboards de canal (`app/services/channel_churn.py`) la toman del **último mes cerrado con dato** (hora de Chile), porque el mes en curso casi siempre da 0 % los primeros días, y su `churn_window_label` nombra ese mes (L6-DASH; sin claves nuevas en el JSON). |

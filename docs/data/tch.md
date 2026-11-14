@@ -69,8 +69,9 @@ TCH-PAR-16).
 | `centro_costo` | String(150) | Centro de costo |
 | `estado` | String(20) | VIGENTE / PENDIENTE / ELIMINADA / RECHAZADA (columna ESTADO del reporte) |
 | `monto` | String(20) | Monto del mandato (string) |
-| `fecha_activacion` | String(20) | Fecha de activación. Desde jul-2025 el reporte ya no la trae: el dashboard usa como respaldo `fecha_primer_cobro` y luego `fecha_entrega_banco` (TCH-PAR-17, clave `activaciones_fuente` de `/tch/summary`) |
-| `fecha_eliminacion` | String(20) | Fecha de baja |
+| `fecha_activacion` | String(20) | Fecha de activación. Desde jul-2025 el reporte ya no la trae: el dashboard usa como respaldo `fecha_primer_cobro`, luego `fecha_entrega_banco` y por último `fecha_ingreso` (TCH-PAR-17, clave `activaciones_fuente` de `/tch/summary`) |
+| `fecha_ingreso` | String(20) | Columna «Ingreso» del grupo ANTECEDENTES Y ESTADO MANDATOS (ingreso del mandato; llena en VIGENTES y ELIMINADOS). Último respaldo de la fecha de alta: es la fecha más temprana del ciclo y solo se usa cuando faltan las otras tres. Una recarga sin la columna no borra la ya cargada. Requiere recargar TCH para poblarse (ver `tch-reload.md`) |
+| `fecha_eliminacion` | String(20) | Fecha de baja («Fecha Eliminado»). Las fichas dadas de baja implícitamente (ausentes del último reporte) no tienen fecha: el reporte no trae ninguna otra columna con la fecha de baja. Una baja anterior al alta efectiva se marca (`baja_antes_del_alta` en el detalle, `calidad_datos.bajas_antes_del_alta` en el dashboard general) sin corregirse |
 
 ### tch_transacciones — campos clave
 

@@ -260,7 +260,7 @@ def test_quality_data_counts_undated_records(auth, data, db_session) -> None:
     db_session.flush()
     client, _ = auth()
     q = get(client, month="2026-10")["calidad_datos"]
-    assert q == {"altas_sin_fecha": 1, "bajas_sin_fecha": 1}
+    assert q == {"altas_sin_fecha": 1, "bajas_sin_fecha": 1, "bajas_antes_del_alta": 0, "altas_fecha_estimada": 0}
 
 
 # ── L6-DASH (ficha d142) ───────────────────────────────────────────────────────────────────────────────
@@ -343,4 +343,6 @@ def test_tch_signups_use_the_activation_fallback_and_skip_rejected(auth, db_sess
     k = body["kpis"]
     assert k["activaciones"]["valor"] == 2 and k["bajas"]["valor"] == 1 and k["crecimiento_neto"]["valor"] == 1
     assert k["socios_totales"]["valor"] == 3
-    assert body["calidad_datos"] == {"altas_sin_fecha": 0, "bajas_sin_fecha": 0}  # la RECHAZADA no fue alta
+    assert body["calidad_datos"] == {
+        "altas_sin_fecha": 0, "bajas_sin_fecha": 0, "bajas_antes_del_alta": 0, "altas_fecha_estimada": 0,
+    }  # la RECHAZADA no fue alta

@@ -62,6 +62,29 @@ reexportado.
 7. **Verificacion.** `python scripts/diagnostics/parity_check.py --channel tch` (solo lectura): los conteos por mes de
    `tch_transacciones` deben coincidir con el control. Revise tambien que las fichas VIGENTES sean ~8.401.
 
+## Fecha de ingreso del mandato (fix/fechas-alta-tch-vp)
+
+El ETL ahora carga la columna «Ingreso» (grupo `ANTECEDENTES Y ESTADO MANDATOS`, rotulo exacto `Ingreso`) en
+`tch_suscripciones.fecha_ingreso`, que estaba vacia en todas las fichas. Es el ultimo respaldo de la fecha de alta
+(activacion -> primer cobro -> entrega al banco -> ingreso): solo da fecha a las ~433 fichas que hoy no tienen ninguna,
+sin mover de mes las altas que ya la tenian. Tambien reduce las «bajas sin fecha» cuyo problema era la falta de alta.
+
+**Hay que recargar TCH para poblar `fecha_ingreso`**: hagalo en la ventana OPS-11 (ficha d209), con los pasos de
+arriba. No hace falta migracion (la columna ya existe). Despues de la recarga, revise en el dashboard general que
+`calidad_datos.altas_sin_fecha` (TCH) baje y mire `calidad_datos.bajas_antes_del_alta`: son bajas con fecha anterior
+al alta (38 al diagnostico), marcadas para revision y no corregidas.
+
+Bajas sin fecha: el reporte solo trae «Fecha Eliminado» (ya cargada en `fecha_eliminacion`). Las bajas implicitas
+(fichas que desaparecen del ultimo reporte) no tienen fecha en ninguna columna del IG; seguiran contando en
+`bajas_sin_fecha` salvo que se decida otra regla (p. ej. el periodo del primer reporte donde la ficha ya no aparece).
+
+### TCH-PAR-21: `fecha_entrega_banco` no se actualizaba
+
+El upsert de `tch_suscripciones` no incluia `fecha_entrega_banco`: una ficha conservaba la entrega al banco de su
+primera carga (o NULL) aunque reportes posteriores la trajeran o corrigieran. Corregido en esta rama (prueba
+`tests/test_tch_par21.py`). Como es el tercer respaldo de la fecha de alta, la misma recarga de la ventana OPS-11
+(ficha d209) la deja al dia.
+
 ## Mientras no se recargue
 
 Una carga incremental (`--mode incremental` o la importacion de la pantalla de administracion) se rechaza si la base
