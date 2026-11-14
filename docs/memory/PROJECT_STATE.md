@@ -1,8 +1,19 @@
 # Estado del Proyecto
 
-Fecha de actualizacion: 2026-10-28.
+Fecha de actualizacion: 2026-11-09.
 
-> El plan, los sprints, el backlog y el estado de cada tarea viven en [docs/tasks.md](../tasks.md), la fuente única. Este archivo describe el estado técnico y las decisiones del sistema.
+> El plan, los sprints, el backlog y el estado de cada tarea viven en [docs/tasks.md](../tasks.md), la fuente única. Este archivo describe el estado técnico y las decisiones del sistema. Las secciones fechadas más abajo (2026-10-21 a 2026-10-28) son registro histórico: donde contradigan este resumen, prevalece este resumen.
+
+## Estado al 2026-11-07 (resumen vigente)
+
+- **Código:** el MVP está integrado en `master` (`65b21c9`): Sprint 4 (Opción A y recuperador VP), Sprint 5 (recuperador general), sprint VIZ y Sprint 5A (datos confiables), con las olas 1 a 7 del 2 al 4 de noviembre. PR #6 (`fdf51bc`, 2026-11-04) y PR #7 (`65b21c9`, 2026-11-05). CI en verde: `ruff`, `pytest` contra PostgreSQL 17, lint, pruebas y build del frontend (backend 2.751 y frontend 1.381 pruebas según el plan revisado del 2026-11-05). La CI no mide cobertura (MET-01).
+- **Migraciones:** head del código `20261104_0071`. `crm` en `20261103_0068` (desplegada el 2026-11-03 con respaldo previo, ficha d127); falta la `0071`, que solo siembra un permiso. `crm_sandbox` en `0071` desde el 2026-11-04 (integración de L7-IMPORT). La cadena tiene números fuera de orden y huecos, pero es lineal; no se renombra.
+- **Operación:** producción local en un PC (backend 8000, front 5173, base `crm`); sandbox en 8001 y 5174 sobre `crm_sandbox`; PostgreSQL 17 en el contenedor Docker `crm_projectotitulo-postgres-1` (servicio `postgres` de `compose.yaml`, puerto 5433, volumen `postgres_data`) para `crm`, `crm_sandbox` y `crm_test`; el servicio de Windows `postgresql-x64-18` es otra instalación, manual y sin uso. La operación local es el alcance de la entrega (d155); el hosting con PITR queda como trabajo futuro (d103). No hay respaldo automatizado en `master` todavía: BCK-01a está en el PR #8 (sin integrar al 2026-11-09; retención de 14 días, cifrado AES-256 con HMAC, simulacro en `crm_restore_test` y tarea diaria a las 05:00 registrable; faltan la copia en nube, el RTO medido y tres correcciones menores).
+- **Abiertos sin integrar (2026-11-09):** PR #8 (BCK-01a), PR #9 (DOC-12 y DOC-13) y PR #10 (L8-QA: hallazgos altos y medios del informe de QA del sandbox del 2026-11-05, sin migraciones; CI con backend 2.759 y frontend 1.407). El PR #10 trae SEC-03: con `APP_ENV=sandbox` o `qa` es obligatoria `SANDBOX_AUTH_JWT_SECRET` (al menos 32 caracteres y distinta de `AUTH_JWT_SECRET`); sin ella no arranca el backend sandbox. `crm_sandbox` contiene datos personales reales (QA-04, decisión del usuario pendiente en d163; regla 14 del runbook de sandbox). Las variables `PAYKU_SANDBOX_*` existen vacías a la espera de Payku.
+- **Banderas:** todo lo que escribe en `crm` o en proveedores nace apagado (escrituras, ETL Core dentro del sync, lecturas por ventana, consolidación diferencial, niveles de sync, captura de rechazos, señales de Toku, webhooks, alertas, controles de billing). Lista en `handoff.md` §5.
+- **Sistemas nuevos desde el 2026-10-29:** historial de estados (`status_change_events`), detalle de rechazos con glosa en texto, importación de reportes PAT de VirtualPOS, Toku, Payku y TCH desde un panel unificado, exportación CSV en streaming y en segundo plano, bajas multicanal y cambio de monto, vistas unificadas de Cobros, Suscripciones y Socios, Resumen con KPIs de jefatura, cola de webhooks con reconciliación dirigida, SSE con respaldo de polling, alertas por correo, sync por ventanas y niveles, sistema único de gráficos. Mapa en `handoff.md` §9.
+- **Plan post-MVP (fichas d153 a d162):** entrega a fines de noviembre de 2026; S6 (2026-11-06 a 11-13) plan fiel, respaldo, privacidad y pedidos a terceros; S7 (11-14 a 11-21) evidencia de calidad y uso, modo demo con datos enmascarados (SEC-02) y congelamiento de código el 21/11; S8 memoria y defensa. Las tareas que esperan a Payku, Toku o tarjetas de VirtualPOS se cortan al cierre de S7 como trabajo futuro.
+- **Riesgos principales:** pérdida de datos por un solo PC sin respaldo automático; JWT de producción sin rotar desde los túneles del 26 al 29 de octubre (se rota en la ventana de la `0071`, d157); datos personales fuera de las bases (reporte con 1.408 nombres en `app/templates/reports/`, ficha D40); identidad centralizada parcial (Socios sigue agrupado por RUT; UX-11 es trabajo futuro).
 
 ## Estado actual
 
@@ -38,12 +49,12 @@ El repositorio contiene un CRM operativo con FastAPI, PostgreSQL, React/Vite, au
 
 ## En progreso
 
-- Plan y tareas en curso: ver [tasks.md](../tasks.md) (Sprint 4: recuperador VP y facturación gestionada, Opción A).
+- Plan y tareas en curso: ver [tasks.md](../tasks.md) (sprint activo S6 del plan post-MVP; ver el resumen vigente al inicio de este archivo). Los puntos que siguen en esta sección son del 2026-10-28 o anteriores.
 - Core ETL completo y en `master` (migraciones 0027–0033 aplicadas). Migraciones 0032 (`source_status` en `core_charges`) y 0033 (`last_payment_status` en `core_subscriptions`) versionadas y activas.
 - ETL fixes aplicados (2026-10-20): `core_vp_etl` mapea `source_status` desde `VpCharge.status`; `core_toku_etl` deriva `last_payment_status` desde la última `TokuInvoice` por `due_date`; `alembic/env.py` registra los 3 modelos webhook stg (check limpio).
 - Los dashboards operativos de VirtualPOS, Toku, Payku y TCH tienen paridad de KPIs, distribuciones, altas/bajas, series de suscripciones activas, churn y alertas usando solamente los campos verificables de cada fuente. Toku usa transacciones reales para su comparación con suscripciones; Payku mantiene su límite de cobertura histórica; TCH se basa en su proyección ETL.
 - Payku reconoce el identificador histórico `transaction` cuando su payload no trae `id`. La reconstrucción local `scripts/maintenance/backfill_payku_transactions.py` materializa transacciones ya preservadas en `source_records` hacia `p_transactions`; luego el ETL normal las proyecta a `payments`, restaurando los años y la actividad mensual verificables del dashboard.
-- Webhooks: el receptor de Toku (HMAC-SHA256, idempotente, WH-02) y el de Payku (token en query, WH-03) están implementados y guardan los eventos en tablas `stg_*_webhook_events`; falta configurar los webhooks en Toku y procesar los eventos (TK-12). VirtualPOS expone callbacks cuya autenticidad permanece `TBD`, por lo que no se implementa receptor hasta verificarla.
+- Webhooks: el receptor de Toku (HMAC-SHA256, idempotente, WH-02) y el de Payku (token en query, WH-03) están implementados. Desde el Sprint 5A los eventos van a la cola `webhook_events` con un procesador y reconciliación dirigida, apagados por bandera; falta configurar los webhooks en Toku y una URL pública fija (TK-12, RT-03; bloqueados por terceros y por la decisión de seguir local). VirtualPOS expone callbacks cuya autenticidad permanece `TBD`, por lo que no se implementa receptor hasta verificarla.
 
 ## Pendiente
 
