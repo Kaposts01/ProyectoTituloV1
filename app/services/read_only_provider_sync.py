@@ -3,7 +3,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -146,12 +146,16 @@ async def sync_read_only_provider(
     progress_callback: ProgressCallback | None = None,
     windowed: dict[str, WindowedRead] | None = None,
     optional_resources: Iterable[str] = (),
+    excluded_resources: Mapping[str, str] | None = None,
 ) -> SyncRun:
     """Lee cada recurso del proveedor a `source_records` (y a las tablas canal) y deja la corrida en `sync_runs`.
 
     `optional_resources`: recursos secundarios cuyo 404 no hace fallar la corrida (se omiten y queda `partial`).
+    `excluded_resources`: `{recurso: motivo}` que NO se piden al proveedor en esta corrida (p. ej. un endpoint que el
+    ambiente no ofrece). Quedan en `resource_stats` como omitidos con su motivo y no cambian el estado de la corrida.
     """
     optional = frozenset(optional_resources)
+    excluded = dict(excluded_resources or {})
     skipped: list[str] = []
     run = SyncRun(source=source, status="running", etl_run_id=current_run_id())
     db.add(run)
@@ -197,6 +201,10 @@ async def sync_read_only_provider(
                 return resource_records
 
             for resource_type, page_size, paginated, read_page in resources:
+                if resource_type in excluded:
+                    stats[resource_type] = {"records": 0, "pages": 0, "skipped": True, "reason": excluded[resource_type]}
+                    logger.info("%s/%s no se lee en esta corrida: %s", source, resource_type, excluded[resource_type])
+                    continue
                 timer = resource_timer(source, resource_type)
                 read_started = datetime.now(UTC)
                 spec = (windowed or {}).get(resource_type)
