@@ -94,3 +94,11 @@ def test_missing_inputs_exit_cleanly(script, db_session, tmp_path, capsys):
     assert script.main(["--dir", str(tmp_path)], session_factory=lambda: db_session) == 2
     with pytest.raises(SystemExit):
         script.main([str(tmp_path / "no-existe.xlsx")], session_factory=lambda: db_session)
+
+
+def test_load_order_covers_every_supported_report_type() -> None:
+    from app.services.toku_report_parser import SUPPORTED_TYPES
+    from scripts.maintenance.import_toku_reports import LOAD_ORDER
+
+    assert set(LOAD_ORDER) == set(SUPPORTED_TYPES)
+    assert LOAD_ORDER[0] == "productos"
