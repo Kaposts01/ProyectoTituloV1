@@ -885,6 +885,24 @@ export const es = {
     "generated at fallback now": "El archivo no trae su fecha de generación; se usó la fecha de carga.",
     "seller hash skipped no pepper": "El servidor no tiene configurada la clave de anonimización: se cargó sin el dato del vendedor.",
   },
+  /** Textos fijos del menú lateral (rail compacto, fijar abierto, detalle por canal, pie). */
+  sidebar: {
+    navegacion: "Navegación principal",
+    buscar: "Buscar",
+    "buscar en el menu": "Buscar en el menú",
+    "cerrar menu": "Cerrar menú",
+    "mantener abierto": "Mantener menú abierto",
+    "detalle por canal": "Detalle por canal",
+    transitorio: "Transitorio",
+    "aviso transitorio": "Se retira cuando existan las vistas unificadas de Cobros, Socios y Suscripciones.",
+    "sin resultados": "Sin resultados para",
+    "cambiar tema": "Cambiar tema",
+    "modo claro": "Modo claro",
+    "modo oscuro": "Modo oscuro",
+    "mi perfil": "Mi perfil",
+    "cerrar sesion": "Cerrar sesión",
+    "ir al resumen": "Ir al Resumen",
+  },
 } as const;
 
 export type Domain = keyof typeof es;
