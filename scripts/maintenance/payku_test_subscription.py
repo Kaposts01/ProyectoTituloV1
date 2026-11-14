@@ -22,9 +22,9 @@ Plan de CONSUMO (ficha d213 = b: el plan queda PERMANENTE en la cuenta; solo se 
                           POST /api/conciliation, una CONSULTA aunque sea POST), Q-08 (clave estable: id de la
                           respuesta del cobro vs listado vs transactions[] de la sub) y Q-33 (se distingue el cobro de
                           consumo de uno recurrente). --transaction-id con el id que devolvio --charge. --execute-read.
-  Exclusion de indicadores: antes del siguiente sync, cargar en PAYKU_KPI_EXCLUDED_IDS (propuesta de
-  docs/integrations/payku/prueba-productivo.md seccion 5; aun NO implementada en core_payku_etl) los ids cl.../
-  pl.../su... y el numero de transaccion del cobro. El script imprime la linea a cargar tras cada paso aplicado.
+  Exclusion de indicadores (d207, implementada): el id su... de la suscripcion se conoce al crearla; el alta lo
+  imprime con la linea PAYKU_KPI_EXCLUDED_IDS=... a cargar en el .env del CRM ANTES del siguiente sync y antes de
+  --charge (sus cobros quedan fuera por su suscripcion). --charge avisa si el id no esta en la lista configurada.
   --apply                 ejecuta las ESCRITURAS del alta (o de --cancel). Exige TODO lo siguiente:
                             * --confirm-production
                             * variable de PROCESO PAYKU_TEST_SUBSCRIPTION_ARMED=1 (no va en .env)
@@ -97,6 +97,7 @@ class Plan:
     steps: list[Step] = field(default_factory=list)
     total_clp: int = 0
     warnings: list[str] = field(default_factory=list)
+    cost_lines: list[str] = field(default_factory=list)  # si hay, reemplazan la linea generica de costo total
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -289,9 +290,10 @@ def consumption_plan_body(name: str) -> dict[str, Any]:
 def build_consumption_plan(args: argparse.Namespace, today: date) -> Plan:
     plan = Plan("Alta de suscripcion de CONSUMO de prueba en Payku PRODUCTIVO")
     amount = int(args.amount)
-    plan.total_clp = VALIDATION_CHARGE_CLP + amount
-    if plan.total_clp > args.max_total:
-        plan.warnings.append(f"el total estimado {plan.total_clp} CLP supera el tope {args.max_total} CLP")
+    plan.total_clp = amount
+    plan.cost_lines = consumption_cost_lines(amount, args.max_total)
+    if VALIDATION_CHARGE_CLP + amount > args.max_total:
+        plan.warnings.append(f"el peor caso {VALIDATION_CHARGE_CLP + amount} CLP supera el tope {args.max_total} CLP")
     plan.steps.extend(find_existing_steps(args.email, args.rut))
     plan.steps.append(
         Step("create_client", "POST", "/api/suclient",
@@ -319,9 +321,9 @@ def build_consumption_plan(args: argparse.Namespace, today: date) -> Plan:
     )
     plan.steps.append(
         Step("enroll_card", "BROWSER", "<url de la respuesta: /gateway/registrosuscripcion?...>",
-             cost_clp=VALIDATION_CHARGE_CLP,
-             note="paso MANUAL del titular: inscribe su tarjeta; Payku cobra $50 de validacion (doc L4102). Un plan de "
-             "consumo no cobra solo: el cobro lo genera --charge", manual=True)
+             note="paso MANUAL del titular: inscribe su tarjeta y la suscripcion queda 'active'. Costo esperado 0 CLP "
+             "(sin amount ni monto de plan; ver el costo al final). Un plan de consumo no cobra solo: el cobro lo "
+             "genera --charge", manual=True)
     )
     plan.steps.append(
         Step("consumption_charge", "POST", "/api/sutransaction",
@@ -332,12 +334,53 @@ def build_consumption_plan(args: argparse.Namespace, today: date) -> Plan:
     plan.steps.append(Step("verify", "GET", "(ver --verify-consumption SUB_ID)", note="lecturas Q-06, Q-08, Q-33"))
     plan.steps.append(Step("cancel", "DELETE", "/api/sususcription/<id su...>",
                            note="con --cancel SUB_ID al terminar; el plan NO se borra (d213 = b)", write=True))
-    plan.warnings.append(f"cargar {KPI_EXCLUDED_ENV} con los ids cl.../pl.../su... y el numero de transaccion antes "
-                         "del siguiente sync (seccion 5 de prueba-productivo.md)")
+    plan.warnings.append(f"el alta imprime el id su...: cargarlo en {KPI_EXCLUDED_ENV} del .env del CRM antes del "
+                         "siguiente sync y antes de --charge (seccion 5 de prueba-productivo.md)")
     return plan
 
 
-def build_charge_plan(sub_id: str, args: argparse.Namespace, today: date) -> Plan:
+def consumption_cost_lines(amount: int, max_total: int) -> list[str]:
+    """Texto del costo del modo --consumption (dry-run). Puro.
+
+    Base: el historial del CRM muestra que Payku cobra al ACTIVAR el monto completo de la suscripcion; en un plan de
+    consumo la suscripcion se crea sin `amount` y el plan no tiene monto, asi que al activar se espera 0. La doc
+    (Crear suscripcion, L4102) anuncia ademas una validacion de $50 que no aparece en los datos: queda como caso dudoso.
+    """
+    worst = VALIDATION_CHARGE_CLP + amount
+    return [
+        "Costo esperado (plan de CONSUMO, suscripcion sin amount):",
+        "  - al activar (inscribir la tarjeta): 0 CLP. Segun el historial, Payku cobra al activar el monto completo de",
+        "    la suscripcion; esta no tiene amount y el plan de consumo no tiene monto: no hay monto que cobrar.",
+        f"  - cobro de consumo (--charge): {amount} CLP.",
+        f"  - TOTAL ESPERADO: {amount} CLP.",
+        f"Caso dudoso: la doc (Crear suscripcion, L4102) anuncia una validacion de ${VALIDATION_CHARGE_CLP} al inscribir",
+        "  la tarjeta que NO aparece en los datos de transacciones del CRM; tambien podria haber un cobro inicial de 0",
+        f"  o 1 CLP. Rango probable: {amount} a {amount + 1} CLP; peor caso {worst} CLP (validacion + cobro),",
+        f"  {'dentro' if worst <= max_total else 'FUERA'} del tope --max-total {max_total} CLP.",
+        "  La lectura --verify-consumption del mismo dia dice cual fue (q15_cargo_50_en_listado).",
+    ]
+
+
+def configured_excluded_ids(env: Mapping[str, str] | None = None) -> frozenset[str]:
+    """Ids de PAYKU_KPI_EXCLUDED_IDS: de la configuracion del CRM y, si no carga, del entorno del proceso."""
+    try:
+        from app.core.config import settings
+
+        return settings.payku_kpi_excluded_id_set
+    except Exception:  # noqa: BLE001 - sin configuracion cargable, el entorno del proceso
+        raw = (env if env is not None else os.environ).get(KPI_EXCLUDED_ENV, "")
+        return frozenset(i.strip() for i in raw.split(",") if i.strip())
+
+
+def exclusion_warning(sub_id: str, excluded: frozenset[str]) -> str | None:
+    if sub_id in excluded:
+        return None
+    return (f"{sub_id} NO esta en {KPI_EXCLUDED_ENV}: el cobro entraria a los indicadores. Agregarlo al .env del CRM "
+            "antes del --charge y del siguiente sync")
+
+
+def build_charge_plan(sub_id: str, args: argparse.Namespace, today: date,
+                      excluded: frozenset[str] | None = None) -> Plan:
     amount = int(args.amount)
     plan = Plan("Cobro unico de CONSUMO de prueba (Payku PRODUCTIVO)")
     plan.total_clp = amount
@@ -354,6 +397,8 @@ def build_charge_plan(sub_id: str, args: argparse.Namespace, today: date) -> Pla
     ]
     if amount + VALIDATION_CHARGE_CLP > args.max_total:
         plan.warnings.append(f"el monto {amount} CLP mas la validacion supera el tope {args.max_total} CLP")
+    if excluded is not None and (warning := exclusion_warning(sub_id, excluded)):
+        plan.warnings.append(warning)
     return plan
 
 
@@ -443,7 +488,9 @@ def render_plan(plan: Plan, email: str | None = None) -> str:
             lines.append(f"     costo:  {step.cost_clp} CLP")
         if step.note:
             lines.append(f"     nota:   {step.note}")
-    if plan.total_clp:
+    if plan.cost_lines:
+        lines.extend(plan.cost_lines)
+    elif plan.total_clp:
         with_validation = any(s.manual and s.cost_clp == VALIDATION_CHARGE_CLP for s in plan.steps)
         detail = f" ({VALIDATION_CHARGE_CLP} de validacion + monto)" if with_validation else " (solo el monto del cobro)"
         lines.append(f"Costo total estimado: {plan.total_clp} CLP{detail}")
@@ -685,11 +732,17 @@ async def apply_create_consumption(args: argparse.Namespace, provider: Any, reco
     return {"client_id": client_id, "plan_id": plan_id, "plan_detail": plan_detail, "subscription_id": sub_id,
             "status": response.get("status") if isinstance(response, dict) else None,
             "enroll_url": response.get("url") if isinstance(response, dict) else None,
-            "kpi_exclusion": kpi_exclusion_line(client_id, plan_id, sub_id)}
+            "kpi_exclusion": kpi_exclusion_line(sub_id),
+            "recordatorio": f"agregar {sub_id} a {KPI_EXCLUDED_ENV} en el .env del CRM ANTES del siguiente sync y de "
+                            "--charge (d207)"}
 
 
 async def apply_charge(sub_id: str, args: argparse.Namespace, provider: Any, recorder: WriteRecorder,
-                       secrets: tuple[str, ...], today: date) -> dict[str, Any]:
+                       secrets: tuple[str, ...], today: date,
+                       excluded: frozenset[str] | None = None) -> dict[str, Any]:
+    warning = exclusion_warning(sub_id, configured_excluded_ids() if excluded is None else excluded)
+    if warning:
+        print(f"AVISO: {warning}")
     sub = await provider.get_subscription(sub_id)
     status = str(sub.get("status") or "").lower() if isinstance(sub, dict) else ""
     if status != "active":
@@ -701,7 +754,9 @@ async def apply_charge(sub_id: str, args: argparse.Namespace, provider: Any, rec
     tx_id = _ids_from(response, "transaction_id", "id")
     out = {key: response.get(key) for key in ("status", "order", "amount", "transaction_id")} \
         if isinstance(response, dict) else {"raw": str(response)[:200]}
-    out["kpi_exclusion"] = kpi_exclusion_line(sub_id, tx_id)
+    out["transaction_id"] = out.get("transaction_id") or tx_id
+    out["kpi_exclusion"] = kpi_exclusion_line(sub_id)  # el cobro queda fuera por su suscripcion
+    out["kpi_excluded"] = warning is None
     return out
 
 
@@ -835,7 +890,7 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
     if args.cancel:
         plan = build_cancel_plan(args.cancel)
     elif args.charge:
-        plan = build_charge_plan(args.charge, args, today)
+        plan = build_charge_plan(args.charge, args, today, configured_excluded_ids())
     elif args.verify_consumption:
         plan = build_verify_consumption_plan(args.verify_consumption, args.transaction_id, today,
                                              args.conciliation_date)
