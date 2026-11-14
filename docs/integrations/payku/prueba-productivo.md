@@ -49,7 +49,7 @@ Requisitos previos (usuario, en el panel de Payku): crear un **plan de monto var
    .venv\Scripts\python.exe -m scripts.maintenance.payku_test_subscription --email <correo> --rut <RUT> `
      --phone <telefono> --name "<nombre>" --plan-id <pl_variable>
    ```
-2. **Excluir de los indicadores** (§ 5) **antes** de crear nada.
+2. **Excluir de los indicadores** (§ 5): cargar el id `su…` en cuanto el alta lo imprima, antes del siguiente sync.
 3. **Buscar suscripciones previas** (solo GET contra productivo; requiere confirmación del usuario):
    `--find-existing --execute-read --confirm-production`. El alta también lo hace y se niega si ya hay una suscripción
    `active` o `register` para ese correo o RUT; si el cliente ya existe, lo reutiliza.
@@ -79,24 +79,36 @@ Requisitos previos (usuario, en el panel de Payku): crear un **plan de monto var
 
 También aporta a Q-13 (estado tras `DELETE`) y Q-15 (si el cargo de $50 se ve como transacción).
 
-## 5. Excluir la suscripción de prueba de los indicadores
+## 5. Excluir la suscripción de prueba de los indicadores (d207, implementado)
 
-Cómo filtran hoy: los tableros de canal y general leen las tablas centrales por canal
-(`CSub`/`CPayment` con `source == "payku"`, `app/api/v1/routes/staging.py::_payku_centralized_dashboard`,
-`app/services/dashboard_general.py`), que llena `app/services/core_payku_etl.py` desde las tablas `payku_*`. Algunas
-cifras leen `PaykuTransaction` directo (`staging.py`, `dashboard_general.py:343`). **No existe** hoy ningún mecanismo
-de exclusión ni etiqueta de "prueba".
+Variable `PAYKU_KPI_EXCLUDED_IDS` (`app/core/config.py`, `.env.example`): lista de ids externos de **suscripción**
+Payku (`su…`) separados por coma, vacía por defecto. Sus cobros, ciclos y pagos quedan fuera por su suscripción (no
+hace falta cargar el número de transacción). Qué la respeta (`app/services/payku_kpi_exclusion.py`):
 
-Propuesta (sin migración, reversible, **no implementada**):
+| Punto | Efecto |
+|---|---|
+| `channel_consolidation._consolidate_payku_subscriptions` / `_transactions` | No pasa la sub ni sus transacciones a `subscriptions`/`payments` (`source=payku`), que leen el tablero de Payku, el general, el churn y los rechazos |
+| `core_payku_etl` | No materializa la sub, sus ciclos (`core_charges`) ni sus pagos (`core_payments`); al inicio retira de Core lo que ya existiera de esas subs (Core es derivado: sacar el id de la lista lo repone en la siguiente corrida) |
+| `dashboard_general._mrr_by_channel` | MRR/ARPU de Payku sin la sub |
+| `staging._payku_centralized_dashboard` (resumen de Payku) y conteo por plan | Última transacción `success` sin la sub |
+| `recovery_payku` (recuperador: canceladas, suspendidas, rechazos) | Filtra la sub |
+| `export_queries._charges_payku_cycles` (cobros generales y su export) | Filtra los ciclos de la sub |
 
-- Variable nueva `PAYKU_KPI_EXCLUDED_IDS` (lista separada por comas de ids de Payku `cl…`, `su…` y números de
-  transacción), vacía por defecto.
-- `core_payku_etl` omite al materializar suscripciones, cobros y pagos cuyo id (o el de su suscripción o cliente) esté
-  en la lista; las dos lecturas directas de `PaykuTransaction` aplican el mismo filtro. Los datos crudos y `payku_*`
-  se conservan (trazabilidad).
-- Orden: cargar la lista **antes** del alta. Si la sub ya llegó a las tablas centrales, sacarla exige borrar filas
-  centrales (destructivo) y queda para la Bandeja.
-- Alternativa más simple: no sincronizar Payku entre el alta y la baja. No sirve si el sync programado está activo.
+Las tablas crudas `p_*` se conservan (trazabilidad); `p_clients`/`clients` no se filtran (el conteo de clientes de
+Payku puede sumar uno).
+
+**Cómo cargar el id antes del alta.** El id `su…` solo se conoce al crear la suscripción, así que el orden es:
+
+1. Correr el alta (`--consumption --create-plan --apply …`). El script imprime `subscription_id`, la línea
+   `PAYKU_KPI_EXCLUDED_IDS=su…` y un recordatorio.
+2. **De inmediato**, antes del siguiente sync y antes de `--charge`, agregar ese id a `PAYKU_KPI_EXCLUDED_IDS` en el
+   `.env` del CRM (sumándolo a la lista vigente, separado por coma) y reiniciar el backend/worker para que lo lea.
+3. `--charge SUB_ID` (y su dry-run) avisa con `AVISO: … NO esta en PAYKU_KPI_EXCLUDED_IDS` si el id no está en la
+   configuración que ve el proceso; no bloquea, así que si aparece el aviso hay que detenerse y cargarlo primero.
+
+Si un sync alcanzó a consolidar la sub antes de cargar el id: Core se corrige solo en la siguiente corrida del ETL,
+y las lecturas directas de arriba la filtran, pero las filas de `subscriptions`/`payments` ya consolidadas no se
+borran solas (la consolidación solo deja de reescribirlas). Retirarlas es un borrado y va por la Bandeja.
 
 Ojo con la identidad (ADR-001): un cliente Payku con el correo y el RUT del usuario puede emparejarse con un socio
 existente del CRM.
@@ -119,7 +131,8 @@ proceso, APP_ENV productivo con host `app.payku.cl` y `PAYKU_WRITES_ENABLED`), c
 
 1. `--consumption --create-plan --email <correo> --rut <RUT> --phone <tel> --name <nombre>`: busca previas, crea
    cliente (o lo reutiliza), `POST /api/suplan` (`name` = `PRUEBA-CRM-1CLP`, sin `url_notify_*`), relee el plan y
-   crea la suscripción **sin** `amount`. Imprime la url de inscripción y la línea `PAYKU_KPI_EXCLUDED_IDS=...`.
+   crea la suscripción **sin** `amount`. Imprime la url de inscripción, el id `su…` y la línea
+   `PAYKU_KPI_EXCLUDED_IDS=su…` a cargar de inmediato (§ 5).
    El RUT y el correo solo van por argumento; nunca se escriben en archivos y salen enmascarados.
 2. Paso **manual**: el titular abre la url e inscribe la tarjeta (cargo de validación de $50 según la doc).
 3. `--charge SUB_ID`: relee la sub (se niega si no está `active`) y hace `POST /api/sutransaction` con
@@ -130,6 +143,16 @@ proceso, APP_ENV productivo con host `app.payku.cl` y `PAYKU_WRITES_ENABLED`), c
    Q-08 (qué campo coincide con el `transaction_id`) y Q-33 (si la descripción lo distingue de un cobro recurrente).
 5. `--cancel SUB_ID --apply ...`: baja de la suscripción. El plan no se borra.
 
-Costo estimado: 50 CLP de validación + 1 CLP del cobro = 51 CLP. Un plan de consumo no cobra solo, así que no hay
-ciclos posteriores. La exclusión de indicadores sigue siendo la propuesta de la sección 5 (no implementada): cargar
-los ids `cl…`, `pl…`, `su…` y el número de transacción antes del siguiente sync.
+Costo (texto del dry-run de `--consumption`):
+
+- **Al activar** (inscribir la tarjeta): **0 CLP esperado**. Según el historial, Payku cobra al activar el monto
+  completo de la suscripción; esta se crea sin `amount` y el plan de consumo no tiene monto, así que no hay monto que
+  cobrar.
+- **Cobro de consumo** (`--charge`): 1 CLP. **Total esperado: 1 CLP.**
+- **Caso dudoso**: la doc (Crear suscripción, L4102) anuncia una validación de $50 al inscribir la tarjeta que **no
+  aparece** en los datos de transacciones del CRM; también podría haber un cobro inicial de 0 o 1 CLP. Rango
+  probable 1–2 CLP; peor caso 51 CLP (validación + cobro), dentro del tope `--max-total` 51. La lectura
+  `--verify-consumption` del mismo día lo resuelve (`q15_cargo_50_en_listado`).
+
+Un plan de consumo no cobra solo, así que no hay ciclos posteriores. Exclusión de indicadores: sección 5 (cargar el
+id `su…` que imprime el alta antes del siguiente sync y de `--charge`).
