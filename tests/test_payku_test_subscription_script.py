@@ -313,7 +313,8 @@ def test_consumption_dry_run_lists_calls_and_cost(mod, no_live, capsys) -> None:
     out = capsys.readouterr().out
     for expected in ("[ESCRITURA] POST /api/suplan", "'name': 'PRUEBA-CRM-1CLP'", "[ESCRITURA] POST /api/sususcription",
                      "[ESCRITURA] POST /api/sutransaction", "'order': 'CRM14C-CONSUMO-261113'",
-                     "Costo total estimado: 51 CLP", "PAYKU_KPI_EXCLUDED_IDS", "PERMANENTE", "DRY-RUN"):
+                     "TOTAL ESPERADO: 1 CLP", "al activar (inscribir la tarjeta): 0 CLP", "peor caso 51 CLP",
+                     "validacion de $50", "cobro inicial de 0", "PAYKU_KPI_EXCLUDED_IDS", "PERMANENTE", "DRY-RUN"):
         assert expected in out, expected
     assert "url_notify" not in out
     assert EMAIL not in out and RUT not in out and "900000123" not in out
@@ -329,6 +330,22 @@ def test_charge_dry_run_cost_is_only_the_amount(mod, no_live, capsys) -> None:
     assert mod.main(["--charge", "su-test-1"], today=TODAY) == 0
     out = capsys.readouterr().out
     assert "Costo total estimado: 1 CLP (solo el monto del cobro)" in out and "DRY-RUN" in out
+
+
+def test_charge_dry_run_warns_when_subscription_not_excluded(mod, no_live, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(mod, "configured_excluded_ids", lambda env=None: frozenset({"su-otra"}))
+    assert mod.main(["--charge", "su-test-1"], today=TODAY) == 0
+    assert "su-test-1 NO esta en PAYKU_KPI_EXCLUDED_IDS" in capsys.readouterr().out
+    monkeypatch.setattr(mod, "configured_excluded_ids", lambda env=None: frozenset({"su-test-1"}))
+    assert mod.main(["--charge", "su-test-1"], today=TODAY) == 0
+    assert "NO esta en PAYKU_KPI_EXCLUDED_IDS" not in capsys.readouterr().out
+
+
+def test_configured_excluded_ids_reads_crm_settings(mod, monkeypatch) -> None:
+    import app.core.config as config
+
+    monkeypatch.setattr(config.settings, "payku_kpi_excluded_ids", " su-a , ,su-b")
+    assert mod.configured_excluded_ids() == frozenset({"su-a", "su-b"})
 
 
 @pytest.mark.parametrize(
@@ -388,7 +405,8 @@ def test_apply_create_consumption_creates_plan_and_subscription(mod) -> None:
     assert ("GET suplan", "pl-test-1") in provider.calls
     assert [r.operation for r in session.added] == [
         "test_subscription.create_client", "test_subscription.create_plan", "test_subscription.create_subscription"]
-    assert result["kpi_exclusion"].startswith("PAYKU_KPI_EXCLUDED_IDS=cl-test-1,pl-test-1,su-test-1")
+    assert result["kpi_exclusion"].startswith("PAYKU_KPI_EXCLUDED_IDS=su-test-1 ")
+    assert "su-test-1" in result["recordatorio"] and "--charge" in result["recordatorio"]
     assert all(EMAIL not in str(r.request_payload) and RUT not in str(r.request_payload) for r in session.added)
 
 
@@ -406,14 +424,15 @@ def test_apply_charge_records_write_with_transaction_id(mod) -> None:
     provider = FakeConsumptionProvider()
     session, recorder = _recorder(mod)
     out = asyncio.run(mod.apply_charge("su-test-1", mod.parse_args(["--charge", "su-test-1"]), provider, recorder,
-                                       ("k",), TODAY))
+                                       ("k",), TODAY, excluded=frozenset({"su-test-1"})))
     assert provider.calls[-1] == ("POST sutransaction", {"suscription": "su-test-1", "amount": "1",
                                                          "order": "CRM14C-CONSUMO-261113",
                                                          "description": "CRM-14C cobro de consumo de prueba"})
     run = session.added[0]
     assert (run.operation, run.resource_type, run.external_id, run.status) == (
         "test_subscription.consumption_charge", "transaction", "204444", "completed")
-    assert out["transaction_id"] == "204444" and "su-test-1,204444" in out["kpi_exclusion"]
+    assert out["transaction_id"] == "204444" and out["kpi_exclusion"].startswith("PAYKU_KPI_EXCLUDED_IDS=su-test-1 ")
+    assert out["kpi_excluded"] is True
     assert "verification_key" not in out
 
 
