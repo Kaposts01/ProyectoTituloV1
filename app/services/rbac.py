@@ -40,6 +40,8 @@ PERMISSIONS: dict[str, str] = {
     "payku.subscriptions.view": "Ver suscripciones Payku",
     "payku.subscriptions.cancel": "Cancelar suscripciones Payku",
     "payku.transactions.view": "Ver transacciones Payku",
+    # CRM-14F: sembrado por seed_permissions (admin recibe todos); no termina en .view, asi que soporte/ejecutivo no lo heredan.
+    "payku.wallet.withdraw": "Retirar el saldo de la billetera Payku a la cuenta bancaria",
     "tch.dashboard.view": "Ver dashboard TCH",
     "tch.clientes.view": "Ver clientes TCH",
     "tch.suscripciones.view": "Ver suscripciones TCH",

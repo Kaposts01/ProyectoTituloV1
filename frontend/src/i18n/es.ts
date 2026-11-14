@@ -745,7 +745,12 @@ export const es = {
     "payku rejected cancellation": "Payku rechazó la cancelación.",
     "payku rejected deletion": "Payku rechazó la eliminación.",
     "payku rejected update": "Payku rechazó la actualización.",
+    "payku rejected withdraw": "Payku rechazó el retiro de fondos. No se movió dinero desde el CRM; revisa la billetera en el portal de Payku.",
     "payku subscription not found": "No se encontró la suscripción en Payku.",
+    "payku wallet balance changed": "El saldo de la billetera cambió desde que lo viste. No se retiró nada: revisa el monto nuevo y confirma otra vez.",
+    "payku wallet empty": "La billetera Payku no tiene saldo disponible para retirar.",
+    "payku wallet unavailable": "No se pudo leer el saldo de la billetera Payku. Inténtalo más tarde.",
+    "payku wallet withdraw disabled": "El retiro de fondos de Payku está deshabilitado en este ambiente.",
     "payku write blocked": "Una guarda del sandbox de Payku bloqueó la escritura.",
     "payku writes disabled": "Las escrituras a Payku están deshabilitadas en este ambiente.",
     "payment not found": "No se encontró el pago.",
@@ -854,6 +859,25 @@ export const es = {
     "load in progress": "Este archivo ya se está cargando. Espera a que termine.",
     "import failed": "No se pudo cargar el reporte. No se guardó ningún cambio.",
     "permission denied": "No tienes permiso para cargar este reporte.",
+  },
+  /**
+   * Textos del botón «Retirar fondos» de la billetera Payku (CRM-14F). Claves normalizadas; el monto lo formatea el
+   * componente y se agrega aparte (los textos no llevan datos variables).
+   */
+  walletWithdraw: {
+    title: "Billetera Payku",
+    "available label": "Saldo disponible",
+    button: "Retirar fondos",
+    "dialog title": "Retirar todo el saldo",
+    "dialog note": "Se retirará TODO el saldo disponible a la cuenta bancaria registrada del comercio en Payku. El dinero sale de la billetera y no se puede deshacer desde el CRM. Uso previsto: un retiro al mes, hecho a mano por una persona; el CRM no lo programa ni lo automatiza.",
+    "amount label": "Monto a retirar",
+    confirm: "Confirmar retiro",
+    sending: "Retirando...",
+    back: "Volver",
+    loading: "Consultando saldo...",
+    disabled: "El retiro de fondos está deshabilitado en este ambiente.",
+    empty: "No hay saldo disponible para retirar.",
+    done: "Retiro solicitado a Payku. Revisa el estado del movimiento en el portal de Payku.",
   },
   /** Avisos de la carga de un reporte de VirtualPOS o Payku (`warnings`, L7-IMPORT). */
   reportImportWarning: {

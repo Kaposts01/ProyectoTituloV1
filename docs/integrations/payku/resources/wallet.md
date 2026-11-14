@@ -91,3 +91,27 @@ Estados de payout: `pending`, `processing`, `success`, `banking_error`, `fraud_p
 | `amount`, `actual_amount` | Monto del movimiento y saldo resultante (strings). |
 | `origin_liquidation` | Liquidación de origen (💡 cruce con conciliación). |
 | `payout{…}` | Datos de la cuenta destino. |
+
+---
+
+## Retiro desde el CRM (CRM-14F)
+
+Botón «Retirar fondos» en el dashboard de Payku. Retira **todo** el saldo disponible a la cuenta bancaria registrada del
+comercio (la doc no recibe cuenta destino: "crear una liquidación a la cuenta bancaria del comercio").
+
+**Uso previsto: un retiro al mes, manual.** Una persona con rol `admin` pulsa el botón y confirma el monto. El CRM no
+programa ni automatiza retiros: no hay job del scheduler, tarea periódica ni script que llame a
+`POST /api/wallet/withdraw`, y no se debe agregar uno sin una decisión nueva.
+
+| Pieza | Valor |
+|---|---|
+| Flag | `PAYKU_WALLET_WITHDRAW_ENABLED` (apagado por defecto) **y** `PAYKU_WRITES_ENABLED` |
+| Permiso | `payku.wallet.withdraw` (sembrado por `seed_permissions` → solo `admin`; no termina en `.view`). Las rutas exigen además el rol `admin`. Sin migración |
+| Backend | `GET /api/v1/writes/payku/wallet` (saldo; con el flag apagado no llama a Payku) y `POST /api/v1/writes/payku/wallet/withdraw {expected_amount}` (CSRF) |
+| Flujo | relee `GET /api/wallet`; si `amount_available` es 0 → 409 `payku_wallet_empty`; si difiere de lo confirmado → 409 `payku_wallet_balance_changed`; si no, `POST /api/wallet/withdraw {subject, currency: CLP, order: crm-wd-…, amount}` |
+| Trazabilidad | `write_runs` (`resource_type=wallet`, `operation=wallet_withdraw`, `external_id` = `order`) |
+| Sandbox | La guarda de sandbox bloquea `/api/wallet/withdraw` (no está en su lista blanca) |
+
+No documentado (preguntas para la ficha): monto mínimo y comisión del retiro, límite diario o por operación, si el
+retiro es inmediato o queda en proceso (y cómo consultarlo: la respuesta solo trae `identifier_wallet`), si `order`
+es idempotente ante un reintento, y si `amount_available` ya descuenta fondos retenidos.

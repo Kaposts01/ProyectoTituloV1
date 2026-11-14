@@ -20,6 +20,7 @@ import {
 } from "./channelCharts";
 import { StatusBars } from "./StatusBars";
 import { statusBarResources } from "./statusBarRows";
+import { PaykuWalletWithdraw } from "../payku/PaykuWalletWithdraw";
 
 const CHANNEL_NAMES: Record<string, string> = { virtualpos: "VirtualPOS", toku: "Toku", payku: "Payku" };
 
@@ -35,6 +36,7 @@ export function ChannelDashboardView({
   onReport,
   onSync,
   syncUnavailable = false,
+  canWithdrawWallet = false,
 }: {
   data: ChannelDashboard;
   mode: "count" | "amount";
@@ -47,6 +49,8 @@ export function ChannelDashboardView({
   onReport: (scope: string) => void;
   onSync: (source: string) => void;
   syncUnavailable?: boolean;
+  /** CRM-14F: permiso `payku.wallet.withdraw` (solo admin). */
+  canWithdrawWallet?: boolean;
 }) {
   const metrics = data.source === "virtualpos" ? virtualPosMetrics : data.source === "toku" ? tokuMetrics : paykuMetrics;
   const activeYear = year ?? defaultYear(data.years) ?? null;
@@ -166,6 +170,7 @@ export function ChannelDashboardView({
           />
         ))}
       </section>
+      {isPayku && canWithdrawWallet ? <PaykuWalletWithdraw /> : null}
       {data.kpis ? (
         <>
           <div className="dashboard-section-heading dashboard-section-heading-compact"><div><p className="eyebrow">CARTERA</p><h3>Salud de suscripciones</h3></div></div>

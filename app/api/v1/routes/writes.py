@@ -32,6 +32,18 @@ from app.services.write_payku import (
     SubscriptionNotFoundError as PaykuSubscriptionNotFoundError,
 )
 from app.services.write_payku import (
+    WalletBalanceChangedError as PaykuWalletBalanceChangedError,
+)
+from app.services.write_payku import (
+    WalletEmptyError as PaykuWalletEmptyError,
+)
+from app.services.write_payku import (
+    WalletUnavailableError as PaykuWalletUnavailableError,
+)
+from app.services.write_payku import (
+    WalletWithdrawDisabledError as PaykuWalletWithdrawDisabledError,
+)
+from app.services.write_payku import (
     WriteDisabledError as PaykuWriteDisabledError,
 )
 from app.services.write_payku import (
@@ -41,7 +53,13 @@ from app.services.write_payku import (
     delete_subscription as payku_delete_subscription,
 )
 from app.services.write_payku import (
+    get_wallet_balance as payku_get_wallet_balance,
+)
+from app.services.write_payku import (
     update_client as payku_update_client,
+)
+from app.services.write_payku import (
+    withdraw_wallet_balance as payku_withdraw_wallet_balance,
 )
 from app.services.write_toku import (
     CustomerNotFoundError as TokuCustomerNotFoundError,
@@ -910,6 +928,73 @@ async def delete_payku_subscription(
         raise HTTPException(status_code=503, detail={"code": "cancellation_requires_reconciliation", "message": "La cancelación requiere reconciliación local"}) from None
 
     return {"external_id": sub.external_id, "status": sub.status}
+
+
+# ─── Payku: retiro de fondos de la billetera (CRM-14F) ───────────────────────
+
+PAYKU_WALLET_WITHDRAW_PERMISSION = "payku.wallet.withdraw"
+
+
+class PaykuWalletWithdraw(BaseModel):
+    """El monto que la persona vio y confirmo. El backend relee el saldo y solo retira si sigue siendo ese."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_amount: int = Field(gt=0, lt=10**14)
+
+
+@router.get(
+    "/payku/wallet",
+    dependencies=[Depends(require_permissions(PAYKU_WALLET_WITHDRAW_PERMISSION)), Depends(require_role("admin"))],
+    tags=["Writes - Payku"],
+)
+async def get_payku_wallet() -> dict:
+    """Saldo disponible de la billetera Payku (GET /api/wallet). Con el flag apagado no llama a Payku."""
+    try:
+        return await payku_get_wallet_balance()
+    except PaykuWalletUnavailableError:
+        raise HTTPException(status_code=502, detail={"code": "payku_wallet_unavailable", "message": "No se pudo leer el saldo de la billetera Payku."}) from None
+
+
+@router.post(
+    "/payku/wallet/withdraw",
+    dependencies=[
+        Depends(require_permissions(PAYKU_WALLET_WITHDRAW_PERMISSION)), Depends(require_role("admin")), Depends(require_csrf),
+    ],
+    tags=["Writes - Payku"],
+)
+async def withdraw_payku_wallet(
+    body: PaykuWalletWithdraw,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """Retira TODO el saldo disponible a la cuenta bancaria del comercio (POST /api/wallet/withdraw)."""
+    try:
+        run = await payku_withdraw_wallet_balance(db, expected_amount=body.expected_amount, requested_by_user_id=current_user.id)
+    except PaykuWalletWithdrawDisabledError:
+        raise HTTPException(status_code=403, detail={"code": "payku_wallet_withdraw_disabled", "message": "El retiro de fondos de Payku está deshabilitado en este ambiente."}) from None
+    except PaykuWriteDisabledError:
+        raise HTTPException(status_code=403, detail={"code": "payku_writes_disabled", "message": "Las escrituras a Payku están deshabilitadas en este ambiente."}) from None
+    except PaykuWriteBlockedError as exc:
+        raise HTTPException(status_code=403, detail={"code": "payku_write_blocked", "message": _payku_blocked_detail(exc)}) from None
+    except PaykuWalletUnavailableError:
+        raise HTTPException(status_code=502, detail={"code": "payku_wallet_unavailable", "message": "No se pudo leer el saldo de la billetera Payku."}) from None
+    except PaykuWalletEmptyError:
+        raise HTTPException(status_code=409, detail={"code": "payku_wallet_empty", "message": "La billetera Payku no tiene saldo disponible."}) from None
+    except PaykuWalletBalanceChangedError:
+        raise HTTPException(status_code=409, detail={"code": "payku_wallet_balance_changed", "message": "El saldo de la billetera cambió; revísalo y confirma de nuevo."}) from None
+    except (HTTPStatusError, PaykuApiError):  # 502 siempre: un 401 de Payku no debe parecer sesión vencida del CRM
+        raise HTTPException(status_code=502, detail={"code": "payku_rejected_withdraw", "message": "Payku rechazó el retiro."}) from None
+
+    payload = run.response_payload or {}
+    return {
+        "write_run_id": str(run.id),
+        "order": run.external_id,
+        "amount": run.request_payload.get("amount"),
+        "currency": run.request_payload.get("currency"),
+        "identifier_wallet": payload.get("identifier_wallet"),
+        "status": run.status,
+    }
 
 
 # ─── VirtualPOS payment writes ───────────────────────────────────────────────
