@@ -57,8 +57,8 @@ Sin cambios: los otros 34 endpoints, el catálogo de errores (111 códigos, E-00
 
 ## D. Vacíos de documentación (No confirmado en la documentación oficial de VirtualPOS)
 
-- Webhook para cobros de Charges / estados de suscripción posteriores a la inscripción.
-- Formato del body del webhook de Payment y del callback de Suscription; política de reintentos.
+- ~~Webhook para cobros de Charges / estados de suscripción posteriores a la inscripción.~~ **Resuelto en la doc (revisión 2026-11-09):** eventos PAT `charge_paid`, `charge_reject`, `card_change`, `suscription_activated` y `suscription_failed`, configurables en el Portal Comercio. Siguen sin documentarse firma e IPs de origen.
+- ~~Formato del body del webhook de Payment y del callback de Suscription~~ **Resuelto:** `{"uuid"}` (Payment y Suscription por API); en POS `{"status","code","suscription":{"uuid"}}`. Algunos envíos PAT llegan como `application/x-www-form-urlencoded`. Sigue sin documentarse la política de reintentos.
 - Rate limits y códigos 5xx/429.
 - Idempotencia de *Crear Payment* y *Crear Suscription*.
 - Endpoints de reembolso/anulación de un Payment pagado; editar/eliminar Plan.

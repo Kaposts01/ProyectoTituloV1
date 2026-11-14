@@ -13,8 +13,8 @@ Proveedor --POST--> receptor (FastAPI) --> webhook_events (pending) --> procesad
                           status_change_events <-- consolidación de ESA suscripción <-- refresh_subscription (MGT-06, solo GET)
 ```
 
-1. **Recepción** (`/api/v1/webhooks/toku`, `/virtualpos/{payment|subscription|payout}`, `/payku/{kind}`). El receptor solo valida y
-   encola; no llama al proveedor ni consolida. Orden: rate limit → (secreto/token/firma) → tope de body → JSON → `INSERT … ON CONFLICT DO NOTHING`
+1. **Recepción** (`/api/v1/webhooks/toku`, `/virtualpos/{payment|subscription|charge_paid|charge_reject|card_change|payout}`, `/payku/{kind}`). El receptor solo valida y
+   encola; no llama al proveedor ni consolida. Orden: rate limit → (secreto/token/firma) → tope de body → JSON (VirtualPOS acepta también `application/x-www-form-urlencoded`, que usan algunos envíos PAT) → `INSERT … ON CONFLICT DO NOTHING`
    en `webhook_events` → `200 {"status":"ok"}`. Los duplicados también responden 200.
 2. **Cola** `webhook_events`: `status` = `pending | processing | done | failed | ignored`, `attempts`, `next_attempt_at`, `locked_at`,
    `last_error_code` (código fijo, nunca texto del proveedor), `received_at`, `processed_at`, `payload_masked` (sin datos personales),
@@ -52,7 +52,9 @@ sin cambios (se pueden retirar en una migración futura cuando el usuario lo dec
 | Toku | `transaction.bulk_*`, `invoice.bulk_*` | `ignored` (`BULK_EVENT`): los cubre la conciliación |
 | Toku | cualquier otro (`customer.*`, …) | `ignored` (`UNKNOWN_EVENT`) |
 | VirtualPOS | `payment` (`uuid`) | suscripción del pago/cobro local (`vp_payments` → `vp_charges`); define la plataforma (`virtualpos1/2`) |
-| VirtualPOS | `subscription` (callback de inscripción) | esa suscripción si ya existe en `vp_subscriptions` |
+| VirtualPOS | `subscription` (callback de inscripción `{uuid}` o cuerpo POS `{status,code,suscription:{uuid}}`) | esa suscripción si ya existe en `vp_subscriptions` |
+| VirtualPOS | `charge_paid`, `charge_reject` (eventos PAT del Portal Comercio; cuerpo con `id` del cargo y `suscription_uuid`) | la suscripción si ya existe en `vp_subscriptions`, y/o la del cargo en `vp_charges`. Del cuerpo (trae cliente y pago) solo se guardan ids y estado |
+| VirtualPOS | `card_change` (evento PAT, `{uuid}` de la suscripción) | esa suscripción si ya existe en `vp_subscriptions` |
 | VirtualPOS | `payout` | `ignored` (`IGNORED_KIND`); se valida firma y se guarda, pero no dispara refresh |
 | Payku | `subscription` | refresh de esa suscripción (no exige fila local: sirve para altas) |
 | Payku | `payment`, `transaction`, `nullification` | suscripción del payload (`subscriptions.id`) o de `p_transactions` |
