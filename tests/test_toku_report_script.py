@@ -102,3 +102,18 @@ def test_load_order_covers_every_supported_report_type() -> None:
 
     assert set(LOAD_ORDER) == set(SUPPORTED_TYPES)
     assert LOAD_ORDER[0] == "productos"
+
+
+@pytest.mark.parametrize("module", ["scripts.maintenance.import_toku_reports", "scripts.maintenance.import_vp_reports"])
+def test_import_script_registers_users_table_on_its_own(module: str) -> None:
+    """En un proceso limpio (como en OPS-11) el script debe registrar `users`: sin eso el flush falla con NoReferencedTableError."""
+    import subprocess
+    import sys
+
+    code = (
+        f"import {module}\n"
+        "from app.models.toku_report import TkReportFile\n"
+        "print('users' in TkReportFile.metadata.tables)\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "True"

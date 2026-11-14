@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import app.models.auth  # noqa: F401  registra `users` para la FK uploaded_by_user_id de *_report_files
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.services import vp_report_import
