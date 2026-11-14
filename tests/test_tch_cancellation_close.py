@@ -44,7 +44,7 @@ def importer(db_session, monkeypatch, tmp_path):
     counter = {"n": 0}
 
     def run(file_number: int, eliminar: bool):
-        def fake_process(path, db):
+        def fake_process(path, db, report_period=None):
             if eliminar:
                 row = db.scalar(select(TchSubscription).where(TchSubscription.file_number == file_number))
                 row.deletion_date = "2026-11-03"

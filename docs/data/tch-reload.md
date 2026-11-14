@@ -39,7 +39,7 @@ reexportado.
 
    ```powershell
    $env:PYTHONPATH='.'
-   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\CRM_reportes\TCH" `
+   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH" `
      --exclude-months 2023-01,2023-02,2023-03,2023-04,2023-05,2023-06,2023-07,2023-08,2023-09,2023-10,2023-11,2023-12
    ```
 
@@ -49,7 +49,7 @@ reexportado.
 5. **Apply** (solo si el dry-run cuadra). Exige el nombre exacto de la base:
 
    ```powershell
-   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\CRM_reportes\TCH" `
+   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH" `
      --exclude-months <los mismos> --apply --confirm-database crm
    ```
 
@@ -96,3 +96,22 @@ aun tiene claves antiguas, para no duplicar cuotas.
 - Las migraciones solo agregan columnas; las filas actuales conservan su clave antigua hasta la recarga.
 - Las consolidaciones nocturnas anteriores a la recarga dejaron `charges`/`core_payments` con claves antiguas: el paso 6
   las elimina porque ya no existen en `tch_transacciones`.
+
+## CRM-15B: estado y monto en «Mandatos eliminados» (fix/tch-recuperador-estado-monto)
+
+Diagnostico (lecturas agregadas de `crm`, 2026-11-13): `tch_suscripciones` se cargo completa el 2026-09-16, antes de
+TCH-PAR-05/06. Por eso `monto` esta NULL en las 29.295 fichas (el ETL de entonces leia «Ingreso», una fecha) y el
+estado salia de la hoja, no de la columna ESTADO: 8 fichas VIGENTE con `fecha_eliminacion` (IG sep-2026, ESTADO
+«Eliminado», baja de oct-2026), 5 ELIMINADA con ESTADO «Activo», 3 VIGENTE con ESTADO «Rechazado» y 113 «Pendiente»
+como VIGENTE. El codigo actual ya lee «Monto Vigente» y ESTADO; esta rama agrega:
+
+- Una ficha con «Fecha Eliminado» no queda VIGENTE/PENDIENTE aunque ESTADO diga «Activo» (IG dic-2017: 5 fichas de
+  la hoja ELIMINADOS).
+- «El reporte mas nuevo gana» tambien para la ficha: cada fila guarda el mes del reporte en
+  `raw_payload._reporte_periodo` y un reporte anterior cargado despues no la sobrescribe (sin migracion). Las filas
+  sin esa clave (la carga actual) se actualizan normalmente.
+
+No hace falta un comando aparte: la misma recarga completa de la ventana OPS-11 (ficha d209, pasos 1 a 7 de arriba)
+deja `monto` y `estado` al dia, y el paso 6 (`run_tch_core_etl`) los lleva a `core_subscriptions`, que es lo que lee
+el recuperador. Verificacion despues (solo lectura): `SELECT count(*) FROM core_subscriptions WHERE source='tch' AND
+amount IS NULL` cercano a 0 y `... AND status IN ('VIGENTE','PENDIENTE') AND ended_at IS NOT NULL` = 0.
