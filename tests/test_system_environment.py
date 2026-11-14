@@ -12,6 +12,7 @@ from app.main import app
 from app.models.auth import Permission, Role, User
 from app.services.rbac import (
     PERMISSIONS,
+    ensure_admin_role,
     executive_permission_codes,
     seed_default_roles,
     seed_permissions,
@@ -253,9 +254,13 @@ def test_billing_permissions_in_catalog() -> None:
 
 
 def test_billing_permissions_assigned_to_admin(db) -> None:
-    seed_permissions(db)
+    # La base de test arranca sin roles: se siembra `admin` con el mismo paso que usa bootstrap_admin.py,
+    # sin depender de que otro test lo haya creado antes. El fixture `db` hace rollback al final.
+    ensure_admin_role(db)
     admin = db.scalar(select(Role).where(Role.name == "admin"))
     assert admin is not None
+    assert NEW_BILLING_PERMISSIONS <= {p.code for p in admin.permissions}
+    seed_permissions(db)  # re-sembrar no se los quita
     assert NEW_BILLING_PERMISSIONS <= {p.code for p in admin.permissions}
 
 
