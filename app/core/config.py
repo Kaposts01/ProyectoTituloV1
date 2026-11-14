@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     debug: bool = False
     auth_jwt_secret: str = ""
     auth_access_token_minutes: int = 60
+    # CRM-16C: 401 sin sesion ANTES de leer el cuerpo (app/core/session_guard.py). Solo para volver atras.
+    auth_session_first_enabled: bool = True
     initial_admin_username: str = ""
     initial_admin_password: str = ""
     database_url: str
