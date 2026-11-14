@@ -5,13 +5,13 @@ anyio==4.14.2
 APScheduler==3.11.3
 argon2-cffi==25.1.0
 argon2-cffi-bindings==26.1.0
-certifi==2026.7.22
+certifi==2026.10.18
 cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.5.0
 colorama==0.4.6
 coverage==7.17.2
-dnspython==2.8.0
+dnspython==2.9.2
 email-validator==2.3.0
 et_xmlfile==2.0.0
 fastapi==0.141.1
@@ -54,7 +54,7 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 tzdata==2026.3
 tzlocal==5.4.4
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.52.4
 watchfiles==1.2.0
 websockets==17.1
