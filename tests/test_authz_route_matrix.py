@@ -33,7 +33,13 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.routes.crm import get_db as crm_get_db
 from app.core.config import settings
-from app.core.security import ACCESS_COOKIE, CSRF_HEADER, create_access_token, get_current_user, require_csrf
+from app.core.security import (
+    ACCESS_COOKIE,
+    CSRF_HEADER,
+    create_access_token,
+    get_current_user,
+    require_csrf,
+)
 from app.core.security import get_db as security_get_db
 from app.db.session import engine
 from app.main import app
