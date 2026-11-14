@@ -24,6 +24,7 @@ export function ProfilePanel({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formEl = event.currentTarget; // tras un await, React deja currentTarget en null
     const form = new FormData(event.currentTarget);
     const newUsername = (form.get("new_username") as string).trim();
     const currentPassword = form.get("current_password") as string;
@@ -44,7 +45,7 @@ export function ProfilePanel({
       onUpdated(result.user);
       setSuccess("Perfil actualizado correctamente.");
       onCancelEdit();
-      event.currentTarget.reset();
+      formEl.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo actualizar el perfil.");
     } finally {
