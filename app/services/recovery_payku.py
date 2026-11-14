@@ -13,6 +13,10 @@ Vistas
   Filtro sobre `ended_at`. Es el universo a contactar; «recuperable» como en Toku aun no esta definido para Payku.
 * **rejected** (cobros rechazados): `core_payments` de Payku cuya transaccion tiene estado comun `rejected`; si el
   pago esta enlazado a un ciclo (`core_charges`, PK-06) se muestra su periodo. Filtro sobre `occurred_at`.
+  CRM-15C: Payku entrega los rechazos con `amount = 0` en el payload de la suscripcion y sin `paid[]` (sin ciclos), asi
+  que la vista mostraba $0 y periodo «—». Ahora: periodo = el del ciclo enlazado o, si no hay, el mes (Chile) del
+  intento (`period_source`); monto = el del intento si es > 0 o, si no, el monto vigente de la suscripcion
+  (`amount_source`: `transaction` | `subscription`). El monto real del intento solo lo trae `GET /api/transaction/{id}`.
 
 Datos personales (d119, opcion b): `rut` y `name` solo con el permiso de clientes de Payku (`recovery_pii`); sin el
 van en `null`. El resto: ids de Payku, montos y estados. Paginacion y filtros en SQL.
@@ -29,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.models.core import CoreCharge, CorePayment, CoreSubscription
 from app.models.payku_channel import PaykuSubscription, PaykuTransaction
 from app.services.recovery_pii import attach_people
+from app.services.rejected_month import CHILE_TZ
 from app.services.rejection_format import format_rejection_reason
 
 SOURCE = "payku"
@@ -51,6 +56,25 @@ def _date_range(column, start: date | None, end: date | None) -> list:
     if end is not None:
         conditions.append(cast(column, Date) <= end)
     return conditions
+
+
+def _attempt_amount(payment_amount: Any, subscription_amount: Any) -> tuple[float | None, str | None]:
+    """(monto, fuente): el del intento si es > 0; si no, el monto vigente de la suscripcion; si no, (None, None)."""
+    if payment_amount is not None and float(payment_amount) > 0:
+        return float(payment_amount), "transaction"
+    if subscription_amount is not None and float(subscription_amount) > 0:
+        return float(subscription_amount), "subscription"
+    return None, None
+
+
+def _attempt_period(charge_period: str | None, occurred_at: datetime | None) -> tuple[str | None, str | None]:
+    """(periodo `AAAA-MM`, fuente): el del ciclo enlazado; si no, el mes en Chile del intento."""
+    if charge_period:
+        return charge_period, "cycle"
+    if occurred_at is not None:
+        local = occurred_at.astimezone(CHILE_TZ) if occurred_at.tzinfo else occurred_at
+        return local.strftime("%Y-%m"), "attempt"
+    return None, None
 
 
 def _page(db: Session, query, offset: int, limit: int) -> tuple[list[Any], int]:
@@ -100,7 +124,7 @@ def suspended(db: Session, start: date | None, end: date | None, offset: int, li
 
 def rejected(db: Session, start: date | None, end: date | None, offset: int, limit: int, *, include_pii: bool = False) -> dict:
     query = (
-        select(CorePayment, CoreSubscription.external_id, CoreCharge.period_reference)
+        select(CorePayment, CoreSubscription.external_id, CoreCharge.period_reference, CoreSubscription.amount)
         .join(PaykuTransaction, PaykuTransaction.external_id == CorePayment.external_id)
         .outerjoin(CoreSubscription, CoreSubscription.id == CorePayment.subscription_id)
         .outerjoin(CoreCharge, CoreCharge.id == CorePayment.charge_id)
@@ -112,20 +136,23 @@ def rejected(db: Session, start: date | None, end: date | None, offset: int, lim
         .order_by(CorePayment.occurred_at.desc().nulls_last(), CorePayment.external_id)
     )
     rows, total = _page(db, query, offset, limit)
-    items = [
-        {
+    items = []
+    for payment, sub_external_id, charge_period, sub_amount in rows:
+        amount, amount_source = _attempt_amount(payment.amount, sub_amount)
+        period, period_source = _attempt_period(charge_period, payment.occurred_at)
+        items.append({
             "source": SOURCE,
             "charge_id": payment.external_id,
             "subscription_id": sub_external_id,
             "period": period,
+            "period_source": period_source,
             "charge_date": _iso(payment.occurred_at),
-            "amount": _num(payment.amount),
+            "amount": amount,
+            "amount_source": amount_source,
             "currency": payment.currency,
             "status": payment.source_status,
             "rejection_code": payment.rejection_code,
             "rejection_reason": format_rejection_reason(SOURCE, payment.rejection_code, payment.rejection_reason),
-        }
-        for payment, sub_external_id, period in rows
-    ]
+        })
     return attach_people(db, SOURCE, {"items": items, "total": total, "offset": offset, "limit": limit, "empty_reason": None},
                          include_pii)
