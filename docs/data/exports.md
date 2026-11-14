@@ -7,7 +7,8 @@ Contrato de la exportación desde cada vista (Clientes, Suscripciones, Cobros, P
 - Servicio común: `app/services/exporter.py` (CSV en streaming, UTF-8 con BOM, anti-inyección de fórmulas, auditoría).
 - Consultas: `app/services/export_queries.py` (SQL con cursor del lado del servidor: `stream_results` + `yield_per=2000`; nunca se arma el archivo en memoria. Los cobros de TCH son 1,47 M de filas).
 - Rutas: `app/api/v1/routes/export.py`, montadas en `/api/v1/export`.
-- El recuperador (`/api/v1/recovery/*/export`) sigue con su propio contrato y permiso (`virtualpos.recovery.export`); solo comparte `csv_safe` y el cuerpo de auditoría.
+- El recuperador (`/api/v1/recovery/*/export`) sigue con su propio contrato y permiso (`virtualpos.recovery.export`); comparte `csv_safe` y el cuerpo de auditoría. Desde d199 sus columnas personales (RUT, nombre, correo, teléfono) también exigen `export.pii`: sin ese permiso el CSV sale sin ellas y la auditoría registra `pii_included: false`.
+- Ninguna exportación tiene columna de número de cuenta bancaria (d199, R1); en la API la cuenta de TCH solo sale enmascarada (`••••1234`).
 
 ## Endpoints (contrato para el frontend, EXP-04)
 

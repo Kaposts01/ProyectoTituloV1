@@ -684,8 +684,13 @@ def _audit_export(db: Session, user: User, endpoint: str, filters: dict, row_cou
     db.commit()
 
 
+# d199 (R3 de la ficha; R4 del inventario SEC-01): `virtualpos.recovery.export` habilita el CSV, pero las columnas
+# personales (RUT, nombre, correo, telefono) exigen `export.pii`, igual que las demas exportaciones. Sin el se omiten.
+EXPORT_PII_PERMISSION = "export.pii"
+
+
 def _export(db: Session, user: User, endpoint: str, rows: list[dict], filename: str, filters: dict) -> Response:
-    include_pii = "virtualpos.recovery.export" in permission_codes(user)
+    include_pii = EXPORT_PII_PERMISSION in permission_codes(user)
     _audit_export(db, user, endpoint, filters, len(rows), include_pii)
     return _csv_response(rows, filename, include_pii)
 

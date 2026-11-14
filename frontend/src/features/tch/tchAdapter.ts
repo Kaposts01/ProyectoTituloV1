@@ -14,7 +14,7 @@ import type {
 // ---- Tipos "wire": SOLO aquí. Todas las claves son opcionales porque el backend puede omitirlas. ----
 export type TchSubscriptionWire = {
   id?: string; numero_ficha?: number; numero_mandato?: number | null; cliente_rut?: string | null; banco_nombre?: string | null;
-  tipo_mandato?: string | null; tipo_cuenta?: string | null; origen?: string | null; centro_costo?: string | null;
+  tipo_mandato?: string | null; tipo_cuenta?: string | null; numero_cuenta?: string | null; origen?: string | null; centro_costo?: string | null;
   captador?: string | null; monto?: string | number | null; fecha_activacion?: string | null; equivalente_pesos?: string | number | null;
   fecha_rechazo?: string | null; fecha_eliminacion?: string | null; fecha_fin?: string | null; razon_baja?: string | null;
   estado?: string | null; last_paid_date?: string | null; secondary_status?: string | null; created_at?: string | null; updated_at?: string | null;
@@ -66,6 +66,7 @@ export function adaptTchSubscription(wire: TchSubscriptionWire | null | undefine
     bankName: text(w.banco_nombre),
     mandateType: text(w.tipo_mandato),
     accountType: text(w.tipo_cuenta),
+    accountNumberMasked: text(w.numero_cuenta),
     origin: text(w.origen),
     costCenter: text(w.centro_costo),
     recruiter: text(w.captador),

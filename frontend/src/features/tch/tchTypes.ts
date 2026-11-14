@@ -15,6 +15,8 @@ export type TchSubscription = {
   bankName: string | null;
   mandateType: string | null;
   accountType: string | null;
+  /** Cuenta bancaria ENMASCARADA por el backend (`••••1234`, d199 R1); nunca llega completa. */
+  accountNumberMasked: string | null;
   origin: string | null;
   costCenter: string | null;
   recruiter: string | null;

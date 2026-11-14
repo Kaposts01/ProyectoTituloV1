@@ -16,6 +16,7 @@
  ".id",
  ".last_paid_date",
  ".monto",
+ ".numero_cuenta",
  ".numero_ficha",
  ".numero_mandato",
  ".origen",

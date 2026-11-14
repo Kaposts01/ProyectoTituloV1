@@ -187,7 +187,7 @@ export function RecoveryPanel({ channel, can, embedded = false }: Props) {
       {showExport && rows ? (
         <div className="recovery-export">
           <button className="secondary-button" onClick={() => void exportCsv()}>Exportar CSV (<span className="mono">{rows.total.toLocaleString("es-CL")}</span> filas)</button>
-          <p className="muted-copy">El archivo contiene datos personales (RUT, nombre, correo y teléfono). La exportación queda registrada en la auditoría.</p>
+          <p className="muted-copy">{can("export.pii") ? "El archivo contiene datos personales (RUT, nombre, correo y teléfono)." : "El archivo no incluye datos personales: exportarlos requiere el permiso de exportar datos personales."} La exportación queda registrada en la auditoría.</p>
         </div>
       ) : null}
       {error ? <p className="error-message">{error}</p> : null}

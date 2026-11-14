@@ -9,7 +9,7 @@ import {
 const SUBSCRIPTION_KEYS: Array<[string, string, unknown]> = [
   ["id", "id", "sub-1"], ["numero_ficha", "fileNumber", 1001], ["numero_mandato", "mandateNumber", 7],
   ["cliente_rut", "clientRut", "11111111-1"], ["banco_nombre", "bankName", "Banco Sintético"], ["tipo_mandato", "mandateType", "FISICO"],
-  ["tipo_cuenta", "accountType", "CORRIENTE"], ["origen", "origin", "CALLE"], ["centro_costo", "costCenter", "CC-1"],
+  ["tipo_cuenta", "accountType", "CORRIENTE"], ["numero_cuenta", "accountNumberMasked", "••••1234"], ["origen", "origin", "CALLE"], ["centro_costo", "costCenter", "CC-1"],
   ["captador", "recruiter", "Captador Uno"], ["monto", "amount", "10000"], ["fecha_activacion", "activationDate", "2025-01-15"],
   ["equivalente_pesos", "pesoEquivalent", "10500"], ["fecha_rechazo", "rejectionDate", "2025-02-01"], ["fecha_eliminacion", "deletionDate", "2025-03-01"],
   ["fecha_fin", "endDate", "2025-04-01"], ["razon_baja", "cancellationReason", "Motivo sintético"], ["estado", "status", "VIGENTE"],

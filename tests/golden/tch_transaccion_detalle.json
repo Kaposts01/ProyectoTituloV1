@@ -27,6 +27,7 @@
  ".suscripcion.id",
  ".suscripcion.last_paid_date",
  ".suscripcion.monto",
+ ".suscripcion.numero_cuenta",
  ".suscripcion.numero_ficha",
  ".suscripcion.numero_mandato",
  ".suscripcion.origen",

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.security import require_permissions
 from app.db.session import SessionLocal
 from app.models.crm import CanonicalRecord, Charge, Client, Payment, Plan, Subscription
+from app.services.account_masking import mask_account_fields
 
 router = APIRouter()
 
@@ -22,7 +23,9 @@ def get_db():
 
 def _serialize(record: CanonicalRecord, include_cards: bool = True) -> dict[str, Any]:
     return {
-        column.name: str(value) if column.name in {"id", "source_record_id"} else value
+        column.name: str(value) if column.name in {"id", "source_record_id"}
+        else mask_account_fields(value) if column.name == "raw_payload"  # d199 R1: sin cuenta bancaria completa
+        else value
         for column in record.__table__.columns
         if include_cards or column.name != "cards"
         if (value := getattr(record, column.name)) is not None

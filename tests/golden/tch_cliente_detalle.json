@@ -27,6 +27,7 @@
  ".suscripciones[].id",
  ".suscripciones[].last_paid_date",
  ".suscripciones[].monto",
+ ".suscripciones[].numero_cuenta",
  ".suscripciones[].numero_ficha",
  ".suscripciones[].numero_mandato",
  ".suscripciones[].origen",
