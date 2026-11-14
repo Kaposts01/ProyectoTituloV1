@@ -966,11 +966,22 @@ def _find_status_col(df: pd.DataFrame) -> Any:
     return None
 
 
-def _mandate_status(raw_value: Any, sheet_default: str) -> str:
-    """Estado de la ficha desde la columna ESTADO; si falta o no se reconoce, el de la hoja de origen."""
+_ACTIVE_STATES = ("VIGENTE", "PENDIENTE")
+
+
+def _mandate_status(raw_value: Any, sheet_default: str, deletion_date: str | None = None) -> str:
+    """Estado de la ficha desde la columna ESTADO; si falta o no se reconoce, el de la hoja de origen.
+
+    CRM-15B: una ficha con «Fecha Eliminado» no queda activa. Los IG traen fichas en ELIMINADOS con ESTADO «Activo»
+    y fecha de eliminacion (5 en dic-2017): el recuperador las mostraba como «Vigente» en «Mandatos eliminados».
+    """
     if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
-        return sheet_default
-    return _MANDATE_STATES.get(str(raw_value).strip().upper(), sheet_default)
+        status = sheet_default
+    else:
+        status = _MANDATE_STATES.get(str(raw_value).strip().upper(), sheet_default)
+    if deletion_date and status in _ACTIVE_STATES:
+        return "ELIMINADA"
+    return status
 
 
 def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
@@ -1083,6 +1094,7 @@ def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
         # Solo un indicador: el RUT y el nombre del titular (un tercero) no se guardan.
         different_holder = (rut_titular != rut) if (rut_titular and rut) else None
 
+        deletion_date = _norm_date(_col_val(row, col_deletion_date))
         subscription_row = {
             "numero_ficha": file_number,
             "numero_mandato": _norm_int(_col_val(row, col_mandate)),
@@ -1104,9 +1116,9 @@ def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
             "fecha_ingreso": _norm_date(_col_val(row, col_entry_date)),
             "fecha_entrega_banco": _norm_date(_col_val(row, col_bank_delivery_date)),
             "fecha_rechazo": _norm_date(_col_val(row, col_rejection_date)),
-            "fecha_eliminacion": _norm_date(_col_val(row, col_deletion_date)),
+            "fecha_eliminacion": deletion_date,
             "razon_baja": _norm_str(_col_val(row, col_reason), 500),
-            "estado": _mandate_status(_col_val(row, col_status), status),
+            "estado": _mandate_status(_col_val(row, col_status), status, deletion_date),
             "estrategia": _norm_str(_col_val(row, col_strategy), 150),
             "lugar_captacion": _norm_str(_col_val(row, col_place), 150),
             "folio": _norm_str(_col_val(row, col_folio), 50),
@@ -1505,9 +1517,22 @@ def _load_bank_catalog(db, rows: list[dict]) -> int:
 
 # PostgreSQL: en INSERT .. ON CONFLICT DO UPDATE .. RETURNING, `xmax = 0` marca la fila insertada (no la actualizada).
 _INSERTED_FLAG = literal_column("(xmax = 0)").label("inserted")
+# CRM-15B: mes del reporte que dejo la ficha como esta (en el payload: no requiere migracion).
+REPORT_PERIOD_KEY = "_reporte_periodo"
 
 
-def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
+def _not_older_report(table, excluded):
+    """El reporte entrante no es anterior al que dejo la ficha: «el reporte mas nuevo gana» tambien para la ficha.
+
+    Sin mes conocido (filas cargadas antes de CRM-15B, o un archivo sin mes en el nombre) se conserva lo de antes:
+    la ultima carga gana. Mismo mes: gana la ultima hoja procesada (ELIMINADOS despues de VIGENTES).
+    """
+    current = table.c.raw_payload[REPORT_PERIOD_KEY].astext
+    incoming = excluded.raw_payload[REPORT_PERIOD_KEY].astext
+    return or_(current.is_(None), incoming.is_(None), incoming >= current)
+
+
+def _load_subscriptions(db, rows: list[dict], report_period: str | None = None) -> tuple[int, int, int]:
     # 1. Pre-cargar catálogos en batch (ON CONFLICT DO NOTHING)
     _bulk_upsert_catalogs(db, rows)
 
@@ -1528,6 +1553,8 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
         r.pop("_cliente", None)
         r.pop("_cliente_titular", None)
         if r.get("numero_ficha"):
+            if report_period:
+                r["raw_payload"] = {**(r.get("raw_payload") or {}), REPORT_PERIOD_KEY: report_period}
             clean_subscriptions.append({"id": uuid.uuid4(), **r})
 
     if not clean_subscriptions:
@@ -1542,6 +1569,7 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
     # Chunk para no superar los 65535 parámetros de PostgreSQL (24 cols x 2700 filas ~= 64800)
     CHUNK_SUBSCRIPTIONS = 2500
     inserted = 0  # TCH-PAR-11: nuevas vs actualizadas por RETURNING (xmax = 0 solo en una fila recien insertada)
+    written = 0  # CRM-15B: una ficha que ya viene de un reporte mas nuevo no se toca (no la devuelve RETURNING)
     for i in range(0, len(unique_subscriptions), CHUNK_SUBSCRIPTIONS):
         chunk = unique_subscriptions[i : i + CHUNK_SUBSCRIPTIONS]
         stmt = pg_insert(TchSubscription).values(chunk).on_conflict_do_update(
@@ -1586,11 +1614,14 @@ def _load_subscriptions(db, rows: list[dict]) -> tuple[int, int, int]:
                 "razon_baja": pg_insert(TchSubscription).excluded.razon_baja,
                 "raw_payload": pg_insert(TchSubscription).excluded.raw_payload,
             },
+            where=_not_older_report(TchSubscription.__table__, pg_insert(TchSubscription).excluded),
         )
-        inserted += sum(1 for row in db.execute(stmt.returning(_INSERTED_FLAG)) if row.inserted)
+        for row in db.execute(stmt.returning(_INSERTED_FLAG)):
+            written += 1
+            inserted += 1 if row.inserted else 0
     db.flush()
 
-    return inserted, len(unique_subscriptions) - inserted, 0
+    return inserted, written - inserted, 0
 
 
 _TX_OPTIONAL = {
@@ -1868,7 +1899,7 @@ def _clear_tch_data(db) -> None:
 # Procesamiento de un archivo
 # ---------------------------------------------------------------------------
 
-def _process_file(filepath: Path, db) -> dict:
+def _process_file(filepath: Path, db, report_period: str | None = None) -> dict:
     report_name = filepath.name
     log.info(f"Procesando: {report_name}")
 
@@ -1878,13 +1909,19 @@ def _process_file(filepath: Path, db) -> dict:
 
     # TCH-PAR-16: el libro se abre una sola vez y cada hoja se recorre una sola vez.
     with ReportBook(filepath) as book:
-        return _process_book(book, db, file_totals, file_numbers)
+        return _process_book(book, db, file_totals, file_numbers, report_period)
 
 
-def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int]) -> dict:
+def _process_book(
+    book: ReportBook, db, file_totals: dict, file_numbers: set[int], fallback_period: str | None = None
+) -> dict:
+    """``fallback_period``: mes del reporte si el nombre del archivo no lo trae (subida con nombre temporal)."""
     filepath = book.path
     report_name = filepath.name
     has_portfolio = False
+    report_period = _report_period(filepath)
+    # Mes con el que se versiona la ficha (CRM-15B); el de las cuotas sigue siendo solo el del nombre del archivo.
+    subscription_period = report_period or fallback_period
 
     # --- Catálogo de bancos desde hoja TABLAS ---
     bank_rows = _transform_banks_from_tables(book)
@@ -1909,7 +1946,7 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
         transaction_rows = _transform_charge_history(df_active, report_name)
         has_portfolio = bool(rows_active)
         file_numbers.update(r["numero_ficha"] for r in rows_active)
-        i, u, e = _load_subscriptions(db, rows_active)
+        i, u, e = _load_subscriptions(db, rows_active, subscription_period)
         file_totals["sus_ins"] += i
         file_totals["sus_upd"] += u
         file_totals["err"] += e
@@ -1925,7 +1962,7 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
         rows_deleted = _transform_subscriptions(df_deleted, "ELIMINADA")
         transaction_rows += _transform_charge_history(df_deleted, report_name)
         file_numbers.update(r["numero_ficha"] for r in rows_deleted)
-        i, u, e = _load_subscriptions(db, rows_deleted)
+        i, u, e = _load_subscriptions(db, rows_deleted, subscription_period)
         file_totals["sus_ins"] += i
         file_totals["sus_upd"] += u
         file_totals["err"] += e
@@ -1938,7 +1975,7 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
         rows_rejected_mandates = _transform_subscriptions(df_rejected_mandates, "RECHAZADA")
         # Sin historial: los mandatos de esta hoja nunca cobraron (TCH-PAR-04).
         file_numbers.update(r["numero_ficha"] for r in rows_rejected_mandates)
-        i, u, e = _load_subscriptions(db, rows_rejected_mandates)
+        i, u, e = _load_subscriptions(db, rows_rejected_mandates, subscription_period)
         file_totals["sus_ins"] += i
         file_totals["sus_upd"] += u
         file_totals["err"] += e
@@ -1962,7 +1999,6 @@ def _process_book(book: ReportBook, db, file_totals: dict, file_numbers: set[int
 
     # "El ultimo reporte gana": cada fila lleva el mes del reporte que la trajo. Se procesan TODAS las ventanas de
     # historial de cada reporte (un reporte posterior puede reexpresar el estado de un mes ya cargado).
-    report_period = _report_period(filepath)
     for row in transaction_rows:
         row["reporte_periodo"] = report_period
     transaction_stats: dict = {}
@@ -2312,7 +2348,7 @@ def import_incremental_file(filepath: Path, run_id=None, display_name: str | Non
         if _has_legacy_dedupe_keys(db):
             raise LegacyDedupeKeysError(_LEGACY_KEYS_MESSAGE)
         latest_loaded = _last_closed_period(db)
-        totals = _process_file(filepath, db)
+        totals = _process_file(filepath, db, _report_period(Path(file_name)))
         total = totals["sus_ins"] + totals["sus_upd"] + totals["trans"] + totals["controles"]
         report_period = _report_period(Path(file_name)) or totals.get("periodo_reporte")
         report_registry.register(
