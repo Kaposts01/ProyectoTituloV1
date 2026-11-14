@@ -11,3 +11,8 @@ def load_all_models() -> None:
 
     for module in pkgutil.iter_modules(__path__):
         importlib.import_module(f"{__name__}.{module.name}")
+
+
+# Cualquier `import app.models.<x>` registra todos los modelos: los scripts sueltos y los servicios importados fuera de
+# la app (sin app.main) resuelven asi todas las ForeignKey del metadata.
+load_all_models()
