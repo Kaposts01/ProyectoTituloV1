@@ -24,8 +24,10 @@
   --bg-input:        #ffffff;
   --bg-filter: #eef1f9;
   --bg-accent-panel: #1c2a5a;
-  /* ancho unico del menu lateral (DESIGN.md: 220 px) */
-  --sidebar-w:       220px;
+  /* menu lateral (DESIGN.md): rail compacto de iconos y ancho desplegado (hover o fijado) */
+  --sidebar-w:       64px;
+  --sidebar-w-open:  232px;
+  --sidebar-float-shadow: 8px 0 24px rgb(5 8 18 / 28%), 1px 0 0 rgb(255 255 255 / 4%);
   /* etiquetas de grupo del menu sobre --bg-sidebar (AA >= 4.5:1) */
   --sidebar-label:        #a3adc2;
   --sidebar-label-active: #ffffff;
