@@ -39,7 +39,7 @@ reexportado.
 
    ```powershell
    $env:PYTHONPATH='.'
-   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\CRM_reportes\TCH" `
+   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH" `
      --exclude-months 2023-01,2023-02,2023-03,2023-04,2023-05,2023-06,2023-07,2023-08,2023-09,2023-10,2023-11,2023-12
    ```
 
@@ -49,7 +49,7 @@ reexportado.
 5. **Apply** (solo si el dry-run cuadra). Exige el nombre exacto de la base:
 
    ```powershell
-   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\CRM_reportes\TCH" `
+   .venv\Scripts\python.exe scripts\etl_tch.py --mode full --folder "C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH" `
      --exclude-months <los mismos> --apply --confirm-database crm
    ```
 
