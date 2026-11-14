@@ -17,6 +17,7 @@ from app.api.v1.routes import (
 )
 from app.core.config import settings, warn_unguarded_dev_writes
 from app.core.log_redaction import install_access_log_redaction
+from app.core.session_guard import SessionFirstMiddleware
 from app.scheduler.engine import (
     get_scheduler,
     install_heartbeat_listener,
@@ -118,6 +119,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0", openapi_tags=OPENAPI_TAGS, lifespan=lifespan)
+app.add_middleware(SessionFirstMiddleware, overrides_provider=app)  # CRM-16C: 401 antes de leer el cuerpo
 app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(system.router, prefix="/api/v1/system", tags=["System"])
 app.include_router(health.router, prefix="/api/v1/health", tags=["health"])  # d139c: sin sesion, sin datos personales
