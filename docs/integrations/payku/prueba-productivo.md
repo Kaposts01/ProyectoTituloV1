@@ -110,3 +110,26 @@ existente del CRM.
 - El `write_run` usa la base de la app del ambiente activo (productivo), con correo y RUT enmascarados.
 - La `url` de inscripción tiene vigencia no documentada (Q-16).
 - Si la búsqueda previa falla por el límite de 20 caracteres del path (Q-10), el script recorre el listado de clientes.
+
+## 7. Variante con plan de CONSUMO (ficha d213 = b)
+
+El usuario aceptó que el plan quede **permanente** en la cuenta (solo se cancela la suscripción). Flujo, todo en
+dry-run salvo `--apply` (mismas llaves de la sección 3: `--confirm-production`, `PAYKU_TEST_SUBSCRIPTION_ARMED=1` de
+proceso, APP_ENV productivo con host `app.payku.cl` y `PAYKU_WRITES_ENABLED`), cada escritura en `write_runs`:
+
+1. `--consumption --create-plan --email <correo> --rut <RUT> --phone <tel> --name <nombre>`: busca previas, crea
+   cliente (o lo reutiliza), `POST /api/suplan` (`name` = `PRUEBA-CRM-1CLP`, sin `url_notify_*`), relee el plan y
+   crea la suscripción **sin** `amount`. Imprime la url de inscripción y la línea `PAYKU_KPI_EXCLUDED_IDS=...`.
+   El RUT y el correo solo van por argumento; nunca se escriben en archivos y salen enmascarados.
+2. Paso **manual**: el titular abre la url e inscribe la tarjeta (cargo de validación de $50 según la doc).
+3. `--charge SUB_ID`: relee la sub (se niega si no está `active`) y hace `POST /api/sutransaction` con
+   `suscription`, `amount` = 1, `order` = `CRM14C-CONSUMO-AAMMDD` y `description`. Imprime `transaction_id` y la
+   línea de exclusión a sumar.
+4. `--verify-consumption SUB_ID --transaction-id N [--conciliation-date AAAA-MM-DD] --execute-read
+   --confirm-production`: Q-06 (aparece en `GET /api/transaction` y en la conciliación, que es un POST de consulta),
+   Q-08 (qué campo coincide con el `transaction_id`) y Q-33 (si la descripción lo distingue de un cobro recurrente).
+5. `--cancel SUB_ID --apply ...`: baja de la suscripción. El plan no se borra.
+
+Costo estimado: 50 CLP de validación + 1 CLP del cobro = 51 CLP. Un plan de consumo no cobra solo, así que no hay
+ciclos posteriores. La exclusión de indicadores sigue siendo la propuesta de la sección 5 (no implementada): cargar
+los ids `cl…`, `pl…`, `su…` y el número de transacción antes del siguiente sync.
