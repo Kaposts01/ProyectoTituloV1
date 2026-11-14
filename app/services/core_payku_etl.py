@@ -9,6 +9,9 @@ CorePayment, as before. Payments are linked to their cycle only through `paid[].
 Rejected transactions carry amount=0; the embedded payload has no rejection code/reason. As a fallback
 (PK-PAR-06 / RJ-10) the latest rejection of each subscription takes its `last_status_current_payment`.
 occurred_at keeps the transaction time in Chile (PK-PAR-04).
+d207: subscriptions listed in PAYKU_KPI_EXCLUDED_IDS (test subscriptions) are not materialized, nor their cycles or
+transactions, and whatever Core already held for them is removed first (Core is derived; it comes back on the next run
+once the id leaves the list). The raw `p_*` tables are kept.
 """
 
 import logging
@@ -16,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -37,6 +40,7 @@ from app.models.payku_channel import (
 from app.services.channel_consolidation import _payku_last_transition_date
 from app.services.channel_store import extract_payku_cycles
 from app.services.core_materialization import materialize_core_clients
+from app.services.payku_kpi_exclusion import excluded_subscription_ids, is_excluded
 from app.services.payku_rejection_codes import (
     payku_gateway_rejection,
     payku_subscription_rejection_status,
@@ -208,6 +212,29 @@ def _refresh_normalized_statuses(db: Session) -> int:
     return changed
 
 
+# ── Paso 1c: suscripciones excluidas de los indicadores (d207) ───────────────
+
+def _purge_excluded_subscriptions(db: Session) -> int:
+    """Retira de Core las suscripciones de `PAYKU_KPI_EXCLUDED_IDS` con sus cargos y pagos. Devuelve las subs retiradas.
+
+    Core es derivado de `p_*` (que no se toca): quitar el id de la lista lo vuelve a materializar en la siguiente
+    corrida. Orden por las llaves foraneas: se suelta `latest_rejection_payment_id`, luego pagos, cargos y la sub.
+    """
+    ids = excluded_subscription_ids()
+    if not ids:
+        return 0
+    sub_ids = list(db.scalars(
+        select(CoreSubscription.id).where(CoreSubscription.source == _SOURCE, CoreSubscription.external_id.in_(sorted(ids)))
+    ))
+    if not sub_ids:
+        return 0
+    db.execute(update(CoreCharge).where(CoreCharge.subscription_id.in_(sub_ids)).values(latest_rejection_payment_id=None))
+    db.execute(delete(CorePayment).where(CorePayment.source == _SOURCE, CorePayment.subscription_id.in_(sub_ids)))
+    db.execute(delete(CoreCharge).where(CoreCharge.source == _SOURCE, CoreCharge.subscription_id.in_(sub_ids)))
+    db.execute(delete(CoreSubscription).where(CoreSubscription.id.in_(sub_ids)))
+    return len(sub_ids)
+
+
 # ── Paso 2: suscripciones ─────────────────────────────────────────────────────
 
 def _materialize_subscriptions(db: Session) -> int:
@@ -226,6 +253,8 @@ def _materialize_subscriptions(db: Session) -> int:
     rows = []
     unknown_statuses: set[str] = set()
     for s in subscriptions:
+        if is_excluded(s.external_id):
+            continue
         if normalize_payku_status(s.status) == COMMON_STATUS_UNKNOWN:
             unknown_statuses.add(str(s.status or "")[:50])
         client_id = identity_index.get(s.client_id) if s.client_id else None
@@ -270,7 +299,7 @@ def _materialize_cycles(db: Session) -> int:
     """`paid[]` del payload de cada suscripcion -> `p_cycles` (upsert por clave de ciclo). Idempotente."""
     rows: dict[str, dict] = {}
     for external_id, payload in db.execute(select(PaykuSubscription.external_id, PaykuSubscription.raw_payload)):
-        if not isinstance(payload, dict) or not isinstance(payload.get("paid"), list):
+        if not isinstance(payload, dict) or not isinstance(payload.get("paid"), list) or is_excluded(external_id):
             continue
         for row in extract_payku_cycles({**payload, "__external_id": external_id}):
             rows[row["external_id"]] = {"id": uuid.uuid4(), **row}
@@ -297,6 +326,8 @@ def _materialize_charges(db: Session) -> int:
     }
     rows = []
     for c in db.scalars(select(PaykuCycle)).all():
+        if is_excluded(c.subscription_id):
+            continue
         due_at = _parse_datetime_cl(c.cycle_day)
         rejected = c.status_normalized == "rejected"
         rows.append({
@@ -365,6 +396,8 @@ def _materialize_payments(db: Session) -> int:
     rows = []
     skipped = 0
     for t in transactions:
+        if is_excluded(t.subscription_id):
+            continue
         sub_id = sub_index.get(t.subscription_id) if t.subscription_id else None
         if sub_id is None:
             skipped += 1
@@ -516,6 +549,10 @@ def run_payku_core_etl(db: Session) -> dict[str, int]:
     normalized = _refresh_normalized_statuses(db)
     log.info("Payku Core ETL — estados normalizados actualizados: %d", normalized)
 
+    excluded = _purge_excluded_subscriptions(db)
+    if excluded:
+        log.info("Payku Core ETL — suscripciones excluidas de indicadores retiradas de Core: %d", excluded)
+
     log.info("Payku Core ETL — materializando suscripciones")
     subs = _materialize_subscriptions(db)
     log.info("Payku Core ETL — suscripciones upserted: %d", subs)
@@ -544,6 +581,7 @@ def run_payku_core_etl(db: Session) -> dict[str, int]:
         "cycles_upserted": cycles,
         "charges_upserted": charges,
         "payments_linked_to_charge": linked,
+        "subscriptions_excluded_removed": excluded,
         "subscriptions_unknown_status": db.scalar(
             select(func.count()).select_from(PaykuSubscription)
             .where(PaykuSubscription.status_normalized == COMMON_STATUS_UNKNOWN)

@@ -55,6 +55,7 @@ from app.services.channel_store import _VP_PLATFORMS
 from app.services.core_materialization import materialize_core_clients
 from app.services.core_tch_etl import _resolve_currency as _resolve_tch_currency
 from app.services.core_tch_etl import legacy_key_filter
+from app.services.payku_kpi_exclusion import is_excluded
 from app.services.status_events import (
     REASON_CODE_KEY,
     REASON_TEXT_KEY,
@@ -600,6 +601,8 @@ def _consolidate_payku_subscriptions(db: Session, scope: Scope | None = None) ->
         ),)
     rows = []
     for p in db.scalars(select(PaykuSubscription).where(*sub_criteria)).all():
+        if is_excluded(p.external_id):  # d207: suscripcion de prueba fuera de los indicadores
+            continue
         payload = p.raw_payload or {}
         client = payload.get("client") if isinstance(payload.get("client"), dict) else {}
         if not p.amount:
@@ -633,6 +636,8 @@ def _consolidate_payku_transactions(db: Session, scope: Scope | None = None) -> 
     criteria = (PaykuTransaction.subscription_id == scope[1],) if scope else _changed_since(PaykuTransaction)
     rows = []
     for p in db.scalars(select(PaykuTransaction).where(*criteria)).all():
+        if is_excluded(p.subscription_id):  # d207
+            continue
         rows.append({
             "source": "payku",
             "external_id": p.external_id,
