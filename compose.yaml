@@ -7,6 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
       - "127.0.0.1:5433:5432"  # d221: solo localhost
+      - "[::1]:5433:5432"  # psycopg prueba ::1 primero con host=localhost; sin esta linea la conexion se cuelga
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
