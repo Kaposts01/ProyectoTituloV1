@@ -53,6 +53,7 @@ Notas:
 | `job_not_found` | 404 | `POST /api/v1/scheduler/jobs/{job_id}/run` | Job '{job_id}' no encontrado. |
 | `operation_conflict` | 409 | `POST /api/v1/writes/virtualpos/subscriptions`<br>`DELETE /api/v1/writes/virtualpos/subscriptions/{subscription_id}`<br>`DELETE /api/v1/writes/virtualpos/subscriptions/{subscription_id}/charges`<br>`POST /api/v1/writes/virtualpos/subscriptions/{subscription_id}/reassign-amount`<br>`POST /api/v1/writes/virtualpos/charges/{charge_id}/retry` | Texto de la excepción de dominio (conflicto con el estado actual). |
 | `payku_client_not_found` | 404 | `PUT /api/v1/writes/payku/clients/{client_id}`<br>`DELETE /api/v1/writes/payku/clients/{client_id}` | Cliente Payku no encontrado |
+| `payku_write_blocked` | 403 | `PUT /api/v1/writes/payku/clients/{client_id}`<br>`DELETE /api/v1/writes/payku/clients/{client_id}`<br>`DELETE /api/v1/writes/payku/subscriptions/{subscription_id}` | Una guarda de escritura del sandbox de Payku bloqueó la operación (falta armarla por proceso, el ID no está en la lista blanca o se alcanzó el tope). |
 | `payku_rejected_cancellation` | el del proveedor | `DELETE /api/v1/writes/payku/subscriptions/{subscription_id}` | Payku rechazó la cancelación |
 | `payku_rejected_deletion` | el del proveedor | `DELETE /api/v1/writes/payku/clients/{client_id}` | Payku rechazó la eliminación |
 | `payku_rejected_update` | el del proveedor | `PUT /api/v1/writes/payku/clients/{client_id}` | Payku rechazó la actualización |

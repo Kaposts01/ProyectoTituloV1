@@ -3,10 +3,11 @@ import asyncio
 import httpx
 import pytest
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.integrations import http_retry
+from app.integrations.payku import client as payku_client
 from app.integrations.payku.auth import build_sign
-from app.integrations.payku.client import PaykuClient
+from app.integrations.payku.client import PaykuClient, normalize_base_url
 
 
 @pytest.fixture(autouse=True)
@@ -101,3 +102,61 @@ def test_payku_signature_matches_documented_example() -> None:
     )
 
     assert signature == "c9c86202b1246f6ebeb080d08b3b99a22d36d0e8cffb7fd4e65af0fea4dd12bb"
+
+
+# d183: la doc oficial publica la base como `https://<host>/api`; el cliente ya agrega `/api/...` a cada ruta.
+_SANDBOX_BASES = ("https://des.payku.cl", "https://des.payku.cl/", "https://des.payku.cl/api", "https://des.payku.cl/api/")
+_PRODUCTION_BASES = ("https://app.payku.cl", "https://app.payku.cl/", "https://app.payku.cl/api", "https://app.payku.cl/api/")
+
+
+def _request_url(monkeypatch, cfg: Settings) -> str:
+    monkeypatch.setattr(payku_client, "settings", cfg)
+    client = payku_client.PaykuClient()
+    try:
+        return str(client._client.build_request("GET", "/api/transaction").url)
+    finally:
+        asyncio.run(client._client.aclose())
+
+
+@pytest.mark.parametrize("base", _SANDBOX_BASES)
+def test_payku_sandbox_base_url_does_not_duplicate_api(monkeypatch, base: str) -> None:
+    cfg = Settings(
+        _env_file=None,
+        app_env="sandbox",
+        database_url="postgresql+psycopg://u:p@localhost/crm",
+        sandbox_database_url="postgresql+psycopg://u:p@localhost/crm_sandbox",
+        sandbox_auth_jwt_secret="sbx-jwt-secret-sintetico-de-al-menos-32-caracteres",
+        payku_sandbox_base_url=base,
+        payku_sandbox_public_token="sbx-pk-public",
+        payku_sandbox_private_token="sbx-pk-private",
+    )
+    assert _request_url(monkeypatch, cfg) == "https://des.payku.cl/api/transaction"
+
+
+@pytest.mark.parametrize("base", _PRODUCTION_BASES)
+def test_payku_production_base_url_does_not_duplicate_api(monkeypatch, base: str) -> None:
+    cfg = Settings(
+        _env_file=None,
+        app_env="production",
+        database_url="postgresql+psycopg://u:p@localhost/crm",
+        virtualpos_base_url="https://api.virtualpos.cl",
+        virtualpos_api_key="prod-vk",
+        virtualpos_secret_key="prod-vs",
+        payku_base_url=base,
+        payku_api_key="prod-pk-public",
+        payku_secret_key="prod-pk-private",
+    )
+    assert _request_url(monkeypatch, cfg) == "https://app.payku.cl/api/transaction"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://app.payku.cl/API/", "https://app.payku.cl"),
+        ("  https://des.payku.cl/api  ", "https://des.payku.cl"),
+        ("https://payku.example.test/apis", "https://payku.example.test/apis"),
+        ("https://payku.example.test/v1/api", "https://payku.example.test/v1"),
+    ],
+)
+def test_normalize_base_url_edge_cases(raw: str, expected: str) -> None:
+    assert normalize_base_url(raw) == expected

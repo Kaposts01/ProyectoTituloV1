@@ -74,3 +74,40 @@ El archivo [docs/integrations/payku.md](../payku.md) contiene:
 | **Q-29** | No confirmado si `POST /api/suinscriptionscards` genera una `url` nueva para una suscripcion en estado `register`. | El link de inscripcion para un alta pendiente depende de este comportamiento |
 | **Webhooks** | Sin firma documentada. Los callbacks no se pueden autenticar; `verification_key` es del cobro, no del aviso. | Receptor de webhooks no implementado; seguimiento solo por job periodico |
 | **Cobertura historica** | El sync no certifica completitud de transacciones historicas. Filtros de fecha pueden devolver cero registros. | Las metricas del dashboard describen la cobertura local, no el historial completo del proveedor |
+
+---
+
+## Diferencias con la documentación oficial (2026-11-09)
+
+Revisión del cliente (`app/integrations/payku/`) contra https://docs.payku.com/ (ficha d183). Solo el punto 4 se
+corrigió en código; los puntos 1 a 3 **no se cambian sin medirlos antes en el sandbox** (`des.payku.cl`), porque
+el cliente actual funciona contra producción y un cambio a ciegas podría romper la firma.
+
+| # | Punto | Doc oficial | Nuestro código | Estado |
+|---|---|---|---|---|
+| 1 | Firma `Sign`: `&` final sin parámetros | Los ejemplos PHP/JS concatenan siempre `path_codificado + "&"`, incluso sin parámetros (`%2Fapi%2Fsuplan%2Fplans&`). | `auth.py:16` agrega `&` solo si hay parámetros. | Pendiente de medir (Q-01). |
+| 1b | Firma: codificación y valores especiales | PHP `urlencode`: `~` → `%7E`; `true` → `1`; `null` entra como `key=` (el ejemplo JS lo descarta). | `auth.py` usa `urllib.parse.urlencode` (deja `~` sin codificar, `True` → `True`) y **descarta** los `None`. | Pendiente de medir. Hoy no enviamos booleanos ni `None` en bodies firmados. |
+| 2 | Header `Sign` en `/api/transaction` y `/api/conciliation` | Los ejemplos de transacción y conciliación **no** llevan `Sign`. | `_get`/`_post` de `client.py` envían `Sign` en **todas** las rutas. | Pendiente de medir (Q-02): ¿Payku acepta un `Sign` de más? |
+| 3 | Filtro de estado de suscripciones | `?<estado>=true` (p. ej. `?active=true`). | `list_subscriptions(status=...)` envía `status=<valor>` (`client.py:119`). Ningún flujo de producción lo usa hoy. | Pendiente de medir. |
+| 4 | Base URL | `https://des.payku.cl/api` (sandbox) / `https://app.payku.cl/api` (producción). | Las rutas del cliente ya incluyen `/api/...`. | **Corregido**: `normalize_base_url` quita un `/api` final (con o sin `/`), así que `PAYKU_*BASE_URL` sirve con o sin `/api`. Tests en `tests/test_payku_client.py`. |
+
+### Plan de medición en sandbox (solo lecturas)
+
+Requisitos: `APP_ENV=sandbox`, `PAYKU_SANDBOX_BASE_URL=https://des.payku.cl` (o con `/api`) y tokens de sandbox
+generados por el usuario en su cuenta. **Solo GET**: `POST /api/conciliation` pasa por las guardas de escritura
+(d165) aunque sea una consulta, así que queda fuera hasta que se decida excluirlo de la guarda.
+
+1. **Q-01 (`&` final):** `GET /api/suplan/plans` firmando `%2Fapi%2Fsuplan%2Fplans` y `%2Fapi%2Fsuplan%2Fplans&`.
+   Anotar cuál responde 200 sin `status:"failed"` y cuál 401/`failed`.
+2. **Q-03 (query params en la firma):** `GET /api/sususcription?page=1&per_page=1` firmando con y sin los query
+   params.
+3. **Q-02 (`Sign` de más):** `GET /api/transaction?date_init=<hoy-7>&date_end=<hoy>&page=1&per_page=1` y
+   `GET /api/paymentmethods`, con y sin `Sign`.
+4. **Filtro de estado:** `GET /api/sususcription?page=1&per_page=100` sin filtro, con `status=active` y con
+   `active=true`; comparar conteos y estados devueltos.
+5. **Base URL:** repetir el paso 1 con `PAYKU_SANDBOX_BASE_URL` con y sin `/api` y confirmar que la URL final es
+   `https://des.payku.cl/api/suplan/plans` en ambos casos.
+6. **Codificación (1b):** no se puede medir solo con lecturas sin enviar datos con `~` o booleanos; queda para una
+   prueba de escritura autorizada con las guardas d165 (cliente `TEST-` con `~` en la dirección).
+
+Con los resultados se decide el cambio en `auth.py`/`client.py` en una ficha aparte.
