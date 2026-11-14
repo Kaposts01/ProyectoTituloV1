@@ -9,7 +9,7 @@
 | Concepto TECHO | Objeto VirtualPOS | Qué representa | Campos clave | Lo crea |
 | --- | --- | --- | --- | --- |
 | **Cuota** (deuda del mes) | **Charge** (`cid_…`) | Lo que **se debe cobrar**: monto y fecha programados | `charge_date`, `amount`, `status`, `description` ("Cargo 3 de 12") | VirtualPOS, al activarse la suscripción (`charge_program`) ✅ |
-| **Transacción** (pago efectivo) | **Payment** (`order.uuid`) | El **cobro realizado** a la tarjeta: autorización, monto cobrado y medio | `order.status`, `authorized_at`, `auth_code`, `amount`, `payment_type_code`, `card_number` | VirtualPOS, al intentar cobrar la cuota (**inferencia**: los cobros de suscripción también generan un Payment; validar en sandbox — ver V-3) |
+| **Transacción** (pago efectivo) | **Payment** (`order.uuid`) | El **cobro realizado** a la tarjeta: autorización, monto cobrado y medio | `order.status`, `authorized_at`, `auth_code`, `amount`, `payment_type_code`, `card_number` | VirtualPOS, al intentar cobrar la cuota. **Confirmado en sandbox 2026-11-10** (V-2 y V-3, Caso A): cada cuota pagada trae su `payment.order.uuid` y ese Payment aparece en `GET /v3/payments` con `order.payment_method = "PAT"` |
 | **Intentos** | Payment `/attempts` | Cada intento de autorización y el **motivo del rechazo** | `rejected_object.code`, `authorization_attempts_cards[]` | VirtualPOS |
 | **Abono** | Deposit `sales[]` (y `order.deposits[]` del Payment) | Cuándo y cuánto **llegó a la cuenta**, descontada la comisión | `sales[]`: `net_amount`, `comission_and_taxes`, `suscription_charge.cid` · `order.deposits[]`: `payout_amount`, `payout_date` | VirtualPOS, días después del pago |
 
@@ -163,9 +163,9 @@ Las tablas ya definidas en [sync-virtualpos.md § 5](sync-virtualpos.md#5-tablas
 | # | Pregunta | Cómo validarla |
 | --- | --- | --- |
 | V-1 | ¿El listado `GET /v3/suscriptions` trae el `charge_program` **completo** de cada suscripción (como el ejemplo oficial)? | Postman SC-1: comparar con `GET /v3/suscription/{id}/charges`. **Resuelta 2026-10-27 [CLAIM:VP-C01]: sí, trae el `charge_program[]` completo.** |
-| V-2 | ¿Una cuota `pagado` o `rechazado` trae `payment.order.uuid` en `GET /v3/charge/{id}`? (el ejemplo del endpoint no lo muestra) | Postman SC-3 |
-| V-3 | ¿`GET /v3/payments` incluye las transacciones de cuotas recurrentes, o solo los pagos spot? ¿Con qué `merchant_internal_code`? | Postman SC-6: buscar el `uuid` de SC-3 |
-| V-4 | Un reintento de una cuota rechazada, ¿reutiliza el mismo Payment (más intentos) o crea otro? | Rechazar una cuota en sandbox, reintentar y comparar `payment.order.uuid` |
+| V-2 | ¿Una cuota `pagado` o `rechazado` trae `payment.order.uuid` en `GET /v3/charge/{id}`? (el ejemplo del endpoint no lo muestra) | Postman SC-3. **Resuelta 2026-11-10 (Caso A) para cuotas `pagado`:** 29 de 29 cargos pagados de 18 suscripciones de prueba traen `payment.order.uuid` no nulo y distinto entre sí. La parte `rechazado` queda con V-4 (sin rechazos en sandbox). |
+| V-3 | ¿`GET /v3/payments` incluye las transacciones de cuotas recurrentes, o solo los pagos spot? ¿Con qué `merchant_internal_code`? | Postman SC-6: buscar el `uuid` de SC-3. **Resuelta 2026-11-10 (Caso A):** con `authorization_from/to` aparecen 12 de 12 uuid; sin filtros, 29 de 29. Se distinguen por `order.payment_method = "PAT"`; `merchant_internal_code` viene vacío en los PAT. |
+| V-4 | Un reintento de una cuota rechazada, ¿reutiliza el mismo Payment (más intentos) o crea otro? | Rechazar una cuota en sandbox, reintentar y comparar `payment.order.uuid`. **Pendiente (2026-11-10):** no hay cargos rechazados en sandbox; requiere un escenario nuevo con la tarjeta de rechazo oficial (decisión del usuario). |
 
 ## 9. Probarlo en Postman
 

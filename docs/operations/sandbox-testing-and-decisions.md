@@ -82,28 +82,30 @@ Comunes a todo escenario de VirtualPOS: `APP_ENV=sandbox` y `CONTRACT_TESTS=1`. 
 
 | ID | Estado | Clase | Qué hace |
 |---|---|---|---|
-| VP-LEC | Existe (8 pruebas, lote 1: `test_read_claims.py`) | Automática | Solo lecturas. Comando de [`tests_contract/README.md`](../../tests_contract/README.md) con `-m "contract and not contract_write"` |
+| VP-LEC | Existe (10 pruebas, lote 1: `test_read_claims.py`; VP-C30 y VP-C31 = V-2 y V-3, DEC-46) | Automática | Solo lecturas. Comando de [`tests_contract/README.md`](../../tests_contract/README.md) con `-m "contract and not contract_write"` |
 | VP-ESC | Existe (9 pruebas, lote 2: `test_write_claims.py`) | Avisar (catalogado) | Escrituras reversibles |
-| CT-00, CT-CO-AUTO, CT-CO-DUP, CT-CO-NC3, CT-RZ-MC, CT-RZ-SWAP, CT-CANCEL, CT-STALE | **PENDIENTES DE ESCRIBIR** (BILL-11) | Siempre con el usuario hasta que exista la receta escrita; las 8 se aprueban en bloque y el orquestador registra un DEC-xx; luego Avisar (las que necesitan tarjeta o espera de fechas se coordinan con el usuario) | Recetas P0 de [`facturacion-gestionada-escenarios.md`](../designs/facturacion-gestionada-escenarios.md) |
+| CT-00, CT-CO-AUTO, CT-CO-DUP, CT-CO-NC3, CT-RZ-MC, CT-RZ-SWAP, CT-CANCEL, CT-STALE | **Escritas, pendientes de aprobación en bloque** (BILL-11, DEC-45; lote 3: `test_p0_option_a.py`, rama `feat/val-vp-01`) | Siempre con el usuario hasta la aprobación en bloque; al aprobarse el orquestador registra un DEC-xx; luego Avisar (las que necesitan tarjeta o espera de fechas se coordinan con el usuario) | Recetas P0 de [`facturacion-gestionada-escenarios.md`](../designs/facturacion-gestionada-escenarios.md) |
 
 **VP-LEC.** Crea: nada (genera el informe de drift en `reports/contract/virtualpos/`, ignorado por git). Limpia: nada que limpiar. Tope: una ráfaga de 20 GET (ya incluida en la prueba VP-C16), sin otras ráfagas. Variables: `APP_ENV`, `CONTRACT_TESTS`; `CONTRACT_VP_SUB_VARIABLE` para la prueba que la pide (si falta, esa prueba se omite). Aborto: cualquier mensaje de guarda, un `E-` de autenticación, o un HTTP 429 (no reintentar en bucle).
 
 **VP-ESC.** Crea: cargos `pendiente` a hoy+20 días con `internal_code` `CT-...` sobre las suscripciones de prueba del sandbox (ids en [`handoff.md` §12](../../handoff.md), pasadas por variable). Limpia: el fixture `created_charges` reconsulta y cancela cada cargo registrado que siga `pendiente`; si algo falla la sesión termina en error. Nunca toca cargos pagados o procesando. Tope (aprobado): 30 cargos creados por sesión; el probador cuenta cargos creados y cancelados. Variables: `APP_ENV`, `CONTRACT_TESTS`, `CONTRACT_WRITES`, `VIRTUALPOS_SANDBOX_WRITES_ENABLED`, `CONTRACT_VP_SUB_FIXED`, `CONTRACT_VP_SUB_VARIABLE`. `VIRTUALPOS_ALLOW_CHARGE_ON_FIXED_PLAN` solo se arma si el escenario pasa por la ruta de la aplicación (WR-VP-05) y no por el cliente de la suite. Aborto: falla de limpieza (se reporta y se reintenta la cancelación una vez, luego se detiene y se avisa), cualquier host distinto del de sandbox, o más cargos creados que el tope.
 
-**CT-xx (P0 de la Opción A).** Estado: sin escribir. Necesitan suscripciones nuevas creadas con el formulario público del plan y tarjetas de sandbox (acción humana o Playwright instalado fuera del proyecto, como en handoff §12), y varias exigen esperar fechas de cobro (DEC-09, DEC-12). Resumen de lo que crearía y limpiaría cada una:
+**CT-xx (P0 de la Opción A).** Estado: **escritas, pendientes de aprobación en bloque** (2026-11-10, DEC-45; no se ejecutaron). Además de las guardas de escritura exigen `CONTRACT_CT_P0=1` y `CONTRACT_CT_PHASE` (`arm`/`observe`); variables y fases en [`tests_contract/README.md`](../../tests_contract/README.md). Necesitan suscripciones nuevas creadas con el formulario público del plan y las tarjetas oficiales de sandbox (https://virtualpos.readme.io/reference/datos-de-prueba-sandbox; acción humana o Playwright instalado fuera del proyecto, como en handoff §12), y varias exigen esperar fechas de cobro (DEC-09, DEC-12). Resumen de lo que crearía y limpiaría cada una:
 
 | ID | Crea | Limpia | Tope (aprobado) | Nota |
 |---|---|---|---|---|
 | CT-00 | Suscripción `MONTO_FIJO` día `0` y un manual a mañana | Cancela el manual si sigue pendiente | 1 suscripción, 1 cargo | Condiciona a las demás: ¿el sandbox cobra en la fecha? |
 | CT-CO-AUTO | Suscripción con 12 automáticos y manuales sobre ella | Cancela los manuales | 1 suscripción, 3 cargos | Ya existe una suscripción así (handoff §12) |
 | CT-CO-DUP | Igual con primer automático en 1 a 2 días y un manual del mismo mes | Cancela el manual | 1 suscripción, 1 cargo | Mide el doble cobro |
-| CT-CO-NC3 | `num_charges` 3, cancelar 3 automáticos y crear manuales | Cancela los manuales pendientes | 1 suscripción, 3 manuales | |
-| CT-RZ-MC | `changecard` a tarjeta de rechazo y manual a mañana, observar 4 días | Cancela pendientes | 1 suscripción, 1 cargo | Necesita tarjetas de rechazo (DEC-09) |
-| CT-RZ-SWAP | Como CT-RZ-MC más `changecard` y dos `retry_charge` | Cancela pendientes | 1 suscripción, 1 cargo, 2 reintentos | Necesita DEC-09 |
-| CT-CANCEL | 2 manuales y luego `DELETE` de la suscripción | La propia prueba cancela la suscripción | 1 suscripción, 2 cargos | Es la única que cancela una suscripción entera |
-| CT-STALE | Reemplazo con fecha de mañana sobre un automático pendiente vencido | Cancela el reemplazo | 1 cargo | Requiere encontrar o esperar el automático vencido |
+| CT-CO-NC3 | `num_charges` 3, cancelar 3 automáticos y crear manuales | Cancela los manuales pendientes | 1 suscripción, 3 cancelaciones de automáticos (por `charge_id`), 3 manuales | Cancelar los automáticos es irreversible: solo en su suscripción dedicada |
+| CT-RZ-MC | `changecard` a tarjeta de rechazo y manual a mañana, observar 4 días | Cancela pendientes | 1 suscripción, 1 cargo | Tarjeta de rechazo oficial (DEC-09 resuelta para VirtualPOS, ficha d193); el `changecard` lo hace una persona |
+| CT-RZ-SWAP | Como CT-RZ-MC más `changecard` y dos `retry_charge` | Cancela pendientes | 1 suscripción, 1 cargo, 2 reintentos | `/retry` sin reintento automático (GET con efectos) |
+| CT-CANCEL | 2 manuales y luego `DELETE` de la suscripción | La propia prueba cancela la suscripción | 1 suscripción, 2 cargos + 1 POST que debe rechazarse | Es la única que cancela una suscripción entera; exige repetir el id en `CONTRACT_CT_CANCEL_CONFIRM` |
+| CT-STALE | Reemplazo con fecha de mañana sobre un automático pendiente vencido | Cancela el reemplazo | 1 cargo | Requiere encontrar o esperar el automático vencido. Medición pura del proveedor con el cliente de la suite (no `apply_change_request`); no prejuzga DEC-30 |
 
-Aborto común de las CT-xx: la suscripción de prueba no existe o no es del sandbox, no hay tarjeta disponible, o la limpieza falla. Estado de estas pruebas: no se ejecutan hasta que exista su código con `ChargeRegistry` y limpieza, se revise y se apruebe la receta definitiva en bloque (esa aprobación las pasa a «catalogado»). Las suscripciones y cargos que sobrevivan se anotan en `handoff.md` §12.
+Aborto común de las CT-xx: la suscripción de prueba no existe o no es del sandbox, no hay tarjeta disponible, o la limpieza falla. Estado de estas pruebas: el código con `ChargeRegistry` y limpieza ya existe (2026-11-10); no se ejecutan hasta que se revise y se apruebe la receta definitiva en bloque (esa aprobación las pasa a «catalogado»). Las suscripciones y cargos que sobrevivan se anotan en `handoff.md` §12.
+
+**VP-V4 (BORRADOR — no catalogado, pendiente del usuario; DEC-47, ficha d197).** Mide V-4 del `VALIDATION-PLAN` (¿un reintento reutiliza el Payment o crea otro?), bloqueada porque el sandbox no tiene rechazos. Receta propuesta: 1 suscripción nueva con datos sintéticos (correo `@example.test`) por el formulario público, con la tarjeta de rechazo oficial; alternativa: inscribir con la aprobada, `changecard` a la de rechazo y un manual a mañana. Cuando el cargo quede `rechazado`, leer `payment.order.uuid`, hacer 1 `retry` (tope 2) y volver a leer el uuid; el informe guarda solo si cambió. `/v3/payment/{uuid}/attempts` responde 403 en sandbox: no se usa. Limpieza: cancelar los cargos que sigan `pendiente`. La suscripción queda viva para CT-RZ-MC/CT-RZ-SWAP y se anota en `handoff.md` §12. No se ejecuta sin respuesta del usuario.
 
 ### 3.2 Toku (solo lecturas y verificación de guardas)
 
@@ -191,6 +193,7 @@ El decisor devuelve texto; no edita archivos. Si el informe es insuficiente para
     - las exportaciones de prueba («Exportar») se descargan al scratchpad y se borran al terminar;
     - nadie (ni agentes ni scripts) anonimiza ni borra esas filas por su cuenta: es una decisión «siempre con el usuario» (§2.3), porque toca datos y el vínculo con el proveedor;
     - al crear datos en los sandboxes de los proveedores se usan solo nombres, RUT y correos sintéticos (dominio `example.test`).
+    - la suscripción de sandbox `940cad2ddb` (que la suite usaba por defecto como plan variable) pertenece a ese cliente con datos reales: no se usa en pruebas; la suite usa `efc751c04e` (2026-11-10). Se verificó que su correo no quedó en commits, fixtures ni informes de drift.
 
 ## 6. Qué ve el usuario después de cada ciclo
 

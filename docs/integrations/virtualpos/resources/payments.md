@@ -973,6 +973,7 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 ### Consideraciones
 
 - **Observado en sandbox 2026-10-27** [CLAIM:VP-C08] (CONFIRMADO): `GET /v3/payments` devuelve los pagos como lista bajo la clave `payments`. Claves raíz observadas: `code`, `commerce`, `pagination`, `payments`, `status`. El sync del CRM leyó 5 registros.
+- **Observado en sandbox 2026-11-10** (V-3, Caso A): el listado **sí** incluye los cobros recurrentes de suscripción. Con `authorization_from/authorization_to` aparecieron 12 de 12 `order.uuid` de cargos pagados de prueba; sin filtros, 29 de 29. Los cobros de suscripción se distinguen por `order.payment_method = "PAT"`, y en ellos `order.merchant_internal_code` viene **vacío** (no trae el `cid_` del cargo ni otro código): el vínculo cuota → transacción se hace con `charge.payment.order.uuid` del cargo (V-2), no con `merchant_internal_code`. Paginación observada: objeto `pagination` con `limit`, `page`, `pages` y `total` (ver [pagination.md](pagination.md)). Ver [VALIDATION-PLAN.md](../VALIDATION-PLAN.md) (V-3).
 - Los filtros de fecha son `format: date` en la OpenAPI (usa `YYYY-MM-DD`).
 - El enum de `status` en este filtro incluye valores que no aparecen en la tabla del Objeto Payment: `suspendido`, `anulado`, `autorizando`.
 - Base de la sincronización incremental: consulta por ventana de `created_from/created_to` y, aparte, por `authorization_from/authorization_to` para capturar pagos que se autorizaron después.

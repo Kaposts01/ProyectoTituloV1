@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from tests_contract.virtualpos.provider import call, records
+from tests_contract.virtualpos.provider import call, charge_obj, records
 
 DOCS = "docs/integrations/virtualpos/resources"
 
@@ -78,27 +78,35 @@ def test_vp_c08_shape_of_payments_and_parser(claim):
 @pytest.mark.contract(claim="VP-C14")
 def test_vp_c14_pagination(claim):
     """[CLAIM:VP-C14] Doc: docs/integrations/virtualpos/resources/pagination.md.
-    Esperado: page parte en 1; limit minimo 1 y maximo 100 (E-090 page, E-091 limit invalidos)."""
+    Esperado: page parte en 1; limit minimo 1 y maximo 100 (E-090 page, E-091 limit invalidos).
+    VirtualPOS entrega sus errores con HTTP 200 y `status: "NOK"` en el cuerpo (handoff §10), asi que el esperado
+    de los casos invalidos es el cuerpo NOK con su E-nnn, no el codigo HTTP. Se registra `body.status` observado."""
     doc = f"{DOCS}/pagination.md"
     cases = {
-        "page=1,limit=100": ({"page": 1, "limit": 100}, 200),
-        "limit=101": ({"page": 1, "limit": 101}, None),
-        "page=0": ({"page": 0, "limit": 100}, None),
+        "page=1,limit=100": ({"page": 1, "limit": 100}, None),
+        "limit=101": ({"page": 1, "limit": 101}, "E-091"),
+        "page=0": ({"page": 0, "limit": 100}, "E-090"),
     }
     first_ids = {}
-    for label, (params, expected_status) in cases.items():
+    for label, (params, expected_error) in cases.items():
         resp = call("GET", "/v3/clients", params)
         rows = records(resp.body, "clients")
         first_ids[label] = rows[0].get("id") if rows else None
-        if expected_status:
-            claim.check("VP-C14", doc, expected_status, resp.status, note=label, http_status=resp.status)
+        body_status = resp.body.get("status") if isinstance(resp.body, dict) else None
+        if expected_error is None:
+            claim.check("VP-C14", doc, {"http": 200, "status": "OK"}, {"http": resp.status, "status": body_status},
+                        note=label, http_status=resp.status, matches=resp.ok and body_status != "NOK")
         else:
-            claim.check("VP-C14", doc, "error 400 (E-090/E-091)", f"HTTP {resp.status} {resp.error_code or ''}".strip(),
-                        note=f"{label}; registros devueltos: {len(rows)}", http_status=resp.status,
-                        error_code=resp.error_code)
+            observed = {"status": body_status, "error_code": resp.error_code, "http": resp.status,
+                        "registros": len(rows)}
+            claim.check("VP-C14", doc, {"status": "NOK", "error_code": expected_error}, observed,
+                        note=f"{label}; un HTTP 200 sin NOK significa que el parametro invalido se acepta",
+                        http_status=resp.status, error_code=resp.error_code,
+                        matches=body_status == "NOK" and resp.error_code in ("E-090", "E-091"))
+    same_first = first_ids["page=0"] is not None and first_ids["page=0"] == first_ids["page=1,limit=100"]
     claim.check("VP-C14", doc, "page=0 no devuelve el mismo primer registro que page=1 (page parte en 1)",
-                f"primer id page=0 == page=1: {first_ids['page=0'] is not None and first_ids['page=0'] == first_ids['page=1,limit=100']}",
-                note="observacion; el sandbox puede aceptar page=0")
+                f"primer id page=0 == page=1: {same_first}", matches=not same_first,
+                note="observacion; el sandbox puede aceptar page=0 (antes el texto nunca coincidia: falso drift)")
 
 
 @pytest.mark.contract(claim="VP-C15")
@@ -181,8 +189,10 @@ def test_vp_c28_internal_code_in_payload_of_the_charge(claim, sub_variable):
 @pytest.mark.contract(claim="VP-C26")
 def test_vp_c26_filters_of_date(claim):
     """[CLAIM:VP-C26] Doc: docs/integrations/virtualpos/resources/charges.md (l.766-767).
-    Esperado: charge_date_from/to NO estan declarados (solo aparecen en errores E-093/E-094/E-095); se observa si
-    existen y filtran en GET /v3/suscription/{id}/charges."""
+    Los parametros charge_date_from/to NO estan declarados en la ficha (solo aparecen en errores E-093/E-094/E-095).
+    La expectativa registrada describe como se comportaria el filtro SI EXISTIERA (HTTP 200, menos registros que
+    sin filtro y todos dentro del rango). Un DRIFT aqui no es un error del comparador: confirma que el filtro no
+    existe o se ignora (2026-10-27: 18 de 18; 2026-11-10: 12 de 12) y que el CRM debe filtrar por fecha del lado propio."""
     sid, charges = _first_subscription_with_charges()
     dates = sorted(str(c.get("charge_date")) for c in charges if c.get("charge_date"))
     if len(dates) < 2 or dates[0] == dates[-1]:
@@ -205,3 +215,104 @@ def test_vp_c26_filters_of_date(claim):
                 http_status=resp_to.status, error_code=resp_to.error_code, note="charge_date_to",
                 matches=resp_to.ok and len(rows_to) < len(charges)
                 and all(str(c.get("charge_date")) <= dates[0] for c in rows_to))
+
+
+# --- DEC-46: V-2 y V-3 del VALIDATION-PLAN como pruebas de solo lectura -------------------------------------
+# Guardan solo nombres de campos, conteos y booleanos; nunca uuid, montos, datos de cliente ni de tarjeta.
+
+MAX_PAID_SAMPLE = 10  # cargos pagados que se inspeccionan con GET /v3/charge/{id}
+MAX_PAYMENT_PAGES = 10  # paginas de /v3/payments (limit=100) que se recorren buscando los uuid
+_PAID_CACHE: dict[str, list[dict]] = {}
+
+
+def _order_of(payment_like: object) -> dict:
+    order = payment_like.get("order") if isinstance(payment_like, dict) else None
+    return order if isinstance(order, dict) else {}
+
+
+def _paid_charge_details() -> list[dict]:
+    """Detalle de hasta MAX_PAID_SAMPLE cargos `pagado` (tomados del charge_program del listado). Cacheado por sesion."""
+    if "rows" in _PAID_CACHE:
+        return _PAID_CACHE["rows"]
+    resp = call("GET", "/v3/suscriptions", {"page": 1, "limit": 100})
+    ids: list[str] = []
+    for sub in records(resp.body, "suscriptions"):
+        for charge in sub.get("charge_program") or []:
+            if isinstance(charge, dict) and charge.get("status") == "pagado" and charge.get("id"):
+                ids.append(str(charge["id"]))
+    details = []
+    for cid in ids[:MAX_PAID_SAMPLE]:
+        got = call("GET", f"/v3/charge/{cid}")
+        if got.ok:
+            details.append(charge_obj(got.body))
+    _PAID_CACHE["rows"] = details
+    return details
+
+
+def _uuid_of_charge(detail: dict) -> str | None:
+    payment = detail.get("payment")
+    uuid = _order_of(payment).get("uuid")
+    return str(uuid) if uuid else None
+
+
+@pytest.mark.contract(claim="VP-C30")
+def test_vp_c30_paid_charge_has_payment_order_uuid(claim):
+    """[CLAIM:VP-C30] V-2. Doc: docs/integrations/virtualpos/resources/charges.md (Objeto Charge) y VALIDATION-PLAN.md.
+    Esperado: el detalle GET /v3/charge/{id} de un cargo `pagado` trae `payment.order.uuid` no nulo, distinto por cargo.
+    Medido el 2026-11-10: 29 de 29 (Caso A)."""
+    details = _paid_charge_details()
+    if not details:
+        pytest.skip("No hay cargos `pagado` en el listado de suscripciones del sandbox.")
+    uuids = [_uuid_of_charge(d) for d in details]
+    with_uuid = [u for u in uuids if u]
+    observed = {
+        "cargos_pagados_inspeccionados": len(details),
+        "con_payment": sum(isinstance(d.get("payment"), dict) for d in details),
+        "con_order_uuid": len(with_uuid),
+        "uuid_distintos": len(set(with_uuid)) == len(with_uuid),
+        "campos_payment": sorted({k for d in details if isinstance(d.get("payment"), dict) for k in d["payment"]}),
+    }
+    claim.check("VP-C30", f"{DOCS}/charges.md",
+                {"con_order_uuid": len(details), "uuid_distintos": True}, observed,
+                matches=len(with_uuid) == len(details) and observed["uuid_distintos"],
+                note="V-2 del VALIDATION-PLAN; solo nombres de campos, conteos y booleanos")
+
+
+@pytest.mark.contract(claim="VP-C31")
+def test_vp_c31_pat_payment_listed_in_payments(claim):
+    """[CLAIM:VP-C31] V-3. Doc: docs/integrations/virtualpos/resources/payments.md (Listar Payments) y VALIDATION-PLAN.md.
+    Esperado: los `payment.order.uuid` de cargos pagados (VP-C30) aparecen en GET /v3/payments con
+    `order.payment_method = "PAT"`. Medido el 2026-11-10: 29 de 29 sin filtros; `merchant_internal_code` vacio en PAT."""
+    wanted = {u for u in (_uuid_of_charge(d) for d in _paid_charge_details()) if u}
+    if not wanted:
+        pytest.skip("Sin uuid de cargos pagados para buscar (ver VP-C30).")
+    found: dict[str, dict] = {}
+    pagination_keys: list[str] = []
+    status = None
+    for page in range(1, MAX_PAYMENT_PAGES + 1):
+        resp = call("GET", "/v3/payments", {"page": page, "limit": 100})
+        status = resp.status
+        body = resp.body if isinstance(resp.body, dict) else {}
+        pg = body.get("pagination") if isinstance(body.get("pagination"), dict) else {}
+        pagination_keys = sorted(pg)
+        rows = body.get("payments")
+        rows = [rows] if isinstance(rows, dict) else (rows if isinstance(rows, list) else [])
+        for row in rows:
+            order = _order_of(row)
+            if str(order.get("uuid")) in wanted:
+                found[str(order["uuid"])] = order
+        pages = pg.get("pages")
+        if not rows or len(found) == len(wanted) or not isinstance(pages, int) or page >= pages:
+            break
+    pat = [o for o in found.values() if str(o.get("payment_method") or "").upper() == "PAT"]
+    observed = {
+        "uuid_buscados": len(wanted),
+        "uuid_encontrados": len(found),
+        "con_payment_method_PAT": len(pat),
+        "pat_con_merchant_internal_code_vacio": sum(not o.get("merchant_internal_code") for o in pat),
+        "claves_pagination": pagination_keys,
+    }
+    claim.check("VP-C31", f"{DOCS}/payments.md",
+                {"uuid_encontrados": len(wanted), "con_payment_method_PAT": len(wanted)}, observed,
+                http_status=status, matches=len(found) == len(wanted) and len(pat) == len(wanted),
+                note=f"V-3 del VALIDATION-PLAN; recorre hasta {MAX_PAYMENT_PAGES} paginas sin filtros")

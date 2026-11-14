@@ -853,7 +853,7 @@ Códigos del catálogo oficial cuyo mensaje aplica a este endpoint (la ficha del
 - Es **por suscripción**: no existe un "listar todos los cargos del comercio". Para un barrido global: suscripciones → cargos de cada una (N+1 llamadas).
 - Alternativa más barata para cargos **cobrados**: abonos diarios (`/v3/deposit/{date}/sales` trae `suscription_charge.cid`).
 - **Observado en sandbox 2026-10-27** [CLAIM:VP-C13] (CONFIRMADO): `status=pendiente` devuelve solo cargos pendientes (no incluyó cancelados y sí incluyó el pendiente de prueba).
-- **Observado en sandbox 2026-10-27** [CLAIM:VP-C26] (DRIFT): `charge_date_from` y `charge_date_to` se ignoran; devuelve todos los cargos (18 de 18, igual que sin filtro).
+- **Observado en sandbox 2026-10-27** [CLAIM:VP-C26] (DRIFT): `charge_date_from` y `charge_date_to` se ignoran; devuelve todos los cargos (18 de 18, igual que sin filtro). **Re-medido 2026-11-10** [CLAIM:VP-C26]: igual, se ignoran (12 de 12, igual que sin filtro). El comparador de la suite está bien: la expectativa describe cómo se comportaría el filtro *si existiera*; como la ficha no lo declara, el DRIFT confirma que no hay que depender de él y que el CRM debe filtrar por fecha del lado propio.
 - **Observado en sandbox 2026-10-27** [CLAIM:VP-C19] (PARCIAL): en el listado `amount` es número entero (no string); `charge_date` es `YYYY-MM-DD`; el `id` es string con prefijo `cid_`.
 - **Observado en sandbox 2026-10-27** [CLAIM:VP-C28] (CONFIRMADO): `internal_code` aparece en el listado de cargos y en el detalle. No viene en `charge_program[]` del listado de suscripciones (ver [subscriptions.md](subscriptions.md)).
 
