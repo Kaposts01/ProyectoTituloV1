@@ -869,7 +869,7 @@ export const es = {
     "available label": "Saldo disponible",
     button: "Retirar fondos",
     "dialog title": "Retirar todo el saldo",
-    "dialog note": "Se retirará TODO el saldo disponible a la cuenta bancaria registrada del comercio en Payku. El dinero sale de la billetera y no se puede deshacer desde el CRM.",
+    "dialog note": "Se retirará TODO el saldo disponible a la cuenta bancaria registrada del comercio en Payku. El dinero sale de la billetera y no se puede deshacer desde el CRM. Uso previsto: un retiro al mes, hecho a mano por una persona; el CRM no lo programa ni lo automatiza.",
     "amount label": "Monto a retirar",
     confirm: "Confirmar retiro",
     sending: "Retirando...",

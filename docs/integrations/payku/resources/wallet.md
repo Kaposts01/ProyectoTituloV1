@@ -99,6 +99,10 @@ Estados de payout: `pending`, `processing`, `success`, `banking_error`, `fraud_p
 Botón «Retirar fondos» en el dashboard de Payku. Retira **todo** el saldo disponible a la cuenta bancaria registrada del
 comercio (la doc no recibe cuenta destino: "crear una liquidación a la cuenta bancaria del comercio").
 
+**Uso previsto: un retiro al mes, manual.** Una persona con rol `admin` pulsa el botón y confirma el monto. El CRM no
+programa ni automatiza retiros: no hay job del scheduler, tarea periódica ni script que llame a
+`POST /api/wallet/withdraw`, y no se debe agregar uno sin una decisión nueva.
+
 | Pieza | Valor |
 |---|---|
 | Flag | `PAYKU_WALLET_WITHDRAW_ENABLED` (apagado por defecto) **y** `PAYKU_WRITES_ENABLED` |

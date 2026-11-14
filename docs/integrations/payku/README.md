@@ -25,7 +25,7 @@
 | Consultar transacciones | [workflows/get-transactions.md](workflows/get-transactions.md) | GET /api/transaction con ventanas de fecha |
 | Sincronizar Payku a base central | [workflows/sync-payku.md](workflows/sync-payku.md) | Job paginado: suscripciones, ciclos V3 y transacciones embebidas |
 | Prueba controlada en productivo (CRM-14C) | [prueba-productivo.md](prueba-productivo.md) | Plan y dry-run de una suscripcion de prueba de 1 CLP (+ $50 de validacion); script `scripts/maintenance/payku_test_subscription.py` |
-| Retirar el saldo de la billetera (CRM-14F) | [resources/wallet.md](resources/wallet.md#retiro-desde-el-crm-crm-14f) | Boton «Retirar fondos»: GET /api/wallet + POST /api/wallet/withdraw, flag y permiso propios |
+| Retirar el saldo de la billetera (CRM-14F) | [resources/wallet.md](resources/wallet.md#retiro-desde-el-crm-crm-14f) | Boton «Retirar fondos»: GET /api/wallet + POST /api/wallet/withdraw, flag y permiso propios. Uso previsto: un retiro al mes, manual (sin programar ni automatizar) |
 
 ## Recursos documentados
 
