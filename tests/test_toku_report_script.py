@@ -105,15 +105,20 @@ def test_load_order_covers_every_supported_report_type() -> None:
 
 
 @pytest.mark.parametrize("module", ["scripts.maintenance.import_toku_reports", "scripts.maintenance.import_vp_reports"])
-def test_import_script_registers_users_table_on_its_own(module: str) -> None:
-    """En un proceso limpio (como en OPS-11) el script debe registrar `users`: sin eso el flush falla con NoReferencedTableError."""
+def test_import_script_resolves_every_foreign_key_on_its_own(module: str) -> None:
+    """En un proceso limpio (como en OPS-11) toda FK debe resolver; si no, el flush falla con NoReferencedTableError."""
     import subprocess
     import sys
 
-    code = (
-        f"import {module}\n"
-        "from app.models.toku_report import TkReportFile\n"
-        "print('users' in TkReportFile.metadata.tables)\n"
+    code = "\n".join(
+        [
+            f"import {module}",
+            "from app.db.session import Base",
+            "for table in Base.metadata.tables.values():",
+            "    for fk in table.foreign_keys:",
+            "        fk.column",
+            "print('ok')",
+        ]
     )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert out.stdout.strip() == "True"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert out.stdout.strip() == "ok", out.stderr[-500:]

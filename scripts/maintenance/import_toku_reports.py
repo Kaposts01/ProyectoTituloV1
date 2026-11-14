@@ -28,9 +28,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-import app.models.auth  # noqa: F401  registra `users` para la FK uploaded_by_user_id de *_report_files
 from app.core.config import settings
 from app.db.session import SessionLocal
+from app.models import load_all_models
 from app.services import toku_report_import
 from app.services.toku_report_import import ReportImportError, _sha256_file
 from app.services.toku_report_parser import (
@@ -40,6 +40,9 @@ from app.services.toku_report_parser import (
 )
 
 LOAD_ORDER = ("productos", "clientes", "medios_pago", "inscripciones", "deudas", "intentos", "pagos", "liquidaciones")
+
+
+load_all_models()  # las FK de *_report_files apuntan a users y etl_runs
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
