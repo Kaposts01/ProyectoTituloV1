@@ -53,6 +53,7 @@ from app.services.charge_stats import (
     charge_outcome,
 )
 from app.services.exporter import ExportColumn
+from app.services.payku_kpi_exclusion import not_excluded
 from app.services.rejection_format import rejection_text
 
 YIELD_PER = 2000
@@ -585,6 +586,7 @@ def _charges_payku_cycles(_sources: tuple[str, ...], f: ExportFilters, pii: bool
     stmt = stmt.outerjoin(core, and_(core.source == "payku", core.external_id == c.external_id))
     search = _search(f, {"id": c.external_id, "subscription_id": c.subscription_id, "status": status})
     conds = _common_conditions(f, status, c.cycle_day, c.amount_paid)
+    conds.append(not_excluded(c.subscription_id))  # d207: ciclos de una suscripcion de prueba fuera
     outcome = outcome_condition(status, f.outcome)
     if outcome is not None:
         conds.append(outcome)
