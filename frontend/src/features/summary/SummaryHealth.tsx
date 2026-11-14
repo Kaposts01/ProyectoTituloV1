@@ -1,4 +1,5 @@
-import { CHANNEL_NAME, LEVEL_LABEL, channelText } from "../../components/healthLabels";
+import { CHANNEL_NAME, channelText, entryState } from "../../components/healthLabels";
+import { label } from "../../i18n/label";
 import type { ChannelHealthMap, HealthChannel } from "../../hooks/useChannelHealth";
 import { formatDataDate } from "./summaryFormat";
 import type { SummaryChannel } from "./summaryTypes";
@@ -15,7 +16,7 @@ export function SummaryHealth({ channels, health }: { channels: SummaryChannel[]
       <ul className="summary-health-list">
         {entries.map((entry) => {
           const date = entry.channel === "tch" ? formatDataDate(entry.last_finished_at) : null;
-          const text = date ? `${LEVEL_LABEL[entry.level]} · Dato al ${date}` : channelText(entry.level, entry.age_hours);
+          const text = date ? `${label("syncState", entryState(entry))} · Dato al ${date}` : channelText(entry);
           return (
             <li key={entry.channel} className="summary-health-item">
               <span className={`health-dot ${entry.level}`} data-level={entry.level} aria-hidden="true" />

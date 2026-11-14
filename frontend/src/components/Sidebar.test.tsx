@@ -120,20 +120,20 @@ describe("Sidebar (menú de un solo nivel)", () => {
     } });
     const global = document.querySelector('.health-dot[data-scope="global"]');
     expect(global?.getAttribute("data-level")).toBe("error");
-    const toggle = screen.getByRole("button", { name: /Error de sincronización/ });
+    const toggle = screen.getByRole("button", { name: /Sincronización con fallos/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Sincronizado: hace 2 h")).toBeNull();
+    expect(screen.queryByText("Al día · hace 2 h")).toBeNull();
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     const list = screen.getByRole("list", { name: "Sincronización por canal" });
-    expect(within(list).getByText("Sincronizado: hace 2 h")).toBeInTheDocument();
-    expect(within(list).getByText("Sincronización atrasada: hace 30 h")).toBeInTheDocument();
-    expect(within(list).getAllByText("Error de sincronización")).toHaveLength(1);
+    expect(within(list).getByText("Al día · hace 2 h")).toBeInTheDocument();
+    expect(within(list).getByText("Atrasada · hace 30 h")).toBeInTheDocument();
+    expect(within(list).getAllByText("Falló")).toHaveLength(1);
     expect(within(list).getAllByRole("listitem").map((li) => li.querySelector("[data-level]")?.getAttribute("data-level"))).toEqual(["warn", "ok", "error"]);
   });
-  it("todos los canales ok: indicador «Todo sincronizado»", () => {
+  it("todos los canales ok: indicador «Todo al día»", () => {
     setup({ health: { toku: { channel: "toku", level: "ok", last_finished_at: "x", age_hours: 1 } } });
-    expect(screen.getByRole("button", { name: /Todo sincronizado/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Todo al día/ })).toBeInTheDocument();
   });
   it("Esc cierra el drawer abierto", () => {
     const props = setup({ open: true });

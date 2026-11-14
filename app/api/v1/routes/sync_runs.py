@@ -12,6 +12,7 @@ from app.db.session import SessionLocal
 from app.models.core import CoreCharge
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
+from app.scheduler.run_lock import INTERRUPTED_MESSAGES
 from app.services import core_etl_mark, sync_cursors, tch_report_registry
 
 router = APIRouter()
@@ -97,9 +98,9 @@ def _classify(
         return "unknown", None, None
     if age < _WARN_AFTER:
         return "ok", last_finished_at, age_hours
-    if age < _ERROR_AFTER:
-        return "warn", last_finished_at, age_hours
-    return "error", last_finished_at, age_hours
+    # 13B: la antiguedad sola nunca es «error». Antes, desde las 72 h se devolvia "error" y el menu decia «Error de
+    # sincronizacion» en todos los canales tras dias sin corridas (backend apagado), aunque ninguna corrida fallo.
+    return "warn", last_finished_at, age_hours
 
 
 # Estado de fallos sostenidos (channel_failing_days): se suma a `level` sin cambiar su contrato.
@@ -139,20 +140,44 @@ def _failure_status(
     return status_name, consecutive, days
 
 
+# 13B: estado legible del canal, ademas de `level` (que solo da el color). Precedencia al agregar cuentas.
+_STATE_PRECEDENCE = {"ok": 0, "unknown": 1, "stale": 2, "failed": 3, "running": 4}
+
+
+def _state(level: str, status: str, last_status: str | None, hung: bool, running: bool) -> str:
+    """«running» (en curso), «failed» (la ultima corrida fallo o hay fallos sostenidos), «stale» (sin exito reciente:
+    atrasada), «ok» (al dia) o «unknown» (nunca corrio). La antiguedad sola da «stale», nunca «failed»."""
+    if running:
+        return "running"
+    if hung or last_status == "failed" or status == "failing":
+        return "failed"
+    if level == "unknown":
+        return "unknown"
+    if level == "ok" and status == "ok":
+        return "ok"
+    return "stale"
+
+
 def _source_health(db: Session, source: str, now: datetime) -> dict[str, object]:
     if source == "tch":
         model, scope = EtlRun, EtlRun.channels_processed.any("tch")
     else:
         model, scope = SyncRun, SyncRun.source == source
-    rows = db.execute(
-        select(model.status, model.finished_at, model.started_at)
+    fetched = db.execute(
+        select(model.status, model.finished_at, model.started_at, model.error_message)
         .where(scope, model.status != "running")
         .order_by(model.started_at.desc())
         .limit(_RECENT_RUNS)
     ).all()
+    # 13B: una corrida que el CRM cerro como `failed` por reinicio o abandono no es un fallo del canal; se ignora y el
+    # estado sale de las demas (si no hubo exito reciente, el canal queda «atrasado»). El texto nunca sale del endpoint.
+    rows = [r for r in fetched if not (r.status == "failed" and r.error_message in INTERRUPTED_MESSAGES)]
     last = rows[0] if rows else None
     hung = db.scalar(
         select(model.id).where(scope, model.status == "running", model.started_at < now - _ERROR_AFTER).limit(1)
+    )
+    running = db.scalar(
+        select(model.id).where(scope, model.status == "running", model.started_at >= now - _ERROR_AFTER).limit(1)
     )
     finished = (last.finished_at or last.started_at) if last else None
     level, level_finished, age_hours = _classify(last.status if last else None, finished, hung is not None, now)
@@ -163,6 +188,7 @@ def _source_health(db: Session, source: str, now: datetime) -> dict[str, object]
     return {
         "level": level, "finished_at": level_finished, "age_hours": age_hours,
         "status": status, "consecutive_failures": consecutive, "days_without_success": days,
+        "state": _state(level, status, last.status if last else None, hung is not None, running is not None),
     }
 
 
@@ -208,7 +234,7 @@ def _resources_health(db: Session, channel: str, sources: tuple[str, ...]) -> li
 
 def _never_ran(part: dict[str, object]) -> bool:
     """Fuente sin ninguna corrida terminada ni colgada: no aporta informacion sobre la salud del canal."""
-    return part["level"] == "unknown" and part["status"] == "unknown"
+    return part["level"] == "unknown" and part["status"] == "unknown" and part["state"] != "running"
 
 
 def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
@@ -220,6 +246,7 @@ def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
         ran = [p for p in parts if not _never_ran(p)] or parts
         worst = max(ran, key=lambda p: (_SEVERITY[p["level"]], _STATUS_SEVERITY[p["status"]]))  # type: ignore[index]
         finished_at = worst["finished_at"]
+        state = max((str(p["state"]) for p in ran), key=_STATE_PRECEDENCE.__getitem__)
         item: dict[str, object] = {
             "channel": channel,
             "level": worst["level"],
@@ -228,6 +255,7 @@ def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
             "status": worst["status"],
             "consecutive_failures": worst["consecutive_failures"],
             "days_without_success": worst["days_without_success"],
+            "state": state,
         }
         resources = _resources_health(db, channel, sources)
         if resources:  # SYNC-O-08: solo con marcas (sin ellas el contrato de la fila no cambia)
@@ -240,6 +268,8 @@ def _compute_health(db: Session, now: datetime) -> list[dict[str, object]]:
                     item["status"] = "degraded"
                     if _SEVERITY[str(item["level"])] < _SEVERITY["warn"]:
                         item["level"] = "warn"
+                    if item["state"] == "ok":
+                        item["state"] = "stale"
         result.append(item)
     return result
 

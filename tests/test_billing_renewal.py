@@ -427,6 +427,24 @@ def test_jobs_listed_and_manually_runnable(world, monkeypatch):
     assert c2.post("/api/v1/scheduler/jobs/billing_renewal_check/run", json={}, headers=h2).status_code == 403
 
 
+def test_13d_jobs_say_which_ones_run_manually_and_only_sync_jobs_show_the_orchestrator_run(world, monkeypatch):
+    """13D: cada proceso trae `manual_run` y `kind`; los que no son de sync no heredan la corrida del orquestador."""
+    from app.api.v1.routes import scheduler as sched_routes
+
+    sched = _scheduler_with_jobs()
+    monkeypatch.setattr(sched_routes, "get_scheduler", lambda: sched)
+    client, _ = client_for(world, make_user(world, make_role(world, "sched-13d", {"sync_runs.view"})))
+    jobs = {j["id"]: j for j in client.get("/api/v1/scheduler/jobs").json()}
+    manual = {job_id for job_id, job in jobs.items() if job["manual_run"]}
+    assert manual == {"sync_all_channels", "billing_renewal_check", "billing_expire_requests", "billing_sweep_applying",
+                      "cancellation_expire_requests", "cancellation_sweep_applying"}
+    assert jobs["sync_all_channels"]["kind"] == "sync" and jobs["retry_failed_channels"]["kind"] == "sync"
+    assert not jobs["retry_failed_channels"]["manual_run"]
+    for job_id in ("webhook_processor", "alerts_check"):
+        assert jobs[job_id]["kind"] == "maintenance"
+        assert jobs[job_id]["status"] == "scheduled" and jobs[job_id]["active_run_id"] is None
+
+
 # ----------------------------- endpoint -----------------------------
 
 

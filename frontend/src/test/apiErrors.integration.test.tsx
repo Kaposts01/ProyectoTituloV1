@@ -230,6 +230,8 @@ describe("Staging y programador", () => {
     ]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: /^Sincronizar/ }));
+    // 13D: lanzar un proceso pide confirmación (mismo patrón que «Sync completo»).
+    fireEvent.click(await screen.findByRole("button", { name: "Sí, ejecutar" }));
     await waitFor(() => expect(document.querySelector(".scheduler-error")?.textContent).toBe("Ya hay una sincronización en curso. Espera a que termine."));
   });
 });

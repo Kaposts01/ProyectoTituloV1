@@ -4,11 +4,15 @@ import { getJson } from "../api";
 
 export type HealthChannel = "virtualpos" | "toku" | "payku" | "tch";
 export type HealthLevel = "ok" | "warn" | "error" | "unknown";
+/** 13B: al día, atrasada (sin éxito reciente), falló (la última corrida falló), en curso o sin datos. */
+export type SyncState = "ok" | "stale" | "failed" | "running" | "unknown";
 export type ChannelHealthEntry = {
   channel: HealthChannel;
   level: HealthLevel;
   last_finished_at: string | null;
   age_hours: number | null;
+  /** Ausente en un backend anterior a 13B: se deduce de `level` (ver `entryState`). */
+  state?: SyncState;
 };
 export type ChannelHealthMap = Partial<Record<HealthChannel, ChannelHealthEntry>>;
 
