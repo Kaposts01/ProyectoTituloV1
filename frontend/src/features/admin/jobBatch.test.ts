@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SchedulerJob } from "../shared/types";
-import { BatchBusyError, isManualJob, manualJobsInOrder, runJobsSequentially, type BatchStep } from "./jobBatch";
+import { BatchBusyError, batchJobs, isManualJob, isReadOnlyJob, manualJobsInOrder, runJobsSequentially, type BatchStep } from "./jobBatch";
 
 const job = (id: string, extra: Partial<SchedulerJob> = {}): SchedulerJob => ({
   id, name: `Proceso ${id}`, cron: "0 3 * * *", next_run: null, last_run: null, status: "scheduled", ...extra,
@@ -20,6 +20,26 @@ describe("13D: qué procesos se lanzan con «Ejecutar todos»", () => {
   it("sin `manual_run` (backend anterior) usa la lista conocida", () => {
     expect(isManualJob(job("cancellation_sweep_applying"))).toBe(true);
     expect(isManualJob(job("retry_failed_channels"))).toBe(false);
+  });
+
+  it("por defecto deja fuera facturación y bajas; con la casilla las incluye después de la sincronización", () => {
+    const jobs = [
+      job("billing_renewal_check", { manual_run: true, kind: "maintenance" }),
+      job("cancellation_sweep_applying", { manual_run: true, kind: "maintenance" }),
+      job("sync_all_channels", { manual_run: true, kind: "sync" }),
+      job("billing_sweep_applying", { manual_run: true }),
+    ];
+    expect(batchJobs(jobs, false).map((j) => j.id)).toEqual(["sync_all_channels"]);
+    expect(batchJobs(jobs, true).map((j) => j.id)).toEqual([
+      "sync_all_channels", "billing_renewal_check", "cancellation_sweep_applying", "billing_sweep_applying",
+    ]);
+  });
+
+  it("facturación y bajas nunca cuentan como lectura, aunque la API diga kind sync", () => {
+    expect(isReadOnlyJob(job("billing_expire_requests", { kind: "sync" }))).toBe(false);
+    expect(isReadOnlyJob(job("cancellation_expire_requests"))).toBe(false);
+    expect(isReadOnlyJob(job("sync_all_channels"))).toBe(true);
+    expect(isReadOnlyJob(job("otro_mantenimiento", { kind: "maintenance" }))).toBe(false);
   });
 });
 

@@ -83,7 +83,24 @@ describe("13D: panel de procesos", () => {
     expect(within(strip).getByText("Falló · hace 2 h")).toBeTruthy();
   });
 
-  it("«Ejecutar todos» pide confirmación, lista los procesos y los corre uno tras otro", async () => {
+  it("«Ejecutar todos» por defecto solo corre la sincronización: facturación y bajas quedan fuera", async () => {
+    mockBackend(() => [{ ...JOBS[0], last_run: lastRun("completed") }, JOBS[1], JOBS[2]]);
+    render(<SchedulerPanel canSync canViewRuns canImportTch={false} batchPollMs={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ejecutar todos (1)" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Confirmar ejecutar todos los procesos" });
+    expect(within(dialog).getByText("Sincronización diaria de canales")).toBeTruthy();
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(1);
+    const box = within(dialog).getByRole("checkbox", { name: /Incluir también facturación y bajas \(1\)/ }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(within(dialog).getByText(/escriben en la base/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sí, ejecutar 1 proceso" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    const progress = await screen.findByRole("region", { name: "Avance de la ejecución" });
+    await waitFor(() => expect(within(progress).getAllByText("Completada")).toHaveLength(1));
+    expect(postMock.mock.calls.map((c) => c[0])).toEqual(["/api/v1/scheduler/jobs/sync_all_channels/run"]);
+  });
+
+  it("«Ejecutar todos» con la casilla marcada incluye facturación y bajas y los corre uno tras otro", async () => {
     let polls = 0;
     mockBackend(() => {
       polls += 1;
@@ -92,8 +109,9 @@ describe("13D: panel de procesos", () => {
       return [{ ...JOBS[0], last_run: lastRun("completed") }, { ...JOBS[1], last_run: lastRun("completed") }, JOBS[2]];
     });
     render(<SchedulerPanel canSync canViewRuns canImportTch={false} batchPollMs={1} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Ejecutar todos (2)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ejecutar todos (1)" }));
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar ejecutar todos los procesos" });
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /Incluir también facturación y bajas/ }));
     expect(within(dialog).getByText("Sincronización diaria de canales")).toBeTruthy();
     expect(within(dialog).getByText("Chequeo de renovación de calendario")).toBeTruthy();
     expect(within(dialog).getByText("1 proceso solo corre por calendario y no se incluye.")).toBeTruthy();

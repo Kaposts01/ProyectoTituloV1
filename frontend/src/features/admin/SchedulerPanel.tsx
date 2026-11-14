@@ -10,7 +10,7 @@ import type { EtlRun, SchedulerJob, SseEvent } from "../shared/types";
 import { API_CHANNELS, phaseText, failedChannelsLabel, fmtDuration, jobBadge, runTypeLabel } from "./schedulerLabels";
 import { RunResourceStats } from "./RunResourceStats";
 import { SseLogEntry } from "./SseLogEntry";
-import { BatchBusyError, SYNC_JOB_ID, isManualJob, manualJobsInOrder, runJobsSequentially, type BatchStep } from "./jobBatch";
+import { BatchBusyError, SYNC_JOB_ID, batchJobs, isManualJob, isReadOnlyJob, manualJobsInOrder, runJobsSequentially, type BatchStep } from "./jobBatch";
 
 type ChannelKey = "all" | "virtualpos" | "toku" | "payku" | "tch";
 type VpSubKey = "both" | "vp1" | "vp2";
@@ -93,6 +93,8 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch, batchPollMs
   const [batchRunning, setBatchRunning] = useState(false);
   // 13D: confirmación inline (mismo patrón que «Sync completo», QA-02): "all" = todos los procesos, o el id del job.
   const [confirming, setConfirming] = useState<string | null>(null);
+  // «Ejecutar todos» deja fuera facturación y bajas salvo que se marque esta casilla en la confirmación.
+  const [includeWrites, setIncludeWrites] = useState(false);
   const unmountedRef = useRef(false);
   // Reloj del panel para «hace X» y la duración en vivo de cada paso (cada 1 s mientras corre una ejecución).
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -353,6 +355,10 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch, batchPollMs
   const hasMore = runs.items.length < runs.total;
   const manualJobs = manualJobsInOrder(jobs);
   const automaticCount = jobs.length - manualJobs.length;
+  // Facturación y bajas: fuera de «Ejecutar todos» por defecto; solo entran con la casilla explícita.
+  const writeJobs = manualJobs.filter((job) => !isReadOnlyJob(job));
+  const readJobs = batchJobs(jobs, false);
+  const runAllJobs = batchJobs(jobs, includeWrites);
   const channelLabel = selectedChannelKey === "all" ? "todos los canales habilitados" : CHANNEL_OPTS.find((o) => o.key === selectedChannelKey)?.label ?? "";
   const healthEntries = CHANNEL_ORDER.map((channel) => health[channel]).filter((entry) => entry !== undefined);
 
@@ -362,12 +368,22 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch, batchPollMs
     return (
       <div role="alertdialog" aria-label={id === "all" ? "Confirmar ejecutar todos los procesos" : `Confirmar ${list[0]?.name ?? "proceso"}`} className="environment-confirm scheduler-confirm">
         <p>
-          {id === "all" ? <>Se van a ejecutar <strong className="mono">{list.length}</strong> procesos, uno tras otro (nunca dos a la vez):</> : <>Se va a ejecutar <strong>{list[0]?.name}</strong>.</>}
+          {id === "all" ? <>Se {list.length === 1 ? "va" : "van"} a ejecutar <strong className="mono">{list.length}</strong> {list.length === 1 ? "proceso" : "procesos, uno tras otro (nunca dos a la vez)"}:</> : <>Se va a ejecutar <strong>{list[0]?.name}</strong>.</>}
         </p>
         {id === "all" ? <ol className="scheduler-confirm-list">{list.map((j) => <li key={j.id}>{j.name}</li>)}</ol> : null}
         {includesSync ? <p>La sincronización lee las APIs de {channelLabel} y luego consolida la base unificada; puede tardar varios minutos. TCH no se lee: entra por su Excel.</p> : null}
         {id === "all" && automaticCount > 0 ? <p className="muted-copy">{automaticCount === 1 ? "1 proceso solo corre por calendario y no se incluye." : `${automaticCount} procesos solo corren por calendario y no se incluyen.`}</p> : null}
-        <button type="button" className="primary-button" onClick={() => void runBatch(list)}>{id === "all" ? `Sí, ejecutar ${list.length} procesos` : "Sí, ejecutar"}</button>
+        {id === "all" && writeJobs.length > 0 ? (
+          <label className="scheduler-confirm-writes">
+            <input type="checkbox" checked={includeWrites} onChange={(e) => setIncludeWrites(e.target.checked)} />
+            <span>
+              Incluir también facturación y bajas ({writeJobs.length}): {writeJobs.map((j) => j.name).join(", ")}. No son
+              de lectura: renuevan el calendario de facturación, vencen solicitudes de cambio y de baja, y barren las que
+              quedaron «aplicando», así que escriben en la base.
+            </span>
+          </label>
+        ) : null}
+        <button type="button" className="primary-button" disabled={list.length === 0} onClick={() => void runBatch(list)}>{id === "all" ? `Sí, ejecutar ${list.length} ${list.length === 1 ? "proceso" : "procesos"}` : "Sí, ejecutar"}</button>
         <button type="button" className="secondary-button" onClick={() => setConfirming(null)}>Cancelar</button>
       </div>
     );
@@ -411,12 +427,12 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch, batchPollMs
       <div className="scheduler-section-header scheduler-processes-header">
         <h3 className="scheduler-section-title">Procesos programados</h3>
         {canSync && manualJobs.length > 0 ? (
-          <button type="button" className="primary-button sjc-run-all" disabled={busy} aria-expanded={confirming === "all"} onClick={() => setConfirming("all")}>
-            {batchRunning ? "Ejecutando procesos…" : `Ejecutar todos (${manualJobs.length})`}
+          <button type="button" className="primary-button sjc-run-all" disabled={busy} aria-expanded={confirming === "all"} onClick={() => { setIncludeWrites(false); setConfirming("all"); }}>
+            {batchRunning ? "Ejecutando procesos…" : `Ejecutar todos (${readJobs.length})`}
           </button>
         ) : null}
       </div>
-      {confirmBox("all", manualJobs)}
+      {confirmBox("all", runAllJobs)}
       {triggerError ? <p className="scheduler-error">{triggerError}</p> : null}
       {batchSteps ? (
         <section className="scheduler-batch" aria-label="Avance de la ejecución">

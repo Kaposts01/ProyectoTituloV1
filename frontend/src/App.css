@@ -506,6 +506,8 @@ td:first-child { font-weight: 700; }
 .sjc-run-all { padding: 0.45rem 0.9rem; font-size: 0.825rem; }
 .scheduler-confirm { margin: 0 0 0.75rem; }
 .scheduler-confirm-list { flex-basis: 100%; margin: 0; padding-left: 1.25rem; font-size: 0.85rem; }
+.scheduler-confirm-writes { flex-basis: 100%; display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; }
+.scheduler-confirm-writes input { margin-top: 0.2rem; }
 .scheduler-batch { border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
 .scheduler-batch-head { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.5rem; }
 .scheduler-batch-head .text-button { margin-left: auto; }

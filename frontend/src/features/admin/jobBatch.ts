@@ -19,6 +19,25 @@ export function manualJobsInOrder(jobs: SchedulerJob[]): SchedulerJob[] {
   return [...manual.filter((job) => job.id === SYNC_JOB_ID), ...manual.filter((job) => job.id !== SYNC_JOB_ID)];
 }
 
+/**
+ * ¿Es un proceso de sincronización/lectura? Los de facturación y bajas (`billing_*`, `cancellation_*`: renovación de
+ * calendario, vencimiento de solicitudes, barrido de las que quedaron «aplicando») escriben o pueden escribir, así que
+ * nunca cuentan como lectura aunque la API diga otra cosa. Sin `kind`, solo la sincronización de canales es lectura.
+ */
+export function isReadOnlyJob(job: Pick<SchedulerJob, "id" | "kind">): boolean {
+  if (job.id.startsWith("billing_") || job.id.startsWith("cancellation_")) return false;
+  return job.kind ? job.kind === "sync" : job.id === SYNC_JOB_ID;
+}
+
+/**
+ * Lista de «Ejecutar todos»: por defecto solo los procesos de lectura. Facturación y bajas entran únicamente si se
+ * marcó la casilla explícita del diálogo de confirmación (`includeWrites`).
+ */
+export function batchJobs(jobs: SchedulerJob[], includeWrites: boolean): SchedulerJob[] {
+  const manual = manualJobsInOrder(jobs);
+  return includeWrites ? manual : manual.filter(isReadOnlyJob);
+}
+
 export type BatchStepState = "queued" | "running" | "completed" | "partial" | "failed" | "skipped";
 export type BatchStep = { jobId: string; name: string; state: BatchStepState; startedAt?: number; finishedAt?: number; note?: string };
 
