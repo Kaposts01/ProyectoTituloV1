@@ -28,11 +28,13 @@ def now() -> float:
 
 
 def client_ip_from(host: str | None, forwarded_for: str | None) -> str:
-    """IP del cliente. `X-Forwarded-For` solo cuenta con API_TRUST_FORWARDED_FOR (detras de un proxy propio)."""
-    if settings.api_trust_forwarded_for and forwarded_for:
-        first = forwarded_for.split(",")[0].strip()[:45]
-        if first:
-            return first
+    """IP del cliente. Con API_TRUSTED_PROXY_COUNT=N (N proxies propios delante) se toma de X-Forwarded-For la IP
+    en la posicion N desde la derecha: la que agrego el primer proxy de confianza. Con 0 se ignora el header."""
+    count = max(int(settings.api_trusted_proxy_count or 0), 0)
+    if count and forwarded_for:
+        parts = [p.strip()[:45] for p in forwarded_for.split(",") if p.strip()]
+        if len(parts) >= count:
+            return parts[-count]
     return host or "unknown"
 
 

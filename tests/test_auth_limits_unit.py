@@ -57,8 +57,16 @@ def test_username_ref_is_stable_case_insensitive_and_opaque() -> None:
 
 def test_forwarded_for_only_when_trusted(monkeypatch) -> None:
     assert client_ip_from("10.0.0.1", "198.51.100.9, 10.0.0.1") == "10.0.0.1"
-    monkeypatch.setattr(settings, "api_trust_forwarded_for", True)
-    assert client_ip_from("10.0.0.1", "198.51.100.9, 10.0.0.1") == "198.51.100.9"
+    # Un proxy propio delante: la IP real es la ultima que agrego (posicion 1 desde la derecha).
+    monkeypatch.setattr(settings, "api_trusted_proxy_count", 1)
+    assert client_ip_from("10.0.0.1", "198.51.100.9") == "198.51.100.9"
+    # Un cliente que antepone una IP falsa no la puede imponer.
+    assert client_ip_from("10.0.0.1", "1.2.3.4, 198.51.100.9") == "198.51.100.9"
+    # Dos proxies propios.
+    monkeypatch.setattr(settings, "api_trusted_proxy_count", 2)
+    assert client_ip_from("10.0.0.1", "1.2.3.4, 198.51.100.9, 10.0.0.2") == "198.51.100.9"
+    # Menos entradas que proxies declarados: se usa la IP del socket.
+    assert client_ip_from("10.0.0.1", "198.51.100.9") == "10.0.0.1"
     assert client_ip_from(None, None) == "unknown"
 
 

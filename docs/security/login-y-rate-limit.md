@@ -85,7 +85,7 @@ la llave del JWT) y la IP truncada (/24 en IPv4, /48 en IPv6). Nunca el nombre, 
   (`/health,/api/v1/health`). `API_RATE_LIMIT_ENABLED=false` lo apaga; un límite en 0 apaga ese eje.
 - Al superar: **429**, `Retry-After` en segundos y `detail` `{code: "rate_limited", message}`.
 - Los webhooks conservan además su límite por (ruta, IP) de `WEBHOOK_RATE_LIMIT_PER_MINUTE` (RT-08).
-- IP del cliente: `X-Forwarded-For` solo con `API_TRUST_FORWARDED_FOR=true`, y solo detrás de un proxy propio. Sin
+- IP del cliente: `X-Forwarded-For` solo con `API_TRUSTED_PROXY_COUNT=N` (N = número de proxies o túneles propios delante del backend, como `TRUSTED_PROXY_COUNT` en Flota); se toma la IP en la posición N desde la derecha, así un cliente no puede falsificarla anteponiendo otra. Con 0 (por defecto) se ignora el header. Sin
   eso, detrás de un túnel todos los visitantes comparten una IP: con los valores por defecto (holgados) no debería
   molestar, pero el bloqueo por IP del login sí podría afectar a todos tras 20 fallos.
 
@@ -93,7 +93,7 @@ la llave del JWT) y la IP truncada (/24 en IPv4, /48 en IPv6). Nunca el nombre, 
 
 `AUTH_LOGIN_MAX_FAILURES_PER_USER`, `AUTH_LOGIN_MAX_FAILURES_PER_IP`, `AUTH_LOGIN_FAILURE_WINDOW_SECONDS`,
 `AUTH_LOGIN_LOCKOUT_BASE_SECONDS`, `AUTH_LOGIN_LOCKOUT_MAX_SECONDS`, `AUTH_PASSWORD_MIN_LENGTH`,
-`AUTH_COOKIE_SAMESITE`, `API_TRUST_FORWARDED_FOR`, `API_RATE_LIMIT_ENABLED`, `API_RATE_LIMIT_IP_PER_MINUTE`,
+`AUTH_COOKIE_SAMESITE`, `API_TRUSTED_PROXY_COUNT`, `API_RATE_LIMIT_ENABLED`, `API_RATE_LIMIT_IP_PER_MINUTE`,
 `API_RATE_LIMIT_USER_PER_MINUTE`, `API_RATE_LIMIT_WEBHOOK_IP_PER_MINUTE`, `API_RATE_LIMIT_EXEMPT_PATHS`.
 Todas tienen valor por defecto; no hace falta tocar el `.env`.
 

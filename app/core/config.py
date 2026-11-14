@@ -66,8 +66,10 @@ class Settings(BaseSettings):
     auth_login_lockout_max_seconds: int = 3600
     auth_password_min_length: int = 12  # solo claves nuevas o cambiadas
     auth_cookie_samesite: str = "lax"  # lax | strict
-    # IP real del cliente desde X-Forwarded-For (login y rate limit de la API). Solo detras de un proxy propio.
-    api_trust_forwarded_for: bool = False
+    # IP real del cliente desde X-Forwarded-For (login y rate limit de la API). Numero de proxies de confianza
+    # delante del backend (como TRUSTED_PROXY_COUNT de Flota): 0 = ignorar X-Forwarded-For; 1 = un tunel/proxy propio.
+    # Se toma la IP en la posicion N contando desde la derecha, asi un cliente no puede falsificarla.
+    api_trusted_proxy_count: int = 0
     # CRM-16D: rate limit general de /api (ventana fija de 60 s, en memoria por proceso). 0 = sin limite en ese eje.
     api_rate_limit_enabled: bool = True
     api_rate_limit_ip_per_minute: int = 1200
