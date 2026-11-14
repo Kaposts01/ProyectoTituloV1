@@ -58,6 +58,22 @@ class Settings(BaseSettings):
     debug: bool = False
     auth_jwt_secret: str = ""
     auth_access_token_minutes: int = 60
+    # CRM-16A: endurecimiento del login (docs/security/login-y-rate-limit.md). Contadores en memoria por proceso.
+    auth_login_max_failures_per_user: int = 5  # fallos por usuario (exista o no) dentro de la ventana -> bloqueo
+    auth_login_max_failures_per_ip: int = 20  # fallos por IP dentro de la ventana -> bloqueo
+    auth_login_failure_window_seconds: int = 900
+    auth_login_lockout_base_seconds: int = 60  # primer bloqueo; se duplica en cada bloqueo seguido
+    auth_login_lockout_max_seconds: int = 3600
+    auth_password_min_length: int = 12  # solo claves nuevas o cambiadas
+    auth_cookie_samesite: str = "lax"  # lax | strict
+    # IP real del cliente desde X-Forwarded-For (login y rate limit de la API). Solo detras de un proxy propio.
+    api_trust_forwarded_for: bool = False
+    # CRM-16D: rate limit general de /api (ventana fija de 60 s, en memoria por proceso). 0 = sin limite en ese eje.
+    api_rate_limit_enabled: bool = True
+    api_rate_limit_ip_per_minute: int = 1200
+    api_rate_limit_user_per_minute: int = 600
+    api_rate_limit_webhook_ip_per_minute: int = 300  # todas las rutas /api/v1/webhooks/* de una IP juntas
+    api_rate_limit_exempt_paths: str = "/health,/api/v1/health"  # prefijos separados por coma
     initial_admin_username: str = ""
     initial_admin_password: str = ""
     database_url: str
