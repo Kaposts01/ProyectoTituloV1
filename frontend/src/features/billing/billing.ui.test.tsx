@@ -63,7 +63,12 @@ afterEach(cleanup);
 
 async function openDetail() {
   fireEvent.click(await screen.findByRole("button", { name: /Ver solicitud de la suscripción SUB-100/ }));
-  await screen.findByRole("heading", { name: /Cambio de monto/ });
+  const heading = await screen.findByRole("heading", { name: /Cambio de monto/ });
+  // El detalle lleva el foco a su título en un efecto pasivo que corre DESPUÉS de pintar el encabezado. Si el test
+  // sigue antes de que corra (CI cargado, coverage), ese efecto se descarga dentro del siguiente act() y roba el foco
+  // al elemento que el test acaba de enfocar. Se espera el estado final del panel para no competir con él.
+  await waitFor(() => expect(document.activeElement).toBe(heading));
+  return heading;
 }
 
 describe("bandeja", () => {
@@ -260,13 +265,14 @@ describe("acciones", () => {
     await openDetail();
     const trigger = screen.getByRole("button", { name: "Rechazar" });
     trigger.focus();
+    expect(document.activeElement).toBe(trigger);
     fireEvent.click(trigger);
     const dialog = await screen.findByRole("dialog");
-    // Esperas amplias: en CI el foco puede tardar más de 1 s (la espera por defecto) en moverse.
-    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true), { timeout: 4000 });
+    // openDetail ya esperó a que el panel tomara el foco: nada más compite con el diálogo y las esperas por defecto bastan.
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     fireEvent.keyDown(dialog, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
-    await waitFor(() => expect(document.activeElement).toBe(trigger), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("aprobar bloquea el doble envio", async () => {
