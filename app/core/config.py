@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     debug: bool = False
     auth_jwt_secret: str = ""
     auth_access_token_minutes: int = 60
+    # CRM-16C: 401 sin sesion ANTES de leer el cuerpo (app/core/session_guard.py). Solo para volver atras.
+    auth_session_first_enabled: bool = True
     # CRM-16A: endurecimiento del login (docs/security/login-y-rate-limit.md). Contadores en memoria por proceso.
     auth_login_max_failures_per_user: int = 5  # fallos por usuario (exista o no) dentro de la ventana -> bloqueo
     auth_login_max_failures_per_ip: int = 20  # fallos por IP dentro de la ventana -> bloqueo

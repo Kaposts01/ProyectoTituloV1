@@ -58,7 +58,9 @@ Tabla práctica resultante:
 | Marketplace — actualizar cliente (`PUT /api/maclient/{id}`) | Sí (según ejemplo) ⚠️ los demás endpoints de marketplace no lo muestran |
 | Transacción, escrow, evento, conciliación, bancos, métodos de pago | No aparece en los ejemplos |
 
-💡 **Recomendación:** nuestro cliente puede **enviar `Sign` en todos los requests** (es lo que hace nuestra colección Postman). ⚠️ No está confirmado que Payku acepte un `Sign` "de más" en endpoints que no lo piden; hay que validarlo en sandbox (ver [open-questions.md](open-questions.md), Q-02).
+💡 **Recomendación:** nuestro cliente puede **enviar `Sign` en todos los requests** (es lo que hace nuestra colección Postman). ✅ **Medido en producción el 2026-11-14 (ficha d175):** Payku acepta un `Sign` de más en endpoints que no lo piden (`GET /api/transaction` responde igual con, sin y con una firma falsa).
+
+**Medido en producción el 2026-11-14 (ficha d174, solo GET):** en los `GET` que exigen firma (`/api/suplan/plans`, `/api/suplan/{id}`), Payku exige que el header `Sign` **esté presente** (sin él responde 401), pero **no valida su valor**: pasan la firma sin `&` final, con `&` final y una firma falsa. Por eso no hace falta cambiar `auth.py` para las lecturas. La validación de la firma en **escrituras** (POST/PUT/DELETE) queda por confirmar en la primera escritura real (prueba de 1 CLP, ficha d213).
 
 ---
 

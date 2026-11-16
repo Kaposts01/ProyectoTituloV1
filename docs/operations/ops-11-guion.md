@@ -763,3 +763,42 @@ Cerrados el 2026-11-13 (verificados en código):
 - `SYNC_CORE_ETL_ENABLED` solo actúa en `sync_all_channels`, no en `/etl/full-sync`; la fase `core_etl` está en
   `etl_runs`, no en `sync_runs` (10A, 11).
 - «Ejecutar todos» (`fix/sync-ui-estado`) lanza además los jobs manuales de facturación y bajas (11).
+
+## Resultado de la ventana del 2026-11-14
+
+Ejecutada por la sesión CRM con autorización del usuario en el chat. Estado actual y trampas en
+[estado-produccion.md](estado-produccion.md).
+
+| Paso | Resultado |
+|---|---|
+| 0 | OK. Ramas de la tabla integradas; 303 GB libres; reportes: TCH 30, VP 78, `cargados\2026-11` 7, Toku 16 |
+| — | Antes del paso 0: PR #34 (sesión antes del cuerpo), d221 con PR #35 y #36 (Postgres solo en `127.0.0.1` y `[::1]`, contenedor recreado, volumen intacto). d217 no se aplicó |
+| 1 | `crm_20261114_1250.dump` (448,6 MB); simulacro OK, 94 tablas y 6.503.722 filas; **RTO 1,6 min** |
+| 2 | `20261103_0068 -> 20261104_0071`; soporte 36 y ejecutivo 35 permisos; `admin|2` |
+| 3 | `AUTH_JWT_SECRET` rotado (96). d220 tras el 3: certifi 2026.10.18, urllib3 2.8.0, dnspython 2.9.2 (PR #37) |
+| 4 | **No aplicado.** Primer ensayo: error de 65.535 parámetros (PR #38). Segundo ensayo (54,7 min): BD 1.341.211 vs control 984.498 (36,2 %), todos los meses en FALLA. Causa: `_dedupe_key` con cuotas distintas entre historial y CARGOS. Ficha d223 (a). d211 también queda para esa ventana |
+| 5 | Pepper creado. 7 reportes cargados (PR #39, #40, #41, #42 por fallas del script); señales: 178 efectivamente activas, racha 55; 5.412 códigos; segunda corrida 0 |
+| 6 | `VP_REPORT_HASH_PEPPER` creado. 19 archivos PAT, 0 fallas. Glosas en `core_payments`: virtualpos1 0 -> 10.674, virtualpos2 0 -> 17.388, payku 0 -> 1.471 |
+| 7 | d214 `5|5|5` -> borradas 5/5/5 -> `0|0|0` |
+| 8 | d212: 1 fila y 1 valor; segunda corrida 0. `RESPALDO_8` = `crm_20261114_1501.dump` |
+| 9 | Correo de prueba recibido por los 2 destinatarios; `ALERTS_ENABLED=true` |
+| 10 | Un usuario activo por rol (admin, coordinador, ejecutivo, jefatura, soporte). Error de formulario corregido en el PR #43. D40 ya estaba fuera del repo |
+| 10A | `SYNC_CORE_ETL_ENABLED=true` (d215 = a) |
+| 11 | Corrida directa de `sync_all_channels`, `completed` (15:02 a 17:59 hora local, 432.848 registros): virtualpos1 862, virtualpos2 1.524, toku 417, payku 258. Marcas del ETL Core automático (10A) con hora posterior al inicio |
+| 12.2 | Glosas en `core_payments`: payku 1.475, virtualpos1 11.000, virtualpos2 17.884 (siguieron subiendo). d214: 0. d212: 0 valores. TCH igual que antes (29.295 sin monto, 8 activas con baja) porque su recarga va con d223 |
+| 12.1 | Revisión del usuario en pantalla: «Datos incompletos» pasó de 969 / 728 a **441 / 728**; VirtualPOS con nombres; motivo de rechazo visible en los rechazos. Hallazgo nuevo: los estados de cobro no están unificados entre canales (tarea aparte, no bloquea el cierre) |
+
+Desglose de «Datos incompletos» tras la ventana (`_subscription_histograms`, consulta de solo lectura):
+
+| Canal | Altas sin fecha | Bajas sin fecha | De ellas, baja antes del alta |
+|---|---|---|---|
+| VirtualPOS | 0 | 0 | 0 |
+| Toku | 8 | 0 | 0 |
+| Payku | 0 | 307 | 0 |
+| TCH | 433 | 421 | 38 |
+| **Total** | **441** | **728** | 38 |
+
+Las 728 no bajaron porque ningún paso de la ventana tocó a sus dueños: las 421 de TCH esperan la recarga de d223, y las
+307 de Payku están en estado `delete` sin fecha de baja en la fuente (no dependen de d223; se revisan aparte).
+
+**OPS-11 cerrada el 2026-11-14.** Pendientes que salen de ella: paso 4 y d211 (d223), d217, estados de cobro unificados.
