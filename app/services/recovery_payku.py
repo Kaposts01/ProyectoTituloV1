@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.models.core import CoreCharge, CorePayment, CoreSubscription
 from app.models.payku_channel import PaykuSubscription, PaykuTransaction
+from app.services.payku_kpi_exclusion import not_excluded
 from app.services.recovery_pii import attach_people
 from app.services.rejected_month import CHILE_TZ
 from app.services.rejection_format import format_rejection_reason
@@ -90,6 +91,7 @@ def _subscriptions(db: Session, common_status: str, start: date | None, end: dat
         .where(
             CoreSubscription.source == SOURCE,
             PaykuSubscription.status_normalized == common_status,
+            not_excluded(CoreSubscription.external_id),  # d207
             *_date_range(CoreSubscription.ended_at, start, end),
         )
         .order_by(CoreSubscription.ended_at.desc().nulls_last(), CoreSubscription.external_id)
@@ -131,6 +133,7 @@ def rejected(db: Session, start: date | None, end: date | None, offset: int, lim
         .where(
             CorePayment.source == SOURCE,
             PaykuTransaction.status_normalized == "rejected",
+            not_excluded(PaykuTransaction.subscription_id),  # d207
             *_date_range(CorePayment.occurred_at, start, end),
         )
         .order_by(CorePayment.occurred_at.desc().nulls_last(), CorePayment.external_id)

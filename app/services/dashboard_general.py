@@ -382,6 +382,7 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
     # Import perezoso: reutiliza helpers de los dashboards de canal sin acoplar el modulo al router en la carga.
     from app.api.v1.routes import staging
     from app.models.payku_channel import PaykuTransaction as PkTx
+    from app.services.payku_kpi_exclusion import not_excluded
     from app.services.vp_current_amount import load_current_amount
 
     out: dict[str, tuple[float, int]] = {}
@@ -412,14 +413,16 @@ def _mrr_by_channel(db: Session, channels: list[str], today: date) -> dict[str, 
     if "payku" in channels:
         active_rows = db.execute(
             select(CSub.external_id, CSub.client_social_id)
-            .where(CSub.source == "payku", func.lower(CSub.status).in_(("active", "activa", "activo")))
+            .where(CSub.source == "payku", func.lower(CSub.status).in_(("active", "activa", "activo")),
+                   not_excluded(CSub.external_id))  # d207
         ).all()
         active_ids = {str(ext) for ext, _ in active_rows}
         tx_rows = [
             {"subscription_id": sid, "status": st, "amount": amount, "created_at": created, "external_id": eid}
             for sid, st, amount, created, eid in db.execute(
                 select(PkTx.subscription_id, PkTx.status, PkTx.amount, PkTx.created_at_api, PkTx.external_id)
-                .where(PkTx.subscription_id.in_(active_ids), func.lower(PkTx.status) == "success")
+                .where(PkTx.subscription_id.in_(active_ids), func.lower(PkTx.status) == "success",
+                       not_excluded(PkTx.subscription_id))
             )
         ] if active_ids else []
         last_success = staging._payku_last_success_by_sub(active_ids, tx_rows)

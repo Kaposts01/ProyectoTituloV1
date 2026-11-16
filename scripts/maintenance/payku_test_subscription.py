@@ -10,6 +10,21 @@ Modos (todos en dry-run salvo que se indique):
                           las ejecuta (solo GET; igual exige --confirm-production por ser productivo).
   --verify SUB_ID         plan de LECTURAS posteriores (detalle, V3 del dia, transacciones del dia). --execute-read.
   --cancel SUB_ID         plan de baja (DELETE /api/sususcription/{id}). Con --apply la ejecuta.
+
+Plan de CONSUMO (ficha d213 = b: el plan queda PERMANENTE en la cuenta; solo se cancela la suscripcion):
+  --consumption           alta: buscar previas -> cliente -> plan de consumo -> suscripcion (sin amount) -> url de
+                          inscripcion (paso MANUAL del titular; Payku cobra $50 de validacion). Exige --create-plan
+                          (POST /api/suplan con --plan-name, default PRUEBA-CRM-1CLP, sin url_notify) o --plan-id.
+  --charge SUB_ID         cobro unico por POST /api/sutransaction (suscription, amount, order, description). Antes
+                          lee la suscripcion y se niega si no esta 'active' (tarjeta sin inscribir). Con --apply.
+  --verify-consumption SUB_ID
+                          lecturas para Q-06 (aparece en GET /api/transaction y, con --conciliation-date, en
+                          POST /api/conciliation, una CONSULTA aunque sea POST), Q-08 (clave estable: id de la
+                          respuesta del cobro vs listado vs transactions[] de la sub) y Q-33 (se distingue el cobro de
+                          consumo de uno recurrente). --transaction-id con el id que devolvio --charge. --execute-read.
+  Exclusion de indicadores (d207, implementada): el id su... de la suscripcion se conoce al crearla; el alta lo
+  imprime con la linea PAYKU_KPI_EXCLUDED_IDS=... a cargar en el .env del CRM ANTES del siguiente sync y antes de
+  --charge (sus cobros quedan fuera por su suscripcion). --charge avisa si el id no esta en la lista configurada.
   --apply                 ejecuta las ESCRITURAS del alta (o de --cancel). Exige TODO lo siguiente:
                             * --confirm-production
                             * variable de PROCESO PAYKU_TEST_SUBSCRIPTION_ARMED=1 (no va en .env)
@@ -50,6 +65,9 @@ VALIDATION_CHARGE_CLP = 50  # doc oficial, "Crear suscripcion" (payku-docs-es.md
 DEFAULT_AMOUNT_CLP = 1
 DEFAULT_MAX_TOTAL_CLP = 51
 TEST_MARKER = "CRM-14C"
+CONSUMPTION_PLAN_NAME = "PRUEBA-CRM-1CLP"
+ORDER_MAX = 40  # doc: sutransaction -> order maximo 40 caracteres
+KPI_EXCLUDED_ENV = "PAYKU_KPI_EXCLUDED_IDS"
 PLAN_NAME_MAX = 20  # doc: "Crear plan" -> name maximo 20 caracteres
 EMAIL_PATH_MAX = 20  # doc: "Obtener cliente" -> id o email, maximo 20 caracteres (Q-10: no confirmado)
 CUSTOMERS_PER_PAGE = 100  # doc: "Obtener clientes" -> maximo 100 por pagina
@@ -79,6 +97,7 @@ class Plan:
     steps: list[Step] = field(default_factory=list)
     total_clp: int = 0
     warnings: list[str] = field(default_factory=list)
+    cost_lines: list[str] = field(default_factory=list)  # si hay, reemplazan la linea generica de costo total
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -259,6 +278,203 @@ def build_cancel_plan(sub_id: str) -> Plan:
     return plan
 
 
+def consumption_order(today: date) -> str:
+    return f"CRM14C-CONSUMO-{today:%y%m%d}"[:ORDER_MAX]
+
+
+def consumption_plan_body(name: str) -> dict[str, Any]:
+    """Solo name y description: sin url_notify_* (no se notifica al CRM; la prueba se lee por GET)."""
+    return {"name": name, "description": f"{TEST_MARKER} plan de consumo de PRUEBA del CRM; no es un socio real"}
+
+
+def build_consumption_plan(args: argparse.Namespace, today: date) -> Plan:
+    plan = Plan("Alta de suscripcion de CONSUMO de prueba en Payku PRODUCTIVO")
+    amount = int(args.amount)
+    plan.total_clp = amount
+    plan.cost_lines = consumption_cost_lines(amount, args.max_total)
+    if VALIDATION_CHARGE_CLP + amount > args.max_total:
+        plan.warnings.append(f"el peor caso {VALIDATION_CHARGE_CLP + amount} CLP supera el tope {args.max_total} CLP")
+    plan.steps.extend(find_existing_steps(args.email, args.rut))
+    plan.steps.append(
+        Step("create_client", "POST", "/api/suclient",
+             body={"email": args.email or "<correo>", "name": args.name or "<nombre>", "rut": args.rut or "<RUT>",
+                   "phone": args.phone or "<telefono>"},
+             note="se omite si la busqueda previa encuentra el cliente por correo o RUT (se reutiliza su id cl...)",
+             write=True)
+    )
+    if args.plan_id:
+        plan.steps.append(Step("read_plan", "GET", f"/api/suplan/{args.plan_id}", note="plan de consumo existente"))
+        plan_ref = args.plan_id
+    else:
+        plan.steps.append(
+            Step("create_plan", "POST", "/api/suplan", body=consumption_plan_body(args.plan_name),
+                 note="doc: 'Crear plan' (seccion Suscripcion de consumo) -> {status, id: pl...}. El plan queda "
+                 "PERMANENTE (d213 = b). El body no tiene tipo: que sea de consumo se confirma con la lectura siguiente",
+                 write=True)
+        )
+        plan.steps.append(Step("read_plan", "GET", "/api/suplan/<id del plan>",
+                               note="confirmar nombre y estado del plan creado (no hay campo de tipo documentado)"))
+        plan_ref = "<id del plan>"
+    plan.steps.append(
+        Step("create_subscription", "POST", "/api/sususcription", body={"plan": plan_ref, "client": "<id del cliente>"},
+             note="sin amount (solo aplica a monto variable); responde {status: register, id: su..., url}", write=True)
+    )
+    plan.steps.append(
+        Step("enroll_card", "BROWSER", "<url de la respuesta: /gateway/registrosuscripcion?...>",
+             note="paso MANUAL del titular: inscribe su tarjeta y la suscripcion queda 'active'. Costo esperado 0 CLP "
+             "(sin amount ni monto de plan; ver el costo al final). Un plan de consumo no cobra solo: el cobro lo "
+             "genera --charge", manual=True)
+    )
+    plan.steps.append(
+        Step("consumption_charge", "POST", "/api/sutransaction",
+             body={"suscription": "<id su...>", "amount": str(amount), "order": consumption_order(today),
+                   "description": f"{TEST_MARKER} cobro de consumo de prueba"},
+             cost_clp=amount, note="se ejecuta aparte con --charge SUB_ID una vez inscrita la tarjeta", write=True)
+    )
+    plan.steps.append(Step("verify", "GET", "(ver --verify-consumption SUB_ID)", note="lecturas Q-06, Q-08, Q-33"))
+    plan.steps.append(Step("cancel", "DELETE", "/api/sususcription/<id su...>",
+                           note="con --cancel SUB_ID al terminar; el plan NO se borra (d213 = b)", write=True))
+    plan.warnings.append(f"el alta imprime el id su...: cargarlo en {KPI_EXCLUDED_ENV} del .env del CRM antes del "
+                         "siguiente sync y antes de --charge (seccion 5 de prueba-productivo.md)")
+    return plan
+
+
+def consumption_cost_lines(amount: int, max_total: int) -> list[str]:
+    """Texto del costo del modo --consumption (dry-run). Puro.
+
+    Base: el historial del CRM muestra que Payku cobra al ACTIVAR el monto completo de la suscripcion; en un plan de
+    consumo la suscripcion se crea sin `amount` y el plan no tiene monto, asi que al activar se espera 0. La doc
+    (Crear suscripcion, L4102) anuncia ademas una validacion de $50 que no aparece en los datos: queda como caso dudoso.
+    """
+    worst = VALIDATION_CHARGE_CLP + amount
+    return [
+        "Costo esperado (plan de CONSUMO, suscripcion sin amount):",
+        "  - al activar (inscribir la tarjeta): 0 CLP. Segun el historial, Payku cobra al activar el monto completo de",
+        "    la suscripcion; esta no tiene amount y el plan de consumo no tiene monto: no hay monto que cobrar.",
+        f"  - cobro de consumo (--charge): {amount} CLP.",
+        f"  - TOTAL ESPERADO: {amount} CLP.",
+        f"Caso dudoso: la doc (Crear suscripcion, L4102) anuncia una validacion de ${VALIDATION_CHARGE_CLP} al inscribir",
+        "  la tarjeta que NO aparece en los datos de transacciones del CRM; tambien podria haber un cobro inicial de 0",
+        f"  o 1 CLP. Rango probable: {amount} a {amount + 1} CLP; peor caso {worst} CLP (validacion + cobro),",
+        f"  {'dentro' if worst <= max_total else 'FUERA'} del tope --max-total {max_total} CLP.",
+        "  La lectura --verify-consumption del mismo dia dice cual fue (q15_cargo_50_en_listado).",
+    ]
+
+
+def configured_excluded_ids(env: Mapping[str, str] | None = None) -> frozenset[str]:
+    """Ids de PAYKU_KPI_EXCLUDED_IDS: de la configuracion del CRM y, si no carga, del entorno del proceso."""
+    try:
+        from app.core.config import settings
+
+        return settings.payku_kpi_excluded_id_set
+    except Exception:  # noqa: BLE001 - sin configuracion cargable, el entorno del proceso
+        raw = (env if env is not None else os.environ).get(KPI_EXCLUDED_ENV, "")
+        return frozenset(i.strip() for i in raw.split(",") if i.strip())
+
+
+def exclusion_warning(sub_id: str, excluded: frozenset[str]) -> str | None:
+    if sub_id in excluded:
+        return None
+    return (f"{sub_id} NO esta en {KPI_EXCLUDED_ENV}: el cobro entraria a los indicadores. Agregarlo al .env del CRM "
+            "antes del --charge y del siguiente sync")
+
+
+def build_charge_plan(sub_id: str, args: argparse.Namespace, today: date,
+                      excluded: frozenset[str] | None = None) -> Plan:
+    amount = int(args.amount)
+    plan = Plan("Cobro unico de CONSUMO de prueba (Payku PRODUCTIVO)")
+    plan.total_clp = amount
+    plan.steps = [
+        Step("read_subscription_before_charge", "GET", f"/api/sususcription/{sub_id}",
+             note="debe estar 'active' (tarjeta inscrita); si no, el script se niega a cobrar"),
+        Step("consumption_charge", "POST", "/api/sutransaction",
+             body={"suscription": sub_id, "amount": str(amount), "order": consumption_order(today),
+                   "description": f"{TEST_MARKER} cobro de consumo de prueba"},
+             cost_clp=amount,
+             note="doc L4511: obligatorio solo 'suscription'; amount/order/description opcionales pero se envian. "
+             "Responde {status, order, amount, transaction_id, verification_key}. Minimo en CLP no documentado",
+             write=True),
+    ]
+    if amount + VALIDATION_CHARGE_CLP > args.max_total:
+        plan.warnings.append(f"el monto {amount} CLP mas la validacion supera el tope {args.max_total} CLP")
+    if excluded is not None and (warning := exclusion_warning(sub_id, excluded)):
+        plan.warnings.append(warning)
+    return plan
+
+
+def build_verify_consumption_plan(sub_id: str, tx_id: str | None, today: date, conciliation_date: str | None) -> Plan:
+    day = today.isoformat()
+    plan = Plan("Lecturas de la prueba de consumo (Q-06, Q-08, Q-33)")
+    plan.steps = [
+        Step("read_subscription", "GET", f"/api/sususcription/{sub_id}",
+             note="transactions[]: aparece el cobro de consumo? con que clave y descripcion (Q-08, Q-33)"),
+        Step("read_transactions_today", "GET", "/api/transaction",
+             params={"page": 1, "per_page": 100, "date_init": day, "date_end": day},
+             note="Q-06: aparece el cobro de consumo en el listado general? y el de $50 (Q-15)?"),
+    ]
+    if tx_id:
+        plan.steps.append(Step("read_transaction", "GET", f"/api/transaction/{tx_id}",
+                               note="Q-08: el transaction_id devuelto por sutransaction resuelve aqui?"))
+    if conciliation_date:
+        plan.steps.append(Step("read_conciliation", "POST", "/api/conciliation",
+                               body={"date_init": conciliation_date, "date_end": conciliation_date},
+                               note="CONSULTA (no mueve dinero) aunque sea POST; Q-06: el abono aparece en la "
+                               "conciliacion del dia de deposito (rango <= 30 dias, no futuro)"))
+    return plan
+
+
+def _tx_records(body: Any) -> list[dict[str, Any]]:
+    if isinstance(body, list):
+        return [r for r in body if isinstance(r, dict)]
+    if not isinstance(body, dict):
+        return []
+    for key in ("transactions", "data", "conciliations", "items"):
+        value = body.get(key)
+        if isinstance(value, list):
+            return [r for r in value if isinstance(r, dict)]
+    return []
+
+
+def _key_values(record: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key in ("transaction_id", "transaction", "id", "order"):
+        value = record.get(key)
+        if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value):
+            out[key] = str(value)
+    return out
+
+
+def analyze_consumption(charge: dict[str, Any] | None, subscription: Any, transactions: Any,
+                        conciliation: Any = None) -> dict[str, Any]:
+    """Pura. Resume Q-06/Q-08/Q-33 a partir de lo leido; nombra campos, nunca datos personales."""
+    wanted = set(_key_values(charge or {}).values())
+
+    def hits(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [r for r in records if wanted & set(_key_values(r).values())]
+
+    in_sub = hits(_tx_records(subscription.get("transactions") if isinstance(subscription, dict) else None))
+    list_txs = _tx_records(transactions)
+    in_list = hits(list_txs)
+    in_conc = hits(_tx_records(conciliation)) if conciliation is not None else None
+    matched_fields = sorted({k for r in in_sub + in_list for k, v in _key_values(r).items() if v in wanted})
+    descriptions = sorted({str(r.get("description") or "") for r in in_sub + in_list})
+    return {
+        "q06_en_transaction": bool(in_list),
+        "q06_en_conciliacion": None if in_conc is None else bool(in_conc),
+        "q08_campos_que_coinciden": matched_fields,
+        "q08_en_transactions_de_la_sub": bool(in_sub),
+        "q33_descripciones": descriptions,
+        "q33_parece_recurrente": any("Cobro:" in d for d in descriptions),
+        "q15_cargo_50_en_listado": any(str(r.get("amount")).split(".")[0] == str(VALIDATION_CHARGE_CLP)
+                                       for r in list_txs),
+    }
+
+
+def kpi_exclusion_line(*ids: str | None) -> str:
+    clean = [i for i in ids if i]
+    return f"{KPI_EXCLUDED_ENV}={','.join(clean)}  (agregar a la lista vigente; ver prueba-productivo.md seccion 5)"
+
+
 def render_plan(plan: Plan, email: str | None = None) -> str:
     lines = [f"== {plan.title} (DRY-RUN: sin red, sin base) =="]
     for i, step in enumerate(plan.steps, 1):
@@ -272,8 +488,12 @@ def render_plan(plan: Plan, email: str | None = None) -> str:
             lines.append(f"     costo:  {step.cost_clp} CLP")
         if step.note:
             lines.append(f"     nota:   {step.note}")
-    if plan.total_clp:
-        lines.append(f"Costo total estimado: {plan.total_clp} CLP ({VALIDATION_CHARGE_CLP} de validacion + monto)")
+    if plan.cost_lines:
+        lines.extend(plan.cost_lines)
+    elif plan.total_clp:
+        with_validation = any(s.manual and s.cost_clp == VALIDATION_CHARGE_CLP for s in plan.steps)
+        detail = f" ({VALIDATION_CHARGE_CLP} de validacion + monto)" if with_validation else " (solo el monto del cobro)"
+        lines.append(f"Costo total estimado: {plan.total_clp} CLP{detail}")
     for warning in plan.warnings:
         lines.append(f"AVISO: {warning}")
     return "\n".join(lines)
@@ -298,7 +518,13 @@ def check_armed(args: argparse.Namespace, settings: Any, env: Mapping[str, str],
         raise ArmingError("PAYKU_WRITES_ENABLED esta apagado")
     if cancel:
         return
-    missing = [flag for flag, value in (("--rut", args.rut), ("--email", args.email), ("--phone", args.phone),
+    if getattr(args, "charge", None):
+        if VALIDATION_CHARGE_CLP + int(args.amount) > args.max_total:
+            raise ArmingError(f"el monto del cobro mas la validacion supera --max-total ({args.max_total} CLP)")
+        return
+    if getattr(args, "consumption", False) and not (args.create_plan or args.plan_id):
+        raise ArmingError("el modo --consumption exige --create-plan o --plan-id")
+    missing =[flag for flag, value in (("--rut", args.rut), ("--email", args.email), ("--phone", args.phone),
                                         ("--name", args.name)) if not value]
     if missing:
         raise ArmingError("faltan parametros obligatorios: " + ", ".join(missing))
@@ -324,6 +550,8 @@ def _ids_from(response: Any, *keys: str) -> str | None:
         value = response.get(key)
         if isinstance(value, str) and value:
             return value
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
         if isinstance(value, dict):
             nested = value.get("id")
             if isinstance(nested, str) and nested:
@@ -464,6 +692,95 @@ async def apply_create(args: argparse.Namespace, provider: Any, recorder: WriteR
             "enroll_url": response.get("url") if isinstance(response, dict) else None}
 
 
+async def apply_create_consumption(args: argparse.Namespace, provider: Any, recorder: WriteRecorder,
+                                   secrets: tuple[str, ...], today: date) -> dict[str, Any]:
+    plan = build_consumption_plan(args, today)
+    steps = {s.key: s for s in plan.steps}
+    existing = await find_existing(provider, args.email, args.rut)
+    active = [s for s in existing["subscriptions"] if str(s.get("status") or "").lower() in ("active", "register")]
+    if active:
+        raise ArmingError("ya existe una suscripcion activa o en registro para esa persona: no se crea otra")
+
+    client_id = existing["client_id"]
+    if client_id is None:
+        step = steps["create_client"]
+        step.body = {"email": args.email, "name": args.name, "rut": args.rut, "phone": args.phone}
+        response = await _write(recorder, step, "client", f"pending:{TEST_MARKER}",
+                                lambda: provider.create_client(step.body), secrets, ("id", "client"))
+        client_id = _ids_from(response, "id", "client")
+        if not client_id:
+            raise RuntimeError("Payku no devolvio el id del cliente")
+
+    plan_id = args.plan_id
+    if not plan_id:
+        step = steps["create_plan"]
+        response = await _write(recorder, step, "plan", f"pending:{TEST_MARKER}",
+                                lambda: provider.create_plan(step.body), secrets, ("id", "plan", "plans"))
+        plan_id = _ids_from(response, "id", "plan", "plans")
+        if not plan_id:
+            raise RuntimeError("Payku no devolvio el id del plan")
+    try:
+        plan_detail = await provider.get_plan(plan_id)
+    except Exception:  # noqa: BLE001 - lectura informativa: el plan ya existe
+        plan_detail = None
+
+    step = steps["create_subscription"]
+    step.body = {"plan": plan_id, "client": client_id}
+    response = await _write(recorder, step, "subscription", f"pending:{TEST_MARKER}",
+                            lambda: provider.create_subscription(step.body), secrets, ("id",))
+    sub_id = _ids_from(response, "id")
+    return {"client_id": client_id, "plan_id": plan_id, "plan_detail": plan_detail, "subscription_id": sub_id,
+            "status": response.get("status") if isinstance(response, dict) else None,
+            "enroll_url": response.get("url") if isinstance(response, dict) else None,
+            "kpi_exclusion": kpi_exclusion_line(sub_id),
+            "recordatorio": f"agregar {sub_id} a {KPI_EXCLUDED_ENV} en el .env del CRM ANTES del siguiente sync y de "
+                            "--charge (d207)"}
+
+
+async def apply_charge(sub_id: str, args: argparse.Namespace, provider: Any, recorder: WriteRecorder,
+                       secrets: tuple[str, ...], today: date,
+                       excluded: frozenset[str] | None = None) -> dict[str, Any]:
+    warning = exclusion_warning(sub_id, configured_excluded_ids() if excluded is None else excluded)
+    if warning:
+        print(f"AVISO: {warning}")
+    sub = await provider.get_subscription(sub_id)
+    status = str(sub.get("status") or "").lower() if isinstance(sub, dict) else ""
+    if status != "active":
+        raise ArmingError(f"la suscripcion no esta 'active' (estado: {status or 'desconocido'}): no se cobra")
+    step = build_charge_plan(sub_id, args, today).steps[1]
+    response = await _write(recorder, step, "transaction", sub_id,
+                            lambda: provider.create_consumption_transaction(step.body), secrets,
+                            ("transaction_id", "id"))
+    tx_id = _ids_from(response, "transaction_id", "id")
+    out = {key: response.get(key) for key in ("status", "order", "amount", "transaction_id")} \
+        if isinstance(response, dict) else {"raw": str(response)[:200]}
+    out["transaction_id"] = out.get("transaction_id") or tx_id
+    out["kpi_exclusion"] = kpi_exclusion_line(sub_id)  # el cobro queda fuera por su suscripcion
+    out["kpi_excluded"] = warning is None
+    return out
+
+
+async def verify_consumption(sub_id: str, tx_id: str | None, provider: Any, today: date,
+                             conciliation_date: str | None) -> dict[str, Any]:
+    """Solo lecturas (y la CONSULTA POST /api/conciliation si se pide fecha)."""
+    day = today.isoformat()
+    sub = await provider.get_subscription(sub_id)
+    txs = await provider.list_transactions(date_init=day, date_end=day, page=1, per_page=100)
+    single = None
+    if tx_id:
+        try:
+            single = await provider.get_transaction(tx_id)
+        except Exception:  # noqa: BLE001 - que no resuelva es justamente un hallazgo de Q-08
+            single = None
+    conciliation = None
+    if conciliation_date:
+        conciliation = await provider.get_conciliations({"date_init": conciliation_date, "date_end": conciliation_date})
+    charge = {"transaction_id": tx_id} if tx_id else None
+    analysis = analyze_consumption(charge, sub, txs, conciliation)
+    analysis["q08_get_transaction_por_id_resuelve"] = None if not tx_id else isinstance(single, dict) and bool(single)
+    return analysis
+
+
 async def apply_cancel(sub_id: str, provider: Any, recorder: WriteRecorder, secrets: tuple[str, ...]) -> Any:
     step = build_cancel_plan(sub_id).steps[0]
     response = await _write(recorder, step, "subscription", sub_id, lambda: provider.delete_subscription(sub_id), secrets)
@@ -491,12 +808,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--find-existing", action="store_true", help="plan de lecturas para buscar subs previas")
     parser.add_argument("--verify", metavar="SUB_ID", help="plan de lecturas posteriores")
     parser.add_argument("--cancel", metavar="SUB_ID", help="plan de baja de la suscripcion de prueba")
-    parser.add_argument("--execute-read", action="store_true", help="ejecuta las LECTURAS (--find-existing/--verify)")
+    parser.add_argument("--consumption", action="store_true", help="alta de suscripcion a un plan de CONSUMO")
+    parser.add_argument("--create-plan", action="store_true", help="con --consumption: crea el plan (POST /api/suplan)")
+    parser.add_argument("--plan-name", default=CONSUMPTION_PLAN_NAME, help="nombre del plan de consumo (max 20)")
+    parser.add_argument("--charge", metavar="SUB_ID", help="cobro unico de consumo (POST /api/sutransaction)")
+    parser.add_argument("--verify-consumption", metavar="SUB_ID", help="lecturas Q-06/Q-08/Q-33 de la prueba de consumo")
+    parser.add_argument("--transaction-id", help="id devuelto por --charge (para --verify-consumption)")
+    parser.add_argument("--conciliation-date", help="AAAA-MM-DD: agrega la CONSULTA POST /api/conciliation de ese dia")
+    parser.add_argument("--execute-read", action="store_true",
+                        help="ejecuta las LECTURAS (--find-existing/--verify/--verify-consumption)")
     parser.add_argument("--apply", action="store_true", help="ejecuta las ESCRITURAS (alta o --cancel)")
     parser.add_argument("--confirm-production", action="store_true", help="confirma que se opera en Payku productivo")
     args = parser.parse_args(argv)
     if args.amount < 1:
         parser.error("--amount debe ser >= 1")
+    if len(args.plan_name) > PLAN_NAME_MAX:
+        parser.error(f"--plan-name supera {PLAN_NAME_MAX} caracteres (doc 'Crear plan')")
+    if args.create_plan and args.plan_id:
+        parser.error("--create-plan y --plan-id son excluyentes")
+    if args.create_plan and not args.consumption:
+        parser.error("--create-plan solo aplica con --consumption")
+    if args.apply and (args.find_existing or args.verify or args.verify_consumption):
+        parser.error("--apply no aplica a los modos de lectura (usar --execute-read)")
+    if args.conciliation_date:
+        try:
+            date.fromisoformat(args.conciliation_date)
+        except ValueError:
+            parser.error("--conciliation-date debe ser AAAA-MM-DD")
     return args
 
 
@@ -516,6 +854,10 @@ async def _run_live(args: argparse.Namespace, today: date) -> int:  # pragma: no
             async with PaykuClient() as provider:
                 if args.cancel:
                     result = await apply_cancel(args.cancel, provider, recorder, secrets)
+                elif args.charge:
+                    result = await apply_charge(args.charge, args, provider, recorder, secrets, today)
+                elif args.consumption:
+                    result = await apply_create_consumption(args, provider, recorder, secrets, today)
                 else:
                     result = await apply_create(args, provider, recorder, secrets, today)
         finally:
@@ -524,7 +866,10 @@ async def _run_live(args: argparse.Namespace, today: date) -> int:  # pragma: no
         return 0
     check_read_allowed(args)
     async with PaykuClient() as provider:
-        if args.verify:
+        if args.verify_consumption:
+            out = await verify_consumption(args.verify_consumption, args.transaction_id, provider, today,
+                                           args.conciliation_date)
+        elif args.verify:
             out = {
                 "subscription": await provider.get_subscription(args.verify),
                 "v3_today": await provider.list_subscriptions_v3(page=1, per_page=100, date_init=today.isoformat(),
@@ -544,6 +889,13 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
     live = args.apply or args.execute_read
     if args.cancel:
         plan = build_cancel_plan(args.cancel)
+    elif args.charge:
+        plan = build_charge_plan(args.charge, args, today, configured_excluded_ids())
+    elif args.verify_consumption:
+        plan = build_verify_consumption_plan(args.verify_consumption, args.transaction_id, today,
+                                             args.conciliation_date)
+    elif args.consumption:
+        plan = build_consumption_plan(args, today)
     elif args.verify:
         plan = build_verify_plan(args.verify, today)
     elif args.find_existing:

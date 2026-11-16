@@ -258,6 +258,15 @@ class Settings(BaseSettings):
     payku_sandbox_public_token: str = ""
     payku_sandbox_private_token: str = ""
     payku_sandbox_writes_enabled: bool = False
+    # d207: ids externos de suscripcion Payku (`su...`, separados por coma) que los indicadores ignoran (suscripciones
+    # de prueba como la de CRM-14C). Vacio = no se excluye nada. Los datos crudos `p_*` se conservan; la consolidacion
+    # y el ETL Core no las materializan y las lecturas directas de `p_transactions`/`p_cycles` las filtran.
+    payku_kpi_excluded_ids: str = ""
+
+    @property
+    def payku_kpi_excluded_id_set(self) -> frozenset[str]:
+        """`PAYKU_KPI_EXCLUDED_IDS` como conjunto (sin espacios ni vacios)."""
+        return frozenset(i.strip() for i in (self.payku_kpi_excluded_ids or "").split(",") if i.strip())
 
     @property
     def env_mode(self) -> str:

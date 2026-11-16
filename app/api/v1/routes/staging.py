@@ -54,6 +54,7 @@ from app.services.charge_stats import (
     rejected_month_kpi,
     rejection_stats_by,
 )
+from app.services.payku_kpi_exclusion import not_excluded
 from app.services.payku_sync import sync_payku
 from app.services.rbac import permission_codes, source_permission
 from app.services.rejected_month import REJECTED_TX_STATUSES, rejected_current_month
@@ -2538,6 +2539,7 @@ def _payku_plan_counts(db: Session, records: list[Any]) -> dict[str, dict]:
         .where(
             PkTx.subscription_id.in_({sub.external_id for sub in subscriptions}),
             func.lower(PkTx.status) == "success",
+            not_excluded(PkTx.subscription_id),  # d207
         )
         .group_by(PkTx.subscription_id)
     ).all()
@@ -3071,7 +3073,8 @@ def _payku_centralized_dashboard(db: Session) -> dict[str, Any]:
         {"subscription_id": sid, "status": st, "amount": amt, "created_at": ca, "external_id": eid}
         for sid, st, amt, ca, eid in db.execute(
             select(PkTx.subscription_id, PkTx.status, PkTx.amount, PkTx.created_at_api, PkTx.external_id)
-            .where(PkTx.subscription_id.isnot(None), func.lower(PkTx.status) == "success")
+            .where(PkTx.subscription_id.isnot(None), func.lower(PkTx.status) == "success",
+                   not_excluded(PkTx.subscription_id))  # d207
             .order_by(PkTx.subscription_id, PkTx.created_at_api.asc().nulls_first(), PkTx.external_id)
         ).all()
     ]
