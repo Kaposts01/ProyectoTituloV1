@@ -81,8 +81,11 @@ class CoreCharge(Base):
     amount: Mapped[float | None] = mapped_column(Numeric(18, 2))
     currency: Mapped[str | None] = mapped_column(String(3))
     source_status: Mapped[str | None] = mapped_column(String(100), index=True)
+    # index=True (migracion 0081): sin indice, cada DELETE en core_payments recorria core_charges entera por la FK.
     latest_rejection_payment_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("core_payments.id", use_alter=True, name="fk_core_charges_latest_rejection_payment")
+        UUID(as_uuid=True),
+        ForeignKey("core_payments.id", use_alter=True, name="fk_core_charges_latest_rejection_payment"),
+        index=True,
     )
     latest_rejection_code: Mapped[str | None] = mapped_column(String(100))
     latest_rejection_reason: Mapped[str | None] = mapped_column(Text)
