@@ -82,7 +82,7 @@ def test_each_installment_becomes_a_core_charge_with_its_payment_linked(db_sessi
     result = run_tch_core_etl(db_session)
 
     charges, payments = _charges(db_session), _payments(db_session)
-    key1, key2 = f"{F1}|2026-01|3", f"{F2}|2026-01|1"
+    key1, key2 = f"{F1}|2026-01", f"{F2}|2026-01"
     assert {key1, key2} <= set(charges) and set(charges) == set(payments)
     assert result["charges_inserted"] == len(charges)
 
@@ -105,19 +105,19 @@ def test_each_installment_becomes_a_core_charge_with_its_payment_linked(db_sessi
 def test_rejected_then_paid_installment_keeps_one_charge_and_the_previous_rejection(db_session, tmp_path) -> None:
     etl_tch._process_file(_january(tmp_path), db_session)
     run_tch_core_etl(db_session)
-    charge_id = _charges(db_session)[f"{F1}|2026-01|3"].id
+    charge_id = _charges(db_session)[f"{F1}|2026-01"].id
 
     etl_tch._process_file(_february(tmp_path), db_session)
     run_tch_core_etl(db_session)
 
-    charge = _charges(db_session)[f"{F1}|2026-01|3"]
+    charge = _charges(db_session)[f"{F1}|2026-01"]
     assert charge.id == charge_id  # la misma cuota, no una segunda fila
     assert charge.source_status == "ACEPTADA"
     assert charge.latest_rejection_payment_id is None  # el pago vigente ya no es un rechazo
     assert charge.latest_rejection_reason == "Fondos insuficientes"  # pero el intento fallido no se pierde
     assert charge.latest_rejection_at.date() == date(2026, 1, 15)
-    assert _payments(db_session)[f"{F1}|2026-01|3"].source_status == "ACEPTADA"
-    assert _charges(db_session)[f"{F1}|2026-02|4"].period_reference == "2026-02"
+    assert _payments(db_session)[f"{F1}|2026-01"].source_status == "ACEPTADA"
+    assert _charges(db_session)[f"{F1}|2026-02"].period_reference == "2026-02"
 
 
 def test_core_etl_twice_gives_the_same_result(db_session, tmp_path) -> None:
@@ -139,9 +139,9 @@ def test_history_only_month_gets_a_charge_due_on_the_first_day_of_the_period(db_
     )
     etl_tch._process_file(path, db_session)
     run_tch_core_etl(db_session)
-    charge = _charges(db_session)[f"{F1}|2026-03|5"]
+    charge = _charges(db_session)[f"{F1}|2026-03"]
     assert charge.due_at.date() == date(2026, 3, 1)
-    assert _payments(db_session)[f"{F1}|2026-03|5"].occurred_at is None  # el historial no trae fecha de cobro
+    assert _payments(db_session)[f"{F1}|2026-03"].occurred_at is None  # el historial no trae fecha de cobro
 
 
 def test_consolidation_fills_client_external_id_for_tch(db_session, tmp_path) -> None:
@@ -152,6 +152,6 @@ def test_consolidation_fills_client_external_id_for_tch(db_session, tmp_path) ->
 
     sub = db_session.scalars(select(Subscription).where(Subscription.source == "tch", Subscription.external_id == str(F1))).one()
     assert sub.client_external_id == RUT1
-    charge = db_session.scalars(select(Charge).where(Charge.source == "tch", Charge.external_id == f"{F1}|2026-01|3")).one()
+    charge = db_session.scalars(select(Charge).where(Charge.source == "tch", Charge.external_id == f"{F1}|2026-01")).one()
     assert charge.client_external_id == RUT1
     assert charge.subscription_external_id == str(F1)

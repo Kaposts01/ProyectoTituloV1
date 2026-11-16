@@ -1,11 +1,14 @@
 # Recarga completa de TCH (procedimiento para el usuario)
 
-Esta recarga reconstruye las tablas `tch_*` desde los reportes Excel con la clave estable de cuotas (D13). La ejecuta
+Esta recarga reconstruye las tablas `tch_*` desde los reportes Excel con la clave estable de cuotas (D13, d223). La ejecuta
 el usuario sobre `crm`, con respaldo previo. Ningun agente corre Alembic ni la recarga.
 
 ## Que cambia (TCH-PAR-03, 04, 07, 09)
 
-- Un cargo se identifica por `(ficha, periodo real, cuota)` y guarda el ULTIMO estado ("el ultimo reporte gana"). Una
+- Un cargo se identifica por `(ficha, periodo real)` (d223; antes tambien por la cuota) y guarda el ULTIMO estado
+  ("el ultimo reporte gana"). El historial de la cartera y la hoja CARGOS numeran la misma cuota distinto (difieren en
+  multiplos de 12): con la cuota en la clave el mismo cobro quedaba dos veces (ensayo del 14/11: 1,34 M filas contra
+  0,98 M del control). La cuota sigue en `numero_cuota` y la aporta CARGOS. Una
   cuota rechazada y luego aceptada es UNA fila; el rechazo previo queda en `rechazo_previo`, `rechazo_previo_motivo` y
   `rechazo_previo_en`.
 - `tch_transacciones.origen` separa `cargo` (hojas CARGOS, con fecha) de `historial` (estado mensual sin fecha). El
@@ -13,6 +16,9 @@ el usuario sobre `crm`, con respaldo previo. Ningun agente corre Alembic ni la r
   origenes, es una sola fila y el cargo manda.
 - El periodo sale de "Cuota Mes", la cuota es entera y se cargan monto y moneda vigentes.
 - La recarga es transaccional y se concilia contra el control oficial (`tch_recaudacion_mensual`) antes de confirmar.
+  Desde d223 (opcion a) la conciliacion cuenta solo los cobros de CARGOS: el historial repite el estado del mandato y
+  contaba de mas. Un mes sin ningun cobro de CARGOS sale como «sin detalle» y no se valida (en 2017-2022 casi solo
+  diciembre trae CARGOS).
 
 ## Efecto esperado
 
@@ -23,9 +29,9 @@ el usuario sobre `crm`, con respaldo previo. Ningun agente corre Alembic ni la r
 | Filas con `periodo` NULL | 108.585 | 0 |
 | Monto de suscripcion | NULL en todas | cargado desde "Monto Vigente"; moneda en `moneda` |
 
-El ano 2023 queda por debajo del control porque la hoja VIGENTES de Dic 2023 no trae cartera. Para que la conciliacion
-no falle por eso, use `--exclude-months` con los meses de 2023 (se informan pero no cuentan) o consiga el archivo
-reexportado.
+Antes de d223 el ano 2023 quedaba por debajo del control porque la hoja VIGENTES de Dic 2023 no trae cartera. Como
+ahora solo cuentan los CARGOS, ese hueco ya no deberia hacer fallar la conciliacion; si un mes de 2023 aun falla en el
+ensayo, se puede excluir con `--exclude-months` (se informa pero no cuenta).
 
 ## Pasos, en orden
 
@@ -89,6 +95,10 @@ primera carga (o NULL) aunque reportes posteriores la trajeran o corrigieran. Co
 
 Una carga incremental (`--mode incremental` o la importacion de la pantalla de administracion) se rechaza si la base
 aun tiene claves antiguas, para no duplicar cuotas.
+
+Desde d223 tambien son antiguas las claves `ficha|periodo|cuota`, que es lo que hoy tiene toda la base. Por eso, en
+cuanto el codigo de d223 llega a `master`, toda carga incremental de TCH se rechaza hasta hacer la recarga completa. El
+merge va dentro de la misma ventana: ensayo y recarga desde la rama, y despues el merge.
 
 ## Riesgos
 

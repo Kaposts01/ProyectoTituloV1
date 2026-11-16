@@ -224,15 +224,16 @@ def _materialize_subscriptions(db: Session) -> int:
 # ── Paso 3: pagos ─────────────────────────────────────────────────────────────
 
 def legacy_key_filter(model, key_column):
-    """Filas TCH con la clave antigua (ficha|periodo|cuota|estado|monto) que ya no existe en ``tch_transacciones``.
+    """Filas TCH con una clave antigua que ya no existe en ``tch_transacciones``.
 
-    Con la clave estable (ficha|periodo|cuota, D13) esas filas no se vuelven a generar: tras la recarga completa
-    quedarian como duplicados. Solo se consideran las de la forma antigua (4 separadores) y solo si su clave ya no
-    esta en ``tch_transacciones`` (si la recarga aun no ocurrio, siguen vigentes y no se tocan).
+    Claves antiguas: ficha|periodo|cuota|estado|monto y ficha|periodo|cuota (D13). La vigente es ficha|periodo (d223),
+    con un solo separador. Las antiguas no se vuelven a generar: tras la recarga completa quedarian como duplicados.
+    Solo se consideran las de dos o mas separadores y solo si su clave ya no esta en ``tch_transacciones`` (si la
+    recarga aun no ocurrio, siguen vigentes y no se tocan).
     """
     return and_(
         model.source == _SOURCE,
-        key_column.like("%|%|%|%|%"),
+        key_column.like("%|%|%"),
         ~exists().where(TchTransaction.dedupe_key == key_column),
     )
 

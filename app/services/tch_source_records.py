@@ -13,7 +13,7 @@ resource_type   tabla                   external_id                      fila ce
 ==============  ======================  ===============================  =========================
 ``client``      ``tch_clientes``        ``rut`` (llave del canal)        ``clients``
 ``subscription`` ``tch_suscripciones``  ``numero_ficha``                 ``subscriptions``
-``transaction`` ``tch_transacciones``   ``dedupe_key`` (ficha|mes|cuota) ``charges``
+``transaction`` ``tch_transacciones``   ``dedupe_key`` (ficha|mes)       ``charges``
 ==============  ======================  ===============================  =========================
 
 El payload es minimo y SIN datos personales (solo la tabla de origen): el detalle ya vive en ``tch_*.raw_payload`` y

@@ -747,7 +747,7 @@ def _consolidate_tch_transactions(db: Session) -> int:
 
     Devuelve las cuotas leidas (nuevas o cambiadas): una segunda consolidacion sin cargas nuevas lee y escribe 0.
     """
-    # D13: la clave de la cuota es ficha|periodo|cuota; los cobros con la clave antigua que ya no estan en
+    # d223: la clave de la cuota es ficha|periodo; los cobros con una clave antigua que ya no estan en
     # tch_transacciones quedarian duplicados tras la recarga completa.
     pruned = db.execute(delete(Charge).where(legacy_key_filter(Charge, Charge.external_id))).rowcount or 0
     if pruned:

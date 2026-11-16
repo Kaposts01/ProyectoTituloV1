@@ -112,7 +112,7 @@ def test_full_reload_reuses_the_same_source_records(db_session, tmp_path) -> Non
     path = _report(tmp_path)
     etl_tch.reload_full(db_session, [path], apply=True, tolerance_month=1, tolerance_total=1)
     first = {key: record.id for key, record in _tch_records(db_session).items()}
-    assert ("transaction", f"{F1}|2026-01|2") in first
+    assert ("transaction", f"{F1}|2026-01") in first
 
     etl_tch.reload_full(db_session, [path], apply=True, tolerance_month=1, tolerance_total=1)
 

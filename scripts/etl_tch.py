@@ -1183,14 +1183,16 @@ def _transform_subscriptions(df: pd.DataFrame, status: str) -> list[dict]:
 # Transformaciones — CARGOS ACEPTADOS / RECHAZADOS
 # ---------------------------------------------------------------------------
 
-def _dedupe_key(file_number: int, period: str | None, installment: str | None) -> str:
-    """Clave estable de una cuota: ficha | periodo real | cuota (D13, TCH-PAR-03).
+def _dedupe_key(file_number: int, period: str | None) -> str:
+    """Clave estable de un cobro mensual: ficha | periodo real (d223; antes D13 sumaba la cuota).
 
-    NO lleva estado ni monto: en la fuente cada cuota tiene un estado final, de modo que un rechazo seguido de un pago
-    (o un cambio de monto en un reporte posterior) actualiza la MISMA fila. La cuota se normaliza aqui tambien:
-    '12', '12.0' y 12.0 dan la misma clave.
+    NO lleva estado ni monto: en la fuente cada mes de una ficha tiene un estado final, de modo que un rechazo seguido
+    de un pago (o un cambio de monto en un reporte posterior) actualiza la MISMA fila. Tampoco lleva el numero de
+    cuota: el historial de la cartera y la hoja CARGOS numeran la misma cuota distinto (difieren en multiplos de 12),
+    y con la cuota en la clave el mismo cobro quedaba dos veces (ensayo de OPS-11: 1,34 M filas contra 0,98 M del
+    control). La cuota sigue guardada en ``numero_cuota`` y la aporta CARGOS cuando existe.
     """
-    return "|".join([str(file_number), period or "", _norm_installment(installment) or ""])
+    return f"{file_number}|{period or ''}"
 
 
 def _charge_status(status: str) -> str:
@@ -1287,7 +1289,7 @@ def _transform_transactions(df: pd.DataFrame, status: str, file_name: str) -> li
             "codigo_respuesta": code,
             "razon_rechazo": reason,
             "archivo_origen": file_name,
-            "dedupe_key": _dedupe_key(file_number, period, installment),
+            "dedupe_key": _dedupe_key(file_number, period),
             "origen": ORIGIN_CHARGE,
             "reporte_periodo": None,
             "rechazo_previo": None,
@@ -1347,7 +1349,7 @@ def _transform_charge_history(df: pd.DataFrame, file_name: str) -> list[dict]:
                     "codigo_respuesta": None,
                     "razon_rechazo": None,
                     "archivo_origen": file_name,
-                    "dedupe_key": _dedupe_key(file_number, period, installment),
+                    "dedupe_key": _dedupe_key(file_number, period),
                     "origen": ORIGIN_HISTORY,
                     "reporte_periodo": None,
                     "rechazo_previo": None,
@@ -1669,6 +1671,8 @@ def _transaction_upsert_set(stmt, table) -> dict:
         "reporte_periodo": case((newer, func.coalesce(e.reporte_periodo, t.reporte_periodo)), else_=t.reporte_periodo),
         "origen": case((or_(e_cargo, t_cargo), ORIGIN_CHARGE), else_=func.coalesce(e.origen, t.origen)),
         "numero_mandato": func.coalesce(t.numero_mandato, e.numero_mandato),
+        # d223: la cuota ya no es parte de la clave; la de CARGOS prevalece sobre la del historial (cargo > historial).
+        "numero_cuota": detail("numero_cuota"),
         "total_cuotas": detail("total_cuotas"),
         "fecha_cargo": detail("fecha_cargo"),
         "tipo_transaccion": detail("tipo_transaccion"),
@@ -1695,7 +1699,7 @@ def _transaction_upsert_set(stmt, table) -> dict:
 
 
 def _load_transactions(db, rows: list[dict], file_name: str | None = None, stats: dict | None = None) -> int:
-    """Upsert por ``dedupe_key`` (ficha|periodo|cuota). Devuelve cuantas cuotas distintas trae el lote.
+    """Upsert por ``dedupe_key`` (ficha|periodo, d223). Devuelve cuantas cuotas distintas trae el lote.
 
     Si una misma cuota aparece varias veces en el lote (p. ej. rechazada y luego aceptada en el mismo reporte), las
     repeticiones se aplican en pasadas sucesivas, en el orden recibido: una sentencia INSERT .. ON CONFLICT no puede
@@ -1737,11 +1741,12 @@ def _load_transactions(db, rows: list[dict], file_name: str | None = None, stats
 
 
 def _has_legacy_dedupe_keys(db) -> bool:
-    """True si quedan filas con la clave antigua (ficha|periodo|cuota|estado|monto, 4 separadores).
+    """True si quedan filas con una clave antigua: ficha|periodo|cuota (D13) o ficha|periodo|cuota|estado|monto.
 
-    Una carga incremental sobre ellas duplicaria todas las cuotas: primero hay que reconstruir con ``--mode full``.
+    La clave vigente (d223) tiene un solo separador. Una carga incremental sobre claves antiguas duplicaria todas las
+    cuotas: primero hay que reconstruir con ``--mode full``.
     """
-    return db.scalar(select(TchTransaction.id).where(TchTransaction.dedupe_key.like("%|%|%|%|%")).limit(1)) is not None
+    return db.scalar(select(TchTransaction.id).where(TchTransaction.dedupe_key.like("%|%|%")).limit(1)) is not None
 
 
 def _load_monthly_collection(db, rows: list[dict]) -> int:
@@ -1848,7 +1853,7 @@ class LegacyDedupeKeysError(ValueError):
 
 
 _LEGACY_KEYS_MESSAGE = (
-    "tch_transacciones conserva claves antiguas (ficha|periodo|cuota|estado|monto). Una carga incremental duplicaria "
+    "tch_transacciones conserva claves antiguas (con la cuota en la clave). Una carga incremental duplicaria "
     "las cuotas: reconstruya primero con scripts/etl_tch.py --mode full (ver docs/data/tch-reload.md)."
 )
 
@@ -2086,7 +2091,8 @@ def file_reconciliation(
     if control is not None:
         final: dict[str, str] = {}
         for row in transaction_rows:  # el ultimo estado de cada cuota gana, como en la carga
-            if row.get("periodo") == period and row.get("dedupe_key"):
+            # d223: solo las hojas CARGOS; el historial cuenta como rechazo el estado del mandato, no un cobro.
+            if row.get("periodo") == period and row.get("dedupe_key") and row.get("origen") == ORIGIN_CHARGE:
                 final[row["dedupe_key"]] = row.get("estado") or ""
         accepted = sum(1 for status in final.values() if status == "ACEPTADA")
         rejected = sum(1 for status in final.values() if status == "RECHAZADA")
@@ -2118,6 +2124,8 @@ class MonthReconciliation:
     control_rejected: int
     excluded: bool = False
     ok: bool = True
+    # d223: el mes no trae detalle de CARGOS (solo historial de la cartera): se informa, pero no se valida.
+    no_detail: bool = False
 
 
 @dataclass
@@ -2151,9 +2159,12 @@ def reconcile(
 ) -> Reconciliation:
     """Compara intentos aceptados y rechazados por mes de ``tch_transacciones`` con ``tch_recaudacion_mensual``.
 
-    Solo cuenta ACEPTADA y RECHAZADA (como el control). Un mes falla si aceptadas o rechazadas se desvian mas de
-    ``tolerance_month`` del control; el total (meses no excluidos) falla si se desvia mas de ``tolerance_total``.
-    Los meses en ``exclude_months`` (p. ej. un ano sin detalle en la fuente) se informan pero no cuentan.
+    Solo cuenta ACEPTADA y RECHAZADA (como el control) y solo los cobros que trae una hoja CARGOS (d223 = a): el
+    historial mensual de la cartera repite el estado del mandato, no un intento de cobro, y contaba de mas. Un mes sin
+    ningun cobro de CARGOS queda «sin detalle»: se informa y no se valida (en 2017-2022 casi solo diciembre tiene
+    CARGOS). Un mes falla si aceptadas o rechazadas se desvian mas de ``tolerance_month`` del control; el total (meses
+    validados) falla si se desvia mas de ``tolerance_total``. Los meses en ``exclude_months`` se informan pero no
+    cuentan.
     """
     controls = {
         row.period: row
@@ -2164,7 +2175,11 @@ def reconcile(
         (period, status): quantity
         for period, status, quantity in db.execute(
             select(TchTransaction.period, TchTransaction.status, func.count())
-            .where(TchTransaction.status.in_(("ACEPTADA", "RECHAZADA")), TchTransaction.period.in_(list(controls)))
+            .where(
+                TchTransaction.status.in_(("ACEPTADA", "RECHAZADA")),
+                TchTransaction.period.in_(list(controls)),
+                TchTransaction.origin == ORIGIN_CHARGE,
+            )
             .group_by(TchTransaction.period, TchTransaction.status)
         )
     }
@@ -2179,6 +2194,8 @@ def reconcile(
             control_rejected=control.rejected_count,
             excluded=period in excluded,
         )
+        item.no_detail = not item.excluded and item.db_accepted + item.db_rejected == 0
+        item.excluded = item.excluded or item.no_detail
         if not item.excluded:
             item.ok = (
                 _relative_gap(item.db_accepted, item.control_accepted) <= tolerance_month
@@ -2195,7 +2212,7 @@ def format_reconciliation(result: Reconciliation) -> str:
     """Texto para la consola: solo periodos, conteos y diferencias (nada personal)."""
     lines = [f"{'mes':<8} {'acep BD':>9} {'acep ctl':>9} {'rech BD':>9} {'rech ctl':>9}  estado"]
     for m in result.months:
-        status = "excluido" if m.excluded else ("ok" if m.ok else "FALLA")
+        status = "sin detalle" if m.no_detail else ("excluido" if m.excluded else ("ok" if m.ok else "FALLA"))
         lines.append(
             f"{m.period:<8} {m.db_accepted:>9} {m.control_accepted:>9} {m.db_rejected:>9} {m.control_rejected:>9}  {status}"
         )
