@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { patchJson } from "../../api";
+import { patchJson, setCsrfToken } from "../../api";
 import type { AuthUser } from "../shared/types";
 
 export function ProfilePanel({
@@ -24,6 +24,7 @@ export function ProfilePanel({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formEl = event.currentTarget; // tras un await, React deja currentTarget en null
     const form = new FormData(event.currentTarget);
     const newUsername = (form.get("new_username") as string).trim();
     const currentPassword = form.get("current_password") as string;
@@ -31,6 +32,7 @@ export function ProfilePanel({
     const confirmPassword = (form.get("confirm_password") as string).trim();
 
     if (!currentPassword) { setError("Debes ingresar tu contraseña actual."); return; }
+    if (newPassword && newPassword.length < 12) { setError("La contraseña debe tener al menos 12 caracteres."); return; }
     if (newPassword && newPassword !== confirmPassword) { setError("Las contraseñas nuevas no coinciden."); return; }
     if (!newUsername && !newPassword) { setError("No hay cambios para guardar."); return; }
 
@@ -40,11 +42,13 @@ export function ProfilePanel({
       const body: Record<string, string> = { current_password: currentPassword };
       if (newUsername && newUsername !== user.username) body.new_username = newUsername;
       if (newPassword) { body.new_password = newPassword; body.confirm_password = confirmPassword; }
-      const result = await patchJson<{ user: AuthUser }>("/api/v1/auth/me", body);
+      const result = await patchJson<{ user: AuthUser; csrf_token?: string }>("/api/v1/auth/me", body);
+      // Cambiar la clave renueva la sesión (las otras quedan cerradas) y trae un token CSRF nuevo.
+      if (result.csrf_token) setCsrfToken(result.csrf_token);
       onUpdated(result.user);
       setSuccess("Perfil actualizado correctamente.");
       onCancelEdit();
-      event.currentTarget.reset();
+      formEl.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo actualizar el perfil.");
     } finally {
@@ -105,8 +109,8 @@ export function ProfilePanel({
               <input name="current_password" type="password" required autoComplete="current-password" />
             </label>
             <label>
-              Nueva contraseña
-              <input name="new_password" type="password" minLength={6} maxLength={256} autoComplete="new-password" placeholder="Dejar en blanco para no cambiar" />
+              Nueva contraseña (mínimo 12 caracteres)
+              <input name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" placeholder="Dejar en blanco para no cambiar" />
             </label>
             <label>
               Confirmar nueva contraseña

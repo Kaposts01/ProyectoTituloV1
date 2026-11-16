@@ -94,3 +94,31 @@ def test_missing_inputs_exit_cleanly(script, db_session, tmp_path, capsys):
     assert script.main(["--dir", str(tmp_path)], session_factory=lambda: db_session) == 2
     with pytest.raises(SystemExit):
         script.main([str(tmp_path / "no-existe.xlsx")], session_factory=lambda: db_session)
+
+
+def test_load_order_covers_every_supported_report_type() -> None:
+    from app.services.toku_report_parser import SUPPORTED_TYPES
+    from scripts.maintenance.import_toku_reports import LOAD_ORDER
+
+    assert set(LOAD_ORDER) == set(SUPPORTED_TYPES)
+    assert LOAD_ORDER[0] == "productos"
+
+
+@pytest.mark.parametrize("module", ["scripts.maintenance.import_toku_reports", "scripts.maintenance.import_vp_reports"])
+def test_import_script_resolves_every_foreign_key_on_its_own(module: str) -> None:
+    """En un proceso limpio (como en OPS-11) toda FK debe resolver; si no, el flush falla con NoReferencedTableError."""
+    import subprocess
+    import sys
+
+    code = "\n".join(
+        [
+            f"import {module}",
+            "from app.db.session import Base",
+            "for table in Base.metadata.tables.values():",
+            "    for fk in table.foreign_keys:",
+            "        fk.column",
+            "print('ok')",
+        ]
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert out.stdout.strip() == "ok", out.stderr[-500:]

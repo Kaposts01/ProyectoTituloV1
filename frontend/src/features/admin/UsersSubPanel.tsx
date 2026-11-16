@@ -21,10 +21,11 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
 
   async function createUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formEl = event.currentTarget; // tras un await, React deja currentTarget en null
     const form = new FormData(event.currentTarget);
     try {
       await postJson("/api/v1/admin/users", { username: form.get("username"), password: form.get("password"), role_ids: form.getAll("role_ids") });
-      event.currentTarget.reset();
+      formEl.reset();
       setCreating(false);
       setMessage("Usuario creado.");
       reload();

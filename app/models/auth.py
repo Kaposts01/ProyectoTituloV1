@@ -6,6 +6,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Table,
     Text,
@@ -40,6 +41,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # CRM-16A: version de sesion. Va en el JWT (`tv`); logout, cambio o reseteo de clave la incrementan y todas las
+    # sesiones emitidas antes dejan de valer.
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True)
     roles: Mapped[list["Role"]] = relationship(secondary=user_roles, back_populates="users")

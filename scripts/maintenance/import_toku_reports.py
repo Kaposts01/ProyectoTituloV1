@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import SessionLocal
+from app.models import load_all_models
 from app.services import toku_report_import
 from app.services.toku_report_import import ReportImportError, _sha256_file
 from app.services.toku_report_parser import (
@@ -38,7 +39,10 @@ from app.services.toku_report_parser import (
     open_report,
 )
 
-LOAD_ORDER = ("productos", "medios_pago", "inscripciones", "deudas", "intentos")
+LOAD_ORDER = ("productos", "clientes", "medios_pago", "inscripciones", "deudas", "intentos", "pagos", "liquidaciones")
+
+
+load_all_models()  # las FK de *_report_files apuntan a users y etl_runs
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

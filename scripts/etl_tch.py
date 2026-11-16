@@ -50,6 +50,15 @@ from app.services.payload_sanitization import sanitize_payload
 from app.services.tch_rut import normalize_tch_rut
 from app.services.tch_source_records import sync_tch_source_records
 
+# PostgreSQL acepta como maximo 65535 parametros por sentencia; se deja margen.
+_PG_MAX_PARAMS = 60000
+
+
+def _rows_per_chunk(rows: list[dict], cap: int) -> int:
+    """Filas por sentencia segun las columnas reales (la mas ancha del lote), sin pasar de `cap`."""
+    width = max((len(r) for r in rows), default=1) or 1
+    return max(1, min(cap, _PG_MAX_PARAMS // width))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -1445,7 +1454,7 @@ def _bulk_upsert_clients(db, clients: list[dict]) -> int:
     rows = [{"id": uuid.uuid4(), **{**_CLIENT_DEFAULTS, **c}} for c in seen.values()]
 
     # Mantenerse bajo los 65535 parámetros de PostgreSQL al incluir contacto.
-    CHUNK = 4000
+    CHUNK = _rows_per_chunk(rows, 4000)
     for i in range(0, len(rows), CHUNK):
         chunk = rows[i : i + CHUNK]
         stmt = pg_insert(TchClient).values(chunk).on_conflict_do_update(
@@ -1566,8 +1575,8 @@ def _load_subscriptions(db, rows: list[dict], report_period: str | None = None) 
         seen_subscriptions[r["numero_ficha"]] = r
     unique_subscriptions = list(seen_subscriptions.values())
 
-    # Chunk para no superar los 65535 parámetros de PostgreSQL (24 cols x 2700 filas ~= 64800)
-    CHUNK_SUBSCRIPTIONS = 2500
+    # Chunk para no superar los 65535 parámetros de PostgreSQL: con ~52 columnas, 2500 filas los superaban
+    CHUNK_SUBSCRIPTIONS = _rows_per_chunk(unique_subscriptions, 2500)
     inserted = 0  # TCH-PAR-11: nuevas vs actualizadas por RETURNING (xmax = 0 solo en una fila recien insertada)
     written = 0  # CRM-15B: una ficha que ya viene de un reporte mas nuevo no se toca (no la devuelve RETURNING)
     for i in range(0, len(unique_subscriptions), CHUNK_SUBSCRIPTIONS):
@@ -1710,8 +1719,9 @@ def _load_transactions(db, rows: list[dict], file_name: str | None = None, stats
     table = TchTransaction.__table__
     inserted = 0
     for layer in layers:
-        for i in range(0, len(layer), CHUNK):
-            stmt = pg_insert(TchTransaction).values(layer[i : i + CHUNK])
+        chunk_size = _rows_per_chunk(layer, CHUNK)
+        for i in range(0, len(layer), chunk_size):
+            stmt = pg_insert(TchTransaction).values(layer[i : i + chunk_size])
             upsert = stmt.on_conflict_do_update(
                 constraint="uq_tch_transaccion_dedupe_key", set_=_transaction_upsert_set(stmt, table)
             )

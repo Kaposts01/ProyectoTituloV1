@@ -627,3 +627,16 @@ def test_rejection_reason_ignores_the_detail_of_the_rejection_group_label() -> N
     row = etl_tch._transform_transactions(frame, "RECHAZADA", "x.xlsx")[0]
     assert row["razon_rechazo"] == "Fondos insuficientes"
     assert row["periodo"] == "2026-09"
+
+
+def test_rows_per_chunk_stays_under_postgres_parameter_limit() -> None:
+    from app.models.tch import TchSubscription
+    from scripts.etl_tch import _PG_MAX_PARAMS, _rows_per_chunk
+
+    width = len(TchSubscription.__table__.columns)
+    rows = [{f"c{i}": None for i in range(width)}] * 3
+    chunk = _rows_per_chunk(rows, 2500)
+    assert chunk * width <= _PG_MAX_PARAMS < 65535
+    assert _rows_per_chunk([{"a": 1}], 2500) == 2500  # tope respetado
+    assert _rows_per_chunk([], 10) == 10
+    assert _rows_per_chunk([{f"c{i}": 1 for i in range(70000)}], 10) == 1
