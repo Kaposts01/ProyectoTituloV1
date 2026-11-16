@@ -343,7 +343,7 @@ def _materialize_charges_and_payments(db: Session) -> tuple[int, int]:
     pruned_charges = _prune_legacy_charges(db)
     if pruned_payments or pruned_charges:
         log.info(
-            "TCH Core ETL: %d pagos y %d cuotas con clave antigua eliminados (la clave ahora es ficha|periodo|cuota)",
+            "TCH Core ETL: %d pagos y %d cuotas con clave antigua eliminados (la clave ahora es ficha|periodo, d223)",
             pruned_payments,
             pruned_charges,
         )
