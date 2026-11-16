@@ -33,7 +33,7 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 
 ## Siguiente paso (pendiente)
 
-El orden entre d223 (TCH) y el traslado de la carpeta (d232) lo decide el usuario en d232.
+Orden decidido en d232 = b: primero d223 (TCH) y, al final, el traslado del CRM y de `CRM_reportes` a `01-Trabajo`.
 
 1. Fix de d223 en la rama `fix/tch-dedupe-d223`, sin tocar producción. En `scripts/etl_tch.py`, `_dedupe_key` pasa a
    `ficha|periodo`, y `reconcile()` y `file_reconciliation` concilian solo los meses con CARGOS. Se agrega una prueba con
