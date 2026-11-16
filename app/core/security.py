@@ -67,7 +67,8 @@ def create_access_token(user: User) -> tuple[str, str]:
             "iat": issued_at,
             "exp": expires_at,
             "jti": token_urlsafe(16),
-            "tv": int(user.token_version or 0),
+            # getattr: algunas pruebas firman tokens con usuarios sinteticos (SimpleNamespace) sin la columna.
+            "tv": int(getattr(user, "token_version", 0) or 0),
         },
         settings.auth_jwt_secret,
         algorithm="HS256",
