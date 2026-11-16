@@ -1,4 +1,4 @@
-# Estado de producción y cómo retomar (al 2026-11-14)
+# Estado de producción y cómo retomar (actualizado el 2026-11-16)
 
 Documento operativo para retomar el trabajo. La fuente de verdad del plan sigue siendo `docs/tasks.md`; esta página
 resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin secretos: solo nombres de variables.
@@ -30,6 +30,16 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
   `scripts/etl_tch.py` (historial y CARGOS con cuotas distintas). Ficha d223 (aprobada «a»: conciliar solo los meses
   con CARGOS). TCH queda con datos hasta 2026-09; octubre 2026 entra con esa recarga.
 
+## Siguiente paso (pendiente)
+
+1. Fix de d223 en la rama `fix/tch-dedupe-d223`, sin tocar producción. En `scripts/etl_tch.py`, `_dedupe_key` pasa a
+   `ficha|periodo`, y `reconcile()` y `file_reconciliation` concilian solo los meses con CARGOS. Se agrega una prueba con
+   cuotas distintas. PR y merge con el permiso del usuario.
+2. Ventana de TCH (tarea OPS-11B), en un horario acordado con el usuario:
+   - avisar al usuario y pedir el turno pesado al Orquestador antes del ensayo, que tarda unos 55 min;
+   - respaldo, ensayo, recarga completa (incluye octubre de 2026), d211 y ETL Core de TCH;
+   - se espera que «Datos incompletos» baje en unas 433 altas y 421 bajas.
+
 ## Ramas y trabajo abierto
 
 | Rama / ficha | Qué es | Condición |
@@ -40,7 +50,8 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 | d221 (resto) | `/docs` apagado en producción y cabeceras de seguridad | Pendiente (el Postgres local ya está hecho) |
 | d217 | `.wslconfig` con 8 GB para Docker | El usuario corre `Downloads\limitar_memoria_docker.ps1`; reinicia Docker y baja también vpbase |
 | Frontend | vite 8.2.4 y source-map-js 1.2.2 (solo desarrollo) | PR pendiente |
-| Estados de cobro | Unificar los nombres de estado entre canales en el filtro de cobros | Propuesta de mapeo en la Bandeja |
+| Estados de cobro (EST-01) | Unificar los nombres de estado entre canales en el filtro de cobros | Ficha d224, esperando al usuario |
+| PK-07 | 307 suscripciones de Payku en estado `delete` sin fecha de baja (parte de las 728 «bajas sin fecha») | Solo lectura hasta proponer; una regla nueva de fecha va como ficha |
 
 ## Trampas conocidas
 
