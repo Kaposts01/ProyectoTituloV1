@@ -1,4 +1,4 @@
-# Estado de producción y cómo retomar (al 2026-11-15)
+# Estado de producción y cómo retomar (actualizado el 2026-11-16)
 
 Documento operativo para retomar el trabajo. La fuente de verdad del plan sigue siendo `docs/tasks.md`; esta página
 resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin secretos: solo nombres de variables.
@@ -30,12 +30,12 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
   `scripts/etl_tch.py` (historial y CARGOS con cuotas distintas). Ficha d223 (aprobada «a»: conciliar solo los meses
   con CARGOS). TCH queda con datos hasta 2026-09; octubre 2026 entra con esa recarga.
 
-## Siguiente paso (al 2026-11-15)
+## Siguiente paso (pendiente)
 
 1. Fix de d223 en la rama `fix/tch-dedupe-d223`, sin tocar producción. En `scripts/etl_tch.py`, `_dedupe_key` pasa a
    `ficha|periodo`, y `reconcile()` y `file_reconciliation` concilian solo los meses con CARGOS. Se agrega una prueba con
    cuotas distintas. PR y merge con el permiso del usuario.
-2. Ventana de TCH (tarea OPS-11B), en la tarde y después de vpbase 07:40:
+2. Ventana de TCH (tarea OPS-11B), en un horario acordado con el usuario:
    - avisar al usuario y pedir el turno pesado al Orquestador antes del ensayo, que tarda unos 55 min;
    - respaldo, ensayo, recarga completa (incluye octubre de 2026), d211 y ETL Core de TCH;
    - se espera que «Datos incompletos» baje en unas 433 altas y 421 bajas.
