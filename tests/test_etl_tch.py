@@ -75,7 +75,7 @@ def test_load_tch_rows_is_idempotent(db_session) -> None:
         "monto": "12000",
         "estado": "ACEPTADA",
         "archivo_origen": "tch.xlsx",
-        "dedupe_key": "987654|2026-08|1",
+        "dedupe_key": "987654|2026-08",
         "raw_payload": {"source": "test"},
     }]
 
@@ -95,11 +95,11 @@ def test_safe_error_message_redacts_account_like_values() -> None:
     assert "[redacted]" in message
 
 
-# --- TCH-PAR-03 (D13): la clave es (ficha, periodo real, cuota), sin estado ni monto. ---
+# --- TCH-PAR-03 (D13) y d223: la clave es (ficha, periodo real), sin cuota, estado ni monto. ---
 # Resuelve SYNC-GAP-02: la misma cuota rechazada y luego aceptada, o con otro monto, es UNA fila.
 
 def test_dedupe_key_exact_format() -> None:
-    assert etl_tch._dedupe_key(101, "2026-08", "3") == "101|2026-08|3"
+    assert etl_tch._dedupe_key(101, "2026-08") == "101|2026-08"
 
 
 def test_dedupe_key_does_not_depend_on_status_nor_amount() -> None:
@@ -114,27 +114,22 @@ def test_dedupe_key_does_not_depend_on_status_nor_amount() -> None:
     rejected = etl_tch._transform_transactions(frame, "RECHAZADA", "r.xlsx")[0]["dedupe_key"]
     frame["Monto Cuota"] = ["$15.000"]
     other_amount = etl_tch._transform_transactions(frame, "ACEPTADA", "a.xlsx")[0]["dedupe_key"]
-    assert accepted == rejected == other_amount == "101|2026-08|3"
+    assert accepted == rejected == other_amount == "101|2026-08"
 
 
-def test_dedupe_key_none_fields_become_empty_segments() -> None:
-    assert etl_tch._dedupe_key(101, None, None) == "101||"
-    assert etl_tch._dedupe_key(101, "", "") == "101||"
+def test_dedupe_key_none_period_becomes_empty_segment() -> None:
+    assert etl_tch._dedupe_key(101, None) == "101|"
+    assert etl_tch._dedupe_key(101, "") == "101|"
 
 
-def test_dedupe_key_none_and_empty_are_equivalent_but_zero_is_not() -> None:
-    assert etl_tch._dedupe_key(1, "2026-08", None) == etl_tch._dedupe_key(1, "2026-08", "")
-    assert etl_tch._dedupe_key(1, "2026-08", "0") == "1|2026-08|0"
-
-
-def test_dedupe_key_only_normalizes_the_installment() -> None:
-    # Sin strip en periodo (se normaliza antes, en transform); la cuota si se normaliza a entero (TCH-PAR-02).
-    assert etl_tch._dedupe_key(101, " 2026-08", "3 ") == "101| 2026-08|3"
-    assert etl_tch._dedupe_key(101, "2026-08", "3") != etl_tch._dedupe_key(101, "2026-09", "3")
+def test_dedupe_key_does_not_normalize_the_period() -> None:
+    # Sin strip en periodo: se normaliza antes, en transform.
+    assert etl_tch._dedupe_key(101, " 2026-08") == "101| 2026-08"
+    assert etl_tch._dedupe_key(101, "2026-08") != etl_tch._dedupe_key(101, "2026-09")
 
 
 def test_dedupe_key_is_str_file_number_not_zero_padded() -> None:
-    assert etl_tch._dedupe_key(7, "2026-08", "1") == "7|2026-08|1"
+    assert etl_tch._dedupe_key(7, "2026-08") == "7|2026-08"
 
 
 def test_transform_transactions_dedupe_key_matches_helper() -> None:
@@ -147,8 +142,7 @@ def test_transform_transactions_dedupe_key_matches_helper() -> None:
     })
     rows = etl_tch._transform_transactions(frame, "ACEPTADA", "tch.xlsx")
     keys = [r["dedupe_key"] for r in rows]
-    assert "101|2026-08|3" in keys
-    assert "101|2026-07|4" in keys
+    assert keys == ["101|2026-08", "101|2026-07"]
 
 
 # --- TCH-PAR-01: el periodo del cargo sale de "Cuota Mes", no de "Periodo" ni del nombre del archivo. ---
@@ -246,7 +240,7 @@ def test_monthly_file_without_date_in_name_still_gets_real_periods(db_session, t
     etl_tch._process_file(xlsx, db_session)
     rows = db_session.scalars(select(TchTransaction).where(TchTransaction.source_file == xlsx.name)).all()
     assert [r.period for r in rows] == ["2025-03"]
-    assert rows[0].dedupe_key.startswith("910001|2025-03|")
+    assert rows[0].dedupe_key == "910001|2025-03"
 
 
 # --- TCH-PAR-02: numero_cuota siempre entero y dedupe_key estable ---
@@ -264,14 +258,6 @@ def test_norm_installment_returns_none_for_empty_values(empty) -> None:
 def test_norm_installment_keeps_zero_and_non_numeric_text() -> None:
     assert etl_tch._norm_installment(0.0) == "0"
     assert etl_tch._norm_installment("S/N") == "S/N"
-
-
-def test_dedupe_key_is_identical_for_string_float_text_and_float_installment() -> None:
-    claves = {
-        etl_tch._dedupe_key(101, "2026-08", installment)
-        for installment in ("12", "12.0", 12.0, 12)
-    }
-    assert claves == {"101|2026-08|12"}
 
 
 def test_transform_transactions_installment_and_dedupe_key_do_not_depend_on_dtype() -> None:
@@ -292,7 +278,7 @@ def test_transform_transactions_installment_and_dedupe_key_do_not_depend_on_dtyp
     for rows in resultados[:3]:
         assert [r["numero_cuota"] for r in rows] == ["12", "12"]
         assert [r["total_cuotas"] for r in rows] == ["24", "24"]
-        assert [r["dedupe_key"] for r in rows] == ["101|2026-08|12", "102|2026-08|12"]
+        assert [r["dedupe_key"] for r in rows] == ["101|2026-08", "102|2026-08"]
     assert resultados[3][0]["dedupe_key"] == resultados[0][0]["dedupe_key"]
 
 
@@ -307,7 +293,7 @@ def test_transform_history_charges_normalizes_installment_like_charges() -> None
     frame = pd.DataFrame(filas, columns=pd.MultiIndex.from_tuples(columns))
     rows = etl_tch._transform_charge_history(frame, "x.xlsx")
     assert {r["numero_cuota"] for r in rows} == {"12"}
-    assert {r["dedupe_key"] for r in rows} == {"101|2026-01|12"}
+    assert {r["dedupe_key"] for r in rows} == {"101|2026-01"}
 
 
 # --- TCH-PAR-05: monto y moneda de la suscripcion salen de "Monto Vigente" / "Moneda Vigente" ---

@@ -70,10 +70,9 @@ def _reporte_marzo(tmp_path):
     )
 
 
-def test_dedupe_key_is_file_number_period_installment_without_status_nor_amount() -> None:
-    assert etl_tch._dedupe_key(101, "2026-08", "3") == "101|2026-08|3"
-    assert etl_tch._dedupe_key(101, "2026-08", 3.0) == "101|2026-08|3"
-    assert etl_tch._dedupe_key(101, None, None) == "101||"
+def test_dedupe_key_is_file_number_and_period_without_installment_status_nor_amount() -> None:
+    assert etl_tch._dedupe_key(101, "2026-08") == "101|2026-08"
+    assert etl_tch._dedupe_key(101, None) == "101|"
 
 
 def test_same_installment_rejected_then_accepted_is_one_row_with_the_previous_rejection(db_session, tmp_path) -> None:
@@ -172,6 +171,37 @@ def test_legacy_keys_are_detected_before_an_incremental_load(db_session) -> None
     assert etl_tch._has_legacy_dedupe_keys(db_session) is True
 
 
+def test_keys_with_the_installment_are_legacy_too(db_session) -> None:
+    # d223: la clave ficha|periodo|cuota (D13) tambien es antigua; la vigente ficha|periodo no lo es.
+    db_session.add(TchTransaction(file_number=2, period="2026-01", status="ACEPTADA", dedupe_key="2|2026-01"))
+    db_session.flush()
+    assert etl_tch._has_legacy_dedupe_keys(db_session) is False
+    db_session.add(TchTransaction(file_number=3, period="2026-01", status="ACEPTADA", dedupe_key="3|2026-01|7"))
+    db_session.flush()
+    assert etl_tch._has_legacy_dedupe_keys(db_session) is True
+
+
+def _row(origin: str, installment: str, status: str, **extra) -> dict:
+    return {
+        "numero_ficha": 940001, "periodo": "2024-12", "numero_cuota": installment, "monto": "10000", "estado": status,
+        "archivo_origen": "x.xlsx", "dedupe_key": etl_tch._dedupe_key(940001, "2024-12"), "origen": origin,
+        "raw_payload": {"source": "test"}, **extra,
+    }
+
+
+@pytest.mark.parametrize("cargo_first", [False, True])
+def test_history_and_charge_with_different_installment_numbers_are_one_row(db_session, cargo_first) -> None:
+    # d223: el historial numera la cuota 18 y CARGOS la 6 (difieren en multiplos de 12). Antes quedaban dos filas.
+    history = _row(etl_tch.ORIGIN_HISTORY, "18", "RECHAZADA")
+    charge = _row(etl_tch.ORIGIN_CHARGE, "6", "ACEPTADA", fecha_cargo="2024-12-10", tipo_transaccion="Cargo")
+    for row in ([charge, history] if cargo_first else [history, charge]):
+        etl_tch._load_transactions(db_session, [row], "x.xlsx")
+    filas = _filas(db_session, 940001)
+    assert len(filas) == 1
+    fila = filas[0]
+    assert (fila.origin, fila.installment_number, fila.charge_date) == (etl_tch.ORIGIN_CHARGE, "6", "2024-12-10")
+
+
 def test_currency_column_wins_over_the_payload_when_resolving_currency() -> None:
     from types import SimpleNamespace
 
@@ -179,3 +209,21 @@ def test_currency_column_wins_over_the_payload_when_resolving_currency() -> None
 
     assert _resolve_currency(SimpleNamespace(currency="UF", raw_payload={"moneda_vigente": "CLP"})) == "UF"
     assert _resolve_currency(SimpleNamespace(currency=None, raw_payload={"moneda_vigente": "UF"})) == "UF"
+
+
+def test_core_prunes_charges_with_the_installment_key_once_the_reload_replaced_them(db_session) -> None:
+    # d223: tras la recarga, core_charges no debe quedar con la clave ficha|periodo|cuota junto a la nueva.
+    from app.models.core import CoreCharge
+    from app.services import core_tch_etl
+
+    db_session.add(TchTransaction(file_number=950001, period="2024-12", status="ACEPTADA", dedupe_key="950001|2024-12"))
+    db_session.add(TchTransaction(file_number=950002, period="2024-12", status="ACEPTADA", dedupe_key="950002|2024-12|3"))
+    db_session.add_all([
+        CoreCharge(source="tch", external_id="950001|2024-12|6"),  # antigua y reemplazada: se borra
+        CoreCharge(source="tch", external_id="950001|2024-12"),  # vigente: se queda
+        CoreCharge(source="tch", external_id="950002|2024-12|3"),  # antigua pero aun en tch_transacciones: se queda
+    ])
+    db_session.flush()
+    assert core_tch_etl._prune_legacy_charges(db_session) == 1
+    quedan = set(db_session.scalars(select(CoreCharge.external_id).where(CoreCharge.external_id.like("95000_|%"))))
+    assert quedan == {"950001|2024-12", "950002|2024-12|3"}

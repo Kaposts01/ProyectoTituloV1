@@ -222,8 +222,8 @@ def _control_check(rows, controls, period="2026-09"):
     )["control"]
 
 
-def _tx(key: str, status: str, period: str = "2026-09") -> dict:
-    return {"dedupe_key": key, "estado": status, "periodo": period}
+def _tx(key: str, status: str, period: str = "2026-09", origin: str = etl_tch.ORIGIN_CHARGE) -> dict:
+    return {"dedupe_key": key, "estado": status, "periodo": period, "origen": origin}
 
 
 def test_control_check_flags_a_file_that_does_not_match_its_own_control() -> None:
@@ -240,6 +240,14 @@ def test_control_check_flags_a_file_that_does_not_match_its_own_control() -> Non
 def test_control_check_uses_the_final_state_of_each_installment_and_only_the_report_month() -> None:
     control = [{"periodo": "2026-09", "aceptadas_cantidad": 1, "rechazadas_cantidad": 0}]
     rows = [_tx("1|2026-09|1", "RECHAZADA"), _tx("1|2026-09|1", "ACEPTADA"), _tx("2|2026-08|1", "RECHAZADA", "2026-08")]
+    check = _control_check(rows, control)
+    assert (check["archivo_aceptadas"], check["archivo_rechazadas"], check["cuadra"]) == (1, 0, True)
+
+
+def test_control_check_ignores_the_portfolio_history() -> None:
+    # d223 = a: solo cuentan las hojas CARGOS; el historial mensual es estado del mandato.
+    control = [{"periodo": "2026-09", "aceptadas_cantidad": 1, "rechazadas_cantidad": 0}]
+    rows = [_tx("1|2026-09", "ACEPTADA"), _tx("2|2026-09", "RECHAZADA", origin=etl_tch.ORIGIN_HISTORY)]
     check = _control_check(rows, control)
     assert (check["archivo_aceptadas"], check["archivo_rechazadas"], check["cuadra"]) == (1, 0, True)
 

@@ -30,7 +30,10 @@ def db_session():
 
 def _tx(period: str, status: str, n: int, base: int = 1) -> list[TchTransaction]:
     return [
-        TchTransaction(file_number=base + i, period=period, installment_number="1", status=status, dedupe_key=f"{base + i}|{period}|1")
+        TchTransaction(
+            file_number=base + i, period=period, installment_number="1", status=status, dedupe_key=f"{base + i}|{period}",
+            origin=etl_tch.ORIGIN_CHARGE,
+        )
         for i in range(n)
     ]
 
@@ -100,6 +103,32 @@ def test_reconcile_can_exclude_months_without_source_detail(db_session) -> None:
     assert etl_tch.reconcile(db_session, months=["2090-01"], exclude_months={"2090-01"}).ok
 
 
+def test_reconcile_counts_only_charges_and_ignores_the_portfolio_history(db_session) -> None:
+    # d223 = a: el historial repite el estado del mandato; con el, la base contaba de mas frente al control.
+    historial = [
+        TchTransaction(file_number=700000 + i, period="2090-01", status="RECHAZADA", dedupe_key=f"{700000 + i}|2090-01",
+                       origin=etl_tch.ORIGIN_HISTORY)
+        for i in range(50)
+    ]
+    db_session.add_all([*_tx("2090-01", "ACEPTADA", 10), *historial, _control("2090-01", 10, 0)])
+    db_session.flush()
+    result = etl_tch.reconcile(db_session, months=["2090-01"])
+    assert result.ok
+    assert (result.months[0].db_accepted, result.months[0].db_rejected) == (10, 0)
+
+
+def test_reconcile_marks_months_without_charges_as_without_detail(db_session) -> None:
+    solo_historial = TchTransaction(file_number=710001, period="2090-02", status="ACEPTADA", dedupe_key="710001|2090-02",
+                                    origin=etl_tch.ORIGIN_HISTORY)
+    db_session.add_all([*_tx("2090-01", "ACEPTADA", 10), _control("2090-01", 10, 0), solo_historial, _control("2090-02", 900, 50)])
+    db_session.flush()
+    result = etl_tch.reconcile(db_session, months=["2090-01", "2090-02"])
+    febrero = next(m for m in result.months if m.period == "2090-02")
+    assert febrero.no_detail and febrero.excluded and result.ok
+    assert result.total_control == 10  # el mes sin detalle no entra al total
+    assert "sin detalle" in etl_tch.format_reconciliation(result)
+
+
 def test_reconcile_report_prints_only_counts_and_differences(db_session) -> None:
     db_session.add_all([*_tx("2090-01", "ACEPTADA", 5), _control("2090-01", 6, 0)])
     db_session.flush()
@@ -111,7 +140,8 @@ def test_reconcile_report_prints_only_counts_and_differences(db_session) -> None
 
 def test_reload_that_reconciles_is_committed(db_session, tmp_path) -> None:
     _sembrar_base_previa(db_session)
-    outcome = etl_tch.reload_full(db_session, [_reporte(tmp_path, 4, 1)], apply=True)
+    # d223: el control se compara solo con CARGOS (3 aceptados + 1 rechazado); el mes del historial no cuenta.
+    outcome = etl_tch.reload_full(db_session, [_reporte(tmp_path, 3, 1)], apply=True)
     assert outcome.committed and outcome.reconciliation.ok
     filas = list(db_session.scalars(select(TchTransaction.file_number)))
     assert 999001 not in filas  # la base previa se reconstruyo
@@ -131,7 +161,7 @@ def test_reload_that_does_not_reconcile_rolls_back_and_leaves_the_database_intac
 def test_dry_run_reports_counts_and_always_rolls_back(db_session, tmp_path) -> None:
     _sembrar_base_previa(db_session)
     before = _totales(db_session)
-    outcome = etl_tch.reload_full(db_session, [_reporte(tmp_path, 4, 1)], apply=False)
+    outcome = etl_tch.reload_full(db_session, [_reporte(tmp_path, 3, 1)], apply=False)
     assert outcome.reconciliation.ok and not outcome.committed
     assert _totales(db_session) == before
 

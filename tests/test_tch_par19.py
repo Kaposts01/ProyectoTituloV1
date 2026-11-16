@@ -76,11 +76,11 @@ def test_portfolio_layouts_load_identity_history_and_charges(db_session, tmp_pat
     assert set(totals["fichas"]) == set(FICHAS)
 
     tx = _tx(db_session)
-    assert set(tx) == {f"961001|{year}-11|5", f"961001|{year}-12|6", f"961002|{year}-12|1", f"961003|{year}-11|2"}
-    retry = tx[f"961001|{year}-12|6"]  # historial 6.0 "Impaga" + cargo rechazado + reintento aceptado = una fila
+    assert set(tx) == {f"961001|{year}-11", f"961001|{year}-12", f"961002|{year}-12", f"961003|{year}-11"}
+    retry = tx[f"961001|{year}-12"]  # historial 6.0 "Impaga" + cargo rechazado + reintento aceptado = una fila
     assert (retry.status, retry.transaction_type, retry.previous_rejection) == ("ACEPTADA", "Reintento", True)
     assert retry.previous_rejection_reason == "Fondos insuficientes"
-    assert tx[f"961002|{year}-12|1"].origin == "cargo"  # cuota 1.0 del cargo y 1 del historial: misma clave
+    assert tx[f"961002|{year}-12"].origin == "cargo"  # cuota 1.0 del cargo y 1 del historial: misma clave
 
     assert etl_tch.reconcile(db_session, months=[f"{year}-11", f"{year}-12"]).ok
 
@@ -104,10 +104,11 @@ def test_report_without_portfolio_loads_the_rest_and_does_not_cancel_anyone(db_s
     subs = _subs(db_session)
     assert set(subs) == {961003, 961004}  # ELIMINADOS y RECHAZADOS si se cargan
     tx = _tx(db_session)
-    assert {"961001|2023-12|6", "961002|2023-12|1", "961003|2023-11|2"} == set(tx)
-    # Sin la cartera falta el estado mensual de los vigentes: noviembre queda bajo el control (limite de la fuente).
+    assert {"961001|2023-12", "961002|2023-12", "961003|2023-11"} == set(tx)
+    # Noviembre solo trae historial (sin CARGOS): con d223 = a queda «sin detalle» y no se valida.
     result = etl_tch.reconcile(db_session, months=["2023-11", "2023-12"])
-    assert result.failed_months == ["2023-11"]
+    noviembre = next(m for m in result.months if m.period == "2023-11")
+    assert noviembre.no_detail and result.failed_months == []
 
 
 @pytest.mark.parametrize(
