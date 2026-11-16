@@ -173,3 +173,13 @@ def real_pilot_allowlist(monkeypatch):
 
     monkeypatch.setattr(settings, "billing_pilot_allowlist", "")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """CRM-16A/16D: los contadores en memoria (login y rate limit de la API) parten vacios en cada test."""
+    from app.core.rate_limit import reset_all
+
+    reset_all()
+    yield
+    reset_all()

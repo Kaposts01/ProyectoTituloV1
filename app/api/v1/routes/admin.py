@@ -5,12 +5,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.password_policy import PasswordPolicyError, validate_new_password
 from app.core.security import (
     get_db,
     hash_password,
     require_any_permission,
     require_csrf,
     require_permissions,
+    revoke_sessions,
 )
 from app.models.auth import Permission, Role, User
 from app.services.billing_requests import policy_effective_approvers
@@ -34,6 +36,14 @@ class UserInput(BaseModel):
 class UserUpdate(BaseModel):
     is_active: bool | None = None
     role_ids: set[uuid.UUID] | None = Field(default=None, min_length=1)
+
+
+def _check_password_policy(password: str, username: str) -> None:
+    """CRM-16A: politica de claves nuevas (largo y lista de comunes). 422 con mensaje apto para el usuario."""
+    try:
+        validate_new_password(password, username)
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _roles(db: Session, role_ids: set[uuid.UUID]) -> list[Role]:
@@ -135,6 +145,7 @@ def create_user(body: UserInput, db: Session = Depends(get_db), current_user: Us
     # SEC-4: only an admin can create an admin account
     if any(role.name == "admin" for role in new_roles) and not any(role.name == "admin" for role in current_user.roles):
         raise HTTPException(status_code=403, detail="Only an admin can create an admin account")
+    _check_password_policy(body.password, body.username)
     user = User(username=body.username, password_hash=hash_password(body.password), roles=new_roles)
     db.add(user)
     db.commit()
@@ -184,7 +195,9 @@ def reset_user_password(user_id: uuid.UUID, body: PasswordReset, db: Session = D
     # SEC-1: only an admin can reset another admin's password
     if _is_active_admin(user) and not any(role.name == "admin" for role in current_user.roles):
         raise HTTPException(status_code=403, detail="Only an admin can reset another admin's password")
+    _check_password_policy(body.new_password, user.username)
     user.password_hash = hash_password(body.new_password)
+    revoke_sessions(user)  # CRM-16A: las sesiones abiertas del usuario reseteado dejan de valer
     db.commit()
     return {"id": str(user.id), "username": user.username}
 
