@@ -17,7 +17,8 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 
 ## Estado tras OPS-11 (2026-11-14)
 
-- Base `crm` en la revisión `20261104_0071`. Respaldos: `crm_20261114_1250.dump` (antes de la ventana) y
+- Base `crm` y `crm_sandbox` en la revisión `20261114_0080` desde el 16/11 (login seguro, PR #47); respaldo previo
+  `crm_20261115_2357.dump`. Antes de eso, en OPS-11: `crm_20261114_1250.dump` (antes de la ventana) y
   `crm_20261114_1501.dump` (después del paso 8), en `C:\Users\Usuario\Downloads\CRM_backups`.
 - `AUTH_JWT_SECRET` rotado el 14/11. Variables nuevas en el `.env`: `TOKU_REPORT_HASH_PEPPER` y
   `VP_REPORT_HASH_PEPPER` (respaldadas por el usuario en su gestor; cambiarlas invalida los hashes guardados),
@@ -32,6 +33,8 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 
 ## Siguiente paso (pendiente)
 
+El orden entre d223 (TCH) y el traslado de la carpeta (d232) lo decide el usuario en d232.
+
 1. Fix de d223 en la rama `fix/tch-dedupe-d223`, sin tocar producción. En `scripts/etl_tch.py`, `_dedupe_key` pasa a
    `ficha|periodo`, y `reconcile()` y `file_reconciliation` concilian solo los meses con CARGOS. Se agrega una prueba con
    cuotas distintas. PR y merge con el permiso del usuario.
@@ -44,8 +47,7 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 
 | Rama / ficha | Qué es | Condición |
 |---|---|---|
-| `feat/login-seguro` (d219) | Login endurecido y rate limit (CRM-16A/16D) | Ventana aparte: aplicar la migración `20261114_0080` **antes** del merge |
-| `feat/payku-prueba-consumo` (d213 b) | Prueba de 1 CLP en Payku productivo | Confirmación del usuario en el chat antes de cada escritura |
+| PK-09 (d213 b) | Prueba de 1 CLP en Payku productivo; el código ya está en `master` (PR #46) | Confirmación del usuario en el chat antes de cada escritura; después cargar el ID en `PAYKU_KPI_EXCLUDED_IDS` y reiniciar el 8000 |
 | CRM-16B (d218 b) | Login con Google, solo `@techo.org` | Sin empezar; rama prevista `feat/google-oauth-16b` |
 | d221 (resto) | `/docs` apagado en producción y cabeceras de seguridad | Pendiente (el Postgres local ya está hecho) |
 | d217 | `.wslconfig` con 8 GB para Docker | El usuario corre `Downloads\limitar_memoria_docker.ps1`; reinicia Docker y baja también vpbase |
@@ -55,6 +57,8 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 
 ## Trampas conocidas
 
+- **Login seguro (CRM-16A):** 20 fallos de login desde una misma IP la bloquean, y todo el uso local sale de
+  `127.0.0.1`. Al probar, no repetir logins fallidos. Los contadores viven en memoria: reiniciar el 8000 los limpia.
 - **`--reload` y merges:** un `git pull` en el checkout principal recarga el 8000 en caliente. Con migraciones,
   detener el 8000 **antes** del pull. Al detenerlo, matar el árbol (`taskkill /PID <ventana> /T /F`) y comprobar con
   `/health` y `Get-NetTCPConnection -LocalPort 8000`: un proceso hijo huérfano puede seguir atendiendo.
