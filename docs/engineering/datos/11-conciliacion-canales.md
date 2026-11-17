@@ -1,7 +1,7 @@
 # Conciliación de Canales — SynkmetriX
 
 **Fecha:** 2026-10-20  
-**Fuente de reportes:** `C:\Users\Usuario\Downloads\CRM_reportes\`  
+**Fuente de reportes:** `C:\Users\Usuario\Proyectos\01-Trabajo\Reportes-Canales\`  
 **Base de datos:** PostgreSQL 17, puerto 5433, DB `crm`
 
 ---

@@ -19,7 +19,7 @@ resume cómo está corriendo producción hoy y qué trampas conocidas hay. Sin s
 
 - Base `crm` y `crm_sandbox` en la revisión `20261114_0080` desde el 16/11 (login seguro, PR #47); respaldo previo
   `crm_20261115_2357.dump`. Antes de eso, en OPS-11: `crm_20261114_1250.dump` (antes de la ventana) y
-  `crm_20261114_1501.dump` (después del paso 8), en `C:\Users\Usuario\Downloads\CRM_backups`.
+  `crm_20261114_1501.dump` (después del paso 8), en `C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos`.
 - `AUTH_JWT_SECRET` rotado el 14/11. Variables nuevas en el `.env`: `TOKU_REPORT_HASH_PEPPER` y
   `VP_REPORT_HASH_PEPPER` (respaldadas por el usuario en su gestor; cambiarlas invalida los hashes guardados),
   `ALERT_*` con `ALERTS_ENABLED=true`, `SYNC_CORE_ETL_ENABLED=true` (d215) y las `GOOGLE_OAUTH_*` (CRM-16B; el código
@@ -70,5 +70,5 @@ Orden decidido en d232 = b: primero d223 (TCH) y, al final, el traslado del CRM 
 - **PowerShell:** usar `$env:X = $null` para quitar variables (`Remove-Item Env:` está bloqueado en las sesiones de
   Claude) y `| Out-File -Encoding utf8` para logs (`*>` escribe UTF-16).
 - **pytest local:** pasar `--basetemp` a una carpeta propia; `AppData\Local\Temp\pytest-of-Usuario` da Acceso denegado.
-- **Reportes de Toku:** 9 de los 16 archivos de `CRM_reportes\Toku` son de tipos no soportados y el script los
+- **Reportes de Toku:** 9 de los 16 archivos de `Reportes-Canales\Toku` son de tipos no soportados y el script los
   informa como error; es esperado. El cargador aplica «el más nuevo gana» por fila.

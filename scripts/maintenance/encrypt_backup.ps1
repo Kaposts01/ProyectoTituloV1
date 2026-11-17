@@ -14,7 +14,7 @@
 
 .EXAMPLE
   $env:CRM_BACKUP_KEY = '<frase larga>'   # solo en esta sesion
-  .\scripts\maintenance\encrypt_backup.ps1 -InputFile C:\Users\Usuario\Downloads\CRM_backups\crm_20261108_0500.dump `
+  .\scripts\maintenance\encrypt_backup.ps1 -InputFile C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos\crm_20261108_0500.dump `
       -OutputFile D:\Nube\crm_20261108_0500.dump.enc
 .EXAMPLE
   .\scripts\maintenance\encrypt_backup.ps1 -InputFile ...\crm_20261108_0500.dump -KeyFile E:\claves\crm_backup.key

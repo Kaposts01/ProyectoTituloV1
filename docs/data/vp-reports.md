@@ -40,7 +40,7 @@ Se eligió B por ser la menos invasiva. Tablas (migración `20261029_0045`, mode
 ## 2. Columnas de los reportes y mapeo
 
 Encabezados medidos con una lectura que solo imprime la fila de encabezados (2026-10-29). Los 74 archivos locales de
-`CRM_reportes\VirtualPOS` (40 `TransaccionesPAT`, 34 `SuscriptoresPAT`) tienen exactamente el mismo encabezado por tipo, son
+`Reportes-Canales\VirtualPOS` (40 `TransaccionesPAT`, 34 `SuscriptoresPAT`) tienen exactamente el mismo encabezado por tipo, son
 UTF-8 con BOM y delimitador coma. Hay **columnas con nombre parecido** (`Id suscripción` vs `ID suscripción interno`) y el `Id suscripción`
 trae un **tabulador final** (el parser lo limpia). Las fechas son `dd/mm/aaaa` (cobro) o `dd/mm/aaaa hh:mm` (autorización, abono, alta)
 en hora de Chile.
@@ -126,13 +126,13 @@ nombre, sha256 y contadores, sin contenido. No hay pantalla todavía (frontend).
 
 ```powershell
 $env:PYTHONPATH='.'
-.venv\Scripts\python.exe scripts\maintenance\import_vp_reports.py --dir "C:\Users\Usuario\Downloads\CRM_reportes\VirtualPOS"            # dry-run (solo lectura)
-.venv\Scripts\python.exe scripts\maintenance\import_vp_reports.py --dir "C:\Users\Usuario\Downloads\CRM_reportes\VirtualPOS" --apply    # carga
+.venv\Scripts\python.exe scripts\maintenance\import_vp_reports.py --dir "C:\Users\Usuario\Proyectos\01-Trabajo\Reportes-Canales\VirtualPOS"            # dry-run (solo lectura)
+.venv\Scripts\python.exe scripts\maintenance\import_vp_reports.py --dir "C:\Users\Usuario\Proyectos\01-Trabajo\Reportes-Canales\VirtualPOS" --apply    # carga
 ```
 
 Requisitos para `--apply` en `crm` (lo ejecuta el usuario): migraciones `20261029_0045` y `20261029_0046` aplicadas, respaldo previo, y opcionalmente
 `VP_REPORT_HASH_PEPPER` en el `.env` (sin él se carga igual pero sin `seller_code_hash`; cambiarlo después invalida la correlación de los hashes ya guardados).
-Si aparece el mismo reporte en `Downloads` y en `CRM_reportes\VirtualPOS`, el segundo se omite por sha256.
+Si aparece el mismo reporte en `Downloads` y en `Reportes-Canales\VirtualPOS`, el segundo se omite por sha256.
 
 ## 6. Efecto sobre `crm` al ejecutarlo (estimación sobre datos sintéticos; no se ha tocado `crm`)
 

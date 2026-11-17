@@ -17,14 +17,14 @@
   pipeline de alertas (scripts\maintenance\backup_alert.py -> app/services/alerts.py).
 
 .EXAMPLE
-  .\scripts\maintenance\backup_db.ps1                                  # crm -> Downloads\CRM_backups
+  .\scripts\maintenance\backup_db.ps1                                  # crm -> 01-Trabajo\CRM_projectoTitulo-respaldos
   .\scripts\maintenance\backup_db.ps1 -Database crm_sandbox -Destination C:\temp\bk
   .\scripts\maintenance\backup_db.ps1 -ExternalCopyPath E:\CRM_backups -AlertOnFailure
 #>
 [CmdletBinding()]
 param(
     [string]$Database = 'crm',
-    [string]$Destination = 'C:\Users\Usuario\Downloads\CRM_backups',
+    [string]$Destination = 'C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos',
     [ValidateRange(1, 3650)][int]$RetentionDays = 14,
     [string]$ExternalCopyPath,
     [switch]$AlertOnFailure,
