@@ -63,9 +63,9 @@ Rescate general: sección **R** al final. Cada paso dice su rescate acotado.
 Abrir **una** terminal PowerShell 7 dedicada a la ventana (no la del backend). Ninguna variable contiene secretos.
 
 ```powershell
-$repo   = 'C:\Users\Usuario\Downloads\Proyectos\CRM_projectoTitulo'   # checkout principal, rama master
-$rep    = 'C:\Users\Usuario\Downloads\Proyectos\CRM_reportes'          # ubicación única de reportes (d203)
-$bkdir  = 'C:\Users\Usuario\Downloads\CRM_backups'                     # fuera del repo
+$repo   = 'C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo'   # checkout principal, rama master
+$rep    = 'C:\Users\Usuario\Proyectos\01-Trabajo\Reportes-Canales'          # ubicación única de reportes (d203)
+$bkdir  = 'C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos'                     # fuera del repo
 $pgc    = 'crm_projectotitulo-postgres-1'                              # contenedor (handoff §3)
 Set-Location $repo
 $u = (docker compose exec -T postgres printenv POSTGRES_USER).Trim()   # nombre del usuario de la base, no es secreto
@@ -212,7 +212,7 @@ Esperado: `AUTH_JWT_SECRET rotado (largo 96)`. Nunca imprimir ni pegar el valor.
 En la **misma ventana donde corría** (no en la terminal de la ventana, que tiene `APP_ENV` fijado):
 
 ```powershell
-Set-Location 'C:\Users\Usuario\Downloads\Proyectos\CRM_projectoTitulo'
+Set-Location 'C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo'
 Remove-Item Env:APP_ENV, Env:DATABASE_URL, Env:SANDBOX_DATABASE_URL -ErrorAction SilentlyContinue
 .venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -376,7 +376,7 @@ hashes guardados. Comprobación sin mostrar el valor:
 
 Esperado: `1`. Reiniciar el 8000 (paso 3.3) para que la ruta `/api/v1/imports/toku-reports` lo lea.
 
-### 5.2 Reportes: la generación más reciente de `CRM_reportes\Toku` (d196)
+### 5.2 Reportes: la generación más reciente de `Reportes-Canales\Toku` (d196)
 
 `import_toku_reports.py` (banderas `--dir`, archivos sueltos y `--apply`) toma con `--dir` todos los `*.xlsx` de la
 carpeta e informa y omite los de tipo no soportado; los `.csv` de la carpeta no los toma. Contenido al 2026-11-13: 14
@@ -755,7 +755,7 @@ Abiertos:
 
 Cerrados el 2026-11-13 (verificados en código):
 
-- Carpeta de TCH: `C:\Users\Usuario\Downloads\Proyectos\CRM_reportes\TCH` (corregida también en `tch-reload.md` de
+- Carpeta de TCH: `C:\Users\Usuario\Proyectos\01-Trabajo\Reportes-Canales\TCH` (corregida también en `tch-reload.md` de
   `fix/tch-recuperador-estado-monto`).
 - `seed_roles.py` crea `payku.wallet.withdraw` vía `seed_permissions` (rama `feat/payku-prueba-y-retiro`).
 - `import_vp_reports.py --dir` acepta una sola carpeta y no es recursivo: dos corridas (6.2).

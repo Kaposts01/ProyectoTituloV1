@@ -26,7 +26,7 @@
 param(
     [string]$TaskName = 'SynkmetriX - Respaldo diario crm',
     [string]$At = '05:00',
-    [string]$Destination = 'C:\Users\Usuario\Downloads\CRM_backups',
+    [string]$Destination = 'C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos',
     [ValidateRange(1, 3650)][int]$RetentionDays = 14,
     [string]$ExternalCopyPath,
     [switch]$AlertOnFailure,

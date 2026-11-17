@@ -16,7 +16,7 @@ Runbook de respaldo, cifrado y restauración de PostgreSQL del CRM. Todos los sc
 
 1. **Respaldo diario (05:00).** La tarea programada corre `backup_db.ps1 -Database crm`:
    - `docker compose exec -T postgres pg_dump -U <POSTGRES_USER> -Fc -d crm`. El dump sale por stdout y se
-     escribe en `C:\Users\Usuario\Downloads\CRM_backups\crm_YYYYMMDD_HHmm.dump` (primero como `.partial`).
+     escribe en `C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos\crm_YYYYMMDD_HHmm.dump` (primero como `.partial`).
      No se crean archivos dentro del contenedor.
    - Se valida con `pg_restore --list` (el archivo entra por stdin). Si no es un archivo válido, se borra el
      `.partial` y el script sale con código 1.
@@ -58,7 +58,7 @@ la copia de la nube es irrecuperable.
 
 ```powershell
 $env:CRM_BACKUP_KEY = Read-Host 'Frase de cifrado'   # no queda en el historial
-.\scripts\maintenance\encrypt_backup.ps1 -InputFile C:\Users\Usuario\Downloads\CRM_backups\crm_20261108_0500.dump `
+.\scripts\maintenance\encrypt_backup.ps1 -InputFile C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos\crm_20261108_0500.dump `
     -OutputFile "$env:USERPROFILE\OneDrive\CRM_backups\crm_20261108_0500.dump.enc"
 Remove-Item Env:CRM_BACKUP_KEY
 ```
@@ -83,7 +83,7 @@ copia del script junto a la frase, fuera de la nube). Si se prefiere un formato 
 - **Cada mes (o después de un cambio de esquema):** simulacro con el último respaldo:
 
 ```powershell
-.\scripts\maintenance\restore_drill.ps1 -DumpFile C:\Users\Usuario\Downloads\CRM_backups\crm_20261108_0500.dump -SourceDatabase crm
+.\scripts\maintenance\restore_drill.ps1 -DumpFile C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos\crm_20261108_0500.dump -SourceDatabase crm
 ```
 
   Restaura en `crm_restore_test` (la borra y la recrea) y compara el conteo exacto de filas por tabla contra `crm`
@@ -102,7 +102,7 @@ Guarda dura del drill: el destino debe llamarse exactamente `crm_restore_test`; 
 
 1. **Detener** el backend, el frontend y cualquier tarea programada de sincronización (para que nadie escriba).
 2. **Respaldar el estado actual** aunque esté dañado (sirve para análisis posterior):
-   `.\scripts\maintenance\backup_db.ps1 -Database crm -Destination C:\Users\Usuario\Downloads\CRM_backups\pre_restore`
+   `.\scripts\maintenance\backup_db.ps1 -Database crm -Destination C:\Users\Usuario\Proyectos\01-Trabajo\CRM_projectoTitulo-respaldos\pre_restore`
 3. **Elegir el dump.** El más reciente válido de `CRM_backups` o del disco externo. Si solo queda la nube:
    descargar el `.dump.enc` y descifrarlo con `decrypt_backup.ps1 -InputFile ... -OutputFile C:\restore\crm.dump`.
 4. **Probarlo primero** en `crm_restore_test` (sin comparar, porque `crm` está dañada):

@@ -4,7 +4,7 @@ ETL CLI para carga de reportes Excel TCH (TECHO Chile) a tablas tch_* del CRM.
 
 Uso:
     # Carga histórica completa (todos los .xlsx de una carpeta)
-    python scripts/etl_tch.py --mode full --folder "C:\\Users\\Usuario\\Downloads\\TCH"
+    python scripts/etl_tch.py --mode full --folder "C:\\Users\\Usuario\\Proyectos\\01-Trabajo\\Reportes-Canales\\TCH"
 
     # Carga de un archivo individual (mensual)
     python scripts/etl_tch.py --mode incremental --file "C:\\ruta\\20260831 TCH IG GESTION AGOSTO 2026.XLSX"
