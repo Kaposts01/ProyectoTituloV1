@@ -70,7 +70,12 @@ class ReconciliationRequiredError(Exception):
 
 
 class DuplicateSubscriptionError(Exception):
-    pass
+    """Ya hay una suscripcion activa en el plan (BUG-VP-03): el alta pide confirmacion explicita. Sin RUT en el mensaje."""
+
+    def __init__(self, message: str, *, existing_external_id: str | None = None, existing_status: str | None = None) -> None:
+        super().__init__(message)
+        self.existing_external_id = existing_external_id
+        self.existing_status = existing_status
 
 
 class RetryBlockedError(Exception):
@@ -1224,6 +1229,8 @@ async def _reassign_subscription_amount(
 async def create_subscription(db: Session, data: dict[str, Any], *, requested_by_user_id: uuid.UUID | None = None) -> Subscription:
     """Create a VirtualPOS subscription and persist the response locally."""
     platform = data.pop("platform", "virtualpos1")
+    # BUG-VP-03: la bandera es de control del CRM; no viaja al proveedor.
+    confirm_duplicate = bool(data.pop("confirm_duplicate", False))
     all_secrets = (
         settings.virtualpos_api_key, settings.virtualpos_secret_key,
         settings.virtualpos2_api_key, settings.virtualpos2_secret_key,
@@ -1236,7 +1243,7 @@ async def create_subscription(db: Session, data: dict[str, Any], *, requested_by
             if not _is_base64(raw):
                 data[url_field] = base64.b64encode(raw.encode()).decode()
 
-    # Antiduplicado: evitar crear una segunda suscripción activa para el mismo socio y plan.
+    # Aviso de duplicado: una segunda suscripción activa para el mismo socio y plan exige confirmación explícita.
     plan_id = data.get("plan_id")
     social_id = data.get("social_id")
     if plan_id and social_id:
@@ -1248,10 +1255,11 @@ async def create_subscription(db: Session, data: dict[str, Any], *, requested_by
                 VpSubscription.status.in_(("ACTIVA", "SUSCRIBIENDO")),
             )
         )
-        if existing is not None:
+        if existing is not None and not confirm_duplicate:
             raise DuplicateSubscriptionError(
-                f"Ya existe una suscripción {existing.status} ({existing.external_id}) "
-                f"para el socio {social_id} en el plan {plan_id} ({platform})."
+                f"Ya existe una suscripción {existing.status} ({existing.external_id}) en el plan {plan_id} ({platform}).",
+                existing_external_id=existing.external_id,
+                existing_status=existing.status,
             )
 
     if not settings.virtualpos_writes_enabled:
@@ -1264,7 +1272,7 @@ async def create_subscription(db: Session, data: dict[str, Any], *, requested_by
         operation="create_subscription",
         status="pending",
         requested_by_user_id=requested_by_user_id,
-        request_payload=sanitize_record(data),
+        request_payload={**sanitize_record(data), **({"duplicate_confirmed": True} if confirm_duplicate else {})},
     )
     db.add(write_run)
     db.commit()
@@ -1321,17 +1329,6 @@ async def create_subscription(db: Session, data: dict[str, Any], *, requested_by
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        # The partial unique index uq_vp_sub_active_plan_client caught a concurrent duplicate.
-        if "uq_vp_sub_active_plan_client" in str(exc.orig):
-            write_run = db.get(WriteRun, write_run.id)
-            if write_run is not None:
-                write_run.status = "failed"
-                write_run.error_message = "Duplicate active subscription detected by DB constraint (concurrent request)"
-                write_run.finished_at = datetime.now(UTC)
-                db.commit()
-            raise DuplicateSubscriptionError(
-                f"Duplicate subscription for social_id={social_id} plan={plan_id} ({platform}) — concurrent create"
-            ) from exc
         write_run = db.get(WriteRun, write_run.id)
         if write_run is not None:
             write_run.status = "reconciliation_required"
