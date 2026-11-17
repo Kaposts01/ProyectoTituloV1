@@ -200,11 +200,8 @@ async def _read_payku(external_id: str) -> _Snapshot:
 
 
 def _write_virtualpos(db: Session, source: str, external_id: str, snap: _Snapshot) -> None:
-    skipped: list[str] = []
     store_vp_source_records(db, source, "subscription", [snap.subscription])
-    store_vp_resources(db, "subscription", [snap.subscription], platform=source, skipped_subscriptions=skipped)
-    if skipped:
-        snap.notes.append("duplicate_active_subscription_skipped")
+    store_vp_resources(db, "subscription", [snap.subscription], platform=source)
     store_vp_source_records(db, source, "charge", snap.charges, sync_context={"subscription_external_id": external_id})
     store_vp_resources(db, "charge", snap.charges, platform=source, subscription_external_id=external_id)
 

@@ -12,9 +12,8 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, func, or_, tuple_, update
+from sqlalchemy import func, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.payku_channel import (
@@ -119,15 +118,8 @@ def upsert_channel(
     model: type,
     records: Iterable[dict],
     extract: Callable[[dict], dict],
-    *,
-    skipped: list[str] | None = None,
 ) -> int:
-    """Inserta o actualiza un lote saneado de registros de un canal.
-
-    Si `skipped` es una lista, un lote que viole otra restriccion unica (p. ej. el indice parcial
-    de suscripciones activas) se reintenta fila a fila en SAVEPOINTs; las filas omitidas agregan
-    su external_id a `skipped`. Con `skipped=None` el error se propaga como antes.
-    """
+    """Inserta o actualiza un lote saneado de registros de un canal (un `IntegrityError` se propaga)."""
     identity_fields = ("platform", "external_id") if model in {VpClient, VpPlan, VpSubscription, VpCharge, VpPayment} else ("external_id",)
     seen_at = datetime.now(UTC) if model in _SEEN_TRACKED_MODELS else None
     rows = []
@@ -162,37 +154,8 @@ def upsert_channel(
         index_elements=list(identity_fields), set_=_stamped(model, updatable),
         where=distinct_where(model.__table__, guarded),
     )
-    if skipped is None:
-        db.execute(stmt)
-        _touch_seen(db, model, identity_fields, rows, seen_at)
-        db.commit()
-        return len(rows)
-    try:
-        with db.begin_nested():
-            db.execute(stmt)
-            _touch_seen(db, model, identity_fields, rows, seen_at)
-    except IntegrityError:
-        # Desempate: se conserva la mas reciente por suscription_date; en empate, el mayor external_id.
-        ordered = sorted(rows, key=lambda r: (r.get("suscription_date") or "", r["external_id"]), reverse=True)
-        stored = 0
-        for row in ordered:
-            single = insert(model).values([row])
-            single_set = {key: single.excluded[key] for key in row if key not in (*identity_fields, "id", "created_at")}
-            single = single.on_conflict_do_update(
-                index_elements=list(identity_fields),
-                set_=_stamped(model, single_set),
-                where=distinct_where(model.__table__, single_set),
-            )
-            try:
-                with db.begin_nested():
-                    db.execute(single)
-                stored += 1
-            except IntegrityError:
-                skipped.append(str(row["external_id"]))
-        if seen_at is not None:
-            _touch_skipped_seen(db, model, identity_fields, [r for r in ordered if str(r["external_id"]) in skipped], seen_at)
-        db.commit()
-        return stored
+    db.execute(stmt)
+    _touch_seen(db, model, identity_fields, rows, seen_at)
     db.commit()
     return len(rows)
 
@@ -212,17 +175,6 @@ def _touch_seen(db: Session, model: type, identity_fields: tuple[str, ...], rows
         .values(last_seen_at=seen_at)
         .execution_options(synchronize_session=False)
     )
-
-
-def _touch_skipped_seen(db: Session, model: type, identity_fields: tuple[str, ...], rows: list[dict], seen_at: datetime) -> None:
-    """SYNC-D-13: una fila omitida por otra restriccion unica SI vino del proveedor; si ya existe, queda vista.
-
-    Solo toca `last_seen_at` (no el resto de columnas): sin esto, la deteccion de bajas la tomaria por desaparecida.
-    """
-    if not rows:
-        return
-    keys = [and_(*(getattr(model, f) == row[f] for f in identity_fields)) for row in rows]
-    db.execute(update(model).where(or_(*keys)).values(last_seen_at=seen_at))
 
 
 # ── Extractores VirtualPOS ────────────────────────────────────────────────────
@@ -560,13 +512,9 @@ def store_vp_resources(
     records: list[dict],
     *,
     platform: str,
-    skipped_subscriptions: list[str] | None = None,
     **kwargs: Any,
 ) -> int:
-    """Escribe registros VirtualPOS en su tabla canal correspondiente.
-
-    `skipped_subscriptions` recibe los external_id de suscripciones omitidas por duplicado activo.
-    """
+    """Escribe registros VirtualPOS en su tabla canal correspondiente."""
     if platform not in _VP_PLATFORMS:
         logger.warning("store_vp_resources: platform desconocido rechazado (%s)", resource_type)
         return 0
@@ -582,17 +530,6 @@ def store_vp_resources(
     if resource_type not in _map:
         return 0
     model, extractor = _map[resource_type]
-    if resource_type == "subscription":
-        skipped: list[str] = []
-        written = upsert_channel(db, model, records, lambda r: {"platform": platform, **extractor(r)}, skipped=skipped)
-        if skipped:
-            logger.warning(
-                "store_vp_resources: %d suscripciones omitidas por duplicado activo (platform=%s, ids=%s)",
-                len(skipped), platform, ",".join(skipped[:20]),
-            )
-            if skipped_subscriptions is not None:
-                skipped_subscriptions.extend(skipped)
-        return written
     return upsert_channel(db, model, records, lambda r: {"platform": platform, **extractor(r)})
 
 
