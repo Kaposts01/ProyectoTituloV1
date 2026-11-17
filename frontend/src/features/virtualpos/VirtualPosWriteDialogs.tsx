@@ -34,6 +34,9 @@ export function VirtualPosWriteDialogs({ writes, vp2Enabled }: { writes: Virtual
     savingSubscription,
     subscriptionFormError,
     subscriptionFieldErrors,
+    duplicateConfirm,
+    setDuplicateConfirm,
+    confirmDuplicateSubscription,
     cancelingSubscription,
     setCancelingSubscription,
     savingCancelSubscription,
@@ -271,15 +274,31 @@ export function VirtualPosWriteDialogs({ writes, vp2Enabled }: { writes: Virtual
               );
             })}
           </div>
-          {subscriptionFormError ? <p className="error-message form-error">{subscriptionFormError}</p> : null}
-          <div className="edit-dialog-actions">
-            <button type="submit" className="save-button" disabled={savingSubscription}>
-              {savingSubscription ? "Creando..." : "Crear suscripción"}
-            </button>
-            <button type="button" className="cancel-button" onClick={() => setCreatingSubscription(false)}>
-              Cancelar
-            </button>
-          </div>
+          {duplicateConfirm ? (
+            <div className="error-message form-error" role="alert">
+              <p>Esta persona ya tiene una suscripción activa en este plan (código {duplicateConfirm.existingExternalId}). ¿Crear otra?</p>
+              <div className="edit-dialog-actions">
+                <button type="button" className="save-button" disabled={savingSubscription} onClick={() => void confirmDuplicateSubscription()}>
+                  Crear de todas formas
+                </button>
+                <button type="button" className="cancel-button" onClick={() => setDuplicateConfirm(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {subscriptionFormError ? <p className="error-message form-error">{subscriptionFormError}</p> : null}
+              <div className="edit-dialog-actions">
+                <button type="submit" className="save-button" disabled={savingSubscription}>
+                  {savingSubscription ? "Creando..." : "Crear suscripción"}
+                </button>
+                <button type="button" className="cancel-button" onClick={() => setCreatingSubscription(false)}>
+                  Cancelar
+                </button>
+              </div>
+            </>
+          )}
         </form>
       </div>
     ) : null}

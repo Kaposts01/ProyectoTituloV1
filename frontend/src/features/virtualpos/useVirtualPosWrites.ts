@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { apiErrorCodeIs, deleteJson, friendlyError, postJson, putJson } from "../../api";
+import { apiErrorCodeIs, type ApiError, deleteJson, friendlyError, postJson, putJson } from "../../api";
 import type { RecordDetailsState } from "../shared/useRecordDetails";
 import type { StagingRecord, StagingResponse } from "../shared/types";
 import { documentType, normalizeRut, refreshCsrfToken, text } from "../shared/utils";
@@ -32,12 +32,18 @@ export function useVirtualPosWrites(ctx: {
   const [planFormError, setPlanFormError] = useState<string | null>(null);
   const [planFieldErrors, setPlanFieldErrors] = useState<Record<string, string>>({});
   const [planSaveNotice, setPlanSaveNotice] = useState<string | null>(null);
-  const [creatingSubscription, setCreatingSubscription] = useState(false);
+  const [creatingSubscription, setCreatingSubscriptionRaw] = useState(false);
   const [subVpPlatform, setSubVpPlatform] = useState<"virtualpos1" | "virtualpos2">("virtualpos1");
   const [savingSubscription, setSavingSubscription] = useState(false);
   const [subscriptionFormError, setSubscriptionFormError] = useState<string | null>(null);
   const [subscriptionFieldErrors, setSubscriptionFieldErrors] = useState<Record<string, string>>({});
   const [subscriptionSaveNotice, setSubscriptionSaveNotice] = useState<string | null>(null);
+  /** Alta pendiente de confirmar porque la persona ya tiene una suscripción activa en el plan (BUG-VP-03). */
+  const [duplicateConfirm, setDuplicateConfirm] = useState<{ existingExternalId: string; body: Record<string, unknown> } | null>(null);
+  const setCreatingSubscription = (value: boolean) => {
+    setCreatingSubscriptionRaw(value);
+    setDuplicateConfirm(null); // el estado de confirmación no sobrevive al abrir/cerrar el diálogo
+  };
   const [cancelingSubscription, setCancelingSubscription] = useState<StagingRecord | null>(null);
   const [savingCancelSubscription, setSavingCancelSubscription] = useState(false);
   const [cancelSubscriptionError, setCancelSubscriptionError] = useState<string | null>(null);
@@ -331,6 +337,18 @@ export function useVirtualPosWrites(ctx: {
     if (rawValues.return_url) body.return_url = rawValues.return_url;
     if (rawValues.callback_url) body.callback_url = rawValues.callback_url;
 
+    await sendVirtualPOSSubscription(body);
+  }
+
+  /** Reenvía el mismo cuerpo del alta pendiente, ahora con la confirmación explícita del usuario. */
+  async function confirmDuplicateSubscription() {
+    if (!duplicateConfirm || savingSubscription) return;
+    const body = { ...duplicateConfirm.body, confirm_duplicate: true };
+    setDuplicateConfirm(null);
+    await sendVirtualPOSSubscription(body);
+  }
+
+  async function sendVirtualPOSSubscription(body: Record<string, unknown>) {
     setSavingSubscription(true);
     try {
       await refreshCsrfToken();
@@ -346,7 +364,13 @@ export function useVirtualPosWrites(ctx: {
       setCreatingSubscription(false);
       setSubscriptionSaveNotice("Suscripción creada correctamente.");
     } catch (err) {
-      setSubscriptionFormError(friendlyError(err, "No se pudo crear la suscripción."));
+      if (apiErrorCodeIs(err, "duplicate_active_subscription")) {
+        const detail = (err as ApiError).detail as Record<string, unknown>;
+        const existing = typeof detail.existing_external_id === "string" ? detail.existing_external_id : "";
+        setDuplicateConfirm({ existingExternalId: existing, body });
+      } else {
+        setSubscriptionFormError(friendlyError(err, "No se pudo crear la suscripción."));
+      }
     } finally {
       setSavingSubscription(false);
     }
@@ -613,6 +637,9 @@ export function useVirtualPosWrites(ctx: {
     setSubscriptionFieldErrors,
     subscriptionSaveNotice,
     setSubscriptionSaveNotice,
+    duplicateConfirm,
+    setDuplicateConfirm,
+    confirmDuplicateSubscription,
     cancelingSubscription,
     setCancelingSubscription,
     savingCancelSubscription,
