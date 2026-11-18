@@ -9,7 +9,7 @@
   font-size: 13px; letter-spacing: 0.04em;
 }
 html.has-env-banner body { padding-top: var(--env-banner-h); }
-html.has-env-banner .sidebar { top: var(--env-banner-h); height: calc(100vh - var(--env-banner-h)); }
+html.has-env-banner .sidebar { top: var(--env-banner-h); height: calc(100vh - var(--env-banner-h)); height: calc(100dvh - var(--env-banner-h)); }
 html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: calc(100vh - var(--env-banner-h)); }
 @media (max-width: 640px) { .env-banner-detail { display: none; } }
 .environment-section { margin-top: 24px; }
@@ -24,7 +24,7 @@ html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: 
 .sidebar {
   position: sticky; top: 0; align-self: flex-start; z-index: 60;
   width: var(--sidebar-w); min-width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
-  height: 100vh; box-sizing: border-box;
+  height: 100vh; height: 100dvh; box-sizing: border-box;
   padding: 0;
   background: var(--bg-sidebar);
 }
@@ -202,8 +202,8 @@ td:first-child { font-weight: 700; }
 
   /* ── Sidebar drawer ──────────────────────────────────────────────── */
   .sidebar {
-    position: fixed; top: 0; left: 0; height: 100vh; width: 260px; min-width: 0;
-    z-index: 200; overflow-y: auto;
+    position: fixed; top: 0; left: 0; height: 100vh; height: 100dvh; width: min(288px, calc(100vw - 24px)); min-width: 0;
+    z-index: 200; overflow: hidden;
     transform: translateX(-100%); transition: transform 0.25s ease;
   }
   .sidebar.open { transform: translateX(0); }
@@ -642,7 +642,7 @@ td.num { text-align: right; }
   position: absolute; inset: 0 auto 0 0; z-index: 1;
   display: flex; flex-direction: column;
   width: var(--sidebar-w); box-sizing: border-box;
-  padding: 16px 12px 12px;
+  padding: 16px 12px max(12px, env(safe-area-inset-bottom));
   overflow: hidden;
   background: var(--bg-sidebar);
   transition: width 200ms cubic-bezier(.2, .7, .2, 1), box-shadow 200ms ease;
@@ -665,7 +665,7 @@ td.num { text-align: right; }
 .sidebar-icon { flex: none; width: 20px; height: 20px; }
 
 /* Encabezado: marca y cierre (el cierre solo en el drawer móvil). */
-.sidebar-toprow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.sidebar-toprow { flex: none; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .sidebar-brand {
   display: flex; align-items: center; gap: 12px;
   min-width: 0; margin: 0; padding: 2px 4px; border: 0; border-radius: 8px;
@@ -682,14 +682,14 @@ td.num { text-align: right; }
   width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
 }
 
-/* Ítems: 36 px de alto con ícono; activo = fondo + texto blanco + peso 700 + aria-current (no solo color). */
+/* Ítems: 38 px de alto con ícono; activo = fondo + texto blanco + peso 700 + aria-current (no solo color). */
 .sidebar-item, .sidebar-detail-toggle {
   position: relative;
   display: flex; align-items: center; gap: 12px;
-  width: 100%; min-height: 36px; padding: 0 10px; box-sizing: border-box;
+  flex: none; width: 100%; min-height: 38px; padding: 0 10px; box-sizing: border-box;
   border: 0; border-radius: 8px;
   background: transparent; cursor: pointer;
-  font: inherit; font-size: 13px; text-align: left;
+  font: inherit; font-size: 14px; text-align: left;
   transition: background-color 150ms ease, color 150ms ease;
 }
 .sidebar-item .sidebar-icon { transition: transform 200ms cubic-bezier(.2, .7, .2, 1); }
@@ -697,13 +697,24 @@ td.num { text-align: right; }
 .sidebar-item:active .sidebar-icon { transform: scale(.92); }
 /* activo: además del fondo y el peso 700, un filo interior tenue que lo separa del hover */
 .sidebar-item.active { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 7%); }
-.sidebar-label { overflow: hidden; text-overflow: ellipsis; }
+.sidebar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
-.sidebar-nav {
-  display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
-  scrollbar-width: thin; scrollbar-color: var(--sidebar-border) transparent;
+/* Health details and navigation share the available space instead of squeezing the links. */
+.sidebar-scroll {
+  flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  overscroll-behavior-y: contain; scrollbar-gutter: stable;
+  scrollbar-width: auto; scrollbar-color: auto;
+  padding-right: 3px;
 }
-.sidebar-group { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.sidebar-scroll::-webkit-scrollbar { width: 8px; }
+.sidebar-scroll::-webkit-scrollbar-track { border-radius: 6px; background: var(--sidebar-active-bg); }
+.sidebar-scroll::-webkit-scrollbar-thumb { border-radius: 6px; background: var(--sidebar-label); }
+.sidebar[data-state="compact"] .sidebar-scroll { padding-right: 0; scrollbar-gutter: auto; scrollbar-width: none; }
+.sidebar[data-state="compact"] .sidebar-scroll::-webkit-scrollbar { display: none; }
+.sidebar-nav { display: flex; flex-direction: column; flex: none; padding-bottom: 8px; }
+.sidebar-health-slot { flex: none; }
+
+.sidebar-group { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
 .sidebar-group:first-child { margin-top: 0; }
 /* Encabezado de grupo: en compacto queda una raya corta centrada (misma altura: los íconos no saltan). */
 .sidebar-section-label { position: relative; height: 24px; box-sizing: border-box; overflow: hidden; white-space: nowrap; transition: color 180ms ease; }
@@ -716,7 +727,7 @@ td.num { text-align: right; }
 .sidebar-note { margin: 4px 10px 8px; color: var(--sidebar-label); font-size: 11px; line-height: 1.4; white-space: normal; }
 
 /* Buscador: en compacto es una caja de 40 px con la lupa; al enfocarlo el rail se despliega. */
-.sidebar-search { position: relative; min-width: 0; margin: 0 0 12px; }
+.sidebar-search { flex: none; position: relative; min-width: 0; margin: 0 0 12px; }
 .sidebar-search-icon { position: absolute; left: 10px; top: 50%; width: 20px; height: 20px; color: var(--sidebar-label); transform: translateY(-50%); pointer-events: none; }
 .sidebar-search input {
   width: 100%; min-height: 36px; box-sizing: border-box; padding: 7px 10px 7px 40px; border: 1px solid transparent; border-radius: 8px;
@@ -737,10 +748,10 @@ td.num { text-align: right; }
 .sidebar-health-toggle .health-dot[data-scope="global"] { width: 8px; height: 8px; margin: 0 6px; box-shadow: 0 0 0 3px var(--sidebar-hover-bg); }
 .sidebar-health-toggle:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
 .sidebar-health-toggle:focus-visible { outline: 2px solid var(--series-4); outline-offset: -2px; }
-.sidebar-health-text { flex: 1; }
+.sidebar-health-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-health-glyph { color: var(--sidebar-label); font-size: 14px; line-height: 1; }
 .sidebar-health-list { margin: 2px 0 0; padding: 0 10px; list-style: none; animation: sidebar-reveal 200ms cubic-bezier(.2, .7, .2, 1); }
-.sidebar-health-list li { display: flex; align-items: center; gap: 4px; padding: 3px 0; color: var(--sidebar-text); font-size: 11px; white-space: nowrap; }
+.sidebar-health-list li { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 0; color: var(--sidebar-text); font-size: 11px; white-space: nowrap; }
 .sidebar-health-list .health-dot { margin: 0 4px 0 0; }
 .sidebar-health-age { margin-left: auto; color: var(--sidebar-label); text-align: right; }
 .sidebar[data-state="compact"] .sidebar-health-list { display: none; }
@@ -767,8 +778,11 @@ td.num { text-align: right; }
 @keyframes sidebar-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
 /* Pie: fijar, tema, perfil y salir con el mismo formato de ítem. */
-.sidebar-footer { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; }
-.sidebar-footer .sidebar-item { min-height: 34px; font-size: 12px; }
+.sidebar-footer { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; }
+.sidebar-utilities { display: flex; flex-direction: column; gap: 2px; }
+.sidebar[data-state="expanded"] .sidebar-utilities { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
+.sidebar[data-state="expanded"] .sidebar-utilities .sidebar-item { gap: 8px; }
+.sidebar-footer .sidebar-item { min-height: 36px; font-size: 13px; }
 .sidebar-pin[aria-pressed="true"] { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
 .sidebar-pin[aria-pressed="true"] .sidebar-icon { transform: scaleX(-1); }
 
@@ -797,7 +811,8 @@ td.num { text-align: right; }
   .sidebar-close { display: flex; }
   .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
   .sidebar-search input { min-height: 44px; }
-  .sidebar-item { min-height: 44px; }
+  .sidebar-item, .sidebar-footer .sidebar-item { min-height: 44px; }
+  .sidebar-utilities { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
 }
 
 /* ── Vistas unificadas de Cartera (UX-08, UX-09) ── */

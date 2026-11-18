@@ -181,3 +181,5 @@ Rama `codex/actualizacion-20261118`, basada en origin/master 54814f4, sin push. 
 API 8000 y frontend 5173 activos solo en loopback; backend desde .env.local, APP_ENV=qa, JWT separado, scheduler y escrituras de proveedores apagados. Login y lecturas autenticadas del dashboard y TCH verificados. Reinicio con `scripts/run_local_backend.ps1` y `npm.cmd --prefix frontend run dev`; no ejecutar el backend nuevo con la configuracion .env antigua.
 
 Ruff, lint, build, pip check, Alembic check sobre la copia, 1.464 pruebas frontend y 3.747 pruebas Python pasan (23 omisiones previstas). Auditoria npm de produccion: cero; persiste alerta de desarrollo picomatch sin parche (DEV-LOCAL-02). [Evidencia y respaldo](../quality/local-repair-2026-11-18.md).
+
+Menu lateral local mejorado (UI-LOCAL-01, 2026-11-18): ancho abierto 272px, una zona desplazable para salud y navegacion, busqueda fija y pie compacto. Conserva rail, permisos y drawer; 118 pruebas, lint/build y revision Chrome en alturas cortas y movil pasan. [Evidencia](../quality/sidebar-layout-2026-11-18.md).

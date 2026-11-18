@@ -150,12 +150,15 @@ Carga: Fontshare via `<link href="https://api.fontshare.com/v2/css?f[]=cabinet-g
 
 ## Layout
 
-Sidebar azul marino (D1) como **rail compacto** (2026-11-13): 64px de íconos (`--sidebar-w`) que se despliega a 232px (`--sidebar-w-open`) al pasar el mouse (intención de 150ms; se repliega 200ms después de salir) superpuesto al contenido, sin moverlo, con una sombra (`--sidebar-float-shadow`). «Mantener menú abierto» (pie del menú, `aria-pressed`) lo fija abierto y entonces sí reserva los 232px; la preferencia se recuerda por navegador (`localStorage` `crm-sidebar-pinned`, con try/catch). En compacto los encabezados de grupo quedan como una raya corta (misma altura: los íconos no saltan al desplegar), el foco de teclado muestra un tooltip con el nombre, y el buscador, la salud y «Detalle por canal» despliegan el rail mientras el foco siga dentro (Esc lo vuelve a compactar). Íconos SVG propios de trazo 1.75 en `currentColor` (`frontend/src/components/sidebarIcons.tsx`, decorativos), uno distinto por entrada. En móvil sigue siendo el drawer, siempre desplegado. Contenido principal fluid, max-width 1160px. Padding lateral 24px en desktop, 16px en mobile.
+Sidebar azul marino (D1) como **rail compacto** (2026-11-13): 64px de íconos (`--sidebar-w`) que se despliega a 272px (`--sidebar-w-open`) al pasar el mouse (intención de 150ms; se repliega 200ms después de salir) superpuesto al contenido, sin moverlo, con una sombra (`--sidebar-float-shadow`). «Mantener menú abierto» (pie del menú, `aria-pressed`) lo fija abierto y entonces sí reserva los 272px; la preferencia se recuerda por navegador (`localStorage` `crm-sidebar-pinned`, con try/catch). En compacto los encabezados de grupo quedan como una raya corta (misma altura: los íconos no saltan al desplegar), el foco de teclado muestra un tooltip con el nombre, y el buscador, la salud y «Detalle por canal» despliegan el rail mientras el foco siga dentro (Esc lo vuelve a compactar). Íconos SVG propios de trazo 1.75 en `currentColor` (`frontend/src/components/sidebarIcons.tsx`, decorativos), uno distinto por entrada. En móvil sigue siendo el drawer, siempre desplegado. Contenido principal fluid, max-width 1160px. Padding lateral 24px en desktop, 16px en mobile.
+
+**Legibilidad del menú (2026-11-18).** Marca y búsqueda permanecen arriba; salud y navegación comparten una única zona con scroll visible en escritorio, sin comprimir grupos ni filas. El pie queda fijo: fijar, tema/perfil en dos columnas y salir. Ancho abierto 272px; móvil hasta 288px con margen de 24px respecto al viewport, alto dinámico 100dvh y acciones táctiles de 44px. En rail se oculta la barra visual para conservar los 40px de contenido de los iconos; el desplazamiento por rueda y teclado sigue disponible.
 
 **Navegación del menú: UN SOLO NIVEL con grupos (UX-05, D29, 2026-10-29).** Sin submenús ni expandibles por proveedor. Estructura, de arriba abajo:
 
-1. **Encabezado:** marca (`Sx SynkmetriX`, lleva a Resumen), el **indicador global de salud de sincronización** (un punto con el peor nivel de los canales + texto «Todo sincronizado / Sincronización atrasada / Error de sincronización / Sin datos de sincronización»; al abrirlo muestra el detalle por canal con su texto «hace N h»; usa `GET /api/v1/sync-runs/health`; sin datos no se pinta) y el **buscador** (campo que filtra los ítems del menú por rótulo o grupo, sin tildes ni mayúsculas; con texto activo despliega las coincidencias del detalle por canal).
-2. **Grupos** (título 11px/700/uppercase en Cabinet Grotesk y `--sidebar-heading`, con separador de 1px `--sidebar-border` y 16px + 10px de aire entre grupos; ítems planos de 13px, sin sangría):
+1. **Encabezado fijo:** marca (`Sx SynkmetriX`, lleva a Resumen) y **buscador** (filtra por rotulo o grupo, sin tildes ni mayusculas; con texto activo muestra coincidencias del detalle por canal). El **indicador global de salud** inicia la zona desplazable: punto con el peor nivel de los canales y resumen; al abrirlo muestra cada canal y su antiguedad, usando `GET /api/v1/sync-runs/health`. Sin datos no se pinta.
+
+2. **Grupos** (título 11px/700/uppercase en Cabinet Grotesk y `--sidebar-heading`, con separador de 1px `--sidebar-border` y 16px + 10px de aire entre grupos; ítems planos de 14px, sin sangría):
    - *(sin etiqueta)* **Resumen** (`/central/resumen`)
    - **Cartera:** Socios (`/central/clientes`, clientes consolidados), Suscripciones (`/central/suscripciones`, consolidadas), Cobros (`/central/cobros`, cobros y pagos de todos los canales, UX-09)
    - **Operación:** Recuperador (`/general/recuperador`; la ruta vieja `/virtualpos/recuperador-socios` redirige), Cambios de cobro (`/general/cambios-de-cobro`), Bajas (`/general/bajas`, con el permiso `subscriptions.cancellation.view`)
@@ -171,7 +174,7 @@ Tablas full-width dentro del área de contenido, sin max-width propio. Altura de
 
 Stats cards en grid de 4 columnas (desktop), 2 en tablet, 1 en mobile. Gap 12px. Sin aspect-ratio forzado.
 
-En mobile el menú es un drawer (hamburguesa, velo, Esc y clic fuera cierran, foco atrapado); buscador, indicador de salud y cabecera del grupo transitorio miden 44px de alto. La lista de ítems hace scroll propio y el pie queda fijo abajo.
+En mobile el menú es un drawer (hamburguesa, velo, Esc y clic fuera cierran, foco atrapado); buscador, indicador de salud y cabecera del grupo transitorio miden 44px de alto. Salud y lista comparten una zona de scroll; marca, búsqueda y pie permanecen visibles.
 
 ## Elevation & Depth
 

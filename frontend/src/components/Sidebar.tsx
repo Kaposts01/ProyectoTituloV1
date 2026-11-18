@@ -247,9 +247,6 @@ export function Sidebar({
             <NavIcon name="close" />
           </button>
         </div>
-        <div className="sidebar-health-slot" onClickCapture={needRoom}>
-          <SidebarHealth health={health} />
-        </div>
         <div className="sidebar-search">
           <NavIcon name="search" className="sidebar-search-icon" />
           <input
@@ -261,73 +258,78 @@ export function Sidebar({
             autoComplete="off"
           />
         </div>
-        <nav className="sidebar-nav" aria-label={t("navegacion")}>
-          {groups.map((group) => (
-            <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
-              {group.label ? <div className="sidebar-section-label">{group.label}</div> : null}
-              {group.items.map((item) => {
-                const active = menuActive(item.action);
-                return (
-                  <button
-                    key={item.id}
-                    className={itemClass(active)}
-                    aria-current={active ? "page" : undefined}
-                    data-tip={item.label}
-                    data-item={item.id}
-                    onClick={go(() => runMenu(item.action))}
-                  >
-                    <NavIcon name={MENU_ICONS[item.id] ?? "summary"} />
-                    <span className="sidebar-label">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-          {channels.length > 0 ? (
-            <div className="sidebar-group sidebar-detail" role="group" aria-label={t("detalle por canal")}>
-              <button
-                type="button"
-                className={`sidebar-detail-toggle${detailHasActive ? " has-active" : ""}`}
-                aria-expanded={detailVisible}
-                aria-controls={detailId}
-                data-tip={t("detalle por canal")}
-                onClick={() => { needRoom(); onToggleDetail(); }}
-                disabled={searching}
-              >
-                <NavIcon name="channels" />
-                <span className="sidebar-label sidebar-detail-text">
-                  <span>{t("detalle por canal")}</span>
-                  <span className="sidebar-transient">{t("transitorio")}</span>
-                </span>
-                <NavIcon name="chevron" className="sidebar-detail-chevron" />
-              </button>
-              {detailVisible ? (
-                <div id={detailId} className="sidebar-detail-body">
-                  <p className="sidebar-note">{t("aviso transitorio")}</p>
-                  {channels.map((entry) => (
-                    <div className="sidebar-subgroup" role="group" aria-label={entry.name} key={entry.id}>
-                      <div className="sidebar-subheading">{entry.name}</div>
-                      {entry.items.map((item) => {
-                        const active = detailActive(item.action);
-                        return (
-                          <button
-                            key={item.id}
-                            className={itemClass(active)}
-                            aria-current={active ? "page" : undefined}
-                            onClick={go(() => runDetail(item.action))}
-                          >
-                            {item.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {groups.length === 0 && channels.length === 0 ? <p className="sidebar-note" role="status">{t("sin resultados")} «{query.trim()}».</p> : null}
-        </nav>
+        <div className="sidebar-scroll">
+          <div className="sidebar-health-slot" onClickCapture={needRoom}>
+            <SidebarHealth health={health} />
+          </div>
+          <nav className="sidebar-nav" aria-label={t("navegacion")}>
+            {groups.map((group) => (
+              <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
+                {group.label ? <div className="sidebar-section-label">{group.label}</div> : null}
+                {group.items.map((item) => {
+                  const active = menuActive(item.action);
+                  return (
+                    <button
+                      key={item.id}
+                      className={itemClass(active)}
+                      aria-current={active ? "page" : undefined}
+                      data-tip={item.label}
+                      data-item={item.id}
+                      onClick={go(() => runMenu(item.action))}
+                    >
+                      <NavIcon name={MENU_ICONS[item.id] ?? "summary"} />
+                      <span className="sidebar-label">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {channels.length > 0 ? (
+              <div className="sidebar-group sidebar-detail" role="group" aria-label={t("detalle por canal")}>
+                <button
+                  type="button"
+                  className={`sidebar-detail-toggle${detailHasActive ? " has-active" : ""}`}
+                  aria-expanded={detailVisible}
+                  aria-controls={detailId}
+                  data-tip={t("detalle por canal")}
+                  onClick={() => { needRoom(); onToggleDetail(); }}
+                  disabled={searching}
+                >
+                  <NavIcon name="channels" />
+                  <span className="sidebar-label sidebar-detail-text">
+                    <span>{t("detalle por canal")}</span>
+                    <span className="sidebar-transient">{t("transitorio")}</span>
+                  </span>
+                  <NavIcon name="chevron" className="sidebar-detail-chevron" />
+                </button>
+                {detailVisible ? (
+                  <div id={detailId} className="sidebar-detail-body">
+                    <p className="sidebar-note">{t("aviso transitorio")}</p>
+                    {channels.map((entry) => (
+                      <div className="sidebar-subgroup" role="group" aria-label={entry.name} key={entry.id}>
+                        <div className="sidebar-subheading">{entry.name}</div>
+                        {entry.items.map((item) => {
+                          const active = detailActive(item.action);
+                          return (
+                            <button
+                              key={item.id}
+                              className={itemClass(active)}
+                              aria-current={active ? "page" : undefined}
+                              onClick={go(() => runDetail(item.action))}
+                            >
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {groups.length === 0 && channels.length === 0 ? <p className="sidebar-note" role="status">{t("sin resultados")} «{query.trim()}».</p> : null}
+          </nav>
+        </div>
         <div className="sidebar-footer">
           <button
             type="button"
@@ -340,14 +342,16 @@ export function Sidebar({
             <NavIcon name="pin" />
             <span className="sidebar-label">{t("mantener abierto")}</span>
           </button>
-          <button className="sidebar-item" onClick={onTheme} aria-label={t("cambiar tema")} data-tip={theme === "dark" ? t("modo claro") : t("modo oscuro")}>
-            <NavIcon name={theme === "dark" ? "sun" : "moon"} />
-            <span className="sidebar-label">{theme === "dark" ? t("modo claro") : t("modo oscuro")}</span>
-          </button>
-          <button className="sidebar-item" onClick={go(onProfile)} data-tip={t("mi perfil")}>
-            <NavIcon name="profile" />
-            <span className="sidebar-label">{t("mi perfil")}</span>
-          </button>
+          <div className="sidebar-utilities">
+            <button className="sidebar-item" onClick={onTheme} aria-label={t("cambiar tema")} data-tip={theme === "dark" ? t("modo claro") : t("modo oscuro")}>
+              <NavIcon name={theme === "dark" ? "sun" : "moon"} />
+              <span className="sidebar-label">{theme === "dark" ? t("modo claro") : t("modo oscuro")}</span>
+            </button>
+            <button className="sidebar-item" onClick={go(onProfile)} data-tip={t("mi perfil")}>
+              <NavIcon name="profile" />
+              <span className="sidebar-label">{t("mi perfil")}</span>
+            </button>
+          </div>
           <button className="sidebar-item" onClick={go(onLogout)} data-tip={t("cerrar sesion")}>
             <NavIcon name="logout" />
             <span className="sidebar-label">{t("cerrar sesion")}</span>

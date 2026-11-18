@@ -981,6 +981,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | DEV-LOCAL-02 | Resolver alerta de desarrollo picomatch cuando exista parche publicado | Bloqueada (tercero) | npm audit total propaga una raiz sin parche a siete paquetes; auditoria omit=dev da cero. Vite y source-map-js actualizados y servidor limitado a loopback. No ocultar la alerta ni degradar versiones mayores. |
 
+| UI-LOCAL-01 | Mejorar legibilidad y acceso al menu lateral | Completada en rama local | Ancho abierto 272px, texto 14px, scroll compartido para salud/navegacion, busqueda fija y pie compacto. 118 pruebas, lint y build pasan; Chrome verifica 480/600/768/900px, movil 390x700 y acceso por foco a cada opcion. [Evidencia](quality/sidebar-layout-2026-11-18.md). Sin push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.

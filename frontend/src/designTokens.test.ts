@@ -61,10 +61,10 @@ function ratio(a: string, b: string): number {
 }
 
 describe("C1 ancho fijo del menu lateral", () => {
-  // Cambio deliberado (2026-11-13, menú rail): el aside reserva 64 px de íconos; desplegado o fijado mide 232 px.
-  it("define --sidebar-w: 64px (rail) y --sidebar-w-open: 232px; fijado usa el ancho abierto", () => {
+  // Cambio deliberado (2026-11-13, menú rail): el aside reserva 64 px de íconos; desplegado o fijado mide 272 px.
+  it("define --sidebar-w: 64px (rail) y --sidebar-w-open: 272px; fijado usa el ancho abierto", () => {
     expect(lightTokens["--sidebar-w"]).toBe("64px");
-    expect(lightTokens["--sidebar-w-open"]).toBe("232px");
+    expect(lightTokens["--sidebar-w-open"]).toBe("272px");
     expect(finalDecl(appCss, ".sidebar.is-pinned", "--sidebar-w")).toBe("var(--sidebar-w-open)");
     expect(finalDecl(appCss, '.sidebar[data-state="expanded"] .sidebar-panel', "width")).toBe("var(--sidebar-w-open)");
   });
@@ -87,7 +87,7 @@ describe("C1 ancho fijo del menu lateral", () => {
     for (const b of bodies) {
       const d = declsOf(b);
       // unico ancho distinto permitido: el cajon movil (position: fixed, fuera del flujo)
-      if (d.width !== undefined) expect(d.width).toMatch(/^(var\(--sidebar-w\)|260px)$/);
+      if (d.width !== undefined) expect(d.width).toMatch(/^(var\(--sidebar-w\)|min\(288px, calc\(100vw - 24px\)\))$/);
     }
     const desktop = bodies.map(declsOf).filter((d) => d.width === "var(--sidebar-w)");
     expect(desktop.length).toBeGreaterThan(0);
@@ -360,9 +360,9 @@ describe("D27 superficies, primario y accion en azul-gris y azul (claro y oscuro
 });
 
 describe("UX-05 menu de un solo nivel: CSS", () => {
-  it("la lista del menu hace scroll propio (el pie con tema y perfil no se pierde con muchos items)", () => {
-    expect(finalDecl(appCss, ".sidebar-nav", "overflow-y")).toBe("auto");
-    expect(finalDecl(appCss, ".sidebar-nav", "min-height")).toBe("0");
+  it("salud y navegacion comparten scroll sin comprimir las opciones ni desplazar el pie", () => {
+    expect(finalDecl(appCss, ".sidebar-scroll", "overflow-y")).toBe("auto");
+    expect(finalDecl(appCss, ".sidebar-scroll", "min-height")).toBe("0");
   });
   it("buscador, indicador de salud y grupo transitorio usan solo tokens --sidebar-* (sin hex)", () => {
     const block = appCss.slice(appCss.indexOf("/* ── Menú de un solo nivel (UX-05, D29)"));
