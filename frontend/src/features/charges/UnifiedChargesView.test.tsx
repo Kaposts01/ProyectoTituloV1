@@ -2,7 +2,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "./UnifiedChargesView";
-import { appReady, mountApp, resetApp, type Handler } from "../../test/appHarness";
+import { appReady, navTop, mountApp, resetApp, type Handler } from "../../test/appHarness";
 
 afterEach(resetApp);
 
@@ -45,7 +45,7 @@ describe("Cobros unificados", () => {
     const first = app.exact("GET", "/api/v1/general/charges")[0];
     expect(Object.fromEntries(first.query)).toEqual({ offset: "0", limit: "50" });
     // el menú marca Cobros dentro de Cartera
-    expect(screen.getByRole("button", { name: "Cobros" })).toHaveAttribute("aria-current", "page");
+    expect(navTop("Cobros")).toHaveAttribute("aria-current", "page");
   });
 
   it("los filtros de canal, estado y resultado viajan a la API y al Exportar", async () => {
@@ -53,6 +53,7 @@ describe("Cobros unificados", () => {
     await appReady();
     await screen.findByRole("button", { name: "C-1" });
     fireEvent.change(screen.getByLabelText("Canal"), { target: { value: "tch" } });
+    fireEvent.click(document.querySelector(".portfolio-more-filters summary")!);
     await screen.findByRole("option", { name: "Rechazada (20)" });
     fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "RECHAZADA" } });
     fireEvent.change(screen.getByLabelText("Resultado"), { target: { value: "rejected" } });
@@ -60,6 +61,7 @@ describe("Cobros unificados", () => {
       const last = app.exact("GET", "/api/v1/general/charges").at(-1)!;
       expect(Object.fromEntries(last.query)).toEqual({ canal: "tch", status: "RECHAZADA", outcome: "rejected", offset: "0", limit: "50" });
     });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Exportar/ })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: /Exportar/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Todo el listado/ }));
     await screen.findByText("7 filas");
@@ -141,7 +143,7 @@ describe("Cobros unificados", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Pagos" }));
     // mientras llegan los pagos la tabla de pagos está vacía: los cobros anteriores no se pintan
     expect(screen.queryByRole("button", { name: "C-1" })).toBeNull();
-    expect(screen.getByRole("columnheader", { name: "ID de pago" }).closest("table")!.querySelectorAll("tbody tr")).toHaveLength(0);
+    expect(screen.getByRole("columnheader", { name: "ID de pago" }).closest("table")!.querySelectorAll("tbody tr:not([aria-hidden])")).toHaveLength(0);
     release();
     expect(await screen.findAllByRole("button", { name: "P-1" })).toHaveLength(2);
     const rows = screen.getByRole("columnheader", { name: "ID de pago" }).closest("table")!.querySelectorAll("tbody tr");
@@ -178,6 +180,7 @@ describe("Cobros unificados", () => {
     expect(rut.className).toContain("mono");
     const invalid = screen.getByText(/2222F3K92/);
     expect(invalid.closest(".rut-invalid")?.textContent).toContain("no válido");
+    fireEvent.click(document.querySelector(".portfolio-more-filters summary")!);
     expect(await screen.findByRole("option", { name: "Pagado · Toku (2.947)" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Pagado · VirtualPOS (1.847)" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Pagado · Payku (32)" })).toBeTruthy();

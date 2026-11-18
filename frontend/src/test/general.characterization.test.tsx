@@ -132,8 +132,8 @@ describe("Clientes consolidados (/central/clientes)", () => {
     // La vista inicial «summary» no carga el dashboard anterior (retirado en UX-15): el hallazgo 5 sigue resuelto.
     expect(app.exact("GET", "/api/v1/staging/dashboard/general")).toHaveLength(0);
     expect(app.exact("GET", "/api/v1/staging/summary")).toHaveLength(0);
-    expect(screen.getByText("CLIENTES CONSOLIDADOS")).toBeTruthy();
-    expect(screen.getByText("250 clientes por RUT")).toBeTruthy();
+    expect(screen.getByText("Listado de socios")).toBeTruthy();
+    expect(document.querySelector(".filter-count")).toHaveTextContent("250 socios");
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["RUT", "Nombre completo", "Plataforma de origen", "Suscripciones activas"]);
     expect(screen.getAllByText("VirtualPOS · Toku").length).toBe(2);
     expect(screen.getByText("1-2 de 250")).toBeTruthy();
@@ -148,14 +148,14 @@ describe("Clientes consolidados (/central/clientes)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Siguiente →" }));
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)?.query.get("offset")).toBe("50"));
     expect(window.location.search).toBe("?offset=50");
-    fireEvent.change(screen.getByLabelText("Campo de búsqueda de clientes"), { target: { value: "rut" } });
+    fireEvent.change(screen.getByLabelText("Buscar en"), { target: { value: "rut" } });
     await waitFor(() => {
       const last = app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)!;
       expect(last.query.get("filter_field")).toBe("rut");
       expect(last.query.get("offset")).toBe("0");
     });
     expect(window.location.search).toBe("?campo=rut");
-    fireEvent.change(screen.getByLabelText("Buscar cliente consolidado"), { target: { value: " 1111 " } });
+    fireEvent.change(screen.getByLabelText("Buscar socios"), { target: { value: " 1111 " } });
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/dashboard/general/clients").at(-1)?.query.get("query")).toBe("1111"));
   });
 
@@ -171,7 +171,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
   it("sin clientes muestra «Sin clientes con RUT.»", async () => {
     mountApp("/central/clientes", [["GET", "/api/v1/staging/dashboard/general/clients", { items: [], total: 0, offset: 0, limit: 100 }]]);
     await appReady();
-    expect(await screen.findByText("Sin clientes con RUT.")).toBeTruthy();
+    expect(await screen.findByText("Todavía no hay registros disponibles.")).toBeTruthy();
   });
 
   it("la ficha general pide el detalle por RUT y permite volver", async () => {
@@ -195,7 +195,7 @@ describe("Clientes consolidados (/central/clientes)", () => {
     expect(screen.getByText("Sin registros relacionados.")).toBeTruthy();
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
-    fireEvent.click(screen.getByRole("button", { name: "← Volver a clientes" }));
+    fireEvent.click(screen.getByRole("button", { name: "← Volver a socios" }));
     expect(await screen.findByRole("button", { name: "11.111.111-1" })).toBeTruthy();
   });
 
@@ -231,9 +231,11 @@ describe("Suscripciones unificadas (/central/suscripciones)", () => {
     const call = app.exact("GET", "/api/v1/general/subscriptions")[0];
     expect(Object.fromEntries(call.query)).toEqual({ offset: "0", limit: "50" });
     expect(screen.getByRole("heading", { name: "Suscripciones", level: 1 })).toBeTruthy();
-    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Canal", "ID", "Socio", "RUT", "Estado", "Estado secundario", "Último cobro", "Inicio", "Término", "Monto"]);
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Canal", "ID", "Socio", "RUT", "Estado", "Último cobro", "Monto"]);
     expect(screen.getByText("CLP $10.000")).toBeTruthy();
     expect(screen.getByText("2025-03-05")).toBeTruthy();
+    fireEvent.click(document.querySelector(".portfolio-columns summary")!);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Mostrar columna Estado secundario" }));
     expect(screen.getByText("Cobrable").className).toContain("badge-green");
     expect(screen.getByText("Inactiva").className).toContain("badge-gray");
     expect(app.exact("GET", "/api/v1/staging/dashboard/general/subscriptions")).toHaveLength(0);
@@ -248,7 +250,7 @@ describe("Suscripciones unificadas (/central/suscripciones)", () => {
     fireEvent.change(screen.getByLabelText("Canal"), { target: { value: "tch" } });
     fireEvent.change(await screen.findByLabelText("Estado"), { target: { value: "ACTIVA" } });
     fireEvent.change(screen.getByLabelText("Buscar en"), { target: { value: "rut" } });
-    fireEvent.change(screen.getByLabelText("Texto"), { target: { value: "1111" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "1111" } });
     await waitFor(() => expect(Object.fromEntries(app.exact("GET", "/api/v1/general/subscriptions").at(-1)!.query)).toEqual({ canal: "tch", status: "ACTIVA", filter_field: "rut", query: "1111", offset: "0", limit: "50" }));
     fireEvent.click(screen.getByRole("button", { name: "Ver socio 11.111.111-1" }));
     await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
@@ -258,7 +260,7 @@ describe("Suscripciones unificadas (/central/suscripciones)", () => {
   it("sin suscripciones muestra «Sin suscripciones.»", async () => {
     mountApp("/central/suscripciones", [["GET", "/api/v1/general/subscriptions", { ...list, items: [], total: 0 }], statuses]);
     await appReady();
-    expect(await screen.findByText("Sin suscripciones.")).toBeTruthy();
+    expect(await screen.findByText("Todavía no hay registros disponibles.")).toBeTruthy();
   });
 
   it("si falla la lista muestra el error", async () => {

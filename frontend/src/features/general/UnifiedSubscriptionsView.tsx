@@ -7,6 +7,7 @@ import { ChannelTotals, UnifiedFilterBar, UnifiedPagination } from "./UnifiedCon
 import { StatusText, channelText, day, detailPath, money } from "./unifiedDisplay";
 import { VIEW_PERMISSIONS, canAny, type StatusFacets, type SubscriptionRow, type UnifiedPage } from "./unifiedTypes";
 import { cleanParams, useUnifiedGet } from "./useUnifiedList";
+import { PortfolioTable, type PortfolioColumn } from "./PortfolioTable";
 import { Rut } from "../shared/RutCell";
 import { rutText } from "../shared/rut";
 
@@ -45,6 +46,28 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
   const channels = list.data?.canales ?? facets.data?.canales ?? [];
   const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
 
+  const busy = list.loading || query !== debouncedQuery;
+  const filtered = Boolean(channel || status || query.trim());
+  const clearAll = () => { setChannel(""); setStatus(""); setField("all"); setQuery(""); setOffset(0); };
+  const columns: PortfolioColumn<SubscriptionRow>[] = [
+    { id: "channel", label: "Canal", cell: (row) => channelText(row.channel) },
+    { id: "id", label: "ID", required: true, className: "mono", cell: (row) => {
+      const go = open(detailPath("subscription", row.channel, row.subscription_id));
+      return go ? <button type="button" className="text-button" onClick={go}>{row.subscription_id}</button> : row.subscription_id;
+    } },
+    { id: "member", label: "Socio", required: true, cell: (row) => row.name || "—" },
+    { id: "rut", label: "RUT", cell: (row) => {
+      const member = row.rut ? open(`/central/clientes?rut=${encodeURIComponent(row.rut)}`) : undefined;
+      return row.rut ? (member ? <button type="button" className="text-button" aria-label={`Ver socio ${rutText(row.rut)}`} onClick={member}><Rut value={row.rut} /></button> : <Rut value={row.rut} />) : "—";
+    } },
+    { id: "status", label: "Estado", cell: (row) => <StatusText value={row.status} /> },
+    { id: "secondary", label: "Estado secundario", initiallyHidden: true, cell: (row) => <span className={`badge badge-${secondaryBadge(row.secondary_status)}`}>{labelOr("secondaryStatus", row.secondary_status, "—")}</span> },
+    { id: "last", label: "Último cobro", className: "mono", cell: (row) => day(row.last_charge) },
+    { id: "start", label: "Inicio", className: "mono", initiallyHidden: true, cell: (row) => day(row.start_date) },
+    { id: "end", label: "Término", className: "mono", initiallyHidden: true, cell: (row) => day(row.end_date) },
+    { id: "amount", label: "Monto", className: "mono num", cell: (row) => money(row.amount, row.currency) },
+  ];
+
   return (
     <main className="app-shell unified-page">
       <div className="topbar">
@@ -60,7 +83,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Suscripciones de todos los canales</p>
-              <h3><span className="mono">{list.data ? list.data.total.toLocaleString("es-CL") : "…"}</span> suscripciones</h3>
+              <h3>Listado de suscripciones</h3>
             </div>
           </div>
           <UnifiedFilterBar
@@ -74,9 +97,11 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
             fields={FIELDS}
             field={field}
             onField={reset(setField)}
+            placeholder="Nombre del socio, RUT o ID de suscripción"
+            busy={busy}
             query={query}
             onQuery={reset(setQuery)}
-            count={list.data?.total ?? null}
+            count={busy ? null : list.data?.total ?? null}
             noun="suscripciones"
             actions={
               <ExportButton
@@ -88,36 +113,11 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
               />
             }
           />
-          {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
-          {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
-          {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}
-          <div className="table-wrap" aria-busy={list.loading}>
-            <table>
-              <thead><tr><th>Canal</th><th>ID</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Estado secundario</th><th>Último cobro</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead>
-              <tbody>
-                {(list.data?.items ?? []).map((row) => {
-                  const go = open(detailPath("subscription", row.channel, row.subscription_id));
-                  const member = row.rut ? open(`/central/clientes?rut=${encodeURIComponent(row.rut)}`) : undefined;
-                  return (
-                    <tr key={`${row.channel}-${row.subscription_id}`}>
-                      <td>{channelText(row.channel)}</td>
-                      <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.subscription_id}</button> : row.subscription_id}</td>
-                      <td>{row.name || "—"}</td>
-                      <td>{row.rut ? (member ? <button type="button" className="text-button" aria-label={`Ver socio ${rutText(row.rut)}`} onClick={member}><Rut value={row.rut} /></button> : <Rut value={row.rut} />) : "—"}</td>
-                      <td><StatusText value={row.status} /></td>
-                      <td><span className={`badge badge-${secondaryBadge(row.secondary_status)}`}>{labelOr("secondaryStatus", row.secondary_status, "—")}</span></td>
-                      <td className="mono">{day(row.last_charge)}</td>
-                      <td className="mono">{day(row.start_date)}</td>
-                      <td className="mono">{day(row.end_date)}</td>
-                      <td className="mono">{money(row.amount, row.currency)}</td>
-                    </tr>
-                  );
-                })}
-                {!list.loading && list.data && list.data.items.length === 0 ? <tr><td colSpan={10}>Sin suscripciones.</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-          {list.data ? <UnifiedPagination offset={offset} limit={PAGE} total={list.data.total} shown={list.data.items.length} onOffset={setOffset} /> : null}
+          {list.data && !busy ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
+          <PortfolioTable view="subscriptions" caption="suscripciones" columns={columns} rows={list.data?.items ?? []}
+            rowKey={(row) => `${row.channel}-${row.subscription_id}`} loading={busy} error={list.error} forbidden={list.forbidden}
+            onRetry={list.reload} filtered={filtered} onClear={clearAll} />
+          {list.data ? <UnifiedPagination offset={offset} limit={PAGE} total={list.data.total} shown={list.data.items.length} onOffset={setOffset} loading={busy} /> : null}
         </section>
       )}
     </main>

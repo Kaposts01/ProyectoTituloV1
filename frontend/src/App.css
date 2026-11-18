@@ -927,6 +927,53 @@ td.num { text-align: right; }
 .unified-totals { margin: 0 0 10px; font-size: 13px; }
 .unified-summary { margin-bottom: 16px; }
 
+/* Cartera: search first, advanced criteria on demand, and a keyboard-scrollable table. */
+.portfolio-filter-primary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; min-width: 0; }
+.portfolio-filter-primary > .filter-actions { margin-top: 20px; }
+.portfolio-search { flex: 1 1 320px; }
+.portfolio-filter-primary > .filter-field:not(.portfolio-search) { flex: 0 1 210px; min-width: 160px; }
+.portfolio-search .portfolio-search-input { display: flex; align-items: center; position: relative; text-transform: none; letter-spacing: normal; }
+.portfolio-search-input input { width: 100%; padding-right: 38px; text-transform: none; }
+.portfolio-search-input input::-webkit-search-cancel-button { appearance: none; }
+.portfolio-search-input button { position: absolute; right: 3px; width: 32px; height: 32px; border: 0; border-radius: 5px; background: transparent; color: var(--text-2); cursor: pointer; font-size: 20px; }
+.portfolio-search small { color: var(--text-2); font-size: 12px; line-height: 1.5; font-weight: 400; }
+.portfolio-export { margin: 0; padding: 0; border: 0; min-width: 0; }
+.portfolio-export:disabled { opacity: .65; }
+.portfolio-more-filters summary, .portfolio-columns summary { padding: 8px 0; color: var(--text-1); cursor: pointer; font-size: 13px; font-weight: 600; min-height: 24px; }
+.portfolio-more-filters > .filter-fields { margin-top: 10px; }
+.portfolio-more-filters > .filter-fields[hidden], .portfolio-columns fieldset[hidden] { display: none; }
+.portfolio-filter-badge { display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: 12px; background: var(--bg-surface); color: var(--text-2); font-size: 12px; }
+.portfolio-table-toolbar { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between; margin: 8px 0; }
+.portfolio-table-toolbar > p { margin: 0; font-size: 13px; }
+.portfolio-columns { min-width: 0; }
+.portfolio-columns[open] { flex-basis: 100%; }
+.portfolio-columns fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 16px; margin: 0 0 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.portfolio-columns label { display: flex; align-items: center; gap: 6px; min-height: 32px; font-size: 13px; }
+.portfolio-columns p { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+.portfolio-table-scroll { max-height: 65vh; border: 1px solid var(--border); border-radius: 8px; overscroll-behavior: contain; }
+.portfolio-table-scroll table { min-width: 650px; margin: 0; }
+.portfolio-table-scroll th { position: sticky; top: 0; z-index: 1; background: var(--bg-surface); }
+.portfolio-table-scroll th.num { text-align: right; }
+.portfolio-table-scroll td { max-width: 300px; overflow-wrap: anywhere; }
+.portfolio-table-scroll td.mono { white-space: nowrap; }
+.portfolio-table-scroll tbody tr:hover { background: var(--bg-hover); }
+.portfolio-table-scroll .text-button, .portfolio-table-scroll .record-link { text-align: left; }
+.portfolio-feedback, .portfolio-empty { padding: 20px; }
+.portfolio-empty p { color: var(--text-2); margin: 8px 0 16px; }
+.portfolio-skeleton { height: 24px; margin: 6px 0; border-radius: 4px; background: var(--bg-filter); }
+.portfolio-pagination { flex-wrap: wrap; gap: 10px; align-items: center; }
+.portfolio-table-scroll:focus-visible, .portfolio-more-filters summary:focus-visible, .portfolio-columns summary:focus-visible, .portfolio-search-input button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .portfolio-filter-primary { align-items: stretch; }
+  .portfolio-filter-primary > .filter-actions { margin-top: 0; }
+  .portfolio-filter-primary > .filter-field { flex: 1 1 100%; min-width: 0; }
+  .portfolio-search-input button { height: 40px; width: 40px; }
+  .portfolio-search-input input { padding-right: 44px; }
+  .portfolio-more-filters summary, .portfolio-columns summary { min-height: 28px; padding-block: 8px; }
+  .portfolio-columns label, .portfolio-pagination button { min-height: 44px; }
+  .portfolio-table-scroll { max-height: 60vh; }
+}
+
 /* L7-IMPORT: panel «Importar reportes de plataformas». Contenedor sin tarjeta propia (no se anidan cards). */
 /* QA-03: la grilla usa una pista minmax(0, 1fr) y sus tarjetas min-width: 0; si no, una tabla ancha (Toku) ensanchaba
    todas las tarjetas hermanas y la página llegaba a 1029 px en móvil. Las tablas van en .table-wrap con scroll propio. */

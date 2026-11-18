@@ -995,6 +995,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UX-LOCAL-01 | Unificar orientacion, nombres y encabezados | Completada en rama local | Nombres compartidos con el menu, ruta accesible y titulos de pestana sin datos personales. URLs, permisos y cuenta conservados. Regresiones y Chrome en 18 pantallas, teclado y movil; lint/build pasan. [Evidencia](quality/page-orientation-2026-11-18.md). Skills excluidas, sin push. |
 
+| UX-LOCAL-02 | Mejorar busqueda, filtros y tablas de Cartera | Completada en rama local | Busqueda principal, Mas filtros, columnas configurables, estados de consulta y paginacion accesible. API, permisos, exportaciones y privacidad conservados. 151 pruebas y Chrome escritorio/movil pasan; lint/build sin errores. [Evidencia](quality/portfolio-lists-2026-11-18.md). Skills excluidas, sin push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.

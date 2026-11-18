@@ -10,6 +10,7 @@ import {
   type ChargeRow, type PaymentRow, type RejectionSummary, type StatusFacets, type UnifiedPage,
 } from "../general/unifiedTypes";
 import { cleanParams, useUnifiedGet } from "../general/useUnifiedList";
+import { PortfolioTable, type PortfolioColumn } from "../general/PortfolioTable";
 import { Rut } from "../shared/RutCell";
 
 const PAGE = 50;
@@ -25,7 +26,8 @@ const pct = (rate: number | null) => (rate === null ? "—" : `${rate.toFixed(1)
 /** Tasa de rechazo por canal con la definición única (`charge_stats`): pagados y rechazados con fecha hasta hoy. */
 function RejectionSummaryPanel({ channel, dateFrom, dateTo }: { channel: string; dateFrom: string; dateTo: string }) {
   const params = cleanParams({ canal: channel, date_from: dateFrom, date_to: dateTo });
-  const { data, loading, forbidden } = useUnifiedGet<RejectionSummary>("/api/v1/general/charges/summary", params);
+  const { data: loaded, loading, forbidden, error, reload } = useUnifiedGet<RejectionSummary>("/api/v1/general/charges/summary", params);
+  const data = loading ? null : loaded;
   if (forbidden) return null;
   return (
     <section className="panel unified-summary" aria-label="Rechazo por canal" aria-busy={loading}>
@@ -36,9 +38,11 @@ function RejectionSummaryPanel({ channel, dateFrom, dateTo }: { channel: string;
         </div>
       </div>
       <p className="muted-copy">
-        Rechazados / (pagados + rechazados), con fecha de cobro hasta hoy (hora de Chile) y sin cancelados, expirados ni anulados.
+        Este resumen utiliza el canal y las fechas seleccionadas. Rechazados / (pagados + rechazados), con fecha de cobro hasta hoy (hora de Chile) y sin cancelados, expirados ni anulados.
         VirtualPOS y TCH cuentan cargos; Toku y Payku cuentan intentos de cobro, porque el canal no marca el cargo como rechazado.
       </p>
+      {loading ? <p role="status">Actualizando resumen de rechazo…</p> : null}
+      {error ? <div role="alert"><p>{error}</p><button type="button" className="secondary-button" onClick={reload}>Reintentar resumen</button></div> : null}
       <div className="table-wrap">
         <table>
           <thead><tr><th>Canal</th><th>Base</th><th>Pagados</th><th>Rechazados</th><th>Tasa</th></tr></thead>
@@ -98,6 +102,38 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
   if (dateFrom) extraChips.push({ key: "desde", label: `Desde: ${day(dateFrom)}`, onRemove: () => reset(setDateFrom)("") });
   if (dateTo) extraChips.push({ key: "hasta", label: `Hasta: ${day(dateTo)}`, onRemove: () => reset(setDateTo)("") });
 
+  const busy = list.loading || query !== debouncedQuery;
+  const filtered = Boolean(channel || status || outcome || dateFrom || dateTo || query.trim());
+  const clearAll = () => { setChannel(""); setStatus(""); setOutcome(""); setDateFrom(""); setDateTo(""); setQuery(""); setField("all"); setOffset(0); };
+  const chargeColumns: PortfolioColumn<ChargeRow>[] = [
+    { id: "channel", label: "Canal", cell: (row) => channelText(row.channel) },
+    { id: "id", label: "ID de cobro", required: true, className: "mono", cell: (row) => {
+      const go = open(detailPath("charge", row.channel, row.charge_id));
+      return go ? <button type="button" className="text-button" onClick={go}>{row.charge_id}</button> : row.charge_id;
+    } },
+    { id: "subscription", label: "Suscripción", initiallyHidden: true, className: "mono", cell: (row) => row.subscription_id ?? "—" },
+    { id: "member", label: "Socio", cell: (row) => row.name || "—" },
+    { id: "rut", label: "RUT", cell: (row) => <Rut value={row.rut} /> },
+    { id: "status", label: "Estado", cell: (row) => <StatusText value={row.status} /> },
+    { id: "date", label: "Fecha de cobro", className: "mono", cell: (row) => day(row.charge_date) },
+    { id: "period", label: "Período", initiallyHidden: true, className: "mono", cell: (row) => row.period ?? "—" },
+    { id: "amount", label: "Monto", className: "mono num", cell: (row) => money(row.amount, row.currency) },
+    { id: "reason", label: "Motivo de rechazo", cell: (row) => row.rejection_reason ? <span data-raw-text>{row.rejection_reason}</span> : "—" },
+  ];
+  const paymentColumns: PortfolioColumn<PaymentRow>[] = [
+    { id: "channel", label: "Canal", cell: (row) => channelText(row.channel) },
+    { id: "id", label: "ID de pago", required: true, className: "mono", cell: (row) => {
+      const go = open(detailPath("payment", row.channel, row.payment_id));
+      return go ? <button type="button" className="text-button" onClick={go}>{row.payment_id}</button> : row.payment_id;
+    } },
+    { id: "charge", label: "ID de cobro", initiallyHidden: true, className: "mono", cell: (row) => row.charge_id ?? "—" },
+    { id: "member", label: "Socio", cell: (row) => row.name || "—" },
+    { id: "rut", label: "RUT", cell: (row) => <Rut value={row.rut} /> },
+    { id: "status", label: "Estado", cell: (row) => <StatusText value={row.status} /> },
+    { id: "date", label: "Fecha de pago", className: "mono", cell: (row) => day(row.payment_date) },
+    { id: "amount", label: "Monto", className: "mono num", cell: (row) => money(row.amount, row.currency) },
+  ];
+
   return (
     <main className="app-shell unified-page">
       <div className="topbar">
@@ -109,7 +145,6 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
       {!canCharges && !canPayments ? (
         <p className="muted-copy">Tu rol no puede ver cobros ni pagos de ningún canal. Pide acceso a un administrador.</p>
       ) : <>
-        {canCharges ? <RejectionSummaryPanel channel={channel} dateFrom={dateFrom} dateTo={dateTo} /> : null}
         <div className="recovery-tabs" role="tablist" aria-label="Tipo de registro">
           {canCharges ? <button type="button" role="tab" aria-selected={tab === "charges"} className={tab === "charges" ? "active" : ""} onClick={() => switchTab("charges")}>Cobros</button> : null}
           {canPayments ? <button type="button" role="tab" aria-selected={tab === "payments"} className={tab === "payments" ? "active" : ""} onClick={() => switchTab("payments")}>Pagos</button> : null}
@@ -118,7 +153,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
           <div className="panel-heading">
             <div>
               <p className="eyebrow">{tab === "charges" ? "Cobros de todos los canales" : "Pagos de todos los canales"}</p>
-              <h3><span className="mono">{list.data ? list.data.total.toLocaleString("es-CL") : "…"}</span> {tab === "charges" ? "cobros" : "pagos"}</h3>
+              <h3>Listado de {tab === "charges" ? "cobros" : "pagos"}</h3>
             </div>
           </div>
           <UnifiedFilterBar
@@ -132,11 +167,13 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
             fields={FIELDS[tab]}
             field={field}
             onField={reset(setField)}
+            placeholder={tab === "charges" ? "ID de cobro, suscripción o estado" : "ID de pago, cobro o estado"}
+            busy={busy || invertedRange}
             query={query}
             onQuery={reset(setQuery)}
             chips={extraChips}
             onClear={() => { setOutcome(""); setDateFrom(""); setDateTo(""); setOffset(0); }}
-            count={list.data?.total ?? null}
+            count={busy ? null : list.data?.total ?? null}
             noun={tab === "charges" ? "cobros" : "pagos"}
             actions={
               <ExportButton
@@ -170,60 +207,16 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
             </p>
           ) : null}
           {tab === "charges" ? <p className="muted-copy">Payku aparece con sus ciclos de cobro cuando existen; cada intento de cobro está en la pestaña Pagos.</p> : null}
-          {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
-          {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
-          {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}
-          <div className="table-wrap" aria-busy={list.loading}>
-            {tab === "charges" ? (
-              <table>
-                <thead><tr><th>Canal</th><th>ID de cobro</th><th>Suscripción</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Fecha de cobro</th><th>Período</th><th>Monto</th><th>Motivo de rechazo</th></tr></thead>
-                <tbody>
-                  {((list.data?.items ?? []) as ChargeRow[]).filter((row) => row.charge_id !== undefined).map((row, index) => {
-                    const go = open(detailPath("charge", row.channel, row.charge_id));
-                    return (
-                      <tr key={`${row.channel}-${row.charge_id}-${index}`}>
-                        <td>{channelText(row.channel)}</td>
-                        <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.charge_id}</button> : row.charge_id}</td>
-                        <td className="mono">{row.subscription_id ?? "—"}</td>
-                        <td>{row.name || "—"}</td>
-                        <td><Rut value={row.rut} /></td>
-                        <td><StatusText value={row.status} /></td>
-                        <td className="mono">{day(row.charge_date)}</td>
-                        <td className="mono">{row.period ?? "—"}</td>
-                        <td className="mono">{money(row.amount, row.currency)}</td>
-                        <td>{row.rejection_reason ? <span data-raw-text>{row.rejection_reason}</span> : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                  {!list.loading && list.data && list.data.items.length === 0 ? <tr><td colSpan={10}>Sin cobros con estos filtros.</td></tr> : null}
-                </tbody>
-              </table>
-            ) : (
-              <table>
-                <thead><tr><th>Canal</th><th>ID de pago</th><th>ID de cobro</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Fecha de pago</th><th>Monto</th></tr></thead>
-                <tbody>
-                  {((list.data?.items ?? []) as PaymentRow[]).filter((row) => row.payment_id !== undefined).map((row, index) => {
-                    const go = open(detailPath("payment", row.channel, row.payment_id));
-                    return (
-                      <tr key={`${row.channel}-${row.payment_id}-${index}`}>
-                        <td>{channelText(row.channel)}</td>
-                        <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.payment_id}</button> : row.payment_id}</td>
-                        <td className="mono">{row.charge_id ?? "—"}</td>
-                        <td>{row.name || "—"}</td>
-                        <td><Rut value={row.rut} /></td>
-                        <td><StatusText value={row.status} /></td>
-                        <td className="mono">{day(row.payment_date)}</td>
-                        <td className="mono">{money(row.amount, row.currency)}</td>
-                      </tr>
-                    );
-                  })}
-                  {!list.loading && list.data && list.data.items.length === 0 ? <tr><td colSpan={8}>Sin pagos con estos filtros.</td></tr> : null}
-                </tbody>
-              </table>
-            )}
-          </div>
-          {list.data ? <UnifiedPagination offset={offset} limit={PAGE} total={list.data.total} shown={list.data.items.length} onOffset={setOffset} /> : null}
+          {list.data && !busy ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
+          {tab === "charges" ? <PortfolioTable key="charges" view="charges" caption="cobros" columns={chargeColumns}
+            rows={((list.data?.items ?? []) as ChargeRow[]).filter((row) => row.charge_id !== undefined)} rowKey={(row, i) => `${row.channel}-${row.charge_id}-${i}`}
+            loading={busy} error={list.error} forbidden={list.forbidden} onRetry={list.reload} filtered={filtered} onClear={clearAll} />
+            : <PortfolioTable key="payments" view="payments" caption="pagos" columns={paymentColumns}
+              rows={((list.data?.items ?? []) as PaymentRow[]).filter((row) => row.payment_id !== undefined)} rowKey={(row, i) => `${row.channel}-${row.payment_id}-${i}`}
+              loading={busy} error={list.error} forbidden={list.forbidden} onRetry={list.reload} filtered={filtered} onClear={clearAll} />}
+          {list.data ? <UnifiedPagination offset={offset} limit={PAGE} total={list.data.total} shown={list.data.items.length} onOffset={setOffset} loading={busy} /> : null}
         </section>
+        {canCharges ? <RejectionSummaryPanel channel={channel} dateFrom={dateFrom} dateTo={dateTo} /> : null}
       </>}
     </main>
   );

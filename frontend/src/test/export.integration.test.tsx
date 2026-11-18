@@ -23,7 +23,9 @@ const exportHandlers = (entity: string, rows: number, includePii = false, dispos
 const lastExport = (app: { calls: Call[] }, suffix = "") => app.calls.filter((c) => c.path === `/api/v1/export/${suffix}`).at(-1)!;
 
 async function exportAll() {
-  fireEvent.click(await screen.findByRole("button", { name: /Exportar/ }));
+  const trigger = await screen.findByRole("button", { name: /Exportar/ });
+  await waitFor(() => expect(trigger).toBeEnabled());
+  fireEvent.click(trigger);
   fireEvent.click(screen.getByRole("menuitem", { name: /Todo el listado/ }));
   return screen.findByRole("button", { name: /Descargar/ });
 }
@@ -35,8 +37,8 @@ describe("Exportar: clientes y suscripciones consolidados", () => {
       ...exportHandlers("clientes", 42, true),
     ]);
     await appReady();
-    fireEvent.change(await screen.findByLabelText("Campo de búsqueda de clientes"), { target: { value: "email" } });
-    fireEvent.change(screen.getByLabelText("Buscar cliente consolidado"), { target: { value: "socio" } });
+    fireEvent.change(await screen.findByLabelText("Buscar en"), { target: { value: "email" } });
+    fireEvent.change(screen.getByLabelText("Buscar socios"), { target: { value: "socio" } });
     const download = await exportAll();
     expect(screen.getByText("42 filas")).toBeTruthy();
     expect(screen.getByText(/incluirá datos personales/)).toBeTruthy();

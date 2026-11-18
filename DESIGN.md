@@ -176,6 +176,12 @@ Una ruta de navegación encima del contenido muestra la jerarquía, por ejemplo 
 
 Tablas full-width dentro del área de contenido, sin max-width propio. Altura de fila: 38px (padding 9px top+bottom). Sticky header con background surface-alt. Alternancia de row: solo en hover — no zebra estática que distrae.
 
+**Búsqueda y tablas de Cartera (UX-LOCAL-02, 2026-11-18).** Socios, Suscripciones y Cobros comparten búsqueda principal, canal y exportación. Buscar usa todos los campos soportados por defecto; Más filtros agrupa el campo específico, estado y criterios propios (resultado/fechas en Cobros). Cerrar el grupo conserva sus valores; los chips activos quedan fuera y permiten quitar criterios o limpiarlos todos. Borrar búsqueda devuelve el foco al campo y conserva los demás filtros. El texto buscado permanece fuera de URL y almacenamiento persistente.
+
+PortfolioTable permite elegir columnas y restaurar la vista inicial. Socios fija RUT/nombre; Suscripciones fija ID/socio; Cobros y Pagos fijan su ID. Fechas adicionales, estado secundario y referencias secundarias se ofrecen bajo Columnas. La preferencia se guarda por vista bajo synkmetrix:list-columns:v1, solo con nombres de columnas; no contiene filas ni criterios de búsqueda. No altera la exportación. El scroll de la tabla tiene foco de teclado, encabezado fijo y montos alineados a la derecha; en móvil permanece dentro de la página.
+
+Al cambiar una consulta se muestran indicadores de carga y se bloquea exportar hasta que llegue el resultado correspondiente. Errores, falta de permisos, ausencia de registros y ausencia de coincidencias tienen mensajes diferentes; los errores permiten reintentar y una búsqueda vacía de coincidencias permite quitar criterios. Las respuestas canceladas no reemplazan una consulta nueva y Socios separa los datos por usuario de sesión. Se conserva paginación en servidor de 50 registros, con controles deshabilitados durante carga y retorno a Primera página. El análisis de rechazo queda después del listado de Cobros y explicita que usa canal/fechas, conservando su definición.
+
 Stats cards en grid de 4 columnas (desktop), 2 en tablet, 1 en mobile. Gap 12px. Sin aspect-ratio forzado.
 
 En mobile el menú es un drawer (hamburguesa, velo, Esc y clic fuera cierran, foco atrapado); buscador, indicador de salud y cabecera del grupo transitorio miden 44px de alto. Salud y lista comparten una zona de scroll; marca, búsqueda y pie permanecen visibles.

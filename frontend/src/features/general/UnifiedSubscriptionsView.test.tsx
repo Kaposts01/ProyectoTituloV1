@@ -38,7 +38,7 @@ describe("Suscripciones unificadas: nombre del socio", () => {
     await appReady();
     await screen.findByText("DEMO Bruno Embebido");
     fireEvent.change(screen.getByLabelText("Buscar en"), { target: { value: "client" } });
-    fireEvent.change(screen.getByLabelText("Texto"), { target: { value: "Bruno" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Bruno" } });
     await waitFor(() => {
       const last = app.exact("GET", "/api/v1/general/subscriptions").at(-1)!;
       expect(Object.fromEntries(last.query)).toMatchObject({ filter_field: "client", query: "Bruno" });
