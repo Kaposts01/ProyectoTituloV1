@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { patchJson, setCsrfToken } from "../../api";
@@ -65,7 +66,7 @@ export function ProfilePanel({
       <section className="panel">
         <button className="back-button" onClick={onClose}>Volver</button>
         <p className="eyebrow">CUENTA</p>
-        <h1>Mi perfil</h1>
+        <h1>{editing ? "Editar perfil" : pageLabels.profile}</h1>
         <div className="profile-info">
           <div className="profile-info-row">
             <span className="profile-info-label">Usuario</span>

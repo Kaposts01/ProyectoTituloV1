@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./billingApi";
 import { describeBillingError } from "./billingErrors";
@@ -190,8 +191,8 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
     <main className="app-shell bx-page">
       <div className="topbar">
         <div>
-          <p className="eyebrow">General</p>
-          <h1>Cambios de cobro</h1>
+          <p className="eyebrow">Operación</p>
+          <h1>{pageLabels.billing}</h1>
         </div>
         {can(PERM_REQUEST) ? <button className="bx-btn bx-btn-primary" onClick={() => { setNotice(null); setPrefill(undefined); setCreating(true); }}>Nueva solicitud</button> : null}
       </div>

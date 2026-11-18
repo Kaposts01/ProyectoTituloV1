@@ -33,10 +33,10 @@ export function ClientDetailView({
       Volver a clientes VirtualPOS
     </button>
     <p className="eyebrow">VIRTUALPOS / CLIENTE</p>
-    <h2>
+    <h1>
       {text(clientDetail.client.payload.first_name, "")}{" "}
       {text(clientDetail.client.payload.last_name, "")}
-    </h2>
+    </h1>
     <div className="client-detail-actions">
       <button className="edit-button" onClick={() => onEdit(clientDetail.client)}>
         Editar

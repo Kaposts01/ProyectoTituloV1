@@ -269,7 +269,7 @@ export function Sidebar({
         onBlurCapture={onBlurCapture}
       >
         <div className="sidebar-toprow">
-          <button className="sidebar-brand" onClick={go(onDashboard)} data-tip={t("ir al resumen")}>
+          <button className="sidebar-brand" onClick={go(onDashboard)} data-tip={t("ir al dashboard")}>
             <span aria-hidden="true">Sx</span>
             <strong className="sidebar-label">SynkmetriX</strong>
           </button>

@@ -124,7 +124,7 @@ export function ChannelDashboardView({
       <p className="eyebrow">{title(data.source).toUpperCase()}</p>
       <header className="channel-hero">
         <div>
-          <h2>Resumen operativo {refreshing && <span className="refreshing-badge">⟳ Actualizando</span>}</h2>
+          <h1>Resumen {refreshing && <span className="refreshing-badge">⟳ Actualizando</span>}</h1>
           <p>Indicadores y actividad del período seleccionado.</p>
         </div>
         <div className="channel-hero-controls">

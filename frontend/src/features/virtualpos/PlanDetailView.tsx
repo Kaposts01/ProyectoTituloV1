@@ -23,7 +23,7 @@ export function PlanDetailView({
       Volver a planes VirtualPOS
     </button>
     <p className="eyebrow">VIRTUALPOS / PLAN</p>
-    <h2>{text(planDetail.plan.payload.name, planDetail.plan.external_id)}</h2>
+    <h1>{text(planDetail.plan.payload.name, planDetail.plan.external_id)}</h1>
     <section className="panel">
       <p className="eyebrow">FICHA DEL PLAN</p>
       <dl className="field-list">

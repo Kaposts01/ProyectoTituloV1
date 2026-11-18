@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { AdminUsers } from "./AdminUsers";
 import { SchedulerPanel } from "./SchedulerPanel";
 import { EnvironmentSection } from "./EnvironmentSection";
@@ -7,6 +8,7 @@ import { WEBHOOKS_PERMISSION, WebhookHealthPanel } from "./WebhookHealthPanel";
 export function AdminPanel({ permissions, isAdmin, tab }: { permissions: string[]; isAdmin: boolean; tab: "users" | "sync" }) {
   return (
     <main className="app-shell">
+      <header className="page-heading"><p className="eyebrow">Sistema</p><h1>{tab === "users" ? pageLabels.admin : pageLabels.sync}</h1></header>
       {tab === "users"
         ? <AdminUsers permissions={permissions} />
         : <>

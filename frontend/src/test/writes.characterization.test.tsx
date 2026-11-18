@@ -215,7 +215,7 @@ describe("Suscripciones VirtualPOS: cancelar y crear cargo", () => {
     fireEvent.click(within(d).getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(app.find("DELETE", "/api/v1/writes/virtualpos/subscriptions/sub-1")).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Cancelar suscripción VirtualPOS" })).toBeNull());
-    expect(screen.getByText("Cancelada")).toBeTruthy();
+    expect(await screen.findByText("Cancelada")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Cancelar Sub" })).toBeNull();
   });
 

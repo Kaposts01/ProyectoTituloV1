@@ -27,8 +27,7 @@ export function AdminUsers({ permissions }: { permissions: string[] }) {
 
   return (
     <section className="panel">
-      <p className="eyebrow">ADMINISTRACIÓN</p>
-      <h1>{subTab === "users" ? "Usuarios" : subTab === "roles" ? "Roles y permisos" : "Aprobaciones de cambios de cobro"}</h1>
+      <h2>{subTab === "users" ? "Usuarios" : subTab === "roles" ? "Roles y permisos" : "Aprobaciones de cambios de cobro"}</h2>
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
         <button className={`channel-btn${subTab === "users" ? " active" : ""}`} onClick={() => setSubTab("users")}>Usuarios</button>
         {canManageRoles ? (

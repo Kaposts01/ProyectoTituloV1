@@ -911,7 +911,7 @@ export const es = {
     "modo oscuro": "Modo oscuro",
     "mi perfil": "Mi perfil",
     "cerrar sesion": "Cerrar sesión",
-    "ir al resumen": "Ir al Resumen",
+    "ir al dashboard": "Ir al Dashboard",
   },
 } as const;
 

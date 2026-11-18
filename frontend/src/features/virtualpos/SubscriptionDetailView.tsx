@@ -44,12 +44,12 @@ export function SubscriptionDetailView({
       Volver al listado VirtualPOS
     </button>
     <p className="eyebrow">VIRTUALPOS / SUSCRIPCIÓN</p>
-    <h2>
+    <h1>
       {text(
         subscriptionDetail.subscription.payload.plan_name,
         subscriptionDetail.subscription.external_id,
       )}
-    </h2>
+    </h1>
     {isActiveSubscription(subscriptionDetail.subscription) ? (
       <div className="client-detail-actions">
         {isAdmin ? (

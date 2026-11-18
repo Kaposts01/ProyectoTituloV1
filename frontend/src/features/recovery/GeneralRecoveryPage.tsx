@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { useState } from "react";
 import { ChannelRecoveryPanel } from "./ChannelRecoveryPanel";
 import { RecoveryPanel } from "./RecoveryPanel";
@@ -16,7 +17,7 @@ export function GeneralRecoveryPage({ can }: Props) {
       <div className="topbar">
         <div>
           <p className="eyebrow">Operación</p>
-          <h1>Recuperador de Socios</h1>
+          <h1>{pageLabels.recovery}</h1>
         </div>
       </div>
       {current === null ? (

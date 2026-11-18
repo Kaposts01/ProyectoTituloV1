@@ -47,7 +47,7 @@ describe("TCH: resumen (/tch/resumen)", () => {
     const app = mountApp("/tch/resumen", [["GET", "/api/v1/tch/summary", summary], ["GET", "/api/v1/tch/archivos", { items: [], limit: 50 }]]);
     await appReady();
     expect(await screen.findByText("TCH / CANAL")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Resumen operativo/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Resumen" })).toBeTruthy();
     expect(screen.getByText("Datos cargados desde reportes Excel mensuales vía ETL.")).toBeTruthy();
     const metrics = screen.getByLabelText("KPIs TCH");
     for (const label of ["Suscripciones vigentes", "Suscripciones eliminadas", "Total suscripciones", "Total transacciones"]) {
@@ -101,7 +101,7 @@ describe("TCH: resumen (/tch/resumen)", () => {
     await screen.findByText("Vistas disponibles");
     fireEvent.click(screen.getByRole("button", { name: /^Suscripciones50$/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/tch/suscripciones"));
-    await screen.findByText("Suscripciones TCH");
+    await screen.findByRole("heading", { level: 1, name: "Suscripciones" });
     expect(app.find("GET", "/api/v1/tch/suscripciones")).toHaveLength(1);
   });
 });
@@ -113,7 +113,7 @@ describe("TCH: suscripciones (/tch/suscripciones)", () => {
     const app = mountApp("/tch/suscripciones", [["GET", "/api/v1/tch/suscripciones", list]]);
     await appReady();
     expect(await screen.findByRole("button", { name: "1001" })).toBeTruthy();
-    expect(screen.getByText("Suscripciones TCH")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Suscripciones" })).toBeTruthy();
     expect(screen.getByText("Mandatos activos e históricos de débito físico.")).toBeTruthy();
     const call = app.find("GET", "/api/v1/tch/suscripciones")[0];
     expect(call.query.get("limit")).toBe("50");
@@ -196,7 +196,7 @@ describe("TCH: transacciones (/tch/transacciones)", () => {
     const app = mountApp("/tch/transacciones", [["GET", "/api/v1/tch/transacciones", list]]);
     await appReady();
     expect(await screen.findByRole("button", { name: "1001" })).toBeTruthy();
-    expect(screen.getByText("Transacciones TCH")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Transacciones" })).toBeTruthy();
     expect(screen.getByText("Historial de cargos aceptados y rechazados.")).toBeTruthy();
     expect(app.find("GET", "/api/v1/tch/transacciones")[0].query.get("limit")).toBe("100");
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Ficha", "Período", "Entidad", "Monto", "Fecha cargo", "Cuota", "Estado"]);
@@ -225,7 +225,7 @@ describe("TCH: transacciones (/tch/transacciones)", () => {
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
     fireEvent.click(screen.getByRole("button", { name: "← Transacciones TCH" }));
-    expect(await screen.findByText("Transacciones TCH")).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Transacciones" })).toBeTruthy();
   });
 });
 
@@ -236,7 +236,7 @@ describe("TCH: clientes (/tch/clientes)", () => {
     const app = mountApp("/tch/clientes", [["GET", "/api/v1/tch/clientes", list]]);
     await appReady();
     expect(await screen.findByRole("button", { name: "22.222.221-2" })).toBeTruthy();
-    expect(screen.getByText("Clientes TCH")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Clientes" })).toBeTruthy();
     expect(screen.getByText("Socios asociados a mandatos físicos.")).toBeTruthy();
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["RUT", "Nombre", "Fecha nacimiento", "Profesión", "Tipo socio"]);
     expect(screen.getByText("Nombre1 Apellido1")).toBeTruthy();
@@ -268,5 +268,12 @@ describe("TCH: clientes (/tch/clientes)", () => {
     expect(app.find("GET", "/api/v1/tch/clientes/22222221-2").length).toBeGreaterThan(0);
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
+    const breadcrumb = within(screen.getByRole("navigation", { name: "Ruta de navegación" }));
+    const parent = breadcrumb.getByRole("link", { name: "Clientes" });
+    expect(parent).toHaveAttribute("href", "/tch/clientes");
+    fireEvent.click(parent);
+    expect(await screen.findByRole("heading", { level: 1, name: "Clientes" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/tch/clientes");
+    await waitFor(() => expect(document.title).toBe("Clientes · TCH | SynkmetriX"));
   });
 });

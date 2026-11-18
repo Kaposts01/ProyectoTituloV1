@@ -30,7 +30,7 @@ export function ChargeDetailView({
       Volver a cargos VirtualPOS
     </button>
     <p className="eyebrow">VIRTUALPOS / CARGO</p>
-    <h2>{text(chargeDetail.charge.payload.id, chargeDetail.charge.external_id)}</h2>
+    <h1>{text(chargeDetail.charge.payload.id, chargeDetail.charge.external_id)}</h1>
     <div className="client-detail-actions">
       {isPendingCharge(chargeDetail.charge) ? (
         <button

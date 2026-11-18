@@ -27,7 +27,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(q.has("filters")).toBe(false);
     expect(q.has("sort_field")).toBe(false);
     expect(screen.getByText("Volver al resumen VirtualPOS")).toBeTruthy();
-    expect(screen.getByText("VIRTUALPOS / STAGING")).toBeTruthy();
+    expect(document.querySelector("main > .eyebrow")).toHaveTextContent("VirtualPOS");
     expect(screen.getByRole("heading", { name: "Clientes" })).toBeTruthy();
     expect(screen.getByText("Payloads saneados almacenados localmente")).toBeTruthy();
     expect(screen.getByText("2 registros")).toBeTruthy();
@@ -188,7 +188,7 @@ describe("Listas Toku y Payku", () => {
     const app = mountApp("/toku/clientes", [recordsHandler(page([tokuCustomer(1)]))]);
     await appReady();
     expect(await screen.findByRole("button", { name: "Ver ficha de cliente 22.222.221-2" })).toBeTruthy();
-    expect(screen.getByText("TOKU / STAGING")).toBeTruthy();
+    expect(document.querySelector("main > .eyebrow")).toHaveTextContent("Toku");
     expect(screen.getByText("Filtrar registros")).toBeTruthy();
     expect(headers()).toEqual(["RUT", "Nombre", "Correo electrónico", "Teléfono", "Acciones"]);
     expect(lastRecordsCall(app).query.get("source")).toBe("toku");
@@ -244,7 +244,7 @@ describe("Listas Toku y Payku", () => {
     mountApp("/payku/clientes", [recordsHandler(page([paykuClient(1)]))]);
     await appReady();
     expect(await screen.findByRole("button", { name: /Ver ficha de Clientes pcl-1/ })).toBeTruthy();
-    expect(screen.getByText("PAYKU / STAGING")).toBeTruthy();
+    expect(document.querySelector("main > .eyebrow")).toHaveTextContent("Payku");
     expect(headers()).toEqual(["ID", "RUT", "Nombre", "Correo electrónico", "Teléfono", "Acciones"]);
     resetApp();
     mountApp("/payku/suscripciones", [recordsHandler(page([paykuSubscription(1)]))]);

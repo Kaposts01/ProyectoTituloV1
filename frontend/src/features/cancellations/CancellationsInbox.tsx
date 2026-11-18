@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { useEffect, useRef, useState } from "react";
 import { formatDateTime } from "../billing/billingLabels";
 import { Cell, FiltersPanel, Notice } from "../billing/ui";
@@ -149,7 +150,7 @@ export function CancellationsInbox({ can, currentUserId, isAdmin = false }: Prop
       <div className="topbar">
         <div>
           <p className="eyebrow">Operación</p>
-          <h1>Bajas</h1>
+          <h1>{pageLabels.cancellations}</h1>
         </div>
         <div className="cx-topbar-actions">
           {can(PERM_BILLING_REQUEST) ? <button className="bx-btn bx-btn-ghost" onClick={() => { setNotice(null); setChangingAmount(true); }}>Cambiar monto</button> : null}

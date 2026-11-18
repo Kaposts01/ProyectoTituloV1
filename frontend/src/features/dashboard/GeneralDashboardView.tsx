@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { useEffect, useState } from "react";
 import { fetchEnvironment, type EnvironmentInfo } from "../shared/environment";
 import { EtlPanel } from "./EtlPanel";
@@ -41,7 +42,7 @@ export function GeneralDashboardView({ general, etl, error, setError, can }: {
       <header className="topbar">
         <div>
           <p className="eyebrow">Cartera</p>
-          <h1>{isSubscriptions ? "Suscripciones" : "Socios"}</h1>
+          <h1>{isSubscriptions ? pageLabels.subscriptions : pageLabels.members}</h1>
         </div>
         <EnvironmentChip />
       </header>

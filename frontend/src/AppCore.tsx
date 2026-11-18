@@ -3,6 +3,8 @@ import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson } from "./api";
 import { useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
+import { PageBreadcrumbs } from "./components/PageBreadcrumbs";
+import { pageLocation } from "./pageNavigation";
 import { ChangeToasts } from "./components/ChangeToasts";
 import { canOpenBilling, canOpenCharges, canOpenMembers, canOpenRecovery, canOpenSubscriptions, providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
@@ -260,6 +262,14 @@ function AppCore() {
   function openPath(path: string) {
     window.history.pushState({}, "", path);
     setRouteLocation(path);
+  }
+
+  function openBreadcrumb(path: string) {
+    const route = parseRoute(path);
+    if (!route || !canAccessRoute(route)) return;
+    // TCH client/transaction details share their list URL: reopening that URL must also reset the internal view.
+    if (route.kind === "tch") showTch(route.view);
+    else openPath(path);
   }
 
   function showAutoReport(updateUrl = true) {
@@ -652,6 +662,12 @@ function AppCore() {
 
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
+  const currentPage = session && summaryRoute && canAccessRoute(summaryRoute)
+    ? pageLocation(summaryRoute, canAccessRoute, tchView) : null;
+  const browserTitle = currentPage?.title ? `${currentPage.title} | SynkmetriX` : session === null ? "Iniciar sesión | SynkmetriX" : "SynkmetriX";
+  useEffect(() => {
+    document.title = browserTitle;
+  }, [browserTitle]);
 
   const content = detailLoading ? (
     <main className="app-shell">
@@ -760,6 +776,8 @@ function AppCore() {
         profileOpen={profileView !== null}
         health={channelHealth}
       />
+      <div className="app-page">
+      {currentPage ? <PageBreadcrumbs crumbs={currentPage.crumbs} onNavigate={openBreadcrumb} /> : null}
       {adminOpen ? (
         <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>
           <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
@@ -778,6 +796,7 @@ function AppCore() {
           <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>{content}</Suspense>
         </ContentErrorBoundary>
       )}
+      </div>
       {can("dashboard.view") ? <ChangeToasts /> : null}
       <VirtualPosWriteDialogs writes={vpWrites} vp2Enabled={vp2Enabled} />
       <ProviderWriteDialogs writes={providerWrites} />

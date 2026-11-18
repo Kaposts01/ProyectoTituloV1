@@ -37,7 +37,7 @@ export function ProviderRecordDetailView({
       {title(providerRecordDetail.record.source).toUpperCase()} /{" "}
       {resourceTitle(providerRecordDetail.record.resource_type).toUpperCase()}
     </p>
-    <h2>{providerRecordHeading(providerRecordDetail.record)}</h2>
+    <h1>{providerRecordHeading(providerRecordDetail.record)}</h1>
     <div className="client-detail-actions">
       {(providerEditFields[providerRecordDetail.record.source]?.[providerRecordDetail.record.resource_type] ?? []).length > 0 ? (
         <button

@@ -103,7 +103,7 @@ describe("Rutas y permisos", () => {
     mountApp("/virtualpos/recuperador-socios", [["GET", /^\/api\/v1\/recovery\//, { items: [], total: 0, offset: 0, limit: 50 }]]);
     await appReady();
     await waitFor(() => expect(window.location.pathname).toBe("/general/recuperador"));
-    expect(await screen.findByRole("heading", { name: "Recuperador de Socios" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Recuperador" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "VirtualPOS" }).getAttribute("aria-selected")).toBe("true");
   });
 
@@ -122,13 +122,13 @@ describe("Rutas y permisos", () => {
   it("el botón Atrás (popstate) cambia de vista según la URL", async () => {
     mountApp("/toku/clientes", [listHandler, ["GET", "/api/v1/staging/dashboard/toku", { source: "toku", records: 0, resources: {}, resource_amounts: {}, statuses: [], activity_resource: "transaction", activity: [], years: [], last_sync: null }]]);
     await appReady();
-    await screen.findByText("TOKU / STAGING");
+    await screen.findByRole("heading", { level: 1, name: "Clientes" });
     act(() => {
       window.history.pushState({}, "", "/toku/resumen");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
-    expect(screen.queryByText("TOKU / STAGING")).toBeNull();
+    expect(screen.queryByRole("heading", { level: 1, name: "Clientes" })).toBeNull();
   });
 });
 
@@ -235,7 +235,7 @@ describe("Resumen unificado y vista anterior (rutas del paso 3)", () => {
     const app = mountApp("/central/resumen", [listHandler]);
     await appReady();
     await screen.findByRole("region", { name: "Indicadores del mes" });
-    expect(screen.getByRole("heading", { level: 1, name: "Resumen" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Dashboard" })).toBeTruthy();
     expect(unifiedCalls(app)).toHaveLength(1);
     expect(legacyCalls(app)).toHaveLength(0);
     expect(navTop("Dashboard").getAttribute("aria-current")).toBe("page");

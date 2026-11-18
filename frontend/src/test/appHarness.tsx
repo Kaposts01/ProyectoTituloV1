@@ -148,14 +148,18 @@ function normalizeHtml(html: string): string {
     .replace(/\d{1,2}-\d{1,2}-\d{4}, \d{1,2}:\d{2}:\d{2}( [ap]\. ?m\.)?/g, "FECHA-HORA");
 }
 
-/** HTML del área de contenido (sin barra lateral), para comparar el marcado antes y después de mover código. */
+/** HTML del área de contenido (sin barra lateral ni ruta de navegación), para comparar el marcado antes y después de mover código. */
 export function contentHtml(): string {
   const layout = document.querySelector(".app-layout");
   const parts: string[] = [];
   layout?.childNodes.forEach((node) => {
     if (!(node instanceof HTMLElement)) return;
     if (node.matches(".burger-btn, .sidebar-overlay, aside.sidebar")) return;
-    parts.push(node.outerHTML);
+    if (node.matches(".app-page")) {
+      for (const child of Array.from(node.children)) {
+        if (!child.matches(".page-breadcrumbs")) parts.push(child.outerHTML);
+      }
+    } else parts.push(node.outerHTML);
   });
   return normalizeReactIds(normalizeHtml(parts.join("\n")));
 }

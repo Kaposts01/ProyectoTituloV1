@@ -391,8 +391,7 @@ export function SchedulerPanel({ canSync, canViewRuns, canImportTch, batchPollMs
 
   return (
     <section className="panel scheduler-panel">
-      <p className="eyebrow">ADMINISTRACIÓN / SINCRONIZACIÓN</p>
-      <h1>Orquestador</h1>
+      <h2>Programación y estado</h2>
       {canSync ? (
         <div className="channel-selector-wrap">
           <span className="channel-selector-label">Canal:</span>

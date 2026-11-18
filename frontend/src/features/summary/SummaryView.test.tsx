@@ -382,7 +382,7 @@ describe("Resumen unificado: encabezado", () => {
     installFetch(() => ({ body: rawSummary() }));
     render(<SummaryView />);
     await ready();
-    expect(screen.getByRole("heading", { level: 1, name: "Resumen" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Dashboard" })).toBeTruthy();
     expect(screen.getByText(/octubre de 2026/)).toBeTruthy();
   });
 

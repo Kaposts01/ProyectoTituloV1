@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { useState } from "react";
 import { useChannelHealth } from "../../hooks/useChannelHealth";
 import { ChannelFilter, MonthPicker } from "./SummaryControls";
@@ -75,7 +76,7 @@ export function SummaryView() {
     <main className="app-shell summary-view">
       <header className="summary-header">
         <div>
-          <h1 className="summary-title">Resumen</h1>
+          <h1 className="summary-title">{pageLabels.dashboard}</h1>
           <p className="summary-subtitle">
             {shown ? `Datos de ${monthLabel(shown.month)}` : month ? `Datos de ${monthLabel(month)}` : "Datos del mes actual"}
             {generatedAt ? <span className="summary-generated mono"> · Calculado el {generatedAt}</span> : null}

@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { useState } from "react";
 import { useDebouncedValue } from "../../hooks";
 import { tryLabel } from "../../i18n/label";
@@ -102,7 +103,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
       <div className="topbar">
         <div>
           <p className="eyebrow">Cartera</p>
-          <h1>Cobros</h1>
+          <h1>{pageLabels.charges}</h1>
         </div>
       </div>
       {!canCharges && !canPayments ? (

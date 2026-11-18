@@ -26,7 +26,7 @@ export function PaymentDetailView({
       Volver a transacciones VirtualPOS
     </button>
     <p className="eyebrow">VIRTUALPOS / TRANSACCIÓN</p>
-    <h2>{text(nested(paymentDetail.payment.payload, "order", "uuid"), paymentDetail.payment.external_id)}</h2>
+    <h1>{text(nested(paymentDetail.payment.payload, "order", "uuid"), paymentDetail.payment.external_id)}</h1>
     <div className="client-detail-actions">
       <button
         className="delete-button"

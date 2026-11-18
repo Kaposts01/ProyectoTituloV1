@@ -1,3 +1,4 @@
+import { pageLabels } from "../../pageLabels";
 import { useState } from "react";
 import { useDebouncedValue } from "../../hooks";
 import { labelOr } from "../../i18n/label";
@@ -49,7 +50,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
       <div className="topbar">
         <div>
           <p className="eyebrow">Cartera</p>
-          <h1>Suscripciones</h1>
+          <h1>{pageLabels.subscriptions}</h1>
         </div>
       </div>
       {!allowed ? (

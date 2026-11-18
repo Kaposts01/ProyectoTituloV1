@@ -1,5 +1,6 @@
 /** Grupos de proveedor, secciones y helpers de permisos de navegación. */
 
+import { pageLabels } from "./pageLabels";
 import { PERM_VIEW as PERM_BILLING_VIEW } from "./features/billing/types";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
 import { canOpenRecovery } from "./features/recovery/recoveryChannels";
@@ -86,32 +87,32 @@ export const canOpenBilling = (can: Can): boolean => can(PERM_GENERAL_BILLING_VI
 export { canOpenRecovery };
 
 export const menuGroups: MenuGroup[] = [
-  { id: "resumen", label: null, items: [{ id: "summary", label: "Dashboard", action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
+  { id: "resumen", label: null, items: [{ id: "summary", label: pageLabels.dashboard, action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
   {
     id: "cartera",
     label: "Cartera",
     items: [
-      { id: "clients", label: "Socios", action: { kind: "central", view: "clients" }, allowed: canOpenMembers },
-      { id: "subscriptions", label: "Suscripciones", action: { kind: "central", view: "subscriptions" }, allowed: canOpenSubscriptions },
-      { id: "charges", label: "Cobros", action: { kind: "central", view: "charges" }, allowed: canOpenCharges },
+      { id: "clients", label: pageLabels.members, action: { kind: "central", view: "clients" }, allowed: canOpenMembers },
+      { id: "subscriptions", label: pageLabels.subscriptions, action: { kind: "central", view: "subscriptions" }, allowed: canOpenSubscriptions },
+      { id: "charges", label: pageLabels.charges, action: { kind: "central", view: "charges" }, allowed: canOpenCharges },
     ],
   },
   {
     id: "operacion",
     label: "Operación",
     items: [
-      { id: "recovery", label: "Recuperador", action: { kind: "recovery" }, allowed: canOpenRecovery },
-      { id: "billing", label: "Cambios de cobro", action: { kind: "billing" }, allowed: canOpenBilling },
-      { id: "cancellations", label: "Bajas", action: { kind: "cancellations" }, allowed: (can) => can(PERM_CANCELLATION_VIEW) },
+      { id: "recovery", label: pageLabels.recovery, action: { kind: "recovery" }, allowed: canOpenRecovery },
+      { id: "billing", label: pageLabels.billing, action: { kind: "billing" }, allowed: canOpenBilling },
+      { id: "cancellations", label: pageLabels.cancellations, action: { kind: "cancellations" }, allowed: (can) => can(PERM_CANCELLATION_VIEW) },
     ],
   },
   {
     id: "sistema",
     label: "Sistema",
     items: [
-      { id: "sync", label: "Sincronización", action: { kind: "admin", view: "sync" }, allowed: (can) => can("sync_runs.view") || can("sync.run") },
-      { id: "admin", label: "Administración", action: { kind: "admin", view: "users" }, allowed: (can) => can("users.manage") || can("roles.manage") },
-      { id: "report", label: "Reportes", action: { kind: "central", view: "report" }, allowed: canDashboard },
+      { id: "sync", label: pageLabels.sync, action: { kind: "admin", view: "sync" }, allowed: (can) => can("sync_runs.view") || can("sync.run") },
+      { id: "admin", label: pageLabels.admin, action: { kind: "admin", view: "users" }, allowed: (can) => can("users.manage") || can("roles.manage") },
+      { id: "report", label: pageLabels.reports, action: { kind: "central", view: "report" }, allowed: canDashboard },
     ],
   },
 ];

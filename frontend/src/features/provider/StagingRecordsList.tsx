@@ -182,9 +182,9 @@ export function StagingRecordsList({
         Volver al resumen {title(activeSection.source)}
       </button>
       <p className="eyebrow">
-        {title(activeSection.source).toUpperCase()} / STAGING
+        {title(activeSection.source)}
       </p>
-      <h2>{activeSection.label}</h2>
+      <h1>{activeSection.label}</h1>
       {filterControls}
       {activeSection.source === "virtualpos" ? (
         <div className="vp-platform-filter">

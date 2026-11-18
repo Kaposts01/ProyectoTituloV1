@@ -84,7 +84,7 @@ describe("Exportar: listas de staging", () => {
       ...exportHandlers("suscripciones", 1),
     ]);
     await appReady();
-    await screen.findByText("TOKU / STAGING");
+    await screen.findByRole("heading", { level: 1, name: "Suscripciones" });
     fireEvent.change(screen.getByLabelText("Campo"), { target: { value: "status" } });
     fireEvent.change(await screen.findByDisplayValue("Todos los estados"), { target: { value: "ACTIVE" } });
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/records").at(-1)?.query.get("query")).toBe("ACTIVE"));
@@ -132,7 +132,7 @@ describe("Exportar: listas de staging", () => {
     resetApp();
     mountApp("/virtualpos/planes", [recordsHandler(page([vpPlan(1)]))]);
     await appReady();
-    await screen.findByText("VIRTUALPOS / STAGING");
+    await screen.findByRole("heading", { level: 1, name: "Planes" });
     expect(screen.queryByRole("button", { name: /Exportar/ })).toBeNull();
   });
 

@@ -1,4 +1,20 @@
 .app-layout { display: flex; min-height: 100vh; }
+.app-page { flex: 1 1 0; min-width: 0; }
+.page-breadcrumbs { padding: 18px clamp(24px, 3vw, 48px) 0; color: var(--text-2); font-size: 13px; }
+.page-breadcrumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0; padding: 0; list-style: none; }
+.page-breadcrumbs li { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.page-breadcrumbs a { display: inline-flex; align-items: center; min-height: 32px; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
+.page-breadcrumbs a:hover { color: var(--text-1); }
+.page-breadcrumbs a:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
+.page-breadcrumbs [aria-current="page"] { color: var(--text-1); font-weight: 600; }
+.breadcrumb-separator { color: var(--text-3); }
+.app-page > .app-shell { padding-top: 16px; }
+.page-heading { margin-bottom: 24px; }
+@media (max-width: 800px) {
+  .page-breadcrumbs { padding: 68px 16px 0; }
+  .page-breadcrumbs a { min-height: 44px; }
+  .app-page > .app-shell { padding-top: 16px; }
+}
 
 /* Franja de ambiente (solo no produccion) */
 .env-banner {

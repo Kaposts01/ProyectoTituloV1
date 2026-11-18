@@ -1,3 +1,4 @@
+import { pageLabels } from "./pageLabels";
 import { useEffect, useState } from "react";
 import { friendlyError, getJson } from "./api";
 import { adaptAlerts, type AlertWire } from "./features/dashboard/alertAdapter";
@@ -157,8 +158,8 @@ export function AutomaticReport() {
         <div className="brand">
           <span className="brand-mark">Sx</span>
           <div>
-            <p className="eyebrow">ANALÍTICA</p>
-            <h1>Reporte automático</h1>
+            <p className="eyebrow">Sistema</p>
+            <h1>{pageLabels.reports}</h1>
           </div>
         </div>
         <p className="muted-copy" style={{ fontSize: "12px", alignSelf: "center" }}>

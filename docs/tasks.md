@@ -993,6 +993,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | DEV-LOCAL-04 | Purgar skills personales del historial publicado | Completada | Historial limpio en codex/actualizacion-20261118 y sprint-5/estabilizacion-dashboard. Diez commits verificados archivo por archivo; proyecto preservado y 31 archivos personales intactos por SHA-256. Respaldo local y exclusiones por checkout; publicacion con lease explicito. No garantiza purga de caches ni copias externas. |
 
+| UX-LOCAL-01 | Unificar orientacion, nombres y encabezados | Completada en rama local | Nombres compartidos con el menu, ruta accesible y titulos de pestana sin datos personales. URLs, permisos y cuenta conservados. Regresiones y Chrome en 18 pantallas, teclado y movil; lint/build pasan. [Evidencia](quality/page-orientation-2026-11-18.md). Skills excluidas, sin push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.
