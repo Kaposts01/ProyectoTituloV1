@@ -175,13 +175,9 @@ La lista priorizada está en [Technical Debt](../../knowledge/08%20-%20Roadmap/T
 
 En SynkmetriX se utilizara el termino modelo centralizado en lugar de modelo canonico.
 
-## Entorno de este checkout — 2026-11-18
+## Barra lateral en revisión (rama `feat/ux-sidebar-cabarca`, 2026-11-18)
 
-Rama `codex/actualizacion-20261118`, basada en origin/master 54814f4, sin push. Nueve skills recuperadas; frontend actualizado y snapshots con IDs React estables. PostgreSQL 18 nativo en 127.0.0.1:5433 (este equipo no dispone del Docker descrito para el despliegue de referencia). La base original crm permanece en su revision local 0032; la aplicacion usa una copia crm_qa_local_20261118 respaldada, migrada a 0082 y con ocho suscripciones VP conflictivas en cuarentena por autorizacion del usuario. Ambos entornos conservan 10.592 clientes Core y 133.532 transacciones TCH; original sin migrar. La revision 0082 preserva atributos por cliente/fuente. Conexiones SQL UTC para evitar fechas dependientes del servidor.
-
-API 8000 y frontend 5173 activos solo en loopback; backend desde .env.local, APP_ENV=qa, JWT separado, scheduler y escrituras de proveedores apagados. Login y lecturas autenticadas del dashboard y TCH verificados. Reinicio con `scripts/run_local_backend.ps1` y `npm.cmd --prefix frontend run dev`; no ejecutar el backend nuevo con la configuracion .env antigua.
-
-Ruff, lint, build, pip check, Alembic check sobre la copia, 1.464 pruebas frontend y 3.747 pruebas Python pasan (23 omisiones previstas). Auditoria npm de produccion: cero; persiste alerta de desarrollo picomatch sin parche (DEV-LOCAL-02). [Evidencia y respaldo](../quality/local-repair-2026-11-18.md).
+Aporte de cabarca, pendiente de la decisión del usuario sobre D29 y de la revisión visual en sandbox.
 
 Menu lateral local mejorado (UI-LOCAL-01, 2026-11-18): ancho abierto 272px, una zona desplazable para salud y navegacion, busqueda fija y pie compacto. Conserva rail, permisos y drawer; 118 pruebas, lint/build y revision Chrome en alturas cortas y movil pasan. [Evidencia](../quality/sidebar-layout-2026-11-18.md).
 
@@ -190,7 +186,3 @@ UI-LOCAL-02 (2026-11-18): el pie ahora muestra un solo boton de cuenta con avata
 UI-LOCAL-03 (2026-11-18): Cartera, Operacion, Sistema y Detalle por canal usan acordeones; los proveedores forman un segundo nivel. Solo un grupo abierto por nivel, pantalla activa autoabierta y busqueda que despliega coincidencias. Resumen directo, permisos, rutas y cuenta conservados. Solicitud del usuario sustituye la presentacion plana anterior de D29; no cambia la arquitectura. 155 pruebas, lint/build y Chrome escritorio/movil pasan. [Evidencia](../quality/sidebar-sections-2026-11-18.md). Sin push.
 
 UI-LOCAL-04 (2026-11-18): el acceso general antes rotulado Resumen ahora dice Dashboard por solicitud del usuario. Conserva /central/resumen y el permiso dashboard.view; los resumenes de proveedores no cambian. Solo local, sin push.
-
-Preferencia del usuario (2026-11-18): las nueve skills personales de Codex y sus evaluaciones son exclusivamente locales y no se deben publicar. Tras la subida inicial autorizada de la rama, se corrige su inclusion retirando 31 archivos del indice y agregando exclusiones Git; permanecen intactos en disco. El commit correctivo no purga las versiones historicas ya publicadas. Los registros anteriores de sin push describen las verificaciones previas a la publicacion.
-
-DEV-LOCAL-04 (2026-11-18): por autorizacion expresa del usuario, se reescribe el historial de codex/actualizacion-20261118 y sprint-5/estabilizacion-dashboard para excluir los paquetes personales y sus evaluaciones de todos sus commits. Diez commits reconstruidos con metadatos y cambios del proyecto conservados; arbol final actual identico antes de la actualizacion documental. Nueve skills / 31 archivos locales preservados por SHA-256 y respaldo bajo .local/backups/skills-history-20261118, nunca publicado. Exclusiones locales adicionales evitan agregarlos desde otras ramas. Master y ramas ajenas intactas. La limpieza de referencias Git no garantiza eliminacion de caches GitHub o clones externos.

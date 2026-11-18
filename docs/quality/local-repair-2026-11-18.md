@@ -1,5 +1,7 @@
 # Reparacion y operacion local — 2026-11-18
 
+> **Registro histórico del equipo de cabarca (18/11).** Describe su checkout local (PostgreSQL 18 nativo, `.env.local`, copia de QA), no el entorno de este proyecto. El estado vigente está en `docs/memory/PROJECT_STATE.md`.
+
 ## Alcance
 
 Rama `codex/actualizacion-20261118`. Cambios exclusivamente locales; no push ni merge a master. Este informe actualiza los limites de `update-comparison-2026-11-18.md`.

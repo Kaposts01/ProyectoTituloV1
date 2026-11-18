@@ -77,8 +77,6 @@ Local workflow: use `\.venv\Scripts\Activate.ps1`; start PostgreSQL with `docker
 
 After changes: run relevant tests and static checks, review the diff, check for secrets, update documentation only when the real state changed, and register newly found technical debt when relevant.
 
-Local branch override (2026-11-18): this checkout uses native PostgreSQL 18 on 127.0.0.1:5433 and a restored QA copy. Start the backend with `scripts/run_local_backend.ps1`, which selects ignored `.env.local`; the original `.env` still points to the old original database. Do not run a migration or start the updated backend against that original database. Scheduler and provider writes remain disabled in the local QA runtime. See `docs/quality/local-repair-2026-11-18.md` for the backup, quarantine, schema and restart procedure.
-
 
 ## 9. Memory
 

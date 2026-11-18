@@ -1,15 +1,15 @@
 """Scope observed attribute uniqueness to the client, preserving shared values.
 
-Revision ID: 20261118_0082
-Revises: 20261116_0081
+Revision ID: 20261118_0083
+Revises: 20261117_0082
 """
 
 import sqlalchemy as sa
 
 from alembic import op
 
-revision = "20261118_0082"
-down_revision = "20261116_0081"
+revision = "20261118_0083"
+down_revision = "20261117_0082"
 branch_labels = None
 depends_on = None
 

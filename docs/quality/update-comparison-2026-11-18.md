@@ -1,5 +1,7 @@
 # Actualizacion local y comparacion — 2026-11-18
 
+> **Registro histórico del equipo de cabarca (18/11).** Describe su checkout local (PostgreSQL 18 nativo, `.env.local`, copia de QA), no el entorno de este proyecto. El estado vigente está en `docs/memory/PROJECT_STATE.md`.
+
 > Comparacion inicial. La reparacion posterior, el entorno operativo y los resultados vigentes estan en [reparacion local](local-repair-2026-11-18.md).
 
 ## Base y alcance

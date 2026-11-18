@@ -117,7 +117,7 @@ def test_attribute_migration_preserves_rows_and_blocks_lossy_downgrade(db, monke
 
     config = Config("alembic.ini")
     config.set_main_option("path_separator", "os")
-    migration = ScriptDirectory.from_config(config).get_revision("20261118_0082").module
+    migration = ScriptDirectory.from_config(config).get_revision("20261118_0083").module
     # A temporary table shadows the real table; all DDL rolls back with this fixture.
     db.execute(text("""
         CREATE TEMPORARY TABLE core_client_attributes (
