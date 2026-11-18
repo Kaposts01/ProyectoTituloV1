@@ -50,6 +50,8 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # ── Excepciones publicas (sin sesion), con su justificacion ──────────────────────────────────────────────────────
 PUBLIC: dict[tuple[str, str], str] = {
+    ("GET", "/favicon.svg"): "public static icon, registered only when a frontend build exists",
+    ("GET", "/{full_path:path}"): "public SPA document; API routes still require their own session and permissions",
     ("POST", "/api/v1/auth/login"): "inicio de sesion",
     ("GET", "/api/v1/system/environment"): "la pantalla de login muestra el ambiente; sin datos personales",
     ("GET", "/api/v1/health/heartbeat"): "latido para el monitor externo (d139c); sin datos personales",
