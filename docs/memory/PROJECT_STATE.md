@@ -173,3 +173,7 @@ La lista priorizada está en [Technical Debt](../../knowledge/08%20-%20Roadmap/T
 ## Convencion terminologica
 
 En SynkmetriX se utilizara el termino modelo centralizado en lugar de modelo canonico.
+
+## Checkout local verificado 2026-11-18
+
+Rama local `codex/actualizacion-20261118` desde origin/master 54814f4. Recuperadas las nueve skills Codex del sprint anterior, sin reemplazar el dashboard vigente. Ruff, build frontend, 71 pruebas puras y consistencia de dependencias pasan. Suite backend bloqueada por timeout PostgreSQL; frontend presenta un fallo de snapshot reproducido. npm audit registra siete paquetes con severidad alta. No se modificaron bases operativas ni se publico la rama. Detalle y diferencias pendientes en [comparacion](../quality/update-comparison-2026-11-18.md) y tareas DEV-UPDATE-01/02.

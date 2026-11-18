@@ -969,6 +969,14 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 | --- | --- | --- | --- |
 | REV-01 | Revisión de solo lectura de los cambios de otro desarrollador | Completada en código (`e2cad0b`) | Detalle canónico en [`planning/auditoria-2026-10-29/PLAN.md:59`](planning/auditoria-2026-10-29/PLAN.md); decisiones: D24. |
 
+### 4.15 Actualizacion local del 2026-11-18
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| DEV-UPDATE-01 | Actualizar checkout desde GitHub y comparar el sprint anterior | Completada (checkout; validacion con limites) | Rama local `codex/actualizacion-20261118` desde `origin/master` 54814f4; sprint anterior preservado. Recuperar nueve skills y verificar sin copiar implementaciones reemplazadas ni migrar bases operativas. Evidencia en `docs/quality/update-comparison-2026-11-18.md`. |
+
+| DEV-UPDATE-02 | Revisar unicidad de atributos Core conservada en el sprint anterior | Pendiente | Comparar el cambio de 1005a26 con el modelo vigente, aprobar alcance y disenar revision nueva posterior a 0081 con pruebas de integridad. No reutilizar ni aplicar la antigua 0037. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.
