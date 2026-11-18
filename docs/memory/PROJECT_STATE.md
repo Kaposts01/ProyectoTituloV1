@@ -174,6 +174,10 @@ La lista priorizada está en [Technical Debt](../../knowledge/08%20-%20Roadmap/T
 
 En SynkmetriX se utilizara el termino modelo centralizado en lugar de modelo canonico.
 
-## Checkout local verificado 2026-11-18
+## Entorno de este checkout — 2026-11-18
 
-Rama local `codex/actualizacion-20261118` desde origin/master 54814f4. Recuperadas las nueve skills Codex del sprint anterior, sin reemplazar el dashboard vigente. Ruff, build frontend, 71 pruebas puras y consistencia de dependencias pasan. Suite backend bloqueada por timeout PostgreSQL; frontend presenta un fallo de snapshot reproducido. npm audit registra siete paquetes con severidad alta. No se modificaron bases operativas ni se publico la rama. Detalle y diferencias pendientes en [comparacion](../quality/update-comparison-2026-11-18.md) y tareas DEV-UPDATE-01/02.
+Rama `codex/actualizacion-20261118`, basada en origin/master 54814f4, sin push. Nueve skills recuperadas; frontend actualizado y snapshots con IDs React estables. PostgreSQL 18 nativo en 127.0.0.1:5433 (este equipo no dispone del Docker descrito para el despliegue de referencia). La base original crm permanece en su revision local 0032; la aplicacion usa una copia crm_qa_local_20261118 respaldada, migrada a 0082 y con ocho suscripciones VP conflictivas en cuarentena por autorizacion del usuario. Ambos entornos conservan 10.592 clientes Core y 133.532 transacciones TCH; original sin migrar. La revision 0082 preserva atributos por cliente/fuente. Conexiones SQL UTC para evitar fechas dependientes del servidor.
+
+API 8000 y frontend 5173 activos solo en loopback; backend desde .env.local, APP_ENV=qa, JWT separado, scheduler y escrituras de proveedores apagados. Login y lecturas autenticadas del dashboard y TCH verificados. Reinicio con `scripts/run_local_backend.ps1` y `npm.cmd --prefix frontend run dev`; no ejecutar el backend nuevo con la configuracion .env antigua.
+
+Ruff, lint, build, pip check, Alembic check sobre la copia, 1.464 pruebas frontend y 3.747 pruebas Python pasan (23 omisiones previstas). Auditoria npm de produccion: cero; persiste alerta de desarrollo picomatch sin parche (DEV-LOCAL-02). [Evidencia y respaldo](../quality/local-repair-2026-11-18.md).

@@ -1,5 +1,7 @@
 # Actualizacion local y comparacion — 2026-11-18
 
+> Comparacion inicial. La reparacion posterior, el entorno operativo y los resultados vigentes estan en [reparacion local](local-repair-2026-11-18.md).
+
 ## Base y alcance
 
 Rama local `codex/actualizacion-20261118` creada desde `origin/master` en `54814f4` (2026-11-16). Las ramas `sprint-5/estabilizacion-dashboard` (`1005a26`) y `codex/estabilizacion-synkmetrix` (`5abb924`) se conservan. No se fusiona a master, no se publica y no se migra la base operativa.

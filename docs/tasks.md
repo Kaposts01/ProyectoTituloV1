@@ -975,7 +975,11 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 | --- | --- | --- | --- |
 | DEV-UPDATE-01 | Actualizar checkout desde GitHub y comparar el sprint anterior | Completada (checkout; validacion con limites) | Rama local `codex/actualizacion-20261118` desde `origin/master` 54814f4; sprint anterior preservado. Recuperar nueve skills y verificar sin copiar implementaciones reemplazadas ni migrar bases operativas. Evidencia en `docs/quality/update-comparison-2026-11-18.md`. |
 
-| DEV-UPDATE-02 | Revisar unicidad de atributos Core conservada en el sprint anterior | Pendiente | Comparar el cambio de 1005a26 con el modelo vigente, aprobar alcance y disenar revision nueva posterior a 0081 con pruebas de integridad. No reutilizar ni aplicar la antigua 0037. |
+| DEV-UPDATE-02 | Revisar unicidad de atributos Core conservada en el sprint anterior | Completada en rama local | Integrada revision nueva 20261118_0082 y modelo por cliente/fuente, con NULLS NOT DISTINCT y pruebas de integridad adaptadas. Aplicada solo a copia local respaldada; no se modifica crm original. |
+
+| DEV-LOCAL-01 | Corregir validacion y dejar el CRM operativo en la rama local | Completada (alerta de tercero en DEV-LOCAL-02) | 3.747 pruebas Python y 1.464 frontend pasan; 23 omisiones previstas. Ruff, lint, build, pip check y schema check pasan; login y lecturas 200. Copia respaldada a 0082 con ocho suscripciones en cuarentena autorizada, original intacto. API 8000 y UI 5173 locales, sin scheduler ni escrituras. [Evidencia](quality/local-repair-2026-11-18.md). Sin push. |
+
+| DEV-LOCAL-02 | Resolver alerta de desarrollo picomatch cuando exista parche publicado | Bloqueada (tercero) | npm audit total propaga una raiz sin parche a siete paquetes; auditoria omit=dev da cero. Vite y source-map-js actualizados y servidor limitado a loopback. No ocultar la alerta ni degradar versiones mayores. |
 
 ## 5. Bloqueos y decisiones abiertas
 
