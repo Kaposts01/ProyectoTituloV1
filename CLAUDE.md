@@ -141,7 +141,7 @@ Update only the relevant sources. Evaluate an ADR for a significant architectura
 ### Claude
 
 - Claude-specific settings are local and are not a project source of truth.
-- No project agents are versioned for Claude.
+- No project agents are versioned here. The shared specialists (`backend`, `api`, `frontend`) live in `~\.claude\agents` and read [CONTEXTO_AGENTES.md](CONTEXTO_AGENTES.md) before working on this project.
 
 ### MCP
 
@@ -224,7 +224,7 @@ When the user's request matches an available skill, invoke it via the Skill tool
 Key routing rules:
 - Product ideas/brainstorming → invoke /office-hours
 - Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
+- Architecture → use the Plan agent and review the ADRs (there is no /plan-eng-review skill)
 - Design system/plan review → invoke /design-consultation or /plan-design-review
 - Full review pipeline → invoke /autoplan
 - Bugs/errors → invoke /investigate
