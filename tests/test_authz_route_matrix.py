@@ -49,6 +49,9 @@ from app.services import rbac
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # ── Excepciones publicas (sin sesion), con su justificacion ──────────────────────────────────────────────────────
+# Solo existen cuando hay una build del frontend (`frontend/dist`); en el CI no la hay.
+SPA_ROUTES = {("GET", "/favicon.svg"), ("GET", "/{full_path:path}")}
+
 PUBLIC: dict[tuple[str, str], str] = {
     ("GET", "/favicon.svg"): "public static icon, registered only when a frontend build exists",
     ("GET", "/{full_path:path}"): "public SPA document; API routes still require their own session and permissions",
@@ -217,6 +220,7 @@ def test_inventory_covers_the_whole_api() -> None:
     assert len(ROUTES) > 150, "el inventario no recorrio los routers incluidos"
     keys = {r.key for r in ROUTES}
     listed = set(PUBLIC) | set(SESSION_ONLY) | set(KNOWN_NO_PERMISSION) | set(KNOWN_NO_CSRF) | set(DYNAMIC)
+    listed -= SPA_ROUTES - keys  # sin build del frontend esas rutas no se registran
     assert listed <= keys, f"excepciones que ya no existen (limpiar la lista): {sorted(listed - keys)}"
 
 
