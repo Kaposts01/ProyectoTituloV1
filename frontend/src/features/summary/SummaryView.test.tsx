@@ -138,8 +138,8 @@ describe("Resumen unificado: tarjetas", () => {
     render(<SummaryView />);
     await ready();
     const note = screen.getByRole("note", { name: "Mes en curso" });
-    expect(note.textContent).toMatch(/Mes en curso, al día \d{1,2}:/);
-    expect(note.textContent).toMatch(/datos parciales/);
+    expect(note.textContent).toMatch(/Mes en curso · Datos hasta el día \d{1,2}/);
+    expect(note.textContent).toMatch(/datos parciales/i);
     for (const label of ["Ingreso total", "Acumulado del año", "Activaciones", "Bajas", "Crecimiento neto", "Churn", "No cobrado", "Por cobrar"]) {
       expect(within(card(label)).queryByTestId("kpi-delta"), label).toBeNull();
     }
@@ -225,6 +225,7 @@ describe("Resumen unificado: gráficos", () => {
     installFetch(() => ({ body: rawSummary() }));
     render(<SummaryView />);
     await ready();
+    fireEvent.click(await screen.findByText("Actualización de datos"));
     const health = await screen.findByRole("region", { name: "Sincronización por canal" });
     expect(within(health).getByText(/Dato al 12-10-2026/)).toBeTruthy();
     expect(screen.getAllByText(/Dato al 12-10-2026/).length).toBeGreaterThanOrEqual(2); // salud y gráfico de ingreso
@@ -239,10 +240,22 @@ describe("Resumen unificado: gráficos", () => {
 });
 
 describe("Resumen unificado: salud de canal", () => {
+  it("no anuncia todos los canales al día cuando falta información de alguno", async () => {
+    installFetch(() => ({ body: rawSummary() }), [HEALTH[0]]);
+    render(<SummaryView />);
+    await ready();
+    expect(await screen.findByText("Falta información de algunos canales")).toBeTruthy();
+    expect(screen.queryByText("Canales al día")).toBeNull();
+  });
+
   it("pide /sync-runs/health y muestra un indicador compacto por canal del resumen", async () => {
     installFetch(() => ({ body: rawSummary() }));
     render(<SummaryView />);
     await ready();
+    const disclosure = await screen.findByText("Actualización de datos");
+    expect(disclosure.closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("1 canal requiere revisión")).toBeTruthy();
+    fireEvent.click(disclosure);
     const health = await screen.findByRole("region", { name: "Sincronización por canal" });
     expect(calls.some((url) => url.pathname === "/api/v1/sync-runs/health")).toBe(true);
     expect(within(health).getByText("VirtualPOS")).toBeTruthy();

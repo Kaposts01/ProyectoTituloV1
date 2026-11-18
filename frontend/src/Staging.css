@@ -1363,6 +1363,7 @@
 .summary-control-label { padding: 0; color: var(--text-label); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .summary-month-row { display: flex; align-items: center; gap: 8px; }
 .summary-month-input {
+  min-width: 0;
   min-height: 36px; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--r2, 6px);
   background: var(--bg-input); color: var(--text-1); font: inherit; font-size: 13px;
 }
@@ -1376,6 +1377,37 @@
 }
 .summary-channel.checked { background: var(--bg-muted); font-weight: 600; }
 .summary-channel input { margin: 0; accent-color: var(--color-primary); }
+
+/* Dashboard orientation: period filters and data freshness have separate roles. */
+.summary-view { gap: 16px; }
+.summary-controls { box-sizing: border-box; display: grid; grid-template-columns: minmax(210px, auto) minmax(0, 1fr); gap: 24px; align-items: start; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-surface); }
+.summary-controls .summary-control-label { color: var(--text-2); font-size: 12px; letter-spacing: normal; text-transform: none; font-weight: 600; }
+.summary-controls .summary-channel-list { gap: 4px 20px; }
+.summary-controls .summary-channel { min-height: 36px; padding: 4px 0; border: 0; border-radius: 0; background: transparent; font-weight: 500; }
+.summary-controls .summary-channel.checked { font-weight: 600; }
+.summary-view .summary-partial { margin: 0; border: 0; border-left: 3px solid var(--color-accent); border-radius: 0; background: transparent; padding: 6px 12px; gap: 12px; }
+.summary-partial strong, .summary-partial p > span { display: block; line-height: 1.5; }
+.summary-partial p > span { color: var(--text-2); font-size: 12px; margin-top: 2px; }
+.summary-update-details { min-width: 0; border-bottom: 1px solid var(--border); }
+.summary-update-details > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; padding: 10px 0; cursor: pointer; color: var(--text-1); font-size: 13px; font-weight: 600; }
+.summary-update-details > summary::after { content: "⌄"; font-size: 16px; }
+.summary-update-details[open] > summary::after { content: "⌃"; }
+.summary-update-status { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--text-2); }
+.summary-update-status.needs-review { color: var(--warn-text); }
+.summary-update-details .summary-health { padding: 0 0 14px; }
+.summary-update-explanation { margin: 0 0 12px; color: var(--text-2); font-size: 12px; line-height: 1.5; }
+.summary-update-details .summary-health-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.summary-update-details .summary-health-item { flex-wrap: wrap; }
+.summary-update-details .summary-generated { margin: 14px 0 0; color: var(--text-2); line-height: 1.5; }
+.summary-update-details > summary:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; border-radius: 3px; }
+@media (max-width: 700px) {
+  .summary-controls { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 12px; }
+  .summary-update-details .summary-health-list { grid-template-columns: minmax(0, 1fr); }
+  .summary-update-status { flex-basis: calc(100% - 32px); margin-left: 0; }
+}
+@media (max-width: 800px) {
+  .app-page > .summary-view { padding-top: 76px; }
+}
 
 .summary-health { padding: 0; }
 .summary-health-list { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; }
@@ -1444,7 +1476,7 @@
 @media (max-width: 560px) {
   .summary-kpi-grid { grid-template-columns: minmax(0, 1fr); }
   .summary-controls, .summary-control, .summary-month-row { width: 100%; }
-  .summary-month-input { flex: 1; min-height: 44px; }
+  .summary-month-input { flex: 1; min-width: 0; min-height: 44px; }
   .summary-channel { min-height: 44px; }
   .summary-chart-card { padding: 12px; }
   .summary-kpi-grid .kpi-value { font-size: 24px !important; }

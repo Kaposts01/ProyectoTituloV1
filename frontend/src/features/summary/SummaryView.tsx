@@ -32,8 +32,8 @@ function PartialMonthNote({ summary, onClosedMonth }: { summary: UnifiedSummary;
   return (
     <div className="summary-partial" role="note" aria-label="Mes en curso">
       <p>
-        <strong>Mes en curso, al día <span className="mono">{day.toLocaleString("es-CL")}</span>:</strong> datos parciales.
-        Ingresos, altas, bajas y churn no se comparan con el mes anterior hasta que el mes cierre.
+        <strong>Mes en curso · Datos hasta el día {day.toLocaleString("es-CL")}</strong>
+        <span>Datos parciales. Ingresos, altas, bajas y churn tendrán comparación mensual cuando termine el mes.</span>
       </p>
       <button type="button" className="secondary-button" onClick={onClosedMonth}>Ver el último mes cerrado</button>
     </div>
@@ -90,19 +90,16 @@ export function SummaryView({ can = noPermissions, onOpenPath }: { can?: (permis
       <header className="summary-header">
         <div>
           <h1 className="summary-title">{pageLabels.dashboard}</h1>
-          <p className="summary-subtitle">
-            {shown ? `Datos de ${monthLabel(shown.month)}` : month ? `Datos de ${monthLabel(month)}` : "Datos del mes actual"}
-            {generatedAt ? <span className="summary-generated mono"> · Calculado el {generatedAt}</span> : null}
-          </p>
-        </div>
-        <div className="summary-controls">
-          <MonthPicker value={monthValue} picked={month !== undefined} onChange={chooseMonth} onReset={() => chooseMonth(undefined)} />
-          <ChannelFilter available={availableChannels} selected={selected} onToggle={toggleChannel} />
+          <p className="summary-subtitle">{shown ? `Resumen de ${monthLabel(shown.month)}` : month ? `Resumen de ${monthLabel(month)}` : "Resumen del mes actual"}</p>
         </div>
       </header>
+      <section className="summary-controls" aria-label="Filtros del Dashboard">
+        <MonthPicker value={monthValue} picked={month !== undefined} onChange={chooseMonth} onReset={() => chooseMonth(undefined)} />
+        <ChannelFilter available={availableChannels} selected={selected} onToggle={toggleChannel} />
+      </section>
 
-      {shown ? <SummaryHealth channels={shown.channels} health={health} /> : null}
       {shown ? <PartialMonthNote summary={shown} onClosedMonth={() => chooseMonth(shiftMonth(shown.month, -1))} /> : null}
+      {shown ? <SummaryHealth channels={shown.channels} health={health} generatedAt={generatedAt} /> : null}
 
       {state.status === "loading" ? (
         <>

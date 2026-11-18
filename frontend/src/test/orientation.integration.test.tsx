@@ -12,7 +12,7 @@ describe("Orientación dentro del CRM", () => {
     await appReady();
     await screen.findByRole("heading", { level: 1, name: "Dashboard" });
     expect(document.querySelector('[data-item="summary"]')).toHaveTextContent("Dashboard");
-    expect(trail().getByText("Dashboard")).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("navigation", { name: "Ruta de navegación" })).toBeNull();
     await waitFor(() => expect(document.title).toBe("Dashboard | SynkmetriX"));
   });
   it("los enlaces de la ruta y Atrás actualizan la pantalla sin recargar", async () => {

@@ -1001,6 +1001,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UX-LOCAL-04 | Mejorar listados de Detalle por canal | Completada en rama local | Area de filas ampliada, scroll nativo propio y encabezados fijos. Filtros VP plegables con contador; ruta visual, retorno y botones de cuenta retirados por solicitud del usuario. 78 pruebas, lint/build y Chrome en 16 listas, alturas cortas y movil. [Evidencia](quality/channel-scroll-2026-11-18.md). Sin skills ni push. |
 
+| UX-LOCAL-05 | Simplificar cabecera del Dashboard | Completada en rama local | Titulo unico, filtros Mes / Canales separados, aviso mensual breve y actualizacion desplegable. 40 pruebas, lint/build y Chrome escritorio, movil y temas pasan; datos y permisos conservados. [Evidencia](quality/dashboard-header-2026-11-18.md). Sin skills ni push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.

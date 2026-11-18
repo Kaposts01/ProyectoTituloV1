@@ -205,6 +205,8 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 ## Components
 
+**Cabecera del Dashboard (2026-11-18):** Un titulo, mes mostrado como subtitulo y una fila independiente de filtros Mes / Canales. Casillas sencillas, sin chips. El mes en curso se explica en un aviso breve con acceso al ultimo mes cerrado. Actualizacion de datos usa un desplegable con resumen de incidencias; estados de canal y hora de generacion se consultan dentro. La hora de generacion no representa frescura de origen. En movil el titulo deja espacio al boton del menu. Mantener definiciones de KPI y acciones existentes.
+
 **Botones:** Tres variantes: primary (`--color-primary` bg, `--text-on-primary`), secondary (accent-sub bg, accent text), ghost (transparent bg, border). Destructive (error-bg, error text). Todos con `border-radius: var(--r2)`. Disabled siempre con `opacity: 0.45`, cursor `not-allowed`.
 
 **Badges de estado:** Cuatro variantes semánticas (ok/warning/error/neutral) + dot indicador de 5px. Font-size 11px / weight 600. Siempre pill (`border-radius: 9999px`). Padding 2px 8px. No usar el color del badge como único indicador — siempre acompañar con texto o dot.

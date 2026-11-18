@@ -769,7 +769,7 @@ function AppCore() {
         health={channelHealth}
       />
       <div className="app-page">
-      {currentPage && !onChannelDetailRoute ? <PageBreadcrumbs crumbs={currentPage.crumbs} onNavigate={openBreadcrumb} /> : null}
+      {currentPage && !onChannelDetailRoute && !onSummaryRoute ? <PageBreadcrumbs crumbs={currentPage.crumbs} onNavigate={openBreadcrumb} /> : null}
       {adminOpen ? (
         <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>
           <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
