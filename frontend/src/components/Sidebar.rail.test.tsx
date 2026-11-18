@@ -28,7 +28,9 @@ function setup(over: Partial<SidebarProps> = {}) {
 const aside = () => document.getElementById("app-sidebar")!;
 const state = () => aside().getAttribute("data-state");
 const panel = () => aside().querySelector(".sidebar-panel")!;
-const pin = () => screen.getByRole("button", { name: "Mantener menú abierto" });
+const account = () => screen.getByRole("button", { name: "Opciones de cuenta" });
+const openAccount = () => { if (!screen.queryByRole("menu")) fireEvent.click(account()); };
+const pin = () => { openAccount(); return screen.getByRole("menuitemcheckbox", { name: "Mantener menú abierto" }); };
 
 function mockReducedMotion(matches: boolean) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -52,7 +54,7 @@ describe("Sidebar rail: compacto, expandir y fijar", () => {
     setup();
     expect(state()).toBe("compact");
     expect(aside()).not.toHaveClass("is-pinned");
-    expect(pin()).toHaveAttribute("aria-pressed", "false");
+    expect(pin()).toHaveAttribute("aria-checked", "false");
   });
 
   it("el hover despliega tras la pausa de intención y se repliega al salir", () => {
@@ -81,7 +83,7 @@ describe("Sidebar rail: compacto, expandir y fijar", () => {
   it("«Mantener menú abierto» fija el menú, lo recuerda en localStorage y se puede soltar", () => {
     setup();
     fireEvent.click(pin());
-    expect(pin()).toHaveAttribute("aria-pressed", "true");
+    expect(pin()).toHaveAttribute("aria-checked", "true");
     expect(state()).toBe("expanded");
     expect(aside()).toHaveClass("is-pinned");
     expect(window.localStorage.getItem(SIDEBAR_PINNED_KEY)).toBe("1");
@@ -195,12 +197,82 @@ describe("Sidebar rail: entradas, íconos, tooltips y teclado", () => {
   it("los textos fijos salen del catálogo es.ts", () => {
     setup();
     expect(screen.getByRole("navigation", { name: "Navegación principal" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cambiar tema" })).toHaveTextContent("Modo oscuro");
-    expect(screen.getByRole("button", { name: "Cerrar sesión" })).toBeInTheDocument();
+    openAccount();
+    expect(screen.getByRole("menuitem", { name: "Cambiar tema" })).toHaveTextContent("Modo oscuro");
+    expect(screen.getByRole("menuitem", { name: "Cerrar sesión" })).toBeInTheDocument();
   });
 
   it("como drawer móvil abierto se muestra desplegado", () => {
     setup({ open: true });
     expect(state()).toBe("expanded");
+  });
+});
+
+describe("Sidebar account popup", () => {
+  it("only shows the account trigger until it is pressed", () => {
+    setup({ username: "operador.sintetico" });
+    expect(account()).toHaveAttribute("aria-expanded", "false");
+    expect(account()).toHaveTextContent("OS");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Mi perfil" })).not.toBeInTheDocument();
+    expect(document.querySelector(".sidebar-footer")?.querySelectorAll("button")).toHaveLength(1);
+  });
+
+  it("opens exactly the four requested actions and focuses the first", () => {
+    setup();
+    fireEvent.click(account());
+    const menu = screen.getByRole("menu", { name: "Opciones de cuenta" });
+    expect(menu.querySelectorAll("button")).toHaveLength(4);
+    expect(account()).toHaveAttribute("aria-expanded", "true");
+    expect(document.activeElement).toBe(pin());
+  });
+
+  it("supports arrows, Home/End and Escape without closing the mobile drawer", () => {
+    const onClose = vi.fn();
+    setup({ open: true, onClose });
+    fireEvent.keyDown(account(), { key: "ArrowDown" });
+    const menu = screen.getByRole("menu");
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Cerrar sesión" }));
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(document.activeElement).toBe(pin());
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Cambiar tema" }));
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Cerrar sesión" }));
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(account());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes on an outside pointer without stealing its focus", () => {
+    setup();
+    fireEvent.click(account());
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    try {
+      outside.focus();
+      fireEvent.pointerDown(outside);
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(outside);
+    } finally { outside.remove(); }
+  });
+
+  it.each(["theme", "profile", "logout"])("selecting %s runs its action once and closes", (action) => {
+    const callback = vi.fn();
+    setup(action === "theme" ? { onTheme: callback } : action === "profile" ? { onProfile: callback } : { onLogout: callback });
+    fireEvent.click(account());
+    fireEvent.click(screen.getByRole("menuitem", { name: action === "theme" ? "Cambiar tema" : action === "profile" ? "Mi perfil" : "Cerrar sesión" }));
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("Tab dismisses the popup and returns focus to the trigger", () => {
+    setup();
+    fireEvent.click(account());
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Tab" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(account());
   });
 });

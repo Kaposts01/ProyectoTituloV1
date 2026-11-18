@@ -1,13 +1,15 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChannelHealthMap } from "../hooks/useChannelHealth";
 import { label } from "../i18n/label";
 import type { ProviderSection, ProviderSource } from "../routes";
 import { detailChannels, filterMenu, visibleMenu, type DetailAction, type MenuAction, type TchView } from "../navigation";
+import { SidebarAccountMenu } from "./SidebarAccountMenu";
 import { SidebarHealth } from "./SidebarHealth";
 import { MENU_ICONS } from "./sidebarIconMap";
 import { NavIcon } from "./sidebarIcons";
 
 export type SidebarProps = {
+  username?: string;
   activeSection: ProviderSection | null;
   channel: string | null;
   tchView: string | null;
@@ -76,7 +78,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export function Sidebar({
-  activeSection, channel, tchView, detailOpen, onToggleDetail, theme, onDashboard,
+  username, activeSection, channel, tchView, detailOpen, onToggleDetail, theme, onDashboard,
   generalView, onGeneralClients, onGeneralSubscriptions, onGeneralCharges, onAutoReport,
   onChannel, onSection, onTheme, onTch,
   permissions, onAdmin, adminOpen, adminTab,
@@ -84,6 +86,14 @@ export function Sidebar({
 }: SidebarProps) {
   const can = (permission: string) => permissions.includes(permission);
   const [query, setQuery] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountTriggerRef = useRef<HTMLButtonElement>(null);
+  const accountName = username?.trim() || t("mi cuenta");
+  const initials = accountName.split(/[\s._-]+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+  const closeAccount = useCallback((restoreFocus = true) => {
+    setAccountOpen(false);
+    if (restoreFocus) accountTriggerRef.current?.focus();
+  }, []);
   const detailId = useId();
   // id fijo (hay un solo menú): un useId() extra correría los ids generados del resto de la app
   const panelId = "app-sidebar-panel";
@@ -332,33 +342,36 @@ export function Sidebar({
         </div>
         <div className="sidebar-footer">
           <button
+            ref={accountTriggerRef}
             type="button"
-            className="sidebar-item sidebar-pin"
-            aria-pressed={pinned}
-            aria-controls={panelId}
-            data-tip={t("mantener abierto")}
-            onClick={togglePinned}
+            className="sidebar-item sidebar-account-trigger"
+            aria-label={t("opciones de cuenta")}
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+            aria-controls={accountOpen ? "sidebar-account-menu" : undefined}
+            data-tip={t("opciones de cuenta")}
+            onClick={() => { setAccountOpen((value) => !value); setTip(null); }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") { event.preventDefault(); setAccountOpen(true); setTip(null); }
+            }}
           >
-            <NavIcon name="pin" />
-            <span className="sidebar-label">{t("mantener abierto")}</span>
-          </button>
-          <div className="sidebar-utilities">
-            <button className="sidebar-item" onClick={onTheme} aria-label={t("cambiar tema")} data-tip={theme === "dark" ? t("modo claro") : t("modo oscuro")}>
-              <NavIcon name={theme === "dark" ? "sun" : "moon"} />
-              <span className="sidebar-label">{theme === "dark" ? t("modo claro") : t("modo oscuro")}</span>
-            </button>
-            <button className="sidebar-item" onClick={go(onProfile)} data-tip={t("mi perfil")}>
-              <NavIcon name="profile" />
-              <span className="sidebar-label">{t("mi perfil")}</span>
-            </button>
-          </div>
-          <button className="sidebar-item" onClick={go(onLogout)} data-tip={t("cerrar sesion")}>
-            <NavIcon name="logout" />
-            <span className="sidebar-label">{t("cerrar sesion")}</span>
+            <span className="sidebar-account-avatar" aria-hidden="true">{initials}</span>
+            <span className="sidebar-label sidebar-account-label">
+              <strong>{accountName}</strong>
+              <span>{t("mi cuenta")}</span>
+            </span>
+            <NavIcon name="chevron" className="sidebar-account-chevron" />
           </button>
         </div>
       </div>
-      {tip && !expanded ? (
+      {accountOpen ? (
+        <SidebarAccountMenu
+          name={accountName} initials={initials} pinned={pinned} theme={theme}
+          triggerRef={accountTriggerRef} onClose={closeAccount}
+          onPin={togglePinned} onTheme={onTheme} onProfile={go(onProfile)} onLogout={go(onLogout)}
+        />
+      ) : null}
+      {tip && !expanded && !accountOpen ? (
         <div className="sidebar-tooltip" aria-hidden="true" style={{ top: tip.top, left: tip.left }}>{tip.text}</div>
       ) : null}
     </aside>

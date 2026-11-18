@@ -777,14 +777,41 @@ td.num { text-align: right; }
 .sidebar-subgroup .sidebar-item { min-height: 30px; font-size: 12px; white-space: nowrap; }
 @keyframes sidebar-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
-/* Pie: fijar, tema, perfil y salir con el mismo formato de ítem. */
+/* Pie compacto: una sola entrada de cuenta; sus acciones aparecen al pulsarla. */
 .sidebar-footer { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; }
-.sidebar-utilities { display: flex; flex-direction: column; gap: 2px; }
-.sidebar[data-state="expanded"] .sidebar-utilities { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
-.sidebar[data-state="expanded"] .sidebar-utilities .sidebar-item { gap: 8px; }
-.sidebar-footer .sidebar-item { min-height: 36px; font-size: 13px; }
-.sidebar-pin[aria-pressed="true"] { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
-.sidebar-pin[aria-pressed="true"] .sidebar-icon { transform: scaleX(-1); }
+.sidebar-footer .sidebar-account-trigger { min-height: 44px; padding: 4px; gap: 10px; }
+.sidebar-account-avatar {
+  display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%;
+  color: var(--sidebar-brand-text); background: var(--sidebar-brand-bg); font-size: 12px; font-weight: 700;
+}
+.sidebar-account-label { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 2px; }
+.sidebar-account-label strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.sidebar-account-label > span { color: var(--sidebar-label); font-size: 11px; }
+.sidebar-account-chevron { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); color: var(--sidebar-label); }
+.sidebar-account-trigger[aria-expanded="true"] { background: var(--sidebar-hover-bg); }
+.sidebar-account-trigger[aria-expanded="true"] .sidebar-account-chevron { transform: rotate(90deg); }
+.sidebar[data-state="compact"] .sidebar-account-chevron { display: none; }
+.sidebar-account-menu {
+  position: absolute; z-index: 5; left: 12px; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 52px);
+  width: 248px; max-width: calc(100vw - 48px); max-height: calc(100% - 88px); box-sizing: border-box;
+  padding: 6px; overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--border); border-radius: 12px;
+  color: var(--text-1); background: var(--bg-surface); box-shadow: var(--sidebar-float-shadow);
+}
+.sidebar-account-heading { display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--border-subtle); }
+.sidebar-account-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sidebar-account-heading .sidebar-account-avatar { width: 28px; height: 28px; font-size: 11px; }
+.sidebar-account-action {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px;
+  border: 0; border-radius: 7px; color: var(--text-1); background: transparent;
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.sidebar-account-action > span:not(.sidebar-account-check) { flex: 1; }
+.sidebar-account-action .sidebar-icon { width: 18px; height: 18px; color: var(--text-2); }
+.sidebar-account-action:hover { background: var(--bg-hover); }
+.sidebar-account-action:focus-visible, .sidebar-account-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.sidebar-account-check { flex: none; width: 16px; color: var(--color-accent); text-align: center; }
+.sidebar-account-separator { height: 1px; margin: 5px 8px; background: var(--border-subtle); }
 
 /* Tooltip del modo compacto (foco de teclado): fuera del panel para no recortarse. */
 .sidebar-tooltip {
@@ -807,12 +834,12 @@ td.num { text-align: right; }
   .sidebar-panel, .sidebar[data-state] .sidebar-panel { position: relative; inset: auto; width: 100%; height: 100%; box-shadow: none; }
   /* con el drawer abierto la hamburguesa no tapa la marca (el foco vuelve a ella al cerrar) */
   .burger-btn[aria-expanded="true"] { visibility: hidden; }
-  .sidebar-pin, .sidebar-tooltip { display: none; }
+  .sidebar-tooltip { display: none; }
   .sidebar-close { display: flex; }
   .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
   .sidebar-search input { min-height: 44px; }
   .sidebar-item, .sidebar-footer .sidebar-item { min-height: 44px; }
-  .sidebar-utilities { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
+  .sidebar-account-action { min-height: 44px; }
 }
 
 /* ── Vistas unificadas de Cartera (UX-08, UX-09) ── */

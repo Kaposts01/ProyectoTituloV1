@@ -726,6 +726,7 @@ function AppCore() {
         <span /><span /><span />
       </button>
       <Sidebar
+        username={session.user.username}
         activeSection={activeSection}
         channel={channel}
         tchView={tchView}

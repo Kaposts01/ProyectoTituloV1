@@ -183,3 +183,5 @@ API 8000 y frontend 5173 activos solo en loopback; backend desde .env.local, APP
 Ruff, lint, build, pip check, Alembic check sobre la copia, 1.464 pruebas frontend y 3.747 pruebas Python pasan (23 omisiones previstas). Auditoria npm de produccion: cero; persiste alerta de desarrollo picomatch sin parche (DEV-LOCAL-02). [Evidencia y respaldo](../quality/local-repair-2026-11-18.md).
 
 Menu lateral local mejorado (UI-LOCAL-01, 2026-11-18): ancho abierto 272px, una zona desplazable para salud y navegacion, busqueda fija y pie compacto. Conserva rail, permisos y drawer; 118 pruebas, lint/build y revision Chrome en alturas cortas y movil pasan. [Evidencia](../quality/sidebar-layout-2026-11-18.md).
+
+UI-LOCAL-02 (2026-11-18): el pie ahora muestra un solo boton de cuenta con avatar y nombre de sesion. Las cuatro acciones se muestran en un panel al pulsar; conserva fijado, tema, perfil y logout. Cierre exterior, Escape, seleccion y teclado verificados; 148 pruebas frontend, lint/build y Chrome en escritorio/rail/movil pasan. [Evidencia](../quality/sidebar-account-2026-11-18.md). Solo rama local.

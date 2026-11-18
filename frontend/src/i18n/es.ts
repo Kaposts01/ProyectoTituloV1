@@ -900,6 +900,8 @@ export const es = {
     "buscar en el menu": "Buscar en el menú",
     "cerrar menu": "Cerrar menú",
     "mantener abierto": "Mantener menú abierto",
+    "opciones de cuenta": "Opciones de cuenta",
+    "mi cuenta": "Mi cuenta",
     "detalle por canal": "Detalle por canal",
     transitorio: "Transitorio",
     "aviso transitorio": "Se retira cuando existan las vistas unificadas de Cobros, Socios y Suscripciones.",

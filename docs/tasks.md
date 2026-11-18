@@ -983,6 +983,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UI-LOCAL-01 | Mejorar legibilidad y acceso al menu lateral | Completada en rama local | Ancho abierto 272px, texto 14px, scroll compartido para salud/navegacion, busqueda fija y pie compacto. 118 pruebas, lint y build pasan; Chrome verifica 480/600/768/900px, movil 390x700 y acceso por foco a cada opcion. [Evidencia](quality/sidebar-layout-2026-11-18.md). Sin push. |
 
+| UI-LOCAL-02 | Agrupar acciones del pie en menu de cuenta | Completada en rama local | Avatar y nombre de sesion; panel solo al pulsar, con cuatro acciones. Cierre exterior/Escape/seleccion, foco y teclado; 148 pruebas, lint y build pasan. Chrome verifica rail, temas y movil 320/390px. [Evidencia](quality/sidebar-account-2026-11-18.md). Sin push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.

@@ -36,13 +36,14 @@ describe("Sesión", () => {
     fireEvent.submit(document.querySelector("form.login-form")!);
     await waitFor(() => expect(app.find("POST", "/api/v1/auth/login")).toHaveLength(1));
     expect(app.find("POST", "/api/v1/auth/login")[0].body).toEqual({ username: "operador.sintetico", password: "clave-sintetica" });
-    expect(await screen.findByRole("button", { name: "Cerrar sesión" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Opciones de cuenta" })).toBeTruthy();
   });
 
   it("«Cerrar sesión» envía POST /auth/logout, vuelve al ingreso y deja la URL en /central/resumen", async () => {
     const app = mountApp("/toku/clientes", [listHandler, ["POST", "/api/v1/auth/logout", {}]]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "Cerrar sesión" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Opciones de cuenta" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Cerrar sesión" }));
     await waitFor(() => expect(app.find("POST", "/api/v1/auth/logout")).toHaveLength(1));
     expect(await screen.findByRole("heading", { name: "Iniciar sesión" })).toBeTruthy();
     expect(window.location.pathname).toBe("/central/resumen");
@@ -55,10 +56,12 @@ describe("Tema", () => {
     mountApp("/toku/clientes", [listHandler]);
     await appReady();
     await waitFor(() => expect(document.documentElement.getAttribute("data-theme")).toBe("dark"));
-    fireEvent.click(screen.getByRole("button", { name: "Cambiar tema" }));
+    fireEvent.click(screen.getByRole("button", { name: "Opciones de cuenta" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Cambiar tema" }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(localStorage.getItem("crm-theme")).toBe("light");
-    expect(screen.getByText("Modo oscuro")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Opciones de cuenta" }));
+    expect(screen.getByRole("menuitem", { name: "Cambiar tema" })).toHaveTextContent("Modo oscuro");
   });
 
   it("sin valor guardado parte en claro", async () => {
@@ -108,7 +111,7 @@ describe("Rutas y permisos", () => {
     mountApp("/mi-perfil", []);
     await appReady();
     expect(await screen.findByRole("heading", { name: "Mi perfil" })).toBeTruthy();
-    expect(screen.getAllByText("operador.sintetico").length).toBeGreaterThan(0);
+    expect(within(document.querySelector<HTMLElement>(".app-layout main")!).getAllByText("operador.sintetico").length).toBeGreaterThan(0);
     resetApp();
     mountApp("/admin/usuarios", [["GET", /^\/api\/v1\/(users|roles|permissions)/, []]]);
     await appReady();
