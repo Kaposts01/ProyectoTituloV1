@@ -170,7 +170,7 @@ def test_vp_removals_are_scoped_by_platform(db_session, enabled) -> None:
     assert rows[f"{PFX}v1"].removed_at is None  # otra cuenta: no se toca
 
 
-def test_vp_row_skipped_by_active_duplicate_still_counts_as_seen(db_session) -> None:
+def test_vp_second_active_same_plan_is_stored_and_counts_as_seen(db_session) -> None:
     def sub(ext, status, date):
         return {"id": ext, "plan_id": f"{PFX}dup", "client": {"social_id": f"{PFX}rut"}, "status": status,
                 "suscription_date": date}
@@ -178,17 +178,15 @@ def test_vp_row_skipped_by_active_duplicate_still_counts_as_seen(db_session) -> 
     store_vp_resources(db_session, "subscription", [sub(f"{PFX}old", "ACTIVA", "2026-01-01"),
                                                     sub(f"{PFX}new", "CANCELADA", "2026-06-01")], platform="virtualpos1")
     before = datetime.now(UTC)
-    skipped: list[str] = []
     store_vp_resources(db_session, "subscription", [sub(f"{PFX}old", "ACTIVA", "2026-01-01"),
                                                     sub(f"{PFX}new", "ACTIVA", "2026-06-01")],
-                       platform="virtualpos1", skipped_subscriptions=skipped)
+                       platform="virtualpos1")
     db_session.expire_all()
     rows = {r.external_id: r for r in db_session.scalars(
         select(VpSubscription).where(VpSubscription.external_id.like(f"{PFX}%")))}
-    assert skipped == [f"{PFX}new"]  # la mas reciente choca con la activa existente
-    omitted = rows[f"{PFX}new"]
-    assert omitted.status == "CANCELADA"  # el upsert no la toco...
-    assert omitted.last_seen_at >= before  # omitida por duplicado activo, pero vista: no es baja
+    stored = rows[f"{PFX}new"]
+    assert stored.status == "ACTIVA"  # BUG-VP-03: mismo plan y RUT, ambas activas se guardan
+    assert stored.last_seen_at >= before  # vista: no es baja
 
 
 # ----------------------------- enganche en la sync generica (Toku) -----------------------------

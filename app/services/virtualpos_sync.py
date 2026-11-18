@@ -161,7 +161,6 @@ async def sync_virtualpos(
         client_factory = VirtualPOSClient if platform == "virtualpos1" else lambda: VirtualPOSClient(platform)
         async with client_factory() as client:
             processed = 0
-            skipped_subscriptions: list[str] = []
             limit = 100
             stats: dict[str, dict[str, Any]] = {}
             cursor_marks: list[tuple[str, str, datetime, int, int]] = []
@@ -246,9 +245,7 @@ async def sync_virtualpos(
                 sanitized_subs = [_sanitize_record(s) for s in subscriptions]
                 with sub_timer.upsert(len(sanitized_subs)):
                     processed += _store_records(db, platform, "subscription", sanitized_subs, result=sub_timer.store)
-                    store_vp_resources(
-                        db, "subscription", sanitized_subs, platform=platform, skipped_subscriptions=skipped_subscriptions
-                    )
+                    store_vp_resources(db, "subscription", sanitized_subs, platform=platform)
                 page_charges: list[dict[str, Any]] = []
                 page_contexts: list[dict[str, Any] | None] = []
                 for subscription in sanitized_subs:
@@ -309,8 +306,6 @@ async def sync_virtualpos(
             detect_removals(db, platform, seen_since=subs_started, complete=True, run_id=run.id)
             run.status = "completed"
             run.resource_stats = stats
-            if skipped_subscriptions:
-                run.error_message = f"{len(skipped_subscriptions)} suscripciones omitidas por duplicado activo"
         run.records_processed = processed
         run.finished_at = datetime.now(UTC)
         db.commit()

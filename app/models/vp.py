@@ -20,12 +20,10 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
-    Index,
     Numeric,
     String,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -79,14 +77,7 @@ class VpSubscription(Base):
     __tablename__ = "vp_subscriptions"
     __table_args__ = (
         UniqueConstraint("platform", "external_id", name="uq_vp_subscription_platform_external_id"),
-        # Partial unique index: prevent duplicate active/subscribing subscriptions for the same client+plan.
-        # Guards against the race condition between the application-level antiduplicado SELECT and the VP API call.
-        Index(
-            "uq_vp_sub_active_plan_client",
-            "platform", "plan_external_id", "client_social_id",
-            unique=True,
-            postgresql_where=text("status IN ('ACTIVA', 'SUSCRIBIENDO')"),
-        ),
+        # BUG-VP-03 (migracion 0082): un mismo RUT puede tener varias suscripciones activas en un plan; sin indice unico parcial.
         CheckConstraint("card_last4 IS NULL OR card_last4 ~ '^[0-9]{4}$'", name="ck_vp_subscriptions_card_last4"),
     )
 
