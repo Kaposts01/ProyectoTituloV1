@@ -120,5 +120,6 @@ Sin cambios en Payku ni TCH (no se sincronizaron). `etl_runs` pasó de 2 a 5 fil
   está apagada, así que no se marcan bajas por las suscripciones que esta llave no ve.
 - **Indicadores.** `GET /api/v1/dashboard/general` lee `subscriptions`, `charges` y `payments` centralizadas; los Δ de
   la etapa [5] son los que pueden mover el resumen. No se midió el resumen antes/después en esta corrida.
-- **VirtualPOS: «5 suscripciones omitidas por duplicado activo».** Aviso conocido de la restricción
-  `uq_vp_sub_active_plan_client`; no hace fallar la corrida.
+- **VirtualPOS: «5 suscripciones omitidas por duplicado activo».** Aviso de la restricción
+  `uq_vp_sub_active_plan_client`, que no hacía fallar la corrida. BUG-VP-03 quitó la restricción (migración `0082`):
+  después de su ventana, la sync guarda esas suscripciones y la corrida termina sin aviso.

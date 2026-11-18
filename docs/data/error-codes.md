@@ -33,6 +33,7 @@ Notas:
 | `client_not_found` | 404 | `GET /api/v1/staging/dashboard/general/clients/{rut}` | Cliente no encontrado. |
 | `date_range_unsupported` | 422 | (función `_list_vp`, usada por varias rutas) | Este recurso no admite filtrar por rango de fechas. |
 | `deletion_requires_reconciliation` | 503 | `DELETE /api/v1/writes/toku/customers/{customer_id}`<br>`DELETE /api/v1/writes/payku/clients/{client_id}`<br>`DELETE /api/v1/writes/toku/subscriptions/{subscription_id}`<br>`DELETE /api/v1/writes/toku/invoices/{invoice_id}` | La eliminación requiere reconciliación local |
+| `duplicate_active_subscription` | 409 | `POST /api/v1/writes/virtualpos/subscriptions` | La persona ya tiene una suscripción ACTIVA o SUSCRIBIENDO en ese plan. El detalle trae `existing_external_id` y `existing_status`, sin RUT. Se crea igual reenviando el cuerpo con `confirm_duplicate: true` (BUG-VP-03, d237). |
 | `empty_channel_list` | 422 | `POST /api/v1/scheduler/jobs/{job_id}/run` | La lista de canales no puede estar vacía. |
 | `expected_boolean_value` | 422 | (función `_vp_filter`, usada por varias rutas) | El campo {ff} debe ser verdadero o falso. |
 | `invalid_channels` | 422 | `POST /api/v1/scheduler/jobs/{job_id}/run` | Canales inválidos: {sorted(invalid)} |

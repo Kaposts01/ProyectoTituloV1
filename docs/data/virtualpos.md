@@ -35,7 +35,7 @@
 | `status` | String(50) | ACTIVA / SUSCRIBIENDO / CANCELADA / etc. |
 | `suscription_date` | timestamp (sin zona) | Fecha de activación (hora de pared del proveedor; VP-PAR-13) |
 
-Índice parcial `uq_vp_sub_active_plan_client`: previene duplicados activos para el mismo cliente+plan. Ver migración `0036`.
+Una misma persona puede tener varias suscripciones ACTIVA o SUSCRIBIENDO en el mismo plan, cada una con su `external_id` (BUG-VP-03, d236). La migración `0082` quitó el índice parcial `uq_vp_sub_active_plan_client` que creó la `0036`; la única restricción de unicidad es `(platform, external_id)`. El alta desde el CRM avisa con un 409 `duplicate_active_subscription` y crea solo si se reenvía con `confirm_duplicate: true` (d237).
 
 ### vp_charges — campos clave
 
