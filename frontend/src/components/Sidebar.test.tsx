@@ -37,7 +37,7 @@ describe("Sidebar (menú de un solo nivel)", () => {
   // Cambio deliberado: antes el ítem se llamaba «Dashboard».
   it("vista central marca Resumen", () => {
     setup();
-    expect(active()).toEqual(["Resumen"]);
+    expect(active()).toEqual(["Dashboard"]);
   });
   it("canal no marca Resumen", () => {
     setup({ channel: "toku" });

@@ -987,6 +987,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UI-LOCAL-03 | Organizar navegacion lateral en acordeones | Completada en rama local | Secciones y proveedores desplegables; un grupo por nivel, apertura de pantalla activa y busqueda expandida. Cuenta intacta, permisos/rutas conservados. 155 pruebas, lint/build y Chrome escritorio/movil pasan. [Evidencia](quality/sidebar-sections-2026-11-18.md). Sin push. |
 
+| UI-LOCAL-04 | Renombrar acceso principal a Dashboard | Completada en rama local | Solo rotulo del acceso general; misma ruta, permisos y accion. 121 pruebas de navegacion pasan; expectativas de billing adaptadas a los acordeones. Sin push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.

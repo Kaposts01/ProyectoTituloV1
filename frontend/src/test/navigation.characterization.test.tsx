@@ -154,7 +154,7 @@ describe("Menú lateral (secciones desplegables)", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
     fireEvent.click(navTop("Reportes"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/reporte-automatico"));
-    fireEvent.click(navTop("Resumen"));
+    fireEvent.click(navTop("Dashboard"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/resumen"));
     fireEvent.click(navTop("Recuperador"));
     await waitFor(() => expect(window.location.pathname).toBe("/general/recuperador"));
@@ -238,7 +238,7 @@ describe("Resumen unificado y vista anterior (rutas del paso 3)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Resumen" })).toBeTruthy();
     expect(unifiedCalls(app)).toHaveLength(1);
     expect(legacyCalls(app)).toHaveLength(0);
-    expect(navTop("Resumen").getAttribute("aria-current")).toBe("page");
+    expect(navTop("Dashboard").getAttribute("aria-current")).toBe("page");
   });
 
   it("/central/resumen-clasico (retirada en UX-15) redirige al Resumen unificado sin pedir los datos anteriores", async () => {
@@ -248,7 +248,7 @@ describe("Resumen unificado y vista anterior (rutas del paso 3)", () => {
     await screen.findByRole("region", { name: "Indicadores del mes" });
     expect(unifiedCalls(app)).toHaveLength(1);
     expect(legacyCalls(app)).toHaveLength(0);
-    expect(navTop("Resumen").getAttribute("aria-current")).toBe("page");
+    expect(navTop("Dashboard").getAttribute("aria-current")).toBe("page");
   });
 
   it("la URL antigua respeta el permiso dashboard.view: sin él vuelve al inicio del usuario", async () => {

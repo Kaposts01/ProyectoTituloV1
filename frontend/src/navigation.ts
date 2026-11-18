@@ -86,7 +86,7 @@ export const canOpenBilling = (can: Can): boolean => can(PERM_GENERAL_BILLING_VI
 export { canOpenRecovery };
 
 export const menuGroups: MenuGroup[] = [
-  { id: "resumen", label: null, items: [{ id: "summary", label: "Resumen", action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
+  { id: "resumen", label: null, items: [{ id: "summary", label: "Dashboard", action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
   {
     id: "cartera",
     label: "Cartera",

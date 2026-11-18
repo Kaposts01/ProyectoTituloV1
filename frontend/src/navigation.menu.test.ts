@@ -22,7 +22,7 @@ describe("agrupación del menú de un solo nivel (D29)", () => {
   it("grupos y ítems en el orden acordado, solo con vistas que existen", () => {
     const shape = visibleMenu(canAll).map((g) => [g.label, g.items.map((i) => i.label)]);
     expect(shape).toEqual([
-      [null, ["Resumen"]],
+      [null, ["Dashboard"]],
       // Cambio deliberado (UX-09): Cobros entra a Cartera.
       ["Cartera", ["Socios", "Suscripciones", "Cobros"]],
       ["Operación", ["Recuperador", "Cambios de cobro", "Bajas"]],
@@ -72,7 +72,7 @@ describe("permisos del menú", () => {
 
   it("dashboard.view habilita Resumen, Socios, Suscripciones y Reportes; no Operación ni Sistema", () => {
     const labels = visibleMenu(canOnly("dashboard.view")).flatMap((g) => g.items.map((i) => i.label));
-    expect(labels).toEqual(["Resumen", "Socios", "Suscripciones", "Reportes"]);
+    expect(labels).toEqual(["Dashboard", "Socios", "Suscripciones", "Reportes"]);
   });
 
   it("Operación y Sistema dependen de cada permiso; un grupo sin ítems visibles desaparece", () => {

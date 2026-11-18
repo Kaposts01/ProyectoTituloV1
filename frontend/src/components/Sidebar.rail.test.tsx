@@ -298,7 +298,7 @@ describe("Sidebar section accordions", () => {
   it("starts with summary and collapsed section headers", () => {
     expandedSetup();
     for (const id of ["cartera", "operacion", "sistema", "detail"]) expect(section(id)).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: "Resumen" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("button", { name: "Socios" })).not.toBeInTheDocument();
   });
 
