@@ -30,6 +30,8 @@ describe("entrada «Bajas» del menú", () => {
 
   it("navega, cierra el menú móvil y se marca como activa (y no Resumen)", () => {
     const { onCancellations, onClose } = setup(["dashboard.view", "subscriptions.cancellation.view"]);
+    // La sección Operación empieza cerrada (acordeón): el usuario la abre con su encabezado.
+    fireEvent.click(screen.getByRole("button", { name: "Operación" }));
     fireEvent.click(screen.getByRole("button", { name: "Bajas" }));
     expect(onCancellations).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalled();
