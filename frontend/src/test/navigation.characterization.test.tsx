@@ -132,7 +132,7 @@ describe("Rutas y permisos", () => {
   });
 });
 
-describe("Menú lateral (un solo nivel, UX-05)", () => {
+describe("Menú lateral (secciones desplegables)", () => {
   const tchSummary: Handler = ["GET", "/api/v1/tch/summary", { suscripciones: { vigentes: 0, eliminadas: 0, total: 0, monto_vigentes: 0, monto_eliminadas: 0, monto_total: 0 }, transacciones: { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: null, monto: 0 }, kpis: { mrr: 0, arpu: null, active_clients: 0, active_subscribers: 0, churn_rate: null, ltv: null }, years: [], ultimo_etl: { id: null, status: null, started_at: null, records_upserted: null } }];
   const emptyPage = { items: [], total: 0, offset: 0, limit: 50 };
 
@@ -183,9 +183,12 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
   });
 
   it("un enlace profundo a una pantalla de canal deja el detalle desplegado con su ítem activo", async () => {
+    localStorage.setItem("crm-sidebar-pinned", "1");
     mountApp("/payku/planes", [listHandler]);
     await appReady();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Detalle por canal/ }).getAttribute("aria-expanded")).toBe("true"));
+    const detail = screen.getByRole("button", { name: /Detalle por canal/ });
+    await waitFor(() => expect(detail).toHaveClass("has-active"));
+    await waitFor(() => expect(detail).toHaveAttribute("aria-expanded", "true"));
     expect(navDetail("Payku", "Planes").getAttribute("aria-current")).toBe("page");
   });
 
@@ -211,7 +214,7 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
     mountApp("/central/resumen", [listHandler]);
     await appReady();
     const nav = document.querySelector(".sidebar-nav") as HTMLElement;
-    expect(within(nav).getByRole("button", { name: "Cobros" })).toBeTruthy();
+    expect(navTop("Cobros")).toBeVisible();
     expect(within(nav).queryByRole("button", { name: "Identidad" })).toBeNull();
   });
 

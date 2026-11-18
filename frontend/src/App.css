@@ -716,14 +716,33 @@ td.num { text-align: right; }
 
 .sidebar-group { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
 .sidebar-group:first-child { margin-top: 0; }
-/* Encabezado de grupo: en compacto queda una raya corta centrada (misma altura: los íconos no saltan). */
-.sidebar-section-label { position: relative; height: 24px; box-sizing: border-box; overflow: hidden; white-space: nowrap; transition: color 180ms ease; }
-.sidebar-section-label::after {
-  content: ""; position: absolute; left: 14px; top: 11px; width: 12px; height: 2px; border-radius: 9999px;
-  background: var(--sidebar-label); opacity: 0; transition: opacity 180ms ease;
+/* Section disclosures: one expanded sibling per level, with a distinct label and chevron. */
+.sidebar-disclosure { min-width: 0; }
+.sidebar-section-toggle {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 8px 10px;
+  box-sizing: border-box; border: 0; border-radius: 8px; background: transparent;
+  color: var(--sidebar-heading); font: inherit; font-family: var(--font-body); font-size: 14px; font-weight: 600; text-align: left; cursor: pointer;
 }
-.sidebar[data-state="compact"] .sidebar-section-label { color: transparent; }
-.sidebar[data-state="compact"] .sidebar-section-label::after { opacity: .6; }
+.sidebar-section-toggle:hover:not(:disabled) { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.sidebar-section-toggle:focus-visible { outline: 2px solid var(--series-4); outline-offset: -2px; }
+.sidebar-section-toggle:disabled { cursor: default; }
+.sidebar-section-toggle.has-active { color: var(--sidebar-text-strong); font-weight: 700; }
+.sidebar-section-toggle.has-active[aria-expanded="false"] { background: var(--sidebar-active-bg); }
+.sidebar-section-title { flex: 1; min-width: 0; }
+.sidebar-section-chevron { flex: none; width: 16px; height: 16px; color: var(--sidebar-label); transition: transform 180ms ease; }
+.sidebar-section-toggle[aria-expanded="true"] > .sidebar-section-chevron { transform: rotate(90deg); }
+.sidebar[data-state="compact"] .sidebar-section-chevron { display: none; }
+.sidebar-disclosure-body {
+  display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px 19px; padding-left: 8px;
+  border-left: 1px solid var(--sidebar-border); animation: sidebar-reveal 180ms ease;
+}
+.sidebar-disclosure-body[hidden] { display: none; }
+.sidebar-disclosure-body .sidebar-item { font-size: 13px; }
+.sidebar-disclosure-body .sidebar-item .sidebar-icon { width: 18px; height: 18px; }
+.sidebar-channel-mark {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 6px;
+  color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); font-size: 10px; font-weight: 700;
+}
 .sidebar-note { margin: 4px 10px 8px; color: var(--sidebar-label); font-size: 11px; line-height: 1.4; white-space: normal; }
 
 /* Buscador: en compacto es una caja de 40 px con la lupa; al enfocarlo el rail se despliega. */
@@ -756,25 +775,11 @@ td.num { text-align: right; }
 .sidebar-health-age { margin-left: auto; color: var(--sidebar-label); text-align: right; }
 .sidebar[data-state="compact"] .sidebar-health-list { display: none; }
 
-/* «Detalle por canal»: submenú plegable; el chevron gira y el cuerpo entra con opacidad + desplazamiento. */
-.sidebar-detail-toggle { color: var(--sidebar-text); font-weight: 500; }
-.sidebar-detail-toggle:hover:not(:disabled) { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
-.sidebar-detail-toggle.has-active { color: var(--sidebar-text-strong); }
-.sidebar[data-state="compact"] .sidebar-detail-toggle.has-active { background: var(--sidebar-active-bg); }
-.sidebar-detail-toggle:disabled { cursor: default; }
-.sidebar-detail-toggle { min-height: 42px; }
-.sidebar-detail-text { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.2; }
-/* «Transitorio» como antetítulo bajo el rótulo (antes una píldora que truncaba «Detalle por canal»). */
-.sidebar-transient {
-  color: var(--sidebar-label); font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-}
-.sidebar-detail-chevron { flex: none; width: 16px; height: 16px; color: var(--sidebar-label); }
-.sidebar-detail-toggle[aria-expanded="true"] .sidebar-detail-chevron { transform: rotate(90deg); }
-.sidebar-detail-body { animation: sidebar-reveal 200ms cubic-bezier(.2, .7, .2, 1); }
-.sidebar[data-state="compact"] .sidebar-detail-body { display: none; }
-.sidebar-subgroup { display: flex; flex-direction: column; gap: 1px; margin: 6px 0 0 19px; padding-left: 8px; border-left: 1px solid var(--sidebar-border); }
-.sidebar-subheading { padding: 4px 10px 2px; color: var(--sidebar-label); font-size: 11px; font-weight: 700; white-space: nowrap; }
-.sidebar-subgroup .sidebar-item { min-height: 30px; font-size: 12px; white-space: nowrap; }
+/* Providers form the second disclosure level; no technical notices in the navigation. */
+.sidebar-detail-body { margin-left: 0; padding-left: 0; border-left: 0; }
+.sidebar-subgroup { margin-left: 12px; }
+.sidebar-channel-disclosure .sidebar-section-toggle { gap: 8px; font-size: 13px; }
+.sidebar-channel-disclosure .sidebar-disclosure-body { margin-left: 22px; }
 @keyframes sidebar-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
 /* Pie compacto: una sola entrada de cuenta; sus acciones aparecen al pulsarla. */
@@ -836,7 +841,7 @@ td.num { text-align: right; }
   .burger-btn[aria-expanded="true"] { visibility: hidden; }
   .sidebar-tooltip { display: none; }
   .sidebar-close { display: flex; }
-  .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
+  .sidebar-section-toggle, .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
   .sidebar-search input { min-height: 44px; }
   .sidebar-item, .sidebar-footer .sidebar-item { min-height: 44px; }
   .sidebar-account-action { min-height: 44px; }

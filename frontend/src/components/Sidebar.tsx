@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChannelHealthMap } from "../hooks/useChannelHealth";
 import { label } from "../i18n/label";
 import type { ProviderSection, ProviderSource } from "../routes";
 import { detailChannels, filterMenu, visibleMenu, type DetailAction, type MenuAction, type TchView } from "../navigation";
 import { SidebarAccountMenu } from "./SidebarAccountMenu";
+import { SidebarSection } from "./SidebarSection";
 import { SidebarHealth } from "./SidebarHealth";
 import { MENU_ICONS } from "./sidebarIconMap";
-import { NavIcon } from "./sidebarIcons";
+import { NavIcon, type IconName } from "./sidebarIcons";
 
 export type SidebarProps = {
   username?: string;
@@ -51,6 +52,7 @@ export const SIDEBAR_PINNED_KEY = "crm-sidebar-pinned";
 /** Intención de hover: abrir tras una pausa corta evita desplegar el menú al cruzarlo con el puntero. */
 export const HOVER_OPEN_MS = 150;
 export const HOVER_CLOSE_MS = 200;
+const SECTION_ICONS: Record<string, IconName> = { cartera: "members", operacion: "billing", sistema: "admin" };
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 const t = (key: string) => label("sidebar", key);
@@ -86,6 +88,7 @@ export function Sidebar({
 }: SidebarProps) {
   const can = (permission: string) => permissions.includes(permission);
   const [query, setQuery] = useState("");
+  const [sections, setSections] = useState<Record<string, { location: string; open: boolean }>>({});
   const [accountOpen, setAccountOpen] = useState(false);
   const accountTriggerRef = useRef<HTMLButtonElement>(null);
   const accountName = username?.trim() || t("mi cuenta");
@@ -94,8 +97,6 @@ export function Sidebar({
     setAccountOpen(false);
     if (restoreFocus) accountTriggerRef.current?.focus();
   }, []);
-  const detailId = useId();
-  // id fijo (hay un solo menú): un useId() extra correría los ids generados del resto de la app
   const panelId = "app-sidebar-panel";
 
   /* ── Rail compacto: fijado (recordado), hover con intención y «asomo» por teclado ── */
@@ -189,12 +190,12 @@ export function Sidebar({
     return () => { if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
   }, [open]);
 
-  const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !cancellationsOpen && !profileOpen && generalView === "summary";
+  const centralVisible = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !cancellationsOpen && !profileOpen;
   const go = (fn: () => void) => () => { fn(); onClose(); };
   const searching = query.trim() !== "";
-  const { groups, channels } = filterMenu(visibleMenu(can), detailChannels(can), query);
-  // Con búsqueda activa el detalle se muestra abierto para poder encontrar ahí las coincidencias.
-  const detailVisible = channels.length > 0 && (detailOpen || searching);
+  const allGroups = visibleMenu(can);
+  const allChannels = detailChannels(can);
+  const { groups, channels } = filterMenu(allGroups, allChannels, query);
 
   const runMenu = (action: MenuAction) => {
     if (action.kind === "central") {
@@ -209,7 +210,7 @@ export function Sidebar({
     else onAdmin(action.view);
   };
   const menuActive = (action: MenuAction): boolean => {
-    if (action.kind === "central") return action.view === "summary" ? centralActive : generalView === action.view;
+    if (action.kind === "central") return centralVisible && generalView === action.view;
     if (action.kind === "recovery") return recoveryOpen;
     if (action.kind === "billing") return billingOpen;
     if (action.kind === "cancellations") return cancellationsOpen;
@@ -226,7 +227,26 @@ export function Sidebar({
     // las fichas de TCH (cliente, suscripción, transacción) marcan su lista
     return tchView === action.view || tchView === `${action.view === "clients" ? "client" : action.view === "subscriptions" ? "subscription" : "transaction"}-detail`;
   };
-  const detailHasActive = channels.some((entry) => entry.items.some((item) => detailActive(item.action)));
+  const activeChannel = allChannels.find((entry) => entry.items.some((item) => detailActive(item.action)));
+  const activeGroup = allGroups.find((group) => group.items.some((item) => menuActive(item.action)));
+  const activeItem = activeGroup?.items.find((item) => menuActive(item.action));
+  const location = activeChannel?.items.find((item) => detailActive(item.action))?.id ?? activeItem?.id ?? (profileOpen ? "profile" : "none");
+  const detailHasActive = activeChannel !== undefined;
+  const rootIds = [...allGroups.filter((group) => group.label).map((group) => group.id), "detail"];
+  const channelIds = allChannels.map((entry) => `channel:${entry.id}`);
+  const sectionOpen = (id: string, defaultOpen: boolean) => searching || (sections[id]?.location === location ? sections[id].open : defaultOpen);
+  const toggleSection = (id: string, defaultOpen: boolean, level: "root" | "channel") => {
+    const siblings = level === "root" ? rootIds : channelIds;
+    const next = !expanded || !sectionOpen(id, defaultOpen);
+    needRoom();
+    setSections((previous) => {
+      const updated = { ...previous };
+      if (next) for (const sibling of siblings) updated[sibling] = { location, open: false };
+      updated[id] = { location, open: next };
+      return updated;
+    });
+    if (level === "root" && (id === "detail" ? next : false) !== detailOpen) onToggleDetail();
+  };
   const itemClass = (active: boolean) => (active ? "sidebar-item active" : "sidebar-item");
 
   return (
@@ -273,68 +293,56 @@ export function Sidebar({
             <SidebarHealth health={health} />
           </div>
           <nav className="sidebar-nav" aria-label={t("navegacion")}>
-            {groups.map((group) => (
-              <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
-                {group.label ? <div className="sidebar-section-label">{group.label}</div> : null}
-                {group.items.map((item) => {
-                  const active = menuActive(item.action);
-                  return (
-                    <button
-                      key={item.id}
-                      className={itemClass(active)}
-                      aria-current={active ? "page" : undefined}
-                      data-tip={item.label}
-                      data-item={item.id}
-                      onClick={go(() => runMenu(item.action))}
-                    >
-                      <NavIcon name={MENU_ICONS[item.id] ?? "summary"} />
-                      <span className="sidebar-label">{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
+            {groups.map((group) => {
+              const items = group.items.map((item) => {
+                const active = menuActive(item.action);
+                return (
+                  <button key={item.id} className={itemClass(active)} aria-current={active ? "page" : undefined}
+                    data-tip={item.label} data-item={item.id} onClick={go(() => runMenu(item.action))}>
+                    <NavIcon name={MENU_ICONS[item.id] ?? "summary"} />
+                    <span className="sidebar-label">{item.label}</span>
+                  </button>
+                );
+              });
+              const active = !detailHasActive && activeGroup?.id === group.id;
+              return (
+                <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
+                  {group.label ? (
+                    <SidebarSection section={group.id} label={group.label} icon={SECTION_ICONS[group.id] ?? "channels"}
+                      active={active} open={expanded && sectionOpen(group.id, active)} searching={searching}
+                      onToggle={() => toggleSection(group.id, active, "root")}>
+                      {items}
+                    </SidebarSection>
+                  ) : items}
+                </div>
+              );
+            })}
             {channels.length > 0 ? (
               <div className="sidebar-group sidebar-detail" role="group" aria-label={t("detalle por canal")}>
-                <button
-                  type="button"
-                  className={`sidebar-detail-toggle${detailHasActive ? " has-active" : ""}`}
-                  aria-expanded={detailVisible}
-                  aria-controls={detailId}
-                  data-tip={t("detalle por canal")}
-                  onClick={() => { needRoom(); onToggleDetail(); }}
-                  disabled={searching}
-                >
-                  <NavIcon name="channels" />
-                  <span className="sidebar-label sidebar-detail-text">
-                    <span>{t("detalle por canal")}</span>
-                    <span className="sidebar-transient">{t("transitorio")}</span>
-                  </span>
-                  <NavIcon name="chevron" className="sidebar-detail-chevron" />
-                </button>
-                {detailVisible ? (
-                  <div id={detailId} className="sidebar-detail-body">
-                    <p className="sidebar-note">{t("aviso transitorio")}</p>
-                    {channels.map((entry) => (
+                <SidebarSection section="detail" label={t("detalle por canal")} icon="channels" detail
+                  active={detailHasActive} searching={searching}
+                  open={expanded && sectionOpen("detail", detailHasActive || (detailOpen && !activeGroup?.label))}
+                  onToggle={() => toggleSection("detail", detailHasActive || (detailOpen && !activeGroup?.label), "root")}>
+                  {channels.map((entry) => {
+                    const id = `channel:${entry.id}`;
+                    const active = activeChannel?.id === entry.id;
+                    const badge = entry.id === "virtualpos" ? "VP" : entry.id === "toku" ? "TK" : entry.id === "payku" ? "PK" : "TCH";
+                    return (
                       <div className="sidebar-subgroup" role="group" aria-label={entry.name} key={entry.id}>
-                        <div className="sidebar-subheading">{entry.name}</div>
-                        {entry.items.map((item) => {
-                          const active = detailActive(item.action);
-                          return (
-                            <button
-                              key={item.id}
-                              className={itemClass(active)}
-                              aria-current={active ? "page" : undefined}
-                              onClick={go(() => runDetail(item.action))}
-                            >
-                              {item.label}
-                            </button>
-                          );
-                        })}
+                        <SidebarSection section={id} label={entry.name} badge={badge} active={active} searching={searching}
+                          open={expanded && sectionOpen(id, active)} onToggle={() => toggleSection(id, active, "channel")}>
+                          {entry.items.map((item) => {
+                            const selected = detailActive(item.action);
+                            return (
+                              <button key={item.id} className={itemClass(selected)} aria-current={selected ? "page" : undefined}
+                                onClick={go(() => runDetail(item.action))}>{item.label}</button>
+                            );
+                          })}
+                        </SidebarSection>
                       </div>
-                    ))}
-                  </div>
-                ) : null}
+                    );
+                  })}
+                </SidebarSection>
               </div>
             ) : null}
             {groups.length === 0 && channels.length === 0 ? <p className="sidebar-note" role="status">{t("sin resultados")} «{query.trim()}».</p> : null}

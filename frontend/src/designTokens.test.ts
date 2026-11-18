@@ -212,11 +212,11 @@ describe("D1 menu azul marino: items, estados y marca >= 4.5:1", () => {
       expect(ratio(hexOf(t, "--sidebar-heading"), bg)).toBeGreaterThan(ratio(hexOf(t, "--sidebar-text"), bg));
     });
   }
-  it("titulo de grupo resaltado: token, display, 11px/700 y separador entre grupos", () => {
-    expect(finalDecl(allCss, ".sidebar-section-label", "color")).toBe("var(--sidebar-heading)");
-    expect(finalDecl(allCss, ".sidebar-section-label", "font-family")).toBe("var(--font-display)");
-    expect(finalDecl(allCss, ".sidebar-section-label", "font-size")).toBe("11px");
-    expect(finalDecl(allCss, ".sidebar-section-label", "font-weight")).toBe("700");
+  it("seccion desplegable legible: token, fuente de cuerpo, 14px/600 y separador entre grupos", () => {
+    expect(finalDecl(allCss, ".sidebar-section-toggle", "color")).toBe("var(--sidebar-heading)");
+    expect(finalDecl(allCss, ".sidebar-section-toggle", "font-family")).toBe("var(--font-body)");
+    expect(finalDecl(allCss, ".sidebar-section-toggle", "font-size")).toBe("14px");
+    expect(finalDecl(allCss, ".sidebar-section-toggle", "font-weight")).toBe("600");
     expect(finalDecl(allCss, ".sidebar-group + .sidebar-group", "border-top")).toBe("1px solid var(--sidebar-border)");
   });
   it("el CSS del menu usa tokens, no colores teal fijos", () => {

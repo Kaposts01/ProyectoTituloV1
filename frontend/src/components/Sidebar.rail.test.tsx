@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { detailChannels, menuGroups } from "../navigation";
 import { HOVER_CLOSE_MS, HOVER_OPEN_MS, SIDEBAR_PINNED_KEY, Sidebar, type SidebarProps } from "./Sidebar";
@@ -134,14 +134,23 @@ describe("Sidebar rail: submenú «Detalle por canal»", () => {
     expect(onToggleDetail).toHaveBeenCalledTimes(1);
     expect(state()).toBe("expanded");
   });
-  it("abierto, muestra todas las pantallas por canal permitidas", () => {
+  it("despliega un proveedor por vez y conserva todas sus pantallas permitidas", () => {
+    window.localStorage.setItem(SIDEBAR_PINNED_KEY, "1");
     setup({ detailOpen: true });
     const toggle = screen.getByRole("button", { name: /Detalle por canal/ });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    const body = document.getElementById(toggle.getAttribute("aria-controls")!)!;
-    const expected = detailChannels((p) => allPerms.includes(p)).flatMap((c) => c.items.map((i) => i.label));
-    expect(Array.from(body.querySelectorAll(".sidebar-item")).map((n) => n.textContent)).toEqual(expected);
+    let previous: HTMLElement | null = null;
+    for (const channel of detailChannels((p) => allPerms.includes(p))) {
+      const group = screen.getByRole("group", { name: channel.name });
+      const header = within(group).getByRole("button", { name: channel.name });
+      fireEvent.click(header);
+      expect(header).toHaveAttribute("aria-expanded", "true");
+      if (previous) expect(previous).toHaveAttribute("aria-expanded", "false");
+      for (const item of channel.items) expect(within(group).getByRole("button", { name: item.label })).toBeInTheDocument();
+      previous = header;
+    }
   });
+
   it("si la pantalla activa está dentro del detalle, el botón lo indica aun plegado", () => {
     setup({ channel: "toku" });
     expect(screen.getByRole("button", { name: /Detalle por canal/ })).toHaveClass("has-active");
@@ -161,20 +170,21 @@ describe("Sidebar rail: entradas, íconos, tooltips y teclado", () => {
 
   it("los encabezados Cartera, Operación y Sistema siguen en el DOM (en compacto los oculta el CSS)", () => {
     setup();
-    expect(Array.from(document.querySelectorAll(".sidebar-section-label")).map((n) => n.textContent)).toEqual(["Cartera", "Operación", "Sistema"]);
+    expect(Array.from(document.querySelectorAll(".sidebar-nav > .sidebar-group:not(.sidebar-detail) .sidebar-section-toggle")).map((n) => n.textContent)).toEqual(["Cartera", "Operación", "Sistema"]);
   });
 
   it("en compacto, el foco de teclado en un ítem muestra un tooltip con su nombre", () => {
     setup();
-    act(() => { screen.getByRole("button", { name: "Socios" }).focus(); });
-    expect(document.querySelector(".sidebar-tooltip")).toHaveTextContent("Socios");
-    act(() => { screen.getByRole("button", { name: "Suscripciones" }).focus(); });
-    expect(document.querySelector(".sidebar-tooltip")).toHaveTextContent("Suscripciones");
+    act(() => { screen.getByRole("button", { name: "Cartera" }).focus(); });
+    expect(document.querySelector(".sidebar-tooltip")).toHaveTextContent("Cartera");
+    act(() => { screen.getByRole("button", { name: "Operación" }).focus(); });
+    expect(document.querySelector(".sidebar-tooltip")).toHaveTextContent("Operación");
   });
 
   it("desplegado no hay tooltip (el nombre ya se ve)", () => {
     setup();
     fireEvent.click(pin());
+    fireEvent.click(screen.getByRole("button", { name: "Cartera" }));
     act(() => { screen.getByRole("button", { name: "Socios" }).focus(); });
     expect(document.querySelector(".sidebar-tooltip")).toBeNull();
   });
@@ -188,6 +198,7 @@ describe("Sidebar rail: entradas, íconos, tooltips y teclado", () => {
   });
 
   it("el ítem activo mantiene aria-current=page y los íconos son decorativos", () => {
+    window.localStorage.setItem(SIDEBAR_PINNED_KEY, "1");
     setup({ generalView: "clients" });
     const item = screen.getByRole("button", { name: "Socios" });
     expect(item).toHaveAttribute("aria-current", "page");
@@ -274,5 +285,85 @@ describe("Sidebar account popup", () => {
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Tab" });
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(document.activeElement).toBe(account());
+  });
+});
+
+describe("Sidebar section accordions", () => {
+  const section = (id: string) => document.querySelector<HTMLButtonElement>(`[data-section="${id}"]`)!;
+  const expandedSetup = (props: Partial<SidebarProps> = {}) => {
+    window.localStorage.setItem(SIDEBAR_PINNED_KEY, "1");
+    return setup(props);
+  };
+
+  it("starts with summary and collapsed section headers", () => {
+    expandedSetup();
+    for (const id of ["cartera", "operacion", "sistema", "detail"]) expect(section(id)).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Resumen" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Socios" })).not.toBeInTheDocument();
+  });
+
+  it("opens one main section at a time and allows closing it", () => {
+    expandedSetup();
+    fireEvent.click(section("cartera"));
+    expect(screen.getByRole("button", { name: "Socios" })).toBeVisible();
+    fireEvent.click(section("operacion"));
+    expect(section("cartera")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Socios" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recuperador" })).toBeVisible();
+    fireEvent.click(section("operacion"));
+    expect(section("operacion")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens the current screen section after navigation without forcing manually closed sections", () => {
+    const { props, view } = expandedSetup({ generalView: "clients" });
+    expect(section("cartera")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(section("cartera"));
+    view.rerender(<Sidebar {...props} />);
+    expect(section("cartera")).toHaveAttribute("aria-expanded", "false");
+    view.rerender(<Sidebar {...props} generalView="report" />);
+    expect(section("sistema")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Reportes" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("search opens matching branches and restores the prior section when cleared", () => {
+    expandedSetup();
+    fireEvent.click(section("operacion"));
+    const search = screen.getByRole("searchbox", { name: "Buscar en el menú" });
+    fireEvent.change(search, { target: { value: "suscripciones" } });
+    expect(section("cartera")).toHaveAttribute("aria-expanded", "true");
+    expect(section("cartera")).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Suscripciones" }).length).toBeGreaterThan(1);
+    fireEvent.change(search, { target: { value: "" } });
+    expect(section("operacion")).toHaveAttribute("aria-expanded", "true");
+    expect(section("cartera")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens current provider, keeps permissions and collapses only one level with Left", () => {
+    expandedSetup({ tchView: "transactions" });
+    expect(section("detail")).toHaveAttribute("aria-expanded", "true");
+    expect(section("channel:tch")).toHaveAttribute("aria-expanded", "true");
+    const item = within(screen.getByRole("group", { name: "TCH" })).getByRole("button", { name: "Transacciones" });
+    item.focus();
+    fireEvent.keyDown(item, { key: "ArrowLeft" });
+    expect(section("channel:tch")).toHaveAttribute("aria-expanded", "false");
+    expect(section("detail")).toHaveAttribute("aria-expanded", "true");
+    expect(document.activeElement).toBe(section("channel:tch"));
+    fireEvent.keyDown(section("channel:tch"), { key: "ArrowRight" });
+    expect(section("channel:tch")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("button", { name: "Planes" })).not.toBeInTheDocument();
+  });
+
+  it("a compact section click reveals its labels and children", () => {
+    setup({ generalView: "clients" });
+    expect(section("cartera")).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(section("cartera"));
+    expect(state()).toBe("expanded");
+    expect(section("cartera")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Socios" })).toBeVisible();
+  });
+
+  it("profile does not leave a stale central section selected", () => {
+    expandedSetup({ generalView: "clients", profileOpen: true });
+    expect(document.querySelector('.sidebar-nav .sidebar-item[aria-current="page"]')).toBeNull();
   });
 });

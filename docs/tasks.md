@@ -985,6 +985,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UI-LOCAL-02 | Agrupar acciones del pie en menu de cuenta | Completada en rama local | Avatar y nombre de sesion; panel solo al pulsar, con cuatro acciones. Cierre exterior/Escape/seleccion, foco y teclado; 148 pruebas, lint y build pasan. Chrome verifica rail, temas y movil 320/390px. [Evidencia](quality/sidebar-account-2026-11-18.md). Sin push. |
 
+| UI-LOCAL-03 | Organizar navegacion lateral en acordeones | Completada en rama local | Secciones y proveedores desplegables; un grupo por nivel, apertura de pantalla activa y busqueda expandida. Cuenta intacta, permisos/rutas conservados. 155 pruebas, lint/build y Chrome escritorio/movil pasan. [Evidencia](quality/sidebar-sections-2026-11-18.md). Sin push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.

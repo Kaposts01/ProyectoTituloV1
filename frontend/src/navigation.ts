@@ -49,7 +49,7 @@ export function resourcePermission(source: string, resource: string): string {
   return `${source}.${names[source]?.[resource] ?? resource}.view`;
 }
 
-/* ── Menú de un solo nivel (UX-05, D29) ─────────────────────────────────────────────
+/* ── Catálogo de navegación (presentado en acordeones desde UI-LOCAL-03) ─────────────
    Grupos: Resumen · Cartera · Operación · Sistema, más el grupo transitorio «Detalle por canal».
    Solo contiene vistas que existen hoy. Cobros (Cartera) entró con UX-09. Fuera del menú, a propósito:
    - Identidad (Operación): no existe pantalla (cola de candidatos, UX-11).
