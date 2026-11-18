@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parent.parent
 FILES = ("app/api/v1/routes/writes.py", "app/api/v1/routes/staging.py", "app/core/security.py", "app/api/v1/routes/scheduler.py")
 CODE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 LEGACY_UPPERCASE = {"INVOICE_IN_PROGRESS"}  # codigo preexistente que consume el frontend
+# Datos estructurados que el frontend necesita además del mensaje (BUG-VP-03: la pregunta de confirmación del alta).
+EXTRA_DETAIL_KEYS = {"duplicate_active_subscription": ["existing_external_id", "existing_status"]}
 
 
 def _http_exceptions():
@@ -40,9 +42,10 @@ def test_every_detail_is_a_code_and_message_object() -> None:
         seen += 1
         assert isinstance(detail, ast.Dict), f"{rel}:{line} detail no estructurado"
         keys = [k.value for k in detail.keys if isinstance(k, ast.Constant)]
-        assert keys == ["code", "message"], f"{rel}:{line} {keys}"
+        assert keys[:2] == ["code", "message"], f"{rel}:{line} {keys}"
         code = detail.values[0]
         assert isinstance(code, ast.Constant) and CODE_RE.match(code.value), f"{rel}:{line} codigo no estatico"
+        assert keys[2:] == EXTRA_DETAIL_KEYS.get(code.value, []), f"{rel}:{line} {keys}"
         if code.value not in LEGACY_UPPERCASE:
             assert code.value == code.value.lower(), f"{rel}:{line} {code.value}"
     assert seen >= 150

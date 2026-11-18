@@ -730,6 +730,7 @@ export const es = {
     "client not found": "No se encontró el cliente.",
     "date range unsupported": "Este listado no permite filtrar por rango de fechas.",
     "deletion requires reconciliation": "La eliminación se hizo en el proveedor, pero quedó pendiente de conciliación en el CRM. Revisa el registro antes de reintentar.",
+    "duplicate active subscription": "Esta persona ya tiene una suscripción activa en este plan.",
     "empty channel list": "Selecciona al menos un canal.",
     "expected boolean value": "Uno de los filtros debe ser verdadero o falso.",
     "invalid channels": "Alguno de los canales seleccionados no es válido.",
