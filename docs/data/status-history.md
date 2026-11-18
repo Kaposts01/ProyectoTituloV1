@@ -72,7 +72,7 @@ Detrás de `SYNC_REMOVAL_DETECTION_ENABLED` (**apagada** por defecto). Requiere 
 `vp_subscriptions`, `tk_subscriptions` y `p_subscriptions`).
 
 - **Visto:** `channel_store.upsert_channel` pone `last_seen_at` en cada fila de suscripción que llega del proveedor (siempre, aunque el payload no cambie) y limpia
-  `removed_at` si la fila reaparece. Una suscripción VirtualPOS omitida por duplicado activo también cuenta como vista (solo se toca `last_seen_at`). Es el único cambio
+  `removed_at` si la fila reaparece. Desde BUG-VP-03 ya no hay suscripciones VirtualPOS omitidas: una segunda activa en el mismo plan se guarda y se marca vista como cualquier otra. Es el único cambio
   en `channel_store.py` (archivo compartido; no se tocaron los extractores).
 - **Cuándo se evalúa:** `app/services/channel_removals.detect_removals`, al final de una sync **completa y exitosa** del canal (VirtualPOS por cuenta, Toku y Payku),
   justo antes de cerrar la corrida como `completed`. Una lectura por ventana, cortada por el tope de páginas o una sync fallida nunca marca bajas (`partial`).

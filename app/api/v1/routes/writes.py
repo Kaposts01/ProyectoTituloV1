@@ -294,6 +294,8 @@ class VirtualPOSSubscriptionCreate(BaseModel):
     automatic_renewal: Literal["T", "F"] | None = None
     return_url: str | None = Field(default=None, max_length=2000)
     callback_url: str | None = Field(default=None, max_length=2000)
+    # BUG-VP-03: confirma crear otra suscripcion aunque la persona ya tenga una activa en el plan.
+    confirm_duplicate: bool = False
 
 
 @router.post(
@@ -314,7 +316,10 @@ async def create_virtualpos_subscription(
     except WriteDisabledError:
         raise HTTPException(status_code=403, detail={"code": "virtualpos_writes_disabled", "message": "Las escrituras a VirtualPOS están deshabilitadas en este ambiente."}) from None
     except DuplicateSubscriptionError as exc:
-        raise HTTPException(status_code=409, detail={"code": "operation_conflict", "message": str(exc)}) from None
+        raise HTTPException(status_code=409, detail={
+            "code": "duplicate_active_subscription", "message": str(exc),
+            "existing_external_id": exc.existing_external_id, "existing_status": exc.existing_status,
+        }) from None
     except _VP_ERRORS as exc:
         raise HTTPException(status_code=exc.response.status_code, detail={"code": "virtualpos_rejected_subscription", "message": "VirtualPOS rechazó la suscripción"}) from None
     except ReconciliationRequiredError:
