@@ -1,3 +1,4 @@
+import { normalizeReactIds } from "./snapshotIds";
 /**
  * Arnés de pruebas de caracterización de AppCore: monta la aplicación completa
  * sobre una ruta, con `fetch` simulado por tabla de rutas y una sesión sintética.
@@ -156,7 +157,7 @@ export function contentHtml(): string {
     if (node.matches(".burger-btn, .sidebar-overlay, aside.sidebar")) return;
     parts.push(node.outerHTML);
   });
-  return normalizeHtml(parts.join("\n"));
+  return normalizeReactIds(normalizeHtml(parts.join("\n")));
 }
 
 /**
