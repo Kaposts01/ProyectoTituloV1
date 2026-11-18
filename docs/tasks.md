@@ -991,6 +991,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | DEV-LOCAL-03 | Excluir skills personales de la rama publicada | Completada en correccion | 31 archivos de paquetes/evaluaciones fuera del indice y conservados en disco; nueve skills intactas. Exclusiones Git verificadas; cambios de aplicacion preservados. La correccion no elimina los commits historicos. |
 
+| DEV-LOCAL-04 | Purgar skills personales del historial publicado | Completada | Historial limpio en codex/actualizacion-20261118 y sprint-5/estabilizacion-dashboard. Diez commits verificados archivo por archivo; proyecto preservado y 31 archivos personales intactos por SHA-256. Respaldo local y exclusiones por checkout; publicacion con lease explicito. No garantiza purga de caches ni copias externas. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.
