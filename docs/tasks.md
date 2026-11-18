@@ -989,6 +989,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UI-LOCAL-04 | Renombrar acceso principal a Dashboard | Completada en rama local | Solo rotulo del acceso general; misma ruta, permisos y accion. 121 pruebas de navegacion pasan; expectativas de billing adaptadas a los acordeones. Sin push. |
 
+| DEV-LOCAL-03 | Excluir skills personales de la rama publicada | Completada en correccion | 31 archivos de paquetes/evaluaciones fuera del indice y conservados en disco; nueve skills intactas. Exclusiones Git verificadas; cambios de aplicacion preservados. La correccion no elimina los commits historicos. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.
