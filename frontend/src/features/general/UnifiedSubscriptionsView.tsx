@@ -4,9 +4,11 @@ import { useDebouncedValue } from "../../hooks";
 import { labelOr } from "../../i18n/label";
 import { ExportButton } from "../shared/ExportButton";
 import { ChannelTotals, UnifiedFilterBar, UnifiedPagination } from "./UnifiedControls";
-import { StatusText, channelText, day, detailPath, money } from "./unifiedDisplay";
-import { VIEW_PERMISSIONS, canAny, type StatusFacets, type SubscriptionRow, type UnifiedPage } from "./unifiedTypes";
+import { StatusText, canOpenRecordPath, channelText, day, detailPath, money } from "./unifiedDisplay";
+import { GENERAL_VIEW_PERMISSIONS, VIEW_PERMISSIONS, canAny, type StatusFacets, type SubscriptionRow, type UnifiedPage } from "./unifiedTypes";
 import { cleanParams, useUnifiedGet } from "./useUnifiedList";
+import { readPortfolioLocation } from "../summary/dashboardContext";
+import { DashboardContextNotice } from "../summary/DashboardContextNotice";
 import { PortfolioTable, type PortfolioColumn } from "./PortfolioTable";
 import { Rut } from "../shared/RutCell";
 import { rutText } from "../shared/rut";
@@ -16,11 +18,6 @@ const FIELDS = [
   { value: "all", label: "Todos los campos" }, { value: "id", label: "ID" }, { value: "rut", label: "RUT" },
   { value: "client", label: "Socio" }, { value: "status", label: "Estado" },
 ];
-/** `?offset=` de un enlace guardado (la página inicial); el resto de los filtros vive en la pantalla. */
-function initialOffset(): number {
-  const value = Number(new URLSearchParams(window.location.search).get("offset") ?? "0");
-  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
 
 const secondaryBadge = (value: string | null) =>
   value === "cobrable" ? "green" : value === "incobrable" ? "orange" : value === "inactiva" ? "gray" : "blue";
@@ -30,12 +27,13 @@ const secondaryBadge = (value: string | null) =>
  * filtros de canal y estado. Cada fila abre su ficha por canal; el RUT lleva a Socios filtrado por ese RUT.
  */
 export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission: string) => boolean; onOpenPath?: (path: string) => void }) {
-  const allowed = canAny(can, VIEW_PERMISSIONS.subscriptions);
-  const [channel, setChannel] = useState("");
+  const allowed = can(GENERAL_VIEW_PERMISSIONS.subscriptions) || canAny(can, VIEW_PERMISSIONS.subscriptions);
+  const [initial] = useState(() => readPortfolioLocation(window.location.search));
+  const [channel, setChannel] = useState(initial.channel);
   const [status, setStatus] = useState("");
   const [field, setField] = useState("all");
   const [query, setQuery] = useState("");
-  const [offset, setOffset] = useState(initialOffset);
+  const [offset, setOffset] = useState(initial.offset);
   const debouncedQuery = useDebouncedValue(query);
   const reset = (setter: (value: string) => void) => (value: string) => { setter(value); setOffset(0); };
 
@@ -44,7 +42,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
     "/api/v1/general/subscriptions", { ...filterParams, ...cleanParams({ canal: channel, offset, limit: PAGE }) }, allowed);
   const facets = useUnifiedGet<StatusFacets>("/api/v1/general/subscriptions/statuses", cleanParams({ canal: channel }), allowed);
   const channels = list.data?.canales ?? facets.data?.canales ?? [];
-  const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+  const open = (path: string | null) => (path && onOpenPath && (path.startsWith("/central/clientes?") ? can("dashboard.view") : canOpenRecordPath(path, can)) ? () => onOpenPath(path) : undefined);
 
   const busy = list.loading || query !== debouncedQuery;
   const filtered = Boolean(channel || status || query.trim());
@@ -76,6 +74,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
           <h1>{pageLabels.subscriptions}</h1>
         </div>
       </div>
+      <DashboardContextNotice onOpenPath={onOpenPath} canReturn={can("dashboard.view")} />
       {!allowed ? (
         <p className="muted-copy">Tu rol no puede ver suscripciones de ningún canal. Pide acceso a un administrador.</p>
       ) : (

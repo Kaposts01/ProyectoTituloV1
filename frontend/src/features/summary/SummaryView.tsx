@@ -1,6 +1,6 @@
 import { pageLabels } from "../../pageLabels";
-import { useState } from "react";
-import { useChannelHealth } from "../../hooks/useChannelHealth";
+import { useEffect, useRef, useState } from "react";
+import { useChannelHealthState } from "../../hooks/useChannelHealth";
 import { ChannelFilter, MonthPicker } from "./SummaryControls";
 import { SummaryCharts } from "./SummaryCharts";
 import { SummaryHealth } from "./SummaryHealth";
@@ -10,6 +10,9 @@ import { serverNow } from "../../serverClock";
 import { chileDayOfMonth, monthLabel, shiftMonth, tchDataDate } from "./summaryFormat";
 import type { SummaryChannel, UnifiedSummary } from "./summaryTypes";
 import { useSummary } from "./useSummary";
+import { dashboardSelection, type PrimaryMetric } from "./dashboardContext";
+import { SummaryMetricDetail } from "./SummaryMetricDetail";
+import { SummaryActions } from "./SummaryActions";
 
 function formatGeneratedAt(iso: string | null): string | null {
   if (!iso) return null;
@@ -37,28 +40,38 @@ function PartialMonthNote({ summary, onClosedMonth }: { summary: UnifiedSummary;
   );
 }
 
-function QualityNote({ summary }: { summary: UnifiedSummary }) {
-  const { activationsWithoutDate: upFree, cancellationsWithoutDate: downFree } = summary.dataQuality;
-  if (upFree <= 0 && downFree <= 0) return null;
-  const parts = [
-    upFree > 0 ? `${upFree.toLocaleString("es-CL")} ${upFree === 1 ? "suscripción sin fecha de alta válida" : "suscripciones sin fecha de alta válida"}` : null,
-    downFree > 0 ? `${downFree.toLocaleString("es-CL")} ${downFree === 1 ? "baja sin fecha de baja válida" : "bajas sin fecha de baja válida"}` : null,
-  ].filter(Boolean);
-  return <p className="summary-quality">Datos incompletos: {parts.join(" y ")}. No entran en los indicadores de ningún mes.</p>;
-}
 
 /**
  * Resumen unificado de la jefatura (UX-06): selector de mes, filtro de canales, KPIs del mes con variación contra el
  * mes anterior y gráficos de 12 meses. Consume `GET /api/v1/dashboard/general` solo a través de `summaryApi` /
  * `summaryAdapter`. No existen metas todavía (D2): todos los KPIs muestran el chip «sin meta».
  */
-export function SummaryView() {
-  const [month, setMonth] = useState<string | undefined>(undefined);
-  const [selected, setSelected] = useState<SummaryChannel[] | null>(null);
+const noPermissions = () => false;
+export function SummaryView({ can = noPermissions, onOpenPath }: { can?: (permission: string) => boolean; onOpenPath?: (path: string) => void }) {
+  const [initial] = useState(() => dashboardSelection(window.location.search));
+  const [month, setMonth] = useState<string | undefined>(initial.month);
+  const [selected, setSelected] = useState<SummaryChannel[] | null>(initial.channels ?? null);
+  const [detail, setDetail] = useState<PrimaryMetric | null>(null);
+  const detailTrigger = useRef<HTMLButtonElement | null>(null);
+  const chooseMonth = (value: string | undefined) => { setDetail(null); setMonth(value); };
+  const showDetail = (metric: PrimaryMetric, button: HTMLButtonElement) => {
+    detailTrigger.current = button; setDetail((current) => current === metric ? null : metric);
+  };
+  const closeDetail = () => { setDetail(null); if (detailTrigger.current?.isConnected) detailTrigger.current.focus(); };
+  const selectedKey = selected?.join(",") ?? "";
+  useEffect(() => {
+    if (window.location.pathname !== "/central/resumen") return;
+    const params = new URLSearchParams();
+    if (month) params.set("mes", month);
+    if (selectedKey) params.set("canales", selectedKey);
+    const search = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
+  }, [month, selectedKey]);
   const { state, availableChannels, currentMonth, reload } = useSummary(month, selected ?? undefined);
-  const health = useChannelHealth(true);
+  const { health, ready: healthReady } = useChannelHealthState(true);
 
   const toggleChannel = (channel: SummaryChannel) => {
+    setDetail(null);
     const current = selected ?? availableChannels;
     const next = current.includes(channel)
       ? current.filter((item) => item !== channel)
@@ -83,13 +96,13 @@ export function SummaryView() {
           </p>
         </div>
         <div className="summary-controls">
-          <MonthPicker value={monthValue} picked={month !== undefined} onChange={setMonth} onReset={() => setMonth(undefined)} />
+          <MonthPicker value={monthValue} picked={month !== undefined} onChange={chooseMonth} onReset={() => chooseMonth(undefined)} />
           <ChannelFilter available={availableChannels} selected={selected} onToggle={toggleChannel} />
         </div>
       </header>
 
       {shown ? <SummaryHealth channels={shown.channels} health={health} /> : null}
-      {shown ? <PartialMonthNote summary={shown} onClosedMonth={() => setMonth(shiftMonth(shown.month, -1))} /> : null}
+      {shown ? <PartialMonthNote summary={shown} onClosedMonth={() => chooseMonth(shiftMonth(shown.month, -1))} /> : null}
 
       {state.status === "loading" ? (
         <>
@@ -116,13 +129,15 @@ export function SummaryView() {
                   : "Ningún canal tiene actividad registrada en ese mes."}
               </p>
               <div className="summary-empty-actions">
-                <button type="button" className="secondary-button" onClick={() => setMonth(shiftMonth(shown.month, -1))}>Ver el mes anterior</button>
-                {month !== undefined ? <button type="button" className="secondary-button" onClick={() => setMonth(undefined)}>Volver al mes actual</button> : null}
+                <button type="button" className="secondary-button" onClick={() => chooseMonth(shiftMonth(shown.month, -1))}>Ver el mes anterior</button>
+                {month !== undefined ? <button type="button" className="secondary-button" onClick={() => chooseMonth(undefined)}>Volver al mes actual</button> : null}
               </div>
             </div>
           ) : null}
-          <SummaryKpiGrid summary={shown} />
-          <QualityNote summary={shown} />
+          <SummaryKpiGrid summary={shown} onDetail={showDetail} selectedDetail={detail} detail={detail
+            ? <SummaryMetricDetail summary={shown} metric={detail} can={can} onClose={closeDetail} onOpenPath={onOpenPath} />
+            : <div id="summary-metric-detail" hidden />} />
+          <SummaryActions summary={shown} health={health} healthReady={healthReady} can={can} onOpenPath={onOpenPath} onDetail={showDetail} />
           {empty ? null : <SummaryCharts summary={shown} tchDataDate={tchDataDate(health)} />}
         </>
       ) : null}

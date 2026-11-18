@@ -4,12 +4,14 @@ import { useDebouncedValue } from "../../hooks";
 import { tryLabel } from "../../i18n/label";
 import { ExportButton } from "../shared/ExportButton";
 import { ChannelTotals, UnifiedFilterBar, UnifiedPagination, type FilterChip } from "../general/UnifiedControls";
-import { StatusText, channelText, day, detailPath, money } from "../general/unifiedDisplay";
+import { StatusText, canOpenRecordPath, channelText, day, detailPath, money } from "../general/unifiedDisplay";
 import {
-  CHARGE_OUTCOMES, VIEW_PERMISSIONS, canAny,
+  CHARGE_OUTCOMES, GENERAL_VIEW_PERMISSIONS, VIEW_PERMISSIONS, canAny,
   type ChargeRow, type PaymentRow, type RejectionSummary, type StatusFacets, type UnifiedPage,
 } from "../general/unifiedTypes";
 import { cleanParams, useUnifiedGet } from "../general/useUnifiedList";
+import { readPortfolioLocation } from "../summary/dashboardContext";
+import { DashboardContextNotice } from "../summary/DashboardContextNotice";
 import { PortfolioTable, type PortfolioColumn } from "../general/PortfolioTable";
 import { Rut } from "../shared/RutCell";
 
@@ -69,17 +71,18 @@ function RejectionSummaryPanel({ channel, dateFrom, dateTo }: { channel: string;
  * filtran según los permisos de vista de siempre; el botón Exportar descarga lo mismo con los filtros activos.
  */
 export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: string) => boolean; onOpenPath?: (path: string) => void }) {
-  const canCharges = canAny(can, VIEW_PERMISSIONS.charges);
-  const canPayments = canAny(can, VIEW_PERMISSIONS.payments);
-  const [tab, setTab] = useState<Tab>(canCharges ? "charges" : "payments");
-  const [channel, setChannel] = useState("");
+  const canCharges = can(GENERAL_VIEW_PERMISSIONS.charges) || canAny(can, VIEW_PERMISSIONS.charges);
+  const canPayments = can(GENERAL_VIEW_PERMISSIONS.charges) || canAny(can, VIEW_PERMISSIONS.payments);
+  const [initial] = useState(() => readPortfolioLocation(window.location.search));
+  const [tab, setTab] = useState<Tab>(initial.tab === "payments" && canPayments ? "payments" : canCharges ? "charges" : "payments");
+  const [channel, setChannel] = useState(initial.channel);
   const [status, setStatus] = useState("");
-  const [outcome, setOutcome] = useState("");
+  const [outcome, setOutcome] = useState(initial.outcome);
   const [field, setField] = useState("all");
   const [query, setQuery] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [offset, setOffset] = useState(0);
+  const [dateFrom, setDateFrom] = useState(initial.dateFrom);
+  const [dateTo, setDateTo] = useState(initial.dateTo);
+  const [offset, setOffset] = useState(initial.offset);
   const debouncedQuery = useDebouncedValue(query);
   const reset = <T,>(setter: (value: T) => void) => (value: T) => { setter(value); setOffset(0); };
 
@@ -96,7 +99,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
   };
   // QA-16: un rango invertido devolvía «0 cobros» sin explicación; ahora se avisa (las fechas AAAA-MM-DD se comparan como texto).
   const invertedRange = dateFrom !== "" && dateTo !== "" && dateFrom > dateTo;
-  const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+  const open = (path: string | null) => (path && onOpenPath && canOpenRecordPath(path, can) ? () => onOpenPath(path) : undefined);
   const extraChips: FilterChip[] = [];
   if (outcome) extraChips.push({ key: "resultado", label: `Resultado: ${tryLabel("chargeOutcome", outcome) ?? outcome}`, onRemove: () => reset(setOutcome)("") });
   if (dateFrom) extraChips.push({ key: "desde", label: `Desde: ${day(dateFrom)}`, onRemove: () => reset(setDateFrom)("") });
@@ -142,6 +145,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
           <h1>{pageLabels.charges}</h1>
         </div>
       </div>
+      <DashboardContextNotice onOpenPath={onOpenPath} canReturn={can("dashboard.view")} />
       {!canCharges && !canPayments ? (
         <p className="muted-copy">Tu rol no puede ver cobros ni pagos de ningún canal. Pide acceso a un administrador.</p>
       ) : <>

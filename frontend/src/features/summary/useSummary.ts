@@ -22,6 +22,7 @@ export function useSummary(month: string | undefined, channels: SummaryChannel[]
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const [availableChannels, setAvailableChannels] = useState<SummaryChannel[]>([]);
+  const [channelsKnown, setChannelsKnown] = useState(false);
   const [currentMonth, setCurrentMonth] = useState<string | null>(null);
   const channelsKey = channels ? channels.join(",") : "";
   const requestKey = `${month ?? ""}|${channelsKey}|${attempt}`;
@@ -33,7 +34,7 @@ export function useSummary(month: string | undefined, channels: SummaryChannel[]
       .then((data) => {
         if (controller.signal.aborted) return;
         setResult({ key: requestKey, data });
-        if (!query.channels) setAvailableChannels(data.channels);
+        if (!query.channels) { setAvailableChannels(data.channels); setChannelsKnown(true); }
         if (!query.month) setCurrentMonth(data.month);
       })
       .catch((error: unknown) => {
@@ -42,6 +43,17 @@ export function useSummary(month: string | undefined, channels: SummaryChannel[]
       });
     return () => controller.abort();
   }, [month, channelsKey, attempt, requestKey]);
+
+  // A bookmarked channel selection still needs the server's full permitted-channel set for the selector.
+  useEffect(() => {
+    if (!channelsKey || channelsKnown) return;
+    const controller = new AbortController();
+    fetchSummary({}, controller.signal).then((data) => {
+      if (controller.signal.aborted) return;
+      setAvailableChannels(data.channels); setCurrentMonth(data.month); setChannelsKnown(true);
+    }).catch(() => { /* The filtered summary remains usable; retrying also retries the channel list. */ });
+    return () => controller.abort();
+  }, [channelsKey, channelsKnown, attempt]);
 
   const current = result?.key === requestKey ? result : null;
   const state: SummaryState = !current

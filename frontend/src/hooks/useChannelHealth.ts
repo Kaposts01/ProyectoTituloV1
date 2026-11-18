@@ -33,13 +33,17 @@ export async function fetchChannelHealth(): Promise<ChannelHealthMap> {
   }
 }
 
-export function useChannelHealth(enabled = true): ChannelHealthMap {
-  const [health, setHealth] = useState<ChannelHealthMap>({});
+export function useChannelHealthState(enabled = true) {
+  const [result, setResult] = useState<{ health: ChannelHealthMap; ready: boolean }>({ health: {}, ready: false });
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    void fetchChannelHealth().then((map) => { if (!cancelled) setHealth(map); });
+    void fetchChannelHealth().then((map) => { if (!cancelled) setResult({ health: map, ready: true }); });
     return () => { cancelled = true; };
   }, [enabled]);
-  return health;
+  return result;
+}
+
+export function useChannelHealth(enabled = true): ChannelHealthMap {
+  return useChannelHealthState(enabled).health;
 }

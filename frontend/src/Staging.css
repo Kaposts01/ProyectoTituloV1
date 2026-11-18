@@ -1385,6 +1385,36 @@
 .summary-health-text { font-size: 11px; }
 
 .summary-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.summary-indicators { display: grid; gap: 16px; min-width: 0; }
+.summary-indicators > h2 { margin: 0; }
+.summary-more-indicators { min-width: 0; }
+.summary-more-indicators > summary { padding: 12px 0; color: var(--text-1); cursor: pointer; font-size: 14px; font-weight: 600; }
+.summary-more-indicators > .summary-kpi-grid { margin-top: 8px; }
+.summary-more-indicators > .summary-kpi-grid[hidden] { display: none; }
+.summary-kpi-action { margin-top: auto; padding-top: 10px; }
+.summary-detail-link { padding: 6px 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.kpi-card--featured .summary-detail-link { color: var(--kpi-hero-text); }
+.summary-metric-detail { padding: 20px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+.summary-metric-detail > p { color: var(--text-2); font-size: 13px; line-height: 1.6; margin: 10px 0; }
+.summary-detail-value { font-size: 24px; color: var(--text-1); }
+.summary-related-records ul { display: grid; gap: 12px; padding: 0; margin: 12px 0 0; list-style: none; }
+.summary-related-records p { margin: 6px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.summary-related-records a, .summary-actions a, .dashboard-context a { color: var(--text-1); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.summary-actions { padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-surface); }
+.summary-actions ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.summary-actions li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border-subtle); }
+.summary-actions li > div { flex: 1 1 340px; min-width: 0; }
+.summary-actions strong { font-size: 14px; color: var(--text-1); }
+.summary-actions p { color: var(--text-2); font-size: 13px; line-height: 1.5; margin: 6px 0 0; }
+.dashboard-context { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-filter); }
+.dashboard-context > div { flex: 1 1 360px; min-width: 0; }
+.dashboard-context p { margin: 6px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.summary-detail-link:focus-visible, .summary-more-indicators summary:focus-visible, .summary-metric-detail a:focus-visible, .summary-actions a:focus-visible, .dashboard-context a:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; border-radius: 3px; }
+@media (max-width: 640px) {
+  .summary-metric-detail, .summary-actions { padding: 14px; }
+  .summary-detail-link, .summary-related-records a, .summary-actions a, .dashboard-context a { display: inline-flex; align-items: center; min-height: 44px; }
+  .summary-actions li > div { flex-basis: 100%; }
+}
 .summary-kpi-grid .kpi-card { height: 100%; box-sizing: border-box; }
 .kpi-help { margin: 0; color: var(--text-2); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .kpi-card--featured .kpi-help { color: var(--kpi-hero-muted); }

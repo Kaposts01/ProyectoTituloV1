@@ -997,6 +997,8 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UX-LOCAL-02 | Mejorar busqueda, filtros y tablas de Cartera | Completada en rama local | Busqueda principal, Mas filtros, columnas configurables, estados de consulta y paginacion accesible. API, permisos, exportaciones y privacidad conservados. 151 pruebas y Chrome escritorio/movil pasan; lint/build sin errores. [Evidencia](quality/portfolio-lists-2026-11-18.md). Skills excluidas, sin push. |
 
+| UX-LOCAL-03 | Priorizar Dashboard y conectar detalle/alertas | Completada en rama local | Cuatro KPIs principales, ocho adicionales, detalle con contexto/retorno y alertas con siguiente paso. Cobertura explicita y permisos conservados. 159 pruebas, lint/build y Chrome escritorio/movil pasan; total real conciliado por canal. [Evidencia](quality/dashboard-actions-2026-11-18.md). Sin skills ni push. |
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.

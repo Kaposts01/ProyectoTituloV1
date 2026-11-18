@@ -1,3 +1,5 @@
+import { useState, type ReactNode } from "react";
+import { METRIC_LABELS, type PrimaryMetric } from "./dashboardContext";
 import { ChurnKpiCard, KPI_EMPTY_CAPTION, KpiCard, type KpiChipStatus } from "../../components/KpiCard";
 import type { KpiFormat } from "../../components/formatKpi";
 import { churnHistory, netGrowthHistory, sparkValues } from "./summaryChartData";
@@ -30,7 +32,14 @@ function common(kpi: SummaryKpi, goodWhen: "up" | "down" = "up", partial = false
  * Rejilla de KPIs del mes: 12 tarjetas. Cada una lleva variación contra el mes anterior y el chip de meta; mientras
  * no existan metas (D2 pendiente) el chip dice «sin meta» y no se dibuja barra de avance. Un KPI sin dato se ve «—».
  */
-export function SummaryKpiGrid({ summary }: { summary: UnifiedSummary }) {
+export function SummaryKpiGrid({ summary, onDetail, selectedDetail, detail }: {
+  summary: UnifiedSummary; onDetail?: (metric: PrimaryMetric, button: HTMLButtonElement) => void;
+  selectedDetail?: PrimaryMetric | null; detail?: ReactNode;
+}) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const action = (metric: PrimaryMetric) => onDetail ? <button type="button" className="summary-detail-link"
+    aria-label={`Ver detalle de ${METRIC_LABELS[metric]}`} aria-expanded={selectedDetail === metric} aria-controls="summary-metric-detail"
+    onClick={(event) => onDetail(metric, event.currentTarget)}>Ver detalle</button> : null;
   const { kpis, series } = summary;
   const members = sparkValues(series.totalMembers);
   const activations = sparkValues(series.activations);
@@ -45,10 +54,19 @@ export function SummaryKpiGrid({ summary }: { summary: UnifiedSummary }) {
   const flow = summary.isCurrentMonth;
 
   return (
-    <section className="summary-kpi-grid" aria-label="Indicadores del mes">
-      <KpiCard label="Ingreso total" variant="featured" {...common(kpis.totalRevenue, "up", flow)} caption="Cobros pagados del mes" emptyCaption={KPI_EMPTY_CAPTION} sparkline={revenue} />
+    <section className="summary-indicators" aria-label="Indicadores del mes">
+      <h2 className="summary-section-title">Indicadores principales</h2>
+      <div className="summary-kpi-grid summary-primary-kpis">
+        <KpiCard label="Ingreso total" variant="featured" {...common(kpis.totalRevenue, "up", flow)} caption="Cobros pagados del mes" emptyCaption={KPI_EMPTY_CAPTION} sparkline={revenue} action={action("revenue")} />
+        <KpiCard label="Socios totales" {...common(kpis.totalMembers)} caption={membersCaption} emptyCaption={KPI_EMPTY_CAPTION} sparkline={members} action={action("members")} />
+        <KpiCard label="Cobrabilidad" {...common(kpis.collectability)} caption="Pagados ÷ (pagados + rechazados)" emptyCaption={KPI_EMPTY_CAPTION} action={action("collectability")} />
+        <KpiCard label="No cobrado" {...common(kpis.uncollected, "down", flow)} caption="Importe no cobrado del mes" emptyCaption={KPI_EMPTY_CAPTION} action={action("uncollected")} />
+      </div>
+      {detail}
+      <details className="summary-more-indicators" open={moreOpen}>
+        <summary onClick={(event) => { event.preventDefault(); setMoreOpen((value) => !value); }}>Más indicadores (8)</summary>
+        <div className="summary-kpi-grid" hidden={!moreOpen}>
       <KpiCard label="Acumulado del año" {...common(kpis.yearToDate, "up", flow)} caption="De enero al mes elegido" emptyCaption={KPI_EMPTY_CAPTION} />
-      <KpiCard label="Socios totales" {...common(kpis.totalMembers)} caption={membersCaption} emptyCaption={KPI_EMPTY_CAPTION} sparkline={members} />
       <KpiCard label="Activaciones" {...common(kpis.activations, "up", flow)} caption="Altas del mes" emptyCaption={KPI_EMPTY_CAPTION} sparkline={activations} />
       <KpiCard label="Bajas" {...common(kpis.cancellations, "down", flow)} caption="Bajas del mes" emptyCaption={KPI_EMPTY_CAPTION} sparkline={cancellations} />
       <KpiCard label="Crecimiento neto" {...common(kpis.netGrowth, "up", flow)} caption="Activaciones menos bajas" emptyCaption={KPI_EMPTY_CAPTION} sparkline={netGrowthHistory(series)} />
@@ -60,11 +78,11 @@ export function SummaryKpiGrid({ summary }: { summary: UnifiedSummary }) {
         windowLabel={kpis.churn.windowLabel ?? undefined}
         help={CHURN_HELP}
       />
-      <KpiCard label="Cobrabilidad" {...common(kpis.collectability)} caption="Pagados ÷ (pagados + rechazados)" emptyCaption={KPI_EMPTY_CAPTION} />
-      <KpiCard label="No cobrado" {...common(kpis.uncollected, "down", flow)} caption="Cobros rechazados del mes" emptyCaption={KPI_EMPTY_CAPTION} />
       <KpiCard label="Por cobrar" {...common(kpis.receivable, "up", flow)} caption="Pendientes con fecha dentro del mes" emptyCaption={KPI_EMPTY_CAPTION} />
       <KpiCard label="MRR" {...common(kpis.mrr)} caption="Ingreso mensual recurrente activo" emptyCaption={recurringEmpty} />
       <KpiCard label="ARPU" {...common(kpis.arpu)} caption="MRR ÷ clientes activos" emptyCaption={recurringEmpty} />
+        </div>
+      </details>
     </section>
   );
 }
@@ -73,7 +91,7 @@ export function SummaryKpiGrid({ summary }: { summary: UnifiedSummary }) {
 export function SummaryKpiSkeleton() {
   return (
     <div className="summary-kpi-grid" aria-hidden="true">
-      {Array.from({ length: 12 }, (_, index) => <div key={index} className="summary-skeleton" />)}
+      {Array.from({ length: 4 }, (_, index) => <div key={index} className="summary-skeleton" />)}
     </div>
   );
 }

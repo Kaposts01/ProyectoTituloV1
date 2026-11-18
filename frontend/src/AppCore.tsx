@@ -137,7 +137,7 @@ function AppCore() {
   const etl = useEtl(isChannelEnabled);
   const general = useGeneralDashboard({ session, setError });
   const {
-    generalView, setGeneralView, setGeneralClientQuery, generalClientFilter, setGeneralClientFilter, generalClientOffset, setGeneralClientOffset, setGeneralClientDetail, setGeneralSubscriptionQuery, generalSubscriptionFilter, setGeneralSubscriptionFilter, generalSubscriptionOffset, setGeneralSubscriptionOffset,
+    generalView, setGeneralView, setGeneralClientQuery, generalClientFilter, setGeneralClientFilter, generalClientOffset, setGeneralClientOffset, setGeneralClientDetail, setGeneralSubscriptionQuery, generalSubscriptionFilter, setGeneralSubscriptionFilter, setGeneralSubscriptionOffset,
   } = general;
 
   const can = (permission: string) => (session?.user?.permissions ?? []).includes(permission);
@@ -520,14 +520,6 @@ function AppCore() {
     replaceListSearch(params);
   }, [session, generalView, generalClientFilter, generalClientOffset]);
 
-  useEffect(() => {
-    const route = parseRoute(window.location.pathname);
-    if (!session || route?.kind !== "central" || route.view !== "subscriptions") return;
-    const params = new URLSearchParams();
-    if (generalSubscriptionFilter !== "all") params.set("campo", generalSubscriptionFilter);
-    if (generalSubscriptionOffset > 0) params.set("offset", String(generalSubscriptionOffset));
-    replaceListSearch(params);
-  }, [session, generalView, generalSubscriptionFilter, generalSubscriptionOffset]);
 
   useEffect(() => {
     const route = parseRoute(window.location.pathname);
@@ -717,7 +709,7 @@ function AppCore() {
       generalView === "report" ? <AutomaticReport /> : generalView === "charges" ? <UnifiedChargesView can={can} onOpenPath={openPath} /> : generalView === "subscriptions" ? <UnifiedSubscriptionsView can={can} onOpenPath={openPath} /> : generalView === "summary" ? (
         // El estado inicial es «summary» aunque el enlace profundo apunte a otra vista: solo se monta el Resumen
         // unificado si la URL es de verdad la suya (así un enlace a otra pantalla no dispara su petición).
-        onSummaryRoute ? <SummaryView /> : <main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>
+        onSummaryRoute ? <SummaryView can={can} onOpenPath={openPath} /> : <main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>
       ) : globalDashboard
     )))
   );

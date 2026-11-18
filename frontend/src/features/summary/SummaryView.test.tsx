@@ -53,7 +53,11 @@ const KPI_LABELS = ["Ingreso total", "Acumulado del año", "Socios totales", "Ac
 
 /** Tarjeta de KPI por su rótulo. */
 function card(label: string): HTMLElement {
-  const found = screen.getAllByRole("article").find((el) => el.querySelector(".metric-label")?.textContent === label);
+  let found = screen.getAllByRole("article").find((el) => el.querySelector(".metric-label")?.textContent === label);
+  if (!found && document.querySelector(".summary-more-indicators:not([open])")) {
+    fireEvent.click(document.querySelector(".summary-more-indicators summary")!);
+    found = screen.getAllByRole("article").find((el) => el.querySelector(".metric-label")?.textContent === label);
+  }
   if (!found) throw new Error(`Sin tarjeta «${label}»`);
   return found;
 }

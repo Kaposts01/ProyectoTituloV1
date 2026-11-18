@@ -1,4 +1,13 @@
 import { tryLabel } from "../../i18n/label";
+import { parseRoute } from "../../routes";
+import { resourcePermission } from "../../navigation";
+
+/** General list access does not grant the provider-specific permission required by a record page. */
+export function canOpenRecordPath(path: string, can: (permission: string) => boolean): boolean {
+  const route = parseRoute(path);
+  if (route?.kind === "record") return can(resourcePermission(route.source, route.resource));
+  return route?.kind === "tchSubscription" && can("tch.suscripciones.view");
+}
 
 /** Rótulo del canal de una fila (`virtualpos1` -> «VirtualPOS 1»). */
 export function channelText(channel: string | null | undefined): string {

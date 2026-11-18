@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { formatKpi, goalStatus, hasKpiValue, type KpiChipStatus, type KpiFormat, type KpiGoal } from "./formatKpi";
 
 export type { KpiChipStatus, KpiGoal };
@@ -57,7 +58,8 @@ function Sparkline({ values, label }: { values: number[]; label?: string }) {
  * - `sparkline` / `sparklineLabel`: serie opcional; decorativa (aria-hidden) salvo que haya etiqueta.
  * - `help`: texto de ayuda dentro de la tarjeta (p. ej. la definición del churn).
  */
-export function KpiCard({ label, value, format, caption, emptyCaption, variant = "normal", delta, goal, chip, sparkline, sparklineLabel, help }: {
+export function KpiCard({ label, value, format, caption, emptyCaption, variant = "normal", delta, goal, chip, sparkline, sparklineLabel, help, action }: {
+  action?: ReactNode;
   label: string;
   value: number | null | undefined;
   format: KpiFormat;
@@ -130,6 +132,7 @@ export function KpiCard({ label, value, format, caption, emptyCaption, variant =
       {deltaEl}
       {sub ? <span className="metric-amount">{sub}</span> : null}
       {help ? <p className="kpi-help">{help}</p> : null}
+      {action ? <div className="summary-kpi-action">{action}</div> : null}
     </article>
   );
 }
