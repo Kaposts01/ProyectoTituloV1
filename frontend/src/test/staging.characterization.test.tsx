@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Call, type Handler } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, mountApp, navDetail, resetApp, type Call, type Handler } from "./appHarness";
 import { page, paykuClient, paykuSubscription, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "./fixtures";
 
 afterEach(resetApp);
@@ -26,14 +26,14 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect([q.get("source"), q.get("resource_type"), q.get("offset"), q.get("limit")]).toEqual(["virtualpos", "client", "0", "100"]);
     expect(q.has("filters")).toBe(false);
     expect(q.has("sort_field")).toBe(false);
-    expect(screen.getByText("Volver al resumen VirtualPOS")).toBeTruthy();
-    expect(document.querySelector("main > .eyebrow")).toHaveTextContent("VirtualPOS");
+    expect(screen.queryByText("Volver al resumen VirtualPOS")).toBeNull();
+    expect(document.querySelector("main .channel-list-heading .eyebrow")).toHaveTextContent("VirtualPOS");
     expect(screen.getByRole("heading", { name: "Clientes" })).toBeTruthy();
-    expect(screen.getByText("Payloads saneados almacenados localmente")).toBeTruthy();
+    expect(screen.getByText("Listado de registros")).toBeTruthy();
     expect(screen.getByText("2 registros")).toBeTruthy();
     expect(headers().slice(0, 7)).toEqual(["RUT", "Nombre", "Correo electrónico", "Teléfono", "Plataforma", "Estado", "Acciones"]);
     expect(screen.getByText("Persona1 Sintética")).toBeTruthy();
-    expect(screen.getAllByText("VP 1").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("VP 1").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Editar" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "+ Nuevo cliente" })).toBeTruthy();
     await listSettled();
@@ -46,8 +46,16 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     const clear = screen.getByRole("button", { name: "Limpiar filtros" }) as HTMLButtonElement;
     expect(clear.disabled).toBe(true);
+    const toggle = screen.getByRole("button", { name: /Filtros por columna/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
     fireEvent.change(screen.getByLabelText("Buscar por Correo electrónico"), { target: { value: "p1@" } });
     await waitFor(() => expect(lastRecordsCall(app).query.getAll("filters")).toEqual(["email:p1@"]));
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveTextContent("(1)");
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText("Buscar por Correo electrónico")).toHaveValue("p1@");
     expect((screen.getByRole("button", { name: "Limpiar filtros" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
     await waitFor(() => expect(lastRecordsCall(app).query.has("filters")).toBe(false));
@@ -65,17 +73,12 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(window.location.search).toBe("?orden=Nombre&direccion=desc");
   });
 
-  it("los botones de cuenta cambian source a virtualpos1/virtualpos2 y lo reflejan en ?cuenta", async () => {
+  it("muestra todas las cuentas sin los botones de cuenta retirados por el usuario", async () => {
     const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items))]);
     await appReady();
     await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
-    const filter = document.querySelector(".vp-platform-filter") as HTMLElement;
-    expect(Array.from(filter.querySelectorAll(".vp-platform-btn")).map((b) => b.textContent)).toEqual(["Todas", "VP 1", "VP 2"]);
-    fireEvent.click(within(filter).getByRole("button", { name: "VP 2" }));
-    await waitFor(() => expect(lastRecordsCall(app).query.get("source")).toBe("virtualpos2"));
-    expect(window.location.search).toBe("?cuenta=virtualpos2");
-    fireEvent.click(within(filter).getByRole("button", { name: "Todas" }));
-    await waitFor(() => expect(lastRecordsCall(app).query.get("source")).toBe("virtualpos"));
+    expect(document.querySelectorAll(".vp-platform-btn")).toHaveLength(0);
+    expect(lastRecordsCall(app).query.get("source")).toBe("virtualpos");
     expect(window.location.search).toBe("");
   });
 
@@ -95,7 +98,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ver más" }));
     await waitFor(() => expect(lastRecordsCall(app).query.get("offset")).toBe("100"));
     expect(await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.113-1" })).toBeTruthy();
-    expect(screen.getAllByRole("row").length).toBe(2 + 3);
+    expect(screen.getAllByRole("row").length).toBe(1 + 3); // Column filters start collapsed.
     expect(screen.queryByText(/Mostrando/)).toBeNull();
   });
 
@@ -109,10 +112,11 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(await screen.findByText("lista rota")).toBeTruthy();
   });
 
-  it("«Volver al resumen VirtualPOS» abre el dashboard del canal", async () => {
+  it("el menú permite abrir el resumen sin un botón de retorno en la cabecera", async () => {
     const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items)), ["GET", "/api/v1/staging/dashboard/virtualpos", channelDashboard("virtualpos")]]);
     await appReady();
-    fireEvent.click(await screen.findByText("Volver al resumen VirtualPOS"));
+    await screen.findByRole("heading", { level: 1, name: "Clientes" });
+    fireEvent.click(navDetail("VirtualPOS", "Resumen"));
     await waitFor(() => expect(window.location.pathname).toBe("/virtualpos/resumen"));
     expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
     expect(app.exact("GET", "/api/v1/staging/dashboard/virtualpos")).toHaveLength(1);
@@ -141,6 +145,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     expect(screen.getByText("Cobrable").className).toContain("badge-green");
     expect(screen.getByText("Inactiva").className).toContain("badge-gray");
     expect(screen.getByRole("button", { name: "+ Nueva suscripción" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Filtros por columna/ }));
     fireEvent.change(screen.getByLabelText("Monto mínimo"), { target: { value: "5000" } });
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
@@ -150,6 +155,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     const app = mountApp("/virtualpos/suscripciones", [recordsHandler(page([vpSubscription(1)]))]);
     await appReady();
     await screen.findByRole("button", { name: "Ver ficha de suscripción 11.111.111-1" });
+    fireEvent.click(screen.getByRole("button", { name: /Filtros por columna/ }));
     fireEvent.change(screen.getByLabelText("Monto mínimo"), { target: { value: "5000" } });
     await waitFor(() => expect(lastRecordsCall(app).query.get("amount_min")).toBe("5000"));
     fireEvent.change(screen.getByLabelText("F. Inicio desde"), { target: { value: "2025-01-01" } });
@@ -188,7 +194,7 @@ describe("Listas Toku y Payku", () => {
     const app = mountApp("/toku/clientes", [recordsHandler(page([tokuCustomer(1)]))]);
     await appReady();
     expect(await screen.findByRole("button", { name: "Ver ficha de cliente 22.222.221-2" })).toBeTruthy();
-    expect(document.querySelector("main > .eyebrow")).toHaveTextContent("Toku");
+    expect(document.querySelector("main .channel-list-heading .eyebrow")).toHaveTextContent("Toku");
     expect(screen.getByText("Filtrar registros")).toBeTruthy();
     expect(headers()).toEqual(["RUT", "Nombre", "Correo electrónico", "Teléfono", "Acciones"]);
     expect(lastRecordsCall(app).query.get("source")).toBe("toku");
@@ -244,7 +250,7 @@ describe("Listas Toku y Payku", () => {
     mountApp("/payku/clientes", [recordsHandler(page([paykuClient(1)]))]);
     await appReady();
     expect(await screen.findByRole("button", { name: /Ver ficha de Clientes pcl-1/ })).toBeTruthy();
-    expect(document.querySelector("main > .eyebrow")).toHaveTextContent("Payku");
+    expect(document.querySelector("main .channel-list-heading .eyebrow")).toHaveTextContent("Payku");
     expect(headers()).toEqual(["ID", "RUT", "Nombre", "Correo electrónico", "Teléfono", "Acciones"]);
     resetApp();
     mountApp("/payku/suscripciones", [recordsHandler(page([paykuSubscription(1)]))]);

@@ -1,3 +1,4 @@
+import { ChannelTableScroll } from "../../components/ChannelTableScroll";
 import { label, labelOr } from "../../i18n/label";
 import { ChannelChart } from "../../components/ChannelChart";
 import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
@@ -179,7 +180,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
         <OperationalAlerts alerts={tchSummary.alerts ?? []} />
       </main>
     ) : tchView === "client-detail" && tchClientDetail ? (
-      <main className="app-shell">
+      <main className="app-shell tch-detail-page">
         <button className="back-button" onClick={() => showTch("clients")}>← Clientes TCH</button>
         <p className="eyebrow">TCH / CLIENTE</p>
         <header className="detail-header"><div><h1>{[tchClientDetail.firstName, tchClientDetail.lastName].filter(Boolean).join(" ") || "Cliente TCH"}</h1><p><Rut value={tchClientDetail.rut} /></p></div></header>
@@ -187,7 +188,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
         <section className="panel"><div className="panel-heading"><div><p className="eyebrow">SUSCRIPCIONES</p><h3>Mandatos asociados</h3></div></div><div className="table-wrap"><table><thead><tr><th>Ficha</th><th>Inicio</th><th>Fin</th><th>Monto</th><th>Estado</th><th>Estado sec.</th><th>Último cobro</th></tr></thead><tbody>{(tchClientDetail.subscriptions ?? []).map((s) => <tr key={s.id}><td><button className="record-link" onClick={() => showTchSubscription(s.fileNumber)}>{s.fileNumber}</button></td><td>{s.activationDate ?? "—"}</td><td>{s.endDate ?? "—"}</td><td>{(s.pesoEquivalent || s.amount) ? `$${Number(s.pesoEquivalent || s.amount).toLocaleString("es-CL")}` : "—"}</td><td><span className={`status-pill${s.status === "VIGENTE" ? "" : " status-attention"}`}>{label("tchStatus", s.status)}</span></td><td><span className={`badge badge-${s.secondaryStatus === "cobrable" ? "green" : s.secondaryStatus === "incobrable" ? "orange" : s.secondaryStatus === "inactiva" ? "gray" : "blue"}`}>{labelOr("secondaryStatus", s.secondaryStatus, "")}</span></td><td>{s.lastPaidDate ? s.lastPaidDate.slice(0, 10) : "—"}</td></tr>)}</tbody></table></div></section>
       </main>
     ) : tchView === "subscription-detail" && tchSubscriptionDetail ? (
-      <main className="app-shell">
+      <main className="app-shell tch-detail-page">
         <button className="back-button" onClick={() => showTch("subscriptions")}>← Suscripciones TCH</button>
         <p className="eyebrow">TCH / SUSCRIPCIÓN</p>
         <header className="detail-header"><div><h1>Detalle de suscripción</h1><p>Ficha {tchSubscriptionDetail.fileNumber}</p><p>Mandato físico e historial de cargos.</p></div><span className={`status-pill${tchSubscriptionDetail.status === "VIGENTE" ? "" : " status-attention"}`}>{label("tchStatus", tchSubscriptionDetail.status)}</span></header>
@@ -195,20 +196,20 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
         <section className="panel"><div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Historial</h3></div></div><div className="table-wrap"><table><thead><tr><th>Período</th><th>Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>{(tchSubscriptionDetail.transactions ?? []).map((t) => <tr key={t.id}><td><button className="record-link" onClick={() => showTchTransaction(t.id)}>{t.period ?? "—"}</button></td><td>{t.amount ? `$${Number(t.amount).toLocaleString("es-CL")}` : "—"}</td><td>{t.chargeDate ?? "—"}</td><td><span className={`status-pill${t.status === "ACEPTADA" ? "" : " status-attention"}`}>{label("tchStatus", t.status)}</span></td></tr>)}</tbody></table></div></section>
       </main>
     ) : tchView === "transaction-detail" && tchTransactionDetail ? (
-      <main className="app-shell">
+      <main className="app-shell tch-detail-page">
         <button className="back-button" onClick={() => showTch("transactions")}>← Transacciones TCH</button>
         <p className="eyebrow">TCH / TRANSACCIÓN</p>
         <header className="detail-header"><div><h1>Detalle de transacción</h1><p>Cargo {tchTransactionDetail.period ?? "sin período"}</p><p>Ficha {tchTransactionDetail.fileNumber}</p></div><span className={`status-pill${tchTransactionDetail.status === "ACEPTADA" ? "" : " status-attention"}`}>{label("tchStatus", tchTransactionDetail.status)}</span></header>
         <section className="detail-grid"><article className="panel"><h3>Detalle del cargo</h3><dl><dt>Monto</dt><dd>{tchTransactionDetail.amount ? `$${Number(tchTransactionDetail.amount).toLocaleString("es-CL")}` : "—"}</dd><dt>Fecha de cargo</dt><dd>{tchTransactionDetail.chargeDate ?? "—"}</dd><dt>Cuota</dt><dd>{tchTransactionDetail.installmentNumber ?? "—"}</dd><dt>Entidad</dt><dd>{tchTransactionDetail.collectingEntity ?? "—"}</dd><dt>Motivo</dt><dd>{tchTransactionDetail.rejectionReason ?? "—"}</dd></dl></article><article className="panel"><h3>Suscripción</h3>{tchTransactionDetail.subscription ? <dl><dt>Ficha</dt><dd><button className="record-link" onClick={() => showTchSubscription(tchTransactionDetail.fileNumber)}>{tchTransactionDetail.fileNumber}</button></dd><dt>RUT cliente</dt><dd>{tchTransactionDetail.subscription.clientRut ?? "—"}</dd><dt>Banco</dt><dd>{tchTransactionDetail.subscription.bankName ?? "—"}</dd><dt>Inicio</dt><dd>{tchTransactionDetail.subscription.activationDate ?? "—"}</dd></dl> : <p className="muted-copy">No hay suscripción local asociada.</p>}</article></section>
       </main>
     ) : tchView === "clients" ? (
-      <main className="app-shell">
+      <main className="app-shell channel-list-page tch-list-page">
         <p className="eyebrow">TCH / CLIENTES</p>
         <header className="channel-hero" style={{ alignItems: "flex-end" }}><div><h1>Clientes</h1><p>Socios asociados a mandatos físicos.</p></div><div className="dashboard-controls"><input aria-label="Buscar cliente" placeholder="Buscar por nombre" value={tchClientFilter} onChange={(event) => { setTchClientFilter(event.target.value); setTchClientPage(1); }} style={{ padding: "0.35rem 0.6rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }} />{tchExportButton("clients", { name: tchClientFilter }, tchClientPage, 50)}</div></header>
-        <section className="panel"><div className="table-wrap"><table><thead><tr><th>RUT</th><th>Nombre</th><th>Fecha nacimiento</th><th>Profesión</th><th>Tipo socio</th></tr></thead><tbody>{(tchClients?.items ?? []).map((c) => <tr key={c.id}><td><button className="record-link" onClick={() => showTchClient(c.rut)} aria-label={rutText(c.rut)}><Rut value={c.rut} /></button></td><td>{[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}</td><td>{c.birthDate ?? "—"}</td><td>{c.profession ?? "—"}</td><td>{c.memberType ?? "—"}</td></tr>)}{(tchClients?.items ?? []).length === 0 ? <tr><td colSpan={5}>Sin registros.</td></tr> : null}</tbody></table></div>{tchClients && tchClients.pages > 1 ? <div className="pagination" style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}><button disabled={tchClientPage <= 1} onClick={() => setTchClientPage((page) => page - 1)}>← Anterior</button><span style={{ padding: "0 0.5rem", lineHeight: "2" }}>{tchClientPage} / {tchClients.pages} ({tchClients.total.toLocaleString("es-CL")} total)</span><button disabled={tchClientPage >= tchClients.pages} onClick={() => setTchClientPage((page) => page + 1)}>Siguiente →</button></div> : null}</section>
+        <section className="panel"><ChannelTableScroll label="Clientes de TCH"><table><thead><tr><th>RUT</th><th>Nombre</th><th>Fecha nacimiento</th><th>Profesión</th><th>Tipo socio</th></tr></thead><tbody>{(tchClients?.items ?? []).map((c) => <tr key={c.id}><td><button className="record-link" onClick={() => showTchClient(c.rut)} aria-label={rutText(c.rut)}><Rut value={c.rut} /></button></td><td>{[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}</td><td>{c.birthDate ?? "—"}</td><td>{c.profession ?? "—"}</td><td>{c.memberType ?? "—"}</td></tr>)}{(tchClients?.items ?? []).length === 0 ? <tr><td colSpan={5}>Sin registros.</td></tr> : null}</tbody></table></ChannelTableScroll>{tchClients && tchClients.pages > 1 ? <div className="pagination" style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}><button disabled={tchClientPage <= 1} onClick={() => setTchClientPage((page) => page - 1)}>← Anterior</button><span style={{ padding: "0 0.5rem", lineHeight: "2" }}>{tchClientPage} / {tchClients.pages} ({tchClients.total.toLocaleString("es-CL")} total)</span><button disabled={tchClientPage >= tchClients.pages} onClick={() => setTchClientPage((page) => page + 1)}>Siguiente →</button></div> : null}</section>
       </main>
     ) : tchView === "subscriptions" ? (
-      <main className="app-shell">
+      <main className="app-shell channel-list-page tch-list-page">
         <p className="eyebrow">TCH / SUSCRIPCIONES</p>
         <header className="channel-hero" style={{ alignItems: "flex-end" }}>
           <div><h1>Suscripciones</h1><p>Mandatos activos e históricos de débito físico.</p></div>
@@ -222,7 +223,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
           </div>
         </header>
         <section className="panel">
-          <div className="table-wrap">
+          <ChannelTableScroll label="Suscripciones de TCH">
             <table>
               <thead><tr>
                 <th>Ficha</th><th>RUT cliente</th><th>Banco</th>
@@ -249,7 +250,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
                 {(tchSubscriptions?.items ?? []).length === 0 ? <tr><td colSpan={11}>Sin registros.</td></tr> : null}
               </tbody>
             </table>
-          </div>
+          </ChannelTableScroll>
           {tchSubscriptions && tchSubscriptions.pages > 1 ? (
             <div className="pagination" style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}>
               <button disabled={tchSubscriptionPage <= 1} onClick={() => setTchSubscriptionPage((p) => p - 1)}>← Anterior</button>
@@ -260,7 +261,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
         </section>
       </main>
     ) : tchView === "transactions" ? (
-      <main className="app-shell">
+      <main className="app-shell channel-list-page tch-list-page">
         <p className="eyebrow">TCH / TRANSACCIONES</p>
         <header className="channel-hero" style={{ alignItems: "flex-end" }}>
           <div><h1>Transacciones</h1><p>Historial de cargos aceptados y rechazados.</p></div>
@@ -270,7 +271,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
           </div>
         </header>
         <section className="panel">
-          <div className="table-wrap">
+          <ChannelTableScroll label="Transacciones de TCH">
             <table>
               <thead><tr>
                 <th>Ficha</th><th>Período</th><th>Entidad</th>
@@ -291,7 +292,7 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
                 {(tchTransactions?.items ?? []).length === 0 ? <tr><td colSpan={7}>Sin registros.</td></tr> : null}
               </tbody>
             </table>
-          </div>
+          </ChannelTableScroll>
           {tchTransactions && tchTransactions.pages > 1 ? (
             <div style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0 0", justifyContent: "flex-end" }}>
               <button disabled={tchTransactionPage <= 1} onClick={() => setTchTransactionPage((p) => p - 1)}>← Anterior</button>
@@ -301,6 +302,6 @@ export function TchContent({ tch, showTch, showTchSubscription, onReport, can }:
           ) : null}
         </section>
       </main>
-    ) : <main className="app-shell"><p className="muted-copy">Cargando...</p></main>
+    ) : <main className="app-shell channel-list-page tch-list-page"><p className="muted-copy">Cargando...</p></main>
   ) : null;
 }

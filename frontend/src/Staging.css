@@ -1452,3 +1452,52 @@
 @media (prefers-reduced-motion: reduce) {
   .summary-skeleton { animation: none; }
 }
+
+/* Channel lists: controls remain outside a bounded table viewport. */
+.channel-list-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 8px; }
+.channel-list-heading > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.channel-list-page .vp-platform-filter { flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.channel-filter-toggle { min-height: 32px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface); color: var(--text-1); font: inherit; font-size: 12px; cursor: pointer; }
+.channel-filter-toggle[aria-expanded="true"] { background: var(--bg-filter); font-weight: 700; }
+.table-column-filters[hidden] { display: none; }
+.channel-list-page .panel-heading { gap: 12px; align-items: center; }
+.channel-list-page .panel-heading h3 { margin: 0; font-size: 14px; }
+.channel-list-page .panel-heading .export-button { margin-left: auto; }
+.channel-list-heading .eyebrow { margin: 0 0 4px; }
+.channel-list-heading h1 { margin: 0; }
+.channel-list-page > .eyebrow { margin-bottom: 4px; }
+.channel-list-page > .channel-hero { margin-bottom: 8px; padding-bottom: 8px; gap: 12px; }
+.channel-list-page > .channel-hero h1 { margin: 0; }
+.channel-list-page > .channel-hero p { margin: 4px 0 0; }
+.channel-table-frame { display: flex; flex-direction: column; min-width: 0; min-height: 0; margin: 6px 0; }
+.channel-table-scroll { max-height: 60vh; max-height: 60dvh; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--border); border-radius: 6px; }
+.channel-table-scroll thead { position: sticky; top: 0; z-index: 2; background: var(--bg-surface); }
+.channel-table-scroll table { margin: 0; }
+.channel-table-scroll:focus-visible, .channel-filter-toggle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.channel-table-scroll, .detail-page .table-wrap, .tch-detail-page .table-wrap, .channel-dashboard-page .table-wrap, .channel-dashboard-page .chart-data { scrollbar-width: auto; scrollbar-color: var(--text-3) var(--bg-muted); }
+.channel-table-scroll::-webkit-scrollbar, .detail-page .table-wrap::-webkit-scrollbar, .tch-detail-page .table-wrap::-webkit-scrollbar, .channel-dashboard-page .table-wrap::-webkit-scrollbar { width: 12px; height: 14px; }
+.channel-table-scroll::-webkit-scrollbar-track, .detail-page .table-wrap::-webkit-scrollbar-track, .tch-detail-page .table-wrap::-webkit-scrollbar-track, .channel-dashboard-page .table-wrap::-webkit-scrollbar-track { background: var(--bg-muted); }
+.channel-table-scroll::-webkit-scrollbar-thumb, .detail-page .table-wrap::-webkit-scrollbar-thumb, .tch-detail-page .table-wrap::-webkit-scrollbar-thumb, .channel-dashboard-page .table-wrap::-webkit-scrollbar-thumb { background: var(--text-3); border: 3px solid var(--bg-muted); border-radius: 8px; }
+.detail-page:not(.channel-list-page) .table-wrap, .tch-detail-page .table-wrap { max-height: 55vh; overflow: auto; overscroll-behavior: contain; }
+.detail-page:not(.channel-list-page) .table-wrap thead, .tch-detail-page .table-wrap thead { position: sticky; top: 0; z-index: 1; background: var(--bg-surface); }
+@media (min-width: 901px) and (min-height: 480px) {
+  .app-page:has(> .channel-list-page) { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+  html.has-env-banner .app-page:has(> .channel-list-page) { height: calc(100dvh - var(--env-banner-h)); }
+  .app-page > .channel-list-page { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 12px; }
+  .channel-list-page > :not(.panel) { flex-shrink: 0; }
+  .channel-list-page > .panel { display: flex; flex-direction: column; flex: 1; min-height: 0; margin-bottom: 0; }
+  .channel-list-page > .panel > :not(.channel-table-frame) { flex-shrink: 0; }
+  .channel-list-page > .panel { padding: 10px 12px; }
+  .channel-list-page > .panel > .panel-heading { margin-bottom: 4px; }
+  .channel-list-page .channel-table-frame { flex: 1; min-height: 210px; }
+  .channel-list-page .channel-table-scroll { flex: 1; min-height: 160px; max-height: none; }
+  .channel-list-page .channel-table-scroll td { padding: 9px 8px; }
+  .channel-list-page .table-load-more { margin-top: 4px; padding-top: 4px; }
+  .channel-list-page > .panel > .new-client-button { align-self: flex-start; margin: 0 0 4px; }
+}
+@media (max-width: 640px) {
+  .channel-table-scroll { max-height: 55vh; max-height: 55dvh; }
+}
+@media (max-width: 800px) {
+  .app-page > .channel-list-page, .app-page > .tch-detail-page, .app-page > .channel-dashboard-page { padding-top: 64px; }
+}

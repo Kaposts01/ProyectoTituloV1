@@ -114,10 +114,9 @@ describe("Exportar: listas de staging", () => {
   });
 
   it("VirtualPOS cargos: plataforma elegida, filtros por columna y avisos de lo que no se puede enviar", async () => {
-    const app = mountApp("/virtualpos/cargos", [recordsHandler(page([vpCharge(1, "PAID")])), ...exportHandlers("cobros", 8)]);
+    const app = mountApp("/virtualpos/cargos?cuenta=virtualpos1", [recordsHandler(page([vpCharge(1, "PAID")])), ...exportHandlers("cobros", 8)]);
     await appReady();
-    await screen.findByRole("button", { name: "VP 1" });
-    fireEvent.click(screen.getByRole("button", { name: "VP 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Filtros por columna/ }));
     fireEvent.change(await screen.findByLabelText("Monto mínimo"), { target: { value: "500" } });
     fireEvent.change(await screen.findByLabelText("Fecha de cargo desde"), { target: { value: "2025-01-01" } });
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/records").at(-1)?.query.get("amount_min")).toBe("500"));

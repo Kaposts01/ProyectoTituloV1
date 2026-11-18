@@ -340,7 +340,8 @@ function AppCore() {
     setError(null);
     setFilterField(stagingFilters[section.source]?.[section.resource]?.[0]?.value ?? "");
     setFilterQuery("");
-    setVpColumnFilters({});
+    // Preserve an already empty filter object so its debounce does not reload the initial list.
+    setVpColumnFilters((current) => Object.keys(current).length === 0 ? current : {});
     setRecordsOffset(0);
     setSortColumn(null);
     setSortDirection("asc");
@@ -626,10 +627,8 @@ function AppCore() {
       list={stagingList}
       loading={loading}
       error={error}
-      vp2Enabled={vp2Enabled}
       can={can}
       notices={{ client: clientSaveNotice, plan: planSaveNotice, subscription: subscriptionSaveNotice, charge: chargeSaveNotice }}
-      showChannel={showChannel}
       openVirtualPosClient={openVirtualPosClient}
       openVirtualPosPlan={openVirtualPosPlan}
       openVirtualPosSubscription={openVirtualPosSubscription}
@@ -654,6 +653,7 @@ function AppCore() {
 
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
+  const onChannelDetailRoute = summaryRoute && ["channel", "resource", "record", "tch", "tchSubscription"].includes(summaryRoute.kind);
   const currentPage = session && summaryRoute && canAccessRoute(summaryRoute)
     ? pageLocation(summaryRoute, canAccessRoute, tchView) : null;
   const browserTitle = currentPage?.title ? `${currentPage.title} | SynkmetriX` : session === null ? "Iniciar sesión | SynkmetriX" : "SynkmetriX";
@@ -769,7 +769,7 @@ function AppCore() {
         health={channelHealth}
       />
       <div className="app-page">
-      {currentPage ? <PageBreadcrumbs crumbs={currentPage.crumbs} onNavigate={openBreadcrumb} /> : null}
+      {currentPage && !onChannelDetailRoute ? <PageBreadcrumbs crumbs={currentPage.crumbs} onNavigate={openBreadcrumb} /> : null}
       {adminOpen ? (
         <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>
           <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />

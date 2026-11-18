@@ -215,6 +215,8 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 **Tables:** Ver Layout. Header en caps pequeñas. TD con `font-variant-numeric: tabular-nums` en todas las columnas numéricas. Columnas de monto: `text-align: right`. Hover de fila: `background: var(--surface-alt)` — no shadow, no scale.
 
+**Detalle por canal (2026-11-18):** Los listados aprovechan el ancho y alto disponibles, con cabecera compacta y filas desplazables dentro de la tabla. El encabezado permanece visible; los filtros por columna de VirtualPOS arrancan plegados, conservan sus valores al cerrar y muestran un contador de criterios activos. Se usa solo el scroll nativo, con barras contrastadas y foco de teclado. Por solicitud del usuario se retiran de estas vistas la ruta visual, el retorno al resumen y los botones de cuenta Todas / VP 1 / VP 2. El menú conserva el acceso a secciones y resúmenes; los enlaces profundos existentes mantienen su cuenta. En móvil o con poca altura la página permite alcanzar los controles. Las fichas tienen tablas relacionadas de altura limitada y los resúmenes analíticos conservan su recorrido completo. Sin dependencias nuevas.
+
 **Alert banner:** Solo para estados que requieren acción. Warning bg + border + icono de info. Texto breve, link "Ver →" a la derecha.
 
 **Sidebar:** Siempre fondo `--bg-sidebar` (azul marino). Secciones interactivas de 14px/600 con icono, flecha y `aria-expanded`; paneles cerrados con `hidden`. Ítems con hover `--sidebar-hover-bg`; activo en `--sidebar-active-bg` + `--sidebar-active-text` + peso 700 + `aria-current`. Buscador sobre `--sidebar-active-bg`, salud global y acordeones por proveedor dentro de «Detalle por canal». Pie con botón de cuenta y panel de acciones al pulsarlo. Ver Layout.

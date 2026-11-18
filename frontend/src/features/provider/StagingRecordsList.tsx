@@ -1,3 +1,5 @@
+import { useId, useState } from "react";
+import { ChannelTableScroll } from "../../components/ChannelTableScroll";
 import { useDirectCancel } from "../cancellations/directCancel";
 import { DirectCancelNote } from "../cancellations/DirectCancelNote";
 import { label, labelOr } from "../../i18n/label";
@@ -19,10 +21,8 @@ export function StagingRecordsList({
   list,
   loading,
   error,
-  vp2Enabled,
   can,
   notices,
-  showChannel,
   openVirtualPosClient,
   openVirtualPosPlan,
   openVirtualPosSubscription,
@@ -43,10 +43,8 @@ export function StagingRecordsList({
   list: StagingRecordsState;
   loading: boolean;
   error: string | null;
-  vp2Enabled: boolean;
   can: (permission: string) => boolean;
   notices: { client: string | null; plan: string | null; subscription: string | null; charge: string | null };
-  showChannel: (source: ProviderSource) => void;
   openVirtualPosClient: (record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
   openVirtualPosPlan: (record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
   openVirtualPosSubscription: (record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
@@ -64,6 +62,10 @@ export function StagingRecordsList({
   onDeleteRecord: (record: StagingRecord, source: string, resourceType: string) => void;
 }) {
   const { isAdmin } = useDirectCancel();
+  const filterRowId = useId();
+  const [expandedFilters, setExpandedFilters] = useState<string | null>(null);
+  const sectionKey = `${activeSection.source}:${activeSection.resource}`;
+  const filtersOpen = expandedFilters === sectionKey;
   const {
     records,
     setRecordsOffset,
@@ -79,8 +81,8 @@ export function StagingRecordsList({
     sortDirection,
     setSortDirection,
     vpPlatform,
-    setVpPlatform,
   } = list;
+  const activeFilterCount = Object.values(vpColumnFilters).filter((value) => value.trim()).length;
   const { client: clientSaveNotice, plan: planSaveNotice, subscription: subscriptionSaveNotice, charge: chargeSaveNotice } = notices;
   const columns: TableColumn[] =
     activeSection?.source === "virtualpos"
@@ -174,29 +176,17 @@ export function StagingRecordsList({
     </section>
   ) : null;
   return (
-    <main className="app-shell detail-page provider-page">
-      <button
-        className="back-button"
-        onClick={() => showChannel(activeSection.source)}
-      >
-        Volver al resumen {title(activeSection.source)}
-      </button>
-      <p className="eyebrow">
-        {title(activeSection.source)}
-      </p>
-      <h1>{activeSection.label}</h1>
+    <main className="app-shell detail-page provider-page channel-list-page">
+      <header className="channel-list-heading">
+        <div><p className="eyebrow">{title(activeSection.source)}</p><h1>{activeSection.label}</h1></div>
+      </header>
       {filterControls}
       {activeSection.source === "virtualpos" ? (
         <div className="vp-platform-filter">
-          {(["all", "virtualpos1", "virtualpos2"] as const).filter((p) => p !== "virtualpos2" || vp2Enabled).map((p) => (
-            <button
-              key={p}
-              className={`vp-platform-btn${vpPlatform === p ? " active" : ""}`}
-              onClick={() => { setVpPlatform(p); setRecordsOffset(0); }}
-            >
-              {p === "all" ? "Todas" : p === "virtualpos1" ? "VP 1" : "VP 2"}
-            </button>
-          ))}
+          <button type="button" className="channel-filter-toggle" aria-expanded={filtersOpen} aria-controls={filterRowId}
+            onClick={() => setExpandedFilters(filtersOpen ? null : sectionKey)}>
+            Filtros por columna{activeFilterCount ? ` (${activeFilterCount})` : ""} <span aria-hidden="true">{filtersOpen ? "▴" : "▾"}</span>
+          </button>
           <button
             className="clear-filter-button"
             disabled={!Object.values(vpColumnFilters).some((value) => value.trim())}
@@ -209,8 +199,7 @@ export function StagingRecordsList({
       <section className="panel provider-panel">
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">SOURCE RECORDS</p>
-            <h3>Payloads saneados almacenados localmente</h3>
+            <h3>Listado de registros</h3>
           </div>
           <span aria-live="polite">{loading ? "Cargando" : `${records.total} registros`}</span>
           {exportTarget && (!exportTarget.viewPermission || can(exportTarget.viewPermission)) ? (
@@ -242,7 +231,7 @@ export function StagingRecordsList({
           <p>Sin registros sincronizados para este recurso.</p>
         ) : null}
         {records.items.length > 0 ? (
-          <div className="table-wrap">
+          <ChannelTableScroll label={`${activeSection.label} de ${title(activeSection.source)}`}>
             <table>
                 <thead>
                   <tr>
@@ -271,7 +260,7 @@ export function StagingRecordsList({
                   })}
                   </tr>
                   {activeSection.source === "virtualpos" ? (
-                    <tr className="table-column-filters">
+                    <tr id={filterRowId} className="table-column-filters" hidden={!filtersOpen}>
                       {columns.map((column) => {
                         const field = virtualPosFieldForColumn(activeSection.resource, column.key);
                         if (!field) return <th key={column.key} />;
@@ -476,7 +465,7 @@ export function StagingRecordsList({
                 ))}
               </tbody>
             </table>
-          </div>
+          </ChannelTableScroll>
         ) : null}
         {records.items.length < records.total ? (
           <div className="table-load-more">

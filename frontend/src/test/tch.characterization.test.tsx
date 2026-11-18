@@ -268,10 +268,8 @@ describe("TCH: clientes (/tch/clientes)", () => {
     expect(app.find("GET", "/api/v1/tch/clientes/22222221-2").length).toBeGreaterThan(0);
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
-    const breadcrumb = within(screen.getByRole("navigation", { name: "Ruta de navegación" }));
-    const parent = breadcrumb.getByRole("link", { name: "Clientes" });
-    expect(parent).toHaveAttribute("href", "/tch/clientes");
-    fireEvent.click(parent);
+    expect(screen.queryByRole("navigation", { name: "Ruta de navegación" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "← Clientes TCH" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Clientes" })).toBeTruthy();
     expect(window.location.pathname).toBe("/tch/clientes");
     await waitFor(() => expect(document.title).toBe("Clientes · TCH | SynkmetriX"));

@@ -29,13 +29,12 @@ describe("Orientación dentro del CRM", () => {
     await screen.findByRole("heading", { level: 1, name: "Editar perfil" });
     await waitFor(() => expect(document.title).toBe("Editar perfil | SynkmetriX"));
   });
-  it("un acceso limitado mantiene Clientes del canal y omite Dashboard de la ruta", async () => {
+  it("un acceso limitado mantiene Clientes del canal sin la ruta visual retirada por el usuario", async () => {
     mountApp("/toku/clientes", [["GET", "/api/v1/staging/records", { items: [], total: 0, offset: 0, limit: 50 }]], { permissions: ["toku.customers.view"] });
     await appReady();
     await screen.findByRole("heading", { level: 1, name: "Clientes" });
-    expect(trail().queryByText("Dashboard")).toBeNull();
-    expect(trail().getByRole("link", { name: "Toku" })).toHaveAttribute("href", "/toku/resumen");
-    expect(trail().getByText("Clientes")).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("navigation", { name: "Ruta de navegación" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Volver al resumen Toku" })).toBeNull();
     await waitFor(() => expect(document.title).toBe("Clientes · Toku | SynkmetriX"));
   });
   it("una URL sin acceso redirige sin mostrarla como destino permitido", async () => {
