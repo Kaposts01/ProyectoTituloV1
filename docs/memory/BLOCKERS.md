@@ -24,3 +24,7 @@
 - La posible inconsistencia entre `POSTGRES_USER` y el usuario del healthcheck debe revisarse como deuda tecnica.
 
 Detalle operativo y evidencia: [tasks.md](../tasks.md).
+
+## Dependencias de desarrollo (2026-11-18)
+
+- Abierto DEV-LOCAL-02: siete alertas en herramientas de desarrollo derivadas de picomatch, sin parche publicado. Auditoria de dependencias de produccion da cero.

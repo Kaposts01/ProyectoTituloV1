@@ -12,6 +12,14 @@ from app.core.config import Settings
 from app.models.etl_run import EtlRun
 from tests.test_config_environments import PROD, make
 
+
+@pytest.fixture(autouse=True)
+def clean_provider_alias_env(monkeypatch):
+    """Alias tests must not inherit optional provider keys from a developer shell."""
+    for name in ("APP_ENV", "PAYKU_API_KEY", "PAYKU_SECRET_KEY", "VIRTUALPOS2_BASE_URL", "VIRTUALPOS2_API_KEY", "VIRTUALPOS2_SECRET_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+
 # --- config: alias de variables en produccion ---------------------------------------------------
 
 

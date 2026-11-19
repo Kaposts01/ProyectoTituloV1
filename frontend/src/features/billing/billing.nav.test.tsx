@@ -17,6 +17,8 @@ function setup(permissions: string[], over: Partial<SidebarProps> = {}) {
       onLogout={fn} onProfile={fn} open onClose={onClose} recoveryOpen={false} onRecovery={fn} onBilling={onBilling} {...over}
     />,
   );
+  const operation = screen.queryByRole("button", { name: "Operación" });
+  if (operation?.getAttribute("aria-expanded") === "false") fireEvent.click(operation);
   return { onBilling, onClose };
 }
 
@@ -47,9 +49,9 @@ describe("entrada del menu", () => {
     expect(screen.getByRole("button", { name: "Cambios de cobro" })).toBeTruthy();
     cleanup();
     setup(["dashboard.view", "virtualpos.clients.view", "virtualpos.billing_changes.view"], { detailOpen: true });
-    // Cambio deliberado (UX-05): menú de un solo nivel; «Cambios de cobro» vive en Operación, nunca en el detalle por canal.
+    // «Cambios de cobro» vive en Operación, nunca en el detalle por canal.
     const labels = Array.from(document.querySelectorAll(".sidebar-nav .sidebar-group:not(.sidebar-detail) .sidebar-item")).map((n) => n.textContent);
-    expect(labels).toEqual(["Resumen", "Socios", "Suscripciones", "Cambios de cobro", "Reportes"]);
+    expect(labels).toEqual(["Dashboard", "Socios", "Suscripciones", "Cambios de cobro", "Reportes"]);
     expect(screen.getByRole("group", { name: "Operación" }).textContent).toContain("Cambios de cobro");
     expect(document.querySelector(".sidebar-detail")?.textContent).not.toContain("Cambios de cobro");
   });

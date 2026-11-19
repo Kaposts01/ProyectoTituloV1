@@ -57,3 +57,8 @@ reports/contract/
 
 # Reportes descargados de los portales (contienen datos personales)
 docs/Reportes_*/
+
+# Personal Codex skills and their local assessments (never publish)
+/.agents/skills/
+/tests/fixtures/skills/
+/tests/test_codex_skills.py

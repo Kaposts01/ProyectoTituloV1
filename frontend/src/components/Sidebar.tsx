@@ -1,13 +1,16 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChannelHealthMap } from "../hooks/useChannelHealth";
 import { label } from "../i18n/label";
 import type { ProviderSection, ProviderSource } from "../routes";
 import { detailChannels, filterMenu, visibleMenu, type DetailAction, type MenuAction, type TchView } from "../navigation";
+import { SidebarAccountMenu } from "./SidebarAccountMenu";
+import { SidebarSection } from "./SidebarSection";
 import { SidebarHealth } from "./SidebarHealth";
 import { MENU_ICONS } from "./sidebarIconMap";
-import { NavIcon } from "./sidebarIcons";
+import { NavIcon, type IconName } from "./sidebarIcons";
 
 export type SidebarProps = {
+  username?: string;
   activeSection: ProviderSection | null;
   channel: string | null;
   tchView: string | null;
@@ -49,6 +52,7 @@ export const SIDEBAR_PINNED_KEY = "crm-sidebar-pinned";
 /** Intención de hover: abrir tras una pausa corta evita desplegar el menú al cruzarlo con el puntero. */
 export const HOVER_OPEN_MS = 150;
 export const HOVER_CLOSE_MS = 200;
+const SECTION_ICONS: Record<string, IconName> = { cartera: "members", operacion: "billing", sistema: "admin" };
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 const t = (key: string) => label("sidebar", key);
@@ -76,7 +80,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export function Sidebar({
-  activeSection, channel, tchView, detailOpen, onToggleDetail, theme, onDashboard,
+  username, activeSection, channel, tchView, detailOpen, onToggleDetail, theme, onDashboard,
   generalView, onGeneralClients, onGeneralSubscriptions, onGeneralCharges, onAutoReport,
   onChannel, onSection, onTheme, onTch,
   permissions, onAdmin, adminOpen, adminTab,
@@ -84,8 +88,15 @@ export function Sidebar({
 }: SidebarProps) {
   const can = (permission: string) => permissions.includes(permission);
   const [query, setQuery] = useState("");
-  const detailId = useId();
-  // id fijo (hay un solo menú): un useId() extra correría los ids generados del resto de la app
+  const [sections, setSections] = useState<Record<string, { location: string; open: boolean }>>({});
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountTriggerRef = useRef<HTMLButtonElement>(null);
+  const accountName = username?.trim() || t("mi cuenta");
+  const initials = accountName.split(/[\s._-]+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+  const closeAccount = useCallback((restoreFocus = true) => {
+    setAccountOpen(false);
+    if (restoreFocus) accountTriggerRef.current?.focus();
+  }, []);
   const panelId = "app-sidebar-panel";
 
   /* ── Rail compacto: fijado (recordado), hover con intención y «asomo» por teclado ── */
@@ -179,12 +190,12 @@ export function Sidebar({
     return () => { if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
   }, [open]);
 
-  const centralActive = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !cancellationsOpen && !profileOpen && generalView === "summary";
+  const centralVisible = !activeSection && !channel && !tchView && !adminOpen && !recoveryOpen && !billingOpen && !cancellationsOpen && !profileOpen;
   const go = (fn: () => void) => () => { fn(); onClose(); };
   const searching = query.trim() !== "";
-  const { groups, channels } = filterMenu(visibleMenu(can), detailChannels(can), query);
-  // Con búsqueda activa el detalle se muestra abierto para poder encontrar ahí las coincidencias.
-  const detailVisible = channels.length > 0 && (detailOpen || searching);
+  const allGroups = visibleMenu(can);
+  const allChannels = detailChannels(can);
+  const { groups, channels } = filterMenu(allGroups, allChannels, query);
 
   const runMenu = (action: MenuAction) => {
     if (action.kind === "central") {
@@ -199,7 +210,7 @@ export function Sidebar({
     else onAdmin(action.view);
   };
   const menuActive = (action: MenuAction): boolean => {
-    if (action.kind === "central") return action.view === "summary" ? centralActive : generalView === action.view;
+    if (action.kind === "central") return centralVisible && generalView === action.view;
     if (action.kind === "recovery") return recoveryOpen;
     if (action.kind === "billing") return billingOpen;
     if (action.kind === "cancellations") return cancellationsOpen;
@@ -216,7 +227,26 @@ export function Sidebar({
     // las fichas de TCH (cliente, suscripción, transacción) marcan su lista
     return tchView === action.view || tchView === `${action.view === "clients" ? "client" : action.view === "subscriptions" ? "subscription" : "transaction"}-detail`;
   };
-  const detailHasActive = channels.some((entry) => entry.items.some((item) => detailActive(item.action)));
+  const activeChannel = allChannels.find((entry) => entry.items.some((item) => detailActive(item.action)));
+  const activeGroup = allGroups.find((group) => group.items.some((item) => menuActive(item.action)));
+  const activeItem = activeGroup?.items.find((item) => menuActive(item.action));
+  const location = activeChannel?.items.find((item) => detailActive(item.action))?.id ?? activeItem?.id ?? (profileOpen ? "profile" : "none");
+  const detailHasActive = activeChannel !== undefined;
+  const rootIds = [...allGroups.filter((group) => group.label).map((group) => group.id), "detail"];
+  const channelIds = allChannels.map((entry) => `channel:${entry.id}`);
+  const sectionOpen = (id: string, defaultOpen: boolean) => searching || (sections[id]?.location === location ? sections[id].open : defaultOpen);
+  const toggleSection = (id: string, defaultOpen: boolean, level: "root" | "channel") => {
+    const siblings = level === "root" ? rootIds : channelIds;
+    const next = !expanded || !sectionOpen(id, defaultOpen);
+    needRoom();
+    setSections((previous) => {
+      const updated = { ...previous };
+      if (next) for (const sibling of siblings) updated[sibling] = { location, open: false };
+      updated[id] = { location, open: next };
+      return updated;
+    });
+    if (level === "root" && (id === "detail" ? next : false) !== detailOpen) onToggleDetail();
+  };
   const itemClass = (active: boolean) => (active ? "sidebar-item active" : "sidebar-item");
 
   return (
@@ -247,9 +277,6 @@ export function Sidebar({
             <NavIcon name="close" />
           </button>
         </div>
-        <div className="sidebar-health-slot" onClickCapture={needRoom}>
-          <SidebarHealth health={health} />
-        </div>
         <div className="sidebar-search">
           <NavIcon name="search" className="sidebar-search-icon" />
           <input
@@ -261,100 +288,98 @@ export function Sidebar({
             autoComplete="off"
           />
         </div>
-        <nav className="sidebar-nav" aria-label={t("navegacion")}>
-          {groups.map((group) => (
-            <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
-              {group.label ? <div className="sidebar-section-label">{group.label}</div> : null}
-              {group.items.map((item) => {
+        <div className="sidebar-scroll">
+          <div className="sidebar-health-slot" onClickCapture={needRoom}>
+            <SidebarHealth health={health} />
+          </div>
+          <nav className="sidebar-nav" aria-label={t("navegacion")}>
+            {groups.map((group) => {
+              const items = group.items.map((item) => {
                 const active = menuActive(item.action);
                 return (
-                  <button
-                    key={item.id}
-                    className={itemClass(active)}
-                    aria-current={active ? "page" : undefined}
-                    data-tip={item.label}
-                    data-item={item.id}
-                    onClick={go(() => runMenu(item.action))}
-                  >
+                  <button key={item.id} className={itemClass(active)} aria-current={active ? "page" : undefined}
+                    data-tip={item.label} data-item={item.id} onClick={go(() => runMenu(item.action))}>
                     <NavIcon name={MENU_ICONS[item.id] ?? "summary"} />
                     <span className="sidebar-label">{item.label}</span>
                   </button>
                 );
-              })}
-            </div>
-          ))}
-          {channels.length > 0 ? (
-            <div className="sidebar-group sidebar-detail" role="group" aria-label={t("detalle por canal")}>
-              <button
-                type="button"
-                className={`sidebar-detail-toggle${detailHasActive ? " has-active" : ""}`}
-                aria-expanded={detailVisible}
-                aria-controls={detailId}
-                data-tip={t("detalle por canal")}
-                onClick={() => { needRoom(); onToggleDetail(); }}
-                disabled={searching}
-              >
-                <NavIcon name="channels" />
-                <span className="sidebar-label sidebar-detail-text">
-                  <span>{t("detalle por canal")}</span>
-                  <span className="sidebar-transient">{t("transitorio")}</span>
-                </span>
-                <NavIcon name="chevron" className="sidebar-detail-chevron" />
-              </button>
-              {detailVisible ? (
-                <div id={detailId} className="sidebar-detail-body">
-                  <p className="sidebar-note">{t("aviso transitorio")}</p>
-                  {channels.map((entry) => (
-                    <div className="sidebar-subgroup" role="group" aria-label={entry.name} key={entry.id}>
-                      <div className="sidebar-subheading">{entry.name}</div>
-                      {entry.items.map((item) => {
-                        const active = detailActive(item.action);
-                        return (
-                          <button
-                            key={item.id}
-                            className={itemClass(active)}
-                            aria-current={active ? "page" : undefined}
-                            onClick={go(() => runDetail(item.action))}
-                          >
-                            {item.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
+              });
+              const active = !detailHasActive && activeGroup?.id === group.id;
+              return (
+                <div className="sidebar-group" role={group.label ? "group" : undefined} key={group.id} aria-label={group.label ?? undefined}>
+                  {group.label ? (
+                    <SidebarSection section={group.id} label={group.label} icon={SECTION_ICONS[group.id] ?? "channels"}
+                      active={active} open={expanded && sectionOpen(group.id, active)} searching={searching}
+                      onToggle={() => toggleSection(group.id, active, "root")}>
+                      {items}
+                    </SidebarSection>
+                  ) : items}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
-          {groups.length === 0 && channels.length === 0 ? <p className="sidebar-note" role="status">{t("sin resultados")} «{query.trim()}».</p> : null}
-        </nav>
+              );
+            })}
+            {channels.length > 0 ? (
+              <div className="sidebar-group sidebar-detail" role="group" aria-label={t("detalle por canal")}>
+                <SidebarSection section="detail" label={t("detalle por canal")} icon="channels" detail
+                  active={detailHasActive} searching={searching}
+                  open={expanded && sectionOpen("detail", detailHasActive || (detailOpen && !activeGroup?.label))}
+                  onToggle={() => toggleSection("detail", detailHasActive || (detailOpen && !activeGroup?.label), "root")}>
+                  {channels.map((entry) => {
+                    const id = `channel:${entry.id}`;
+                    const active = activeChannel?.id === entry.id;
+                    const badge = entry.id === "virtualpos" ? "VP" : entry.id === "toku" ? "TK" : entry.id === "payku" ? "PK" : "TCH";
+                    return (
+                      <div className="sidebar-subgroup" role="group" aria-label={entry.name} key={entry.id}>
+                        <SidebarSection section={id} label={entry.name} badge={badge} active={active} searching={searching}
+                          open={expanded && sectionOpen(id, active)} onToggle={() => toggleSection(id, active, "channel")}>
+                          {entry.items.map((item) => {
+                            const selected = detailActive(item.action);
+                            return (
+                              <button key={item.id} className={itemClass(selected)} aria-current={selected ? "page" : undefined}
+                                onClick={go(() => runDetail(item.action))}>{item.label}</button>
+                            );
+                          })}
+                        </SidebarSection>
+                      </div>
+                    );
+                  })}
+                </SidebarSection>
+              </div>
+            ) : null}
+            {groups.length === 0 && channels.length === 0 ? <p className="sidebar-note" role="status">{t("sin resultados")} «{query.trim()}».</p> : null}
+          </nav>
+        </div>
         <div className="sidebar-footer">
           <button
+            ref={accountTriggerRef}
             type="button"
-            className="sidebar-item sidebar-pin"
-            aria-pressed={pinned}
-            aria-controls={panelId}
-            data-tip={t("mantener abierto")}
-            onClick={togglePinned}
+            className="sidebar-item sidebar-account-trigger"
+            aria-label={t("opciones de cuenta")}
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+            aria-controls={accountOpen ? "sidebar-account-menu" : undefined}
+            data-tip={t("opciones de cuenta")}
+            onClick={() => { setAccountOpen((value) => !value); setTip(null); }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") { event.preventDefault(); setAccountOpen(true); setTip(null); }
+            }}
           >
-            <NavIcon name="pin" />
-            <span className="sidebar-label">{t("mantener abierto")}</span>
-          </button>
-          <button className="sidebar-item" onClick={onTheme} aria-label={t("cambiar tema")} data-tip={theme === "dark" ? t("modo claro") : t("modo oscuro")}>
-            <NavIcon name={theme === "dark" ? "sun" : "moon"} />
-            <span className="sidebar-label">{theme === "dark" ? t("modo claro") : t("modo oscuro")}</span>
-          </button>
-          <button className="sidebar-item" onClick={go(onProfile)} data-tip={t("mi perfil")}>
-            <NavIcon name="profile" />
-            <span className="sidebar-label">{t("mi perfil")}</span>
-          </button>
-          <button className="sidebar-item" onClick={go(onLogout)} data-tip={t("cerrar sesion")}>
-            <NavIcon name="logout" />
-            <span className="sidebar-label">{t("cerrar sesion")}</span>
+            <span className="sidebar-account-avatar" aria-hidden="true">{initials}</span>
+            <span className="sidebar-label sidebar-account-label">
+              <strong>{accountName}</strong>
+              <span>{t("mi cuenta")}</span>
+            </span>
+            <NavIcon name="chevron" className="sidebar-account-chevron" />
           </button>
         </div>
       </div>
-      {tip && !expanded ? (
+      {accountOpen ? (
+        <SidebarAccountMenu
+          name={accountName} initials={initials} pinned={pinned} theme={theme}
+          triggerRef={accountTriggerRef} onClose={closeAccount}
+          onPin={togglePinned} onTheme={onTheme} onProfile={go(onProfile)} onLogout={go(onLogout)}
+        />
+      ) : null}
+      {tip && !expanded && !accountOpen ? (
         <div className="sidebar-tooltip" aria-hidden="true" style={{ top: tip.top, left: tip.left }}>{tip.text}</div>
       ) : null}
     </aside>

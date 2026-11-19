@@ -36,9 +36,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      host: true,
+      host: '127.0.0.1',
       port,
-      allowedHosts: true,
+      allowedHosts: ['localhost'],
       proxy: {
         '/api': proxyTarget,
       },

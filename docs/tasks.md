@@ -553,6 +553,7 @@ Cada ID aparece en una sola fila. Estado según el vocabulario de 1.3. Orden den
 | UI-18 | Completar transacciones relacionadas de VirtualPOS | Completada y verificada | Fichas de cliente y suscripción muestran transacciones del mismo cliente y cuenta por RUT; cargos y transacciones muestran el cliente disponible sin inferir asociaciones ambiguas. |
 | UI-19 | Mejorar filtros y orden de tablas VirtualPOS | Completada y verificada | Los listados filtran múltiples columnas con AND, rangos explícitos de monto y fecha, y orden tipado; las tablas de fichas incorporan búsqueda y orden local por columna. |
 | PERF-01 | Reducir esperas de navegacion en frontend | Completada y verificada | Los dashboards respetan caché local de cinco minutos sin revalidar en cada navegación; las solicitudes se deduplican, búsquedas y listados cancelan cargas obsoletas. La caché se invalida tras una sincronización. El diferimiento de gráficos mensuales queda pendiente de una extracción segura de vistas. |
+| PERF-02 | Revisar los mensajes de consola del frontend para mejorar la carga | Pendiente (paso plan; va después de la rama `feat/ux-sidebar-cabarca`) | Pedido del usuario (2026-11-18): «Agreguemos a las tareas revisar los console log para mejorar la carga del front». 1) Inventario de `console.log`, `console.warn` y `console.error` en `frontend/src`. 2) Lo que sale en la consola del navegador al cargar Dashboard, Cartera y Detalle por canal, en sandbox. 3) Quitar o condicionar a desarrollo los logs de depuración. 4) Tiempo de carga medido antes y después con un criterio escrito antes de medir. Sin datos personales en la consola ni en el informe. |
 | DASH-01 | Dar paridad operativa a Toku, Payku y TCH | Completada y verificada | Cada canal presenta KPIs, distribuciones, altas/bajas, suscripciones activas acumuladas, churn mensual y alertas definidos desde datos fechados y estados de su fuente. Toku compara transacciones reales, no facturas; Payku conserva el límite de cobertura histórica documentado; TCH usa reportes ETL locales. |
 | FE-02 | Completar modularización App.tsx en feature folders | Completada y verificada | App.tsx < 500 líneas; features/virtualpos/, features/toku/, features/payku/, features/tch/, features/general/, features/admin/ extraídas; build y lint OK; contratos API y permisos preservados. Desbloquea grupos 2, 3 y 5. |
 | FE-03 | Crear KpiCard.tsx y ChannelChart.tsx compartidos | Completada y verificada | Componentes en frontend/src/components/ con data contracts explícitos; JetBrains Mono en valores numéricos; tests básicos de render; usados por al menos un canal como validación. |
@@ -969,6 +970,30 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 | ID | Tarea | Estado | Criterio de aceptación |
 | --- | --- | --- | --- |
 | REV-01 | Revisión de solo lectura de los cambios de otro desarrollador | Completada en código (`e2cad0b`) | Detalle canónico en [`planning/auditoria-2026-10-29/PLAN.md:59`](planning/auditoria-2026-10-29/PLAN.md); decisiones: D24. |
+
+### 4.15 Actualizacion local del 2026-11-18
+
+| ID | Tarea | Estado | Criterio de aceptación |
+| --- | --- | --- | --- |
+| DEV-UPDATE-01 | Actualizar checkout desde GitHub y comparar el sprint anterior | Completada (checkout; validacion con limites) | Rama local `codex/actualizacion-20261118` desde `origin/master` 54814f4; sprint anterior preservado. Recuperar nueve skills y verificar sin copiar implementaciones reemplazadas ni migrar bases operativas. Evidencia en `docs/quality/update-comparison-2026-11-18.md`. |
+
+| DEV-UPDATE-02 | Revisar unicidad de atributos Core conservada en el sprint anterior | En revisión (rama `feat/ux-sidebar-cabarca`) | Migración `20261118_0083` (renumerada sobre `20261117_0082`, BUG-VP-03): `uq_core_client_attribute` por `(client_id, source, attribute_type, attribute_value)` con NULLS NOT DISTINCT, y pruebas de integridad. Aportada por cabarca en `codex/actualizacion-20261118`. No aplicada en `crm`: requiere ficha y ventana. |
+
+| DEV-LOCAL-01 | Corregir validación de la rama de cabarca (zona horaria UTC por conexión, rutas públicas de la SPA, aislamiento de variables en pruebas) | En revisión (rama `feat/ux-sidebar-cabarca`) | Cifras de su equipo: 3.747 pruebas Python y 1.464 del frontend. Se repiten en este equipo antes del PR; el efecto de UTC en reportes con hora de Chile se mide en sandbox. |
+
+| DEV-LOCAL-02 | Resolver alerta de desarrollo picomatch cuando exista parche publicado | Bloqueada (tercero) | npm audit total propaga una raiz sin parche a siete paquetes; auditoria omit=dev da cero. Vite y source-map-js actualizados y servidor limitado a loopback. No ocultar la alerta ni degradar versiones mayores. |
+
+| UI-LOCAL-01 | Mejorar legibilidad y acceso al menu lateral | Completada en rama local | Ancho abierto 272px, texto 14px, scroll compartido para salud/navegacion, busqueda fija y pie compacto. 118 pruebas, lint y build pasan; Chrome verifica 480/600/768/900px, movil 390x700 y acceso por foco a cada opcion. [Evidencia](quality/sidebar-layout-2026-11-18.md). Sin push. |
+
+| UI-LOCAL-02 | Agrupar acciones del pie en menu de cuenta | Completada en rama local | Avatar y nombre de sesion; panel solo al pulsar, con cuatro acciones. Cierre exterior/Escape/seleccion, foco y teclado; 148 pruebas, lint y build pasan. Chrome verifica rail, temas y movil 320/390px. [Evidencia](quality/sidebar-account-2026-11-18.md). Sin push. |
+
+| UI-LOCAL-03 | Organizar navegacion lateral en acordeones | Completada en rama local | Secciones y proveedores desplegables; un grupo por nivel, apertura de pantalla activa y busqueda expandida. Cuenta intacta, permisos/rutas conservados. 155 pruebas, lint/build y Chrome escritorio/movil pasan. [Evidencia](quality/sidebar-sections-2026-11-18.md). Sin push. |
+
+| UI-LOCAL-04 | Renombrar acceso principal a Dashboard | Completada en rama local | Solo rotulo del acceso general; misma ruta, permisos y accion. 121 pruebas de navegacion pasan; expectativas de billing adaptadas a los acordeones. Sin push. |
+
+| DEV-LOCAL-03 | Excluir skills personales de la rama publicada | Completada en correccion | 31 archivos de paquetes/evaluaciones fuera del indice y conservados en disco; nueve skills intactas. Exclusiones Git verificadas; cambios de aplicacion preservados. La correccion no elimina los commits historicos. |
+
+| DEV-LOCAL-04 | Purgar skills personales del historial publicado | Completada | Historial limpio en codex/actualizacion-20261118 y sprint-5/estabilizacion-dashboard. Diez commits verificados archivo por archivo; proyecto preservado y 31 archivos personales intactos por SHA-256. Respaldo local y exclusiones por checkout; publicacion con lease explicito. No garantiza purga de caches ni copias externas. |
 
 ## 5. Bloqueos y decisiones abiertas
 

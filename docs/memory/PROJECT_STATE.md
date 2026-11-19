@@ -174,3 +174,15 @@ La lista priorizada está en [Technical Debt](../../knowledge/08%20-%20Roadmap/T
 ## Convencion terminologica
 
 En SynkmetriX se utilizara el termino modelo centralizado en lugar de modelo canonico.
+
+## Barra lateral en revisión (rama `feat/ux-sidebar-cabarca`, 2026-11-18)
+
+Aporte de cabarca, pendiente de la decisión del usuario sobre D29 y de la revisión visual en sandbox.
+
+Menu lateral local mejorado (UI-LOCAL-01, 2026-11-18): ancho abierto 272px, una zona desplazable para salud y navegacion, busqueda fija y pie compacto. Conserva rail, permisos y drawer; 118 pruebas, lint/build y revision Chrome en alturas cortas y movil pasan. [Evidencia](../quality/sidebar-layout-2026-11-18.md).
+
+UI-LOCAL-02 (2026-11-18): el pie ahora muestra un solo boton de cuenta con avatar y nombre de sesion. Las cuatro acciones se muestran en un panel al pulsar; conserva fijado, tema, perfil y logout. Cierre exterior, Escape, seleccion y teclado verificados; 148 pruebas frontend, lint/build y Chrome en escritorio/rail/movil pasan. [Evidencia](../quality/sidebar-account-2026-11-18.md). Solo rama local.
+
+UI-LOCAL-03 (2026-11-18): Cartera, Operacion, Sistema y Detalle por canal usan acordeones; los proveedores forman un segundo nivel. Solo un grupo abierto por nivel, pantalla activa autoabierta y busqueda que despliega coincidencias. Resumen directo, permisos, rutas y cuenta conservados. Solicitud del usuario sustituye la presentacion plana anterior de D29; no cambia la arquitectura. 155 pruebas, lint/build y Chrome escritorio/movil pasan. [Evidencia](../quality/sidebar-sections-2026-11-18.md). Sin push.
+
+UI-LOCAL-04 (2026-11-18): el acceso general antes rotulado Resumen ahora dice Dashboard por solicitud del usuario. Conserva /central/resumen y el permiso dashboard.view; los resumenes de proveedores no cambian. Solo local, sin push.

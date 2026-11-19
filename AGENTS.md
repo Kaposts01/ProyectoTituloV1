@@ -54,6 +54,8 @@ Inherited technical names containing `canonical` may remain temporarily for comp
 
 Available project skills: `prompt-optimizer`, `project-memory`, `data-modeling`, and `provider-integration`.
 
+Personal Codex stack skills and their assessments are local-only and excluded from Git. Do not publish them. Governance skills already maintained in `.opencode/skills/` retain their existing scope.
+
 - It is mandatory before every user request: interpret intent, inspect relevant context, define acceptance criteria, execute, validate, and respond.
 - Keep its result internal unless the user sends `/prompt` or asks to see it.
 - Load specialized skills only when their scope applies; do not duplicate a skill's full instructions here.
@@ -74,6 +76,7 @@ During changes: make minimal and traceable changes, avoid unrequested refactors,
 Local workflow: use `\.venv\Scripts\Activate.ps1`; start PostgreSQL with `docker compose up -d postgres` on `localhost:5433`; run `alembic upgrade head` before the API or sync scripts; run the API with `uvicorn app.main:app --reload`; run VirtualPOS sync with `python scripts\sync_virtualpos.py` from the repository root.
 
 After changes: run relevant tests and static checks, review the diff, check for secrets, update documentation only when the real state changed, and register newly found technical debt when relevant.
+
 
 ## 9. Memory
 

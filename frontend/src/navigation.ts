@@ -49,7 +49,7 @@ export function resourcePermission(source: string, resource: string): string {
   return `${source}.${names[source]?.[resource] ?? resource}.view`;
 }
 
-/* ── Menú de un solo nivel (UX-05, D29) ─────────────────────────────────────────────
+/* ── Catálogo de navegación (presentado en acordeones desde UI-LOCAL-03) ─────────────
    Grupos: Resumen · Cartera · Operación · Sistema, más el grupo transitorio «Detalle por canal».
    Solo contiene vistas que existen hoy. Cobros (Cartera) entró con UX-09. Fuera del menú, a propósito:
    - Identidad (Operación): no existe pantalla (cola de candidatos, UX-11).
@@ -86,7 +86,7 @@ export const canOpenBilling = (can: Can): boolean => can(PERM_GENERAL_BILLING_VI
 export { canOpenRecovery };
 
 export const menuGroups: MenuGroup[] = [
-  { id: "resumen", label: null, items: [{ id: "summary", label: "Resumen", action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
+  { id: "resumen", label: null, items: [{ id: "summary", label: "Dashboard", action: { kind: "central", view: "summary" }, allowed: canDashboard }] },
   {
     id: "cartera",
     label: "Cartera",

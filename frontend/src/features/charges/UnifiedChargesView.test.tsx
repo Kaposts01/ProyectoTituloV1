@@ -2,7 +2,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "./UnifiedChargesView";
-import { appReady, mountApp, resetApp, type Handler } from "../../test/appHarness";
+import { appReady, mountApp, navTop, resetApp, type Handler } from "../../test/appHarness";
 
 afterEach(resetApp);
 
@@ -45,7 +45,8 @@ describe("Cobros unificados", () => {
     const first = app.exact("GET", "/api/v1/general/charges")[0];
     expect(Object.fromEntries(first.query)).toEqual({ offset: "0", limit: "50" });
     // el menú marca Cobros dentro de Cartera
-    expect(screen.getByRole("button", { name: "Cobros" })).toHaveAttribute("aria-current", "page");
+    // (el menú arranca en riel compacto: navTop despliega la sección Cartera con su encabezado, como el usuario)
+    expect(navTop("Cobros")).toHaveAttribute("aria-current", "page");
   });
 
   it("los filtros de canal, estado y resultado viajan a la API y al Exportar", async () => {

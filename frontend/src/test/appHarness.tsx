@@ -1,9 +1,10 @@
+import { normalizeReactIds } from "./snapshotIds";
 /**
  * Arnés de pruebas de caracterización de AppCore: monta la aplicación completa
  * sobre una ruta, con `fetch` simulado por tabla de rutas y una sesión sintética.
  * No contiene datos personales: todo es ficticio.
  */
-import { cleanup, configure, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, vi } from "vitest";
 import AppCore from "../AppCore";
 // VIZ-10: AppCore carga estas vistas con React.lazy. Se precargan aquí para que el `import()` de la prueba resuelva
@@ -156,26 +157,42 @@ export function contentHtml(): string {
     if (node.matches(".burger-btn, .sidebar-overlay, aside.sidebar")) return;
     parts.push(node.outerHTML);
   });
-  return normalizeHtml(parts.join("\n"));
+  return normalizeReactIds(normalizeHtml(parts.join("\n")));
 }
 
 /**
- * Ítem del menú lateral de un solo nivel (UX-05). Excluye el grupo transitorio «Detalle por canal»,
+ * Ítem de navegación principal (abre sus grupos si hace falta) (UX-05). Excluye el grupo transitorio «Detalle por canal»,
  * donde los rótulos se repiten por canal («Clientes», «Resumen»…); para esos usar `navDetail`.
  */
+function revealNavigationItem(item: HTMLElement): HTMLElement {
+  const panels: HTMLElement[] = [];
+  let parent = item.parentElement;
+  while (parent) {
+    if (parent.classList.contains("sidebar-disclosure-body")) panels.unshift(parent);
+    parent = parent.parentElement;
+  }
+  for (const panel of panels) {
+    if (panel.hidden) {
+      const toggle = Array.from(document.querySelectorAll<HTMLButtonElement>("button[aria-controls]")).find((button) => button.getAttribute("aria-controls") === panel.id);
+      if (toggle) fireEvent.click(toggle);
+    }
+  }
+  return item;
+}
+
 export function navTop(label: string): HTMLElement {
   const nav = document.querySelector(".sidebar-nav") as HTMLElement;
   const found = Array.from(nav.querySelectorAll(".sidebar-group:not(.sidebar-detail) .sidebar-item")).find((b) => b.textContent?.trim() === label);
   if (!found) throw new Error(`Sin botón de menú «${label}»`);
-  return found as HTMLElement;
+  return revealNavigationItem(found as HTMLElement);
 }
 
-/** Ítem de «Detalle por canal» (transitorio) de un canal: `navDetail("TCH", "Transacciones")`. Debe estar desplegado. */
+/** Ítem de «Detalle por canal» (transitorio) de un canal: `navDetail("TCH", "Transacciones")`. Abre los acordeones necesarios. */
 export function navDetail(channel: string, label: string): HTMLElement {
   const group = Array.from(document.querySelectorAll('.sidebar-detail [role="group"]')).find((g) => g.getAttribute("aria-label") === channel);
   const found = group && Array.from(group.querySelectorAll(".sidebar-item")).find((b) => b.textContent?.trim() === label);
   if (!found) throw new Error(`Sin botón de detalle «${channel} / ${label}»`);
-  return found as HTMLElement;
+  return revealNavigationItem(found as HTMLElement);
 }
 
 /** Espera a que la lista de registros termine de cargar (el contador deja de decir «Cargando»). */

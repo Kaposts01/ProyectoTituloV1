@@ -9,7 +9,7 @@
   font-size: 13px; letter-spacing: 0.04em;
 }
 html.has-env-banner body { padding-top: var(--env-banner-h); }
-html.has-env-banner .sidebar { top: var(--env-banner-h); height: calc(100vh - var(--env-banner-h)); }
+html.has-env-banner .sidebar { top: var(--env-banner-h); height: calc(100vh - var(--env-banner-h)); height: calc(100dvh - var(--env-banner-h)); }
 html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: calc(100vh - var(--env-banner-h)); }
 @media (max-width: 640px) { .env-banner-detail { display: none; } }
 .environment-section { margin-top: 24px; }
@@ -24,7 +24,7 @@ html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: 
 .sidebar {
   position: sticky; top: 0; align-self: flex-start; z-index: 60;
   width: var(--sidebar-w); min-width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
-  height: 100vh; box-sizing: border-box;
+  height: 100vh; height: 100dvh; box-sizing: border-box;
   padding: 0;
   background: var(--bg-sidebar);
 }
@@ -202,8 +202,8 @@ td:first-child { font-weight: 700; }
 
   /* ── Sidebar drawer ──────────────────────────────────────────────── */
   .sidebar {
-    position: fixed; top: 0; left: 0; height: 100vh; width: 260px; min-width: 0;
-    z-index: 200; overflow-y: auto;
+    position: fixed; top: 0; left: 0; height: 100vh; height: 100dvh; width: min(288px, calc(100vw - 24px)); min-width: 0;
+    z-index: 200; overflow: hidden;
     transform: translateX(-100%); transition: transform 0.25s ease;
   }
   .sidebar.open { transform: translateX(0); }
@@ -642,7 +642,7 @@ td.num { text-align: right; }
   position: absolute; inset: 0 auto 0 0; z-index: 1;
   display: flex; flex-direction: column;
   width: var(--sidebar-w); box-sizing: border-box;
-  padding: 16px 12px 12px;
+  padding: 16px 12px max(12px, env(safe-area-inset-bottom));
   overflow: hidden;
   background: var(--bg-sidebar);
   transition: width 200ms cubic-bezier(.2, .7, .2, 1), box-shadow 200ms ease;
@@ -665,7 +665,7 @@ td.num { text-align: right; }
 .sidebar-icon { flex: none; width: 20px; height: 20px; }
 
 /* Encabezado: marca y cierre (el cierre solo en el drawer móvil). */
-.sidebar-toprow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.sidebar-toprow { flex: none; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .sidebar-brand {
   display: flex; align-items: center; gap: 12px;
   min-width: 0; margin: 0; padding: 2px 4px; border: 0; border-radius: 8px;
@@ -682,14 +682,14 @@ td.num { text-align: right; }
   width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
 }
 
-/* Ítems: 36 px de alto con ícono; activo = fondo + texto blanco + peso 700 + aria-current (no solo color). */
+/* Ítems: 38 px de alto con ícono; activo = fondo + texto blanco + peso 700 + aria-current (no solo color). */
 .sidebar-item, .sidebar-detail-toggle {
   position: relative;
   display: flex; align-items: center; gap: 12px;
-  width: 100%; min-height: 36px; padding: 0 10px; box-sizing: border-box;
+  flex: none; width: 100%; min-height: 38px; padding: 0 10px; box-sizing: border-box;
   border: 0; border-radius: 8px;
   background: transparent; cursor: pointer;
-  font: inherit; font-size: 13px; text-align: left;
+  font: inherit; font-size: 14px; text-align: left;
   transition: background-color 150ms ease, color 150ms ease;
 }
 .sidebar-item .sidebar-icon { transition: transform 200ms cubic-bezier(.2, .7, .2, 1); }
@@ -697,26 +697,56 @@ td.num { text-align: right; }
 .sidebar-item:active .sidebar-icon { transform: scale(.92); }
 /* activo: además del fondo y el peso 700, un filo interior tenue que lo separa del hover */
 .sidebar-item.active { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 7%); }
-.sidebar-label { overflow: hidden; text-overflow: ellipsis; }
+.sidebar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
-.sidebar-nav {
-  display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
-  scrollbar-width: thin; scrollbar-color: var(--sidebar-border) transparent;
+/* Health details and navigation share the available space instead of squeezing the links. */
+.sidebar-scroll {
+  flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  overscroll-behavior-y: contain; scrollbar-gutter: stable;
+  scrollbar-width: auto; scrollbar-color: auto;
+  padding-right: 3px;
 }
-.sidebar-group { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.sidebar-scroll::-webkit-scrollbar { width: 8px; }
+.sidebar-scroll::-webkit-scrollbar-track { border-radius: 6px; background: var(--sidebar-active-bg); }
+.sidebar-scroll::-webkit-scrollbar-thumb { border-radius: 6px; background: var(--sidebar-label); }
+.sidebar[data-state="compact"] .sidebar-scroll { padding-right: 0; scrollbar-gutter: auto; scrollbar-width: none; }
+.sidebar[data-state="compact"] .sidebar-scroll::-webkit-scrollbar { display: none; }
+.sidebar-nav { display: flex; flex-direction: column; flex: none; padding-bottom: 8px; }
+.sidebar-health-slot { flex: none; }
+
+.sidebar-group { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
 .sidebar-group:first-child { margin-top: 0; }
-/* Encabezado de grupo: en compacto queda una raya corta centrada (misma altura: los íconos no saltan). */
-.sidebar-section-label { position: relative; height: 24px; box-sizing: border-box; overflow: hidden; white-space: nowrap; transition: color 180ms ease; }
-.sidebar-section-label::after {
-  content: ""; position: absolute; left: 14px; top: 11px; width: 12px; height: 2px; border-radius: 9999px;
-  background: var(--sidebar-label); opacity: 0; transition: opacity 180ms ease;
+/* Section disclosures: one expanded sibling per level, with a distinct label and chevron. */
+.sidebar-disclosure { min-width: 0; }
+.sidebar-section-toggle {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 8px 10px;
+  box-sizing: border-box; border: 0; border-radius: 8px; background: transparent;
+  color: var(--sidebar-heading); font: inherit; font-family: var(--font-body); font-size: 14px; font-weight: 600; text-align: left; cursor: pointer;
 }
-.sidebar[data-state="compact"] .sidebar-section-label { color: transparent; }
-.sidebar[data-state="compact"] .sidebar-section-label::after { opacity: .6; }
+.sidebar-section-toggle:hover:not(:disabled) { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
+.sidebar-section-toggle:focus-visible { outline: 2px solid var(--series-4); outline-offset: -2px; }
+.sidebar-section-toggle:disabled { cursor: default; }
+.sidebar-section-toggle.has-active { color: var(--sidebar-text-strong); font-weight: 700; }
+.sidebar-section-toggle.has-active[aria-expanded="false"] { background: var(--sidebar-active-bg); }
+.sidebar-section-title { flex: 1; min-width: 0; }
+.sidebar-section-chevron { flex: none; width: 16px; height: 16px; color: var(--sidebar-label); transition: transform 180ms ease; }
+.sidebar-section-toggle[aria-expanded="true"] > .sidebar-section-chevron { transform: rotate(90deg); }
+.sidebar[data-state="compact"] .sidebar-section-chevron { display: none; }
+.sidebar-disclosure-body {
+  display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px 19px; padding-left: 8px;
+  border-left: 1px solid var(--sidebar-border); animation: sidebar-reveal 180ms ease;
+}
+.sidebar-disclosure-body[hidden] { display: none; }
+.sidebar-disclosure-body .sidebar-item { font-size: 13px; }
+.sidebar-disclosure-body .sidebar-item .sidebar-icon { width: 18px; height: 18px; }
+.sidebar-channel-mark {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 6px;
+  color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); font-size: 10px; font-weight: 700;
+}
 .sidebar-note { margin: 4px 10px 8px; color: var(--sidebar-label); font-size: 11px; line-height: 1.4; white-space: normal; }
 
 /* Buscador: en compacto es una caja de 40 px con la lupa; al enfocarlo el rail se despliega. */
-.sidebar-search { position: relative; min-width: 0; margin: 0 0 12px; }
+.sidebar-search { flex: none; position: relative; min-width: 0; margin: 0 0 12px; }
 .sidebar-search-icon { position: absolute; left: 10px; top: 50%; width: 20px; height: 20px; color: var(--sidebar-label); transform: translateY(-50%); pointer-events: none; }
 .sidebar-search input {
   width: 100%; min-height: 36px; box-sizing: border-box; padding: 7px 10px 7px 40px; border: 1px solid transparent; border-radius: 8px;
@@ -737,40 +767,56 @@ td.num { text-align: right; }
 .sidebar-health-toggle .health-dot[data-scope="global"] { width: 8px; height: 8px; margin: 0 6px; box-shadow: 0 0 0 3px var(--sidebar-hover-bg); }
 .sidebar-health-toggle:hover { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
 .sidebar-health-toggle:focus-visible { outline: 2px solid var(--series-4); outline-offset: -2px; }
-.sidebar-health-text { flex: 1; }
+.sidebar-health-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-health-glyph { color: var(--sidebar-label); font-size: 14px; line-height: 1; }
 .sidebar-health-list { margin: 2px 0 0; padding: 0 10px; list-style: none; animation: sidebar-reveal 200ms cubic-bezier(.2, .7, .2, 1); }
-.sidebar-health-list li { display: flex; align-items: center; gap: 4px; padding: 3px 0; color: var(--sidebar-text); font-size: 11px; white-space: nowrap; }
+.sidebar-health-list li { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 0; color: var(--sidebar-text); font-size: 11px; white-space: nowrap; }
 .sidebar-health-list .health-dot { margin: 0 4px 0 0; }
 .sidebar-health-age { margin-left: auto; color: var(--sidebar-label); text-align: right; }
 .sidebar[data-state="compact"] .sidebar-health-list { display: none; }
 
-/* «Detalle por canal»: submenú plegable; el chevron gira y el cuerpo entra con opacidad + desplazamiento. */
-.sidebar-detail-toggle { color: var(--sidebar-text); font-weight: 500; }
-.sidebar-detail-toggle:hover:not(:disabled) { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
-.sidebar-detail-toggle.has-active { color: var(--sidebar-text-strong); }
-.sidebar[data-state="compact"] .sidebar-detail-toggle.has-active { background: var(--sidebar-active-bg); }
-.sidebar-detail-toggle:disabled { cursor: default; }
-.sidebar-detail-toggle { min-height: 42px; }
-.sidebar-detail-text { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.2; }
-/* «Transitorio» como antetítulo bajo el rótulo (antes una píldora que truncaba «Detalle por canal»). */
-.sidebar-transient {
-  color: var(--sidebar-label); font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-}
-.sidebar-detail-chevron { flex: none; width: 16px; height: 16px; color: var(--sidebar-label); }
-.sidebar-detail-toggle[aria-expanded="true"] .sidebar-detail-chevron { transform: rotate(90deg); }
-.sidebar-detail-body { animation: sidebar-reveal 200ms cubic-bezier(.2, .7, .2, 1); }
-.sidebar[data-state="compact"] .sidebar-detail-body { display: none; }
-.sidebar-subgroup { display: flex; flex-direction: column; gap: 1px; margin: 6px 0 0 19px; padding-left: 8px; border-left: 1px solid var(--sidebar-border); }
-.sidebar-subheading { padding: 4px 10px 2px; color: var(--sidebar-label); font-size: 11px; font-weight: 700; white-space: nowrap; }
-.sidebar-subgroup .sidebar-item { min-height: 30px; font-size: 12px; white-space: nowrap; }
+/* Providers form the second disclosure level; no technical notices in the navigation. */
+.sidebar-detail-body { margin-left: 0; padding-left: 0; border-left: 0; }
+.sidebar-subgroup { margin-left: 12px; }
+.sidebar-channel-disclosure .sidebar-section-toggle { gap: 8px; font-size: 13px; }
+.sidebar-channel-disclosure .sidebar-disclosure-body { margin-left: 22px; }
 @keyframes sidebar-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
-/* Pie: fijar, tema, perfil y salir con el mismo formato de ítem. */
-.sidebar-footer { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; }
-.sidebar-footer .sidebar-item { min-height: 34px; font-size: 12px; }
-.sidebar-pin[aria-pressed="true"] { color: var(--sidebar-text-strong); background: var(--sidebar-hover-bg); }
-.sidebar-pin[aria-pressed="true"] .sidebar-icon { transform: scaleX(-1); }
+/* Pie compacto: una sola entrada de cuenta; sus acciones aparecen al pulsarla. */
+.sidebar-footer { flex: none; display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; }
+.sidebar-footer .sidebar-account-trigger { min-height: 44px; padding: 4px; gap: 10px; }
+.sidebar-account-avatar {
+  display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%;
+  color: var(--sidebar-brand-text); background: var(--sidebar-brand-bg); font-size: 12px; font-weight: 700;
+}
+.sidebar-account-label { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 2px; }
+.sidebar-account-label strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.sidebar-account-label > span { color: var(--sidebar-label); font-size: 11px; }
+.sidebar-account-chevron { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); color: var(--sidebar-label); }
+.sidebar-account-trigger[aria-expanded="true"] { background: var(--sidebar-hover-bg); }
+.sidebar-account-trigger[aria-expanded="true"] .sidebar-account-chevron { transform: rotate(90deg); }
+.sidebar[data-state="compact"] .sidebar-account-chevron { display: none; }
+.sidebar-account-menu {
+  position: absolute; z-index: 5; left: 12px; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 52px);
+  width: 248px; max-width: calc(100vw - 48px); max-height: calc(100% - 88px); box-sizing: border-box;
+  padding: 6px; overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--border); border-radius: 12px;
+  color: var(--text-1); background: var(--bg-surface); box-shadow: var(--sidebar-float-shadow);
+}
+.sidebar-account-heading { display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--border-subtle); }
+.sidebar-account-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sidebar-account-heading .sidebar-account-avatar { width: 28px; height: 28px; font-size: 11px; }
+.sidebar-account-action {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px;
+  border: 0; border-radius: 7px; color: var(--text-1); background: transparent;
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.sidebar-account-action > span:not(.sidebar-account-check) { flex: 1; }
+.sidebar-account-action .sidebar-icon { width: 18px; height: 18px; color: var(--text-2); }
+.sidebar-account-action:hover { background: var(--bg-hover); }
+.sidebar-account-action:focus-visible, .sidebar-account-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.sidebar-account-check { flex: none; width: 16px; color: var(--color-accent); text-align: center; }
+.sidebar-account-separator { height: 1px; margin: 5px 8px; background: var(--border-subtle); }
 
 /* Tooltip del modo compacto (foco de teclado): fuera del panel para no recortarse. */
 .sidebar-tooltip {
@@ -793,11 +839,12 @@ td.num { text-align: right; }
   .sidebar-panel, .sidebar[data-state] .sidebar-panel { position: relative; inset: auto; width: 100%; height: 100%; box-shadow: none; }
   /* con el drawer abierto la hamburguesa no tapa la marca (el foco vuelve a ella al cerrar) */
   .burger-btn[aria-expanded="true"] { visibility: hidden; }
-  .sidebar-pin, .sidebar-tooltip { display: none; }
+  .sidebar-tooltip { display: none; }
   .sidebar-close { display: flex; }
-  .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
+  .sidebar-section-toggle, .sidebar-detail-toggle, .sidebar-health-toggle { min-height: 44px; }
   .sidebar-search input { min-height: 44px; }
-  .sidebar-item { min-height: 44px; }
+  .sidebar-item, .sidebar-footer .sidebar-item { min-height: 44px; }
+  .sidebar-account-action { min-height: 44px; }
 }
 
 /* ── Vistas unificadas de Cartera (UX-08, UX-09) ── */

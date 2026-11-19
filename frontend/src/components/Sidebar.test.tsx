@@ -10,6 +10,7 @@ const allPerms = [
 ];
 
 function setup(over: Partial<SidebarProps> = {}) {
+  window.localStorage.setItem("crm-sidebar-pinned", "1");
   const fn = vi.fn();
   const props: SidebarProps = {
     activeSection: null, channel: null, tchView: null, detailOpen: false, onToggleDetail: fn, theme: "light",
@@ -23,19 +24,24 @@ function setup(over: Partial<SidebarProps> = {}) {
   return props;
 }
 const active = () => Array.from(document.querySelectorAll(".sidebar-item.active")).map((n) => n.textContent);
-const tchGroup = () => screen.getByRole("group", { name: "TCH" });
+const tchGroup = () => {
+  const group = screen.getByRole("group", { name: "TCH" });
+  const toggle = within(group).getByRole("button", { name: "TCH" });
+  if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
+  return group;
+};
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.localStorage.clear(); });
 
 describe("Sidebar (menú de un solo nivel)", () => {
   // Cambio deliberado: antes el ítem se llamaba «Dashboard».
   it("vista central marca Resumen", () => {
     setup();
-    expect(active()).toEqual(["Resumen"]);
+    expect(active()).toEqual(["Dashboard"]);
   });
   it("canal no marca Resumen", () => {
     setup({ channel: "toku" });
-    expect(active()).not.toContain("Resumen");
+    expect(document.querySelector('[data-item="summary"]')).not.toHaveClass("active");
   });
   it("admin marca solo Administración y no Resumen", () => {
     setup({ adminOpen: true, adminTab: "users" });
@@ -66,7 +72,7 @@ describe("Sidebar (menú de un solo nivel)", () => {
     setup();
     for (const name of ["Cartera", "Operación", "Sistema"]) {
       const label = within(screen.getByRole("group", { name })).getByText(name);
-      expect(label.className).toBe("sidebar-section-label");
+      expect(label.closest("button")).toHaveAttribute("aria-expanded", "false");
     }
   });
   it("el ítem activo lleva aria-current=page", () => {
@@ -95,14 +101,14 @@ describe("Sidebar (menú de un solo nivel)", () => {
     setup({ onToggleDetail });
     const toggle = screen.getByRole("button", { name: /Detalle por canal/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(toggle.textContent).toContain("Transitorio");
+    expect(toggle.textContent).toBe("Detalle por canal");
     expect(screen.queryByRole("group", { name: "TCH" })).toBeNull();
     fireEvent.click(toggle);
     expect(onToggleDetail).toHaveBeenCalledTimes(1);
   });
   it("desplegado, muestra el aviso de retirada y marca el ítem de canal activo", () => {
     setup({ detailOpen: true, channel: "toku" });
-    expect(screen.getByText(/Se retira cuando existan las vistas unificadas/)).toBeInTheDocument();
+    expect(screen.queryByText(/Se retira cuando existan las vistas unificadas/)).not.toBeInTheDocument();
     expect(within(screen.getByRole("group", { name: "Toku" })).getByRole("button", { name: "Resumen" })).toHaveAttribute("aria-current", "page");
   });
   it("sin datos de salud no hay indicador", () => {

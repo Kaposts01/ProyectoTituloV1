@@ -36,13 +36,14 @@ describe("Sesión", () => {
     fireEvent.submit(document.querySelector("form.login-form")!);
     await waitFor(() => expect(app.find("POST", "/api/v1/auth/login")).toHaveLength(1));
     expect(app.find("POST", "/api/v1/auth/login")[0].body).toEqual({ username: "operador.sintetico", password: "clave-sintetica" });
-    expect(await screen.findByRole("button", { name: "Cerrar sesión" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Opciones de cuenta" })).toBeTruthy();
   });
 
   it("«Cerrar sesión» envía POST /auth/logout, vuelve al ingreso y deja la URL en /central/resumen", async () => {
     const app = mountApp("/toku/clientes", [listHandler, ["POST", "/api/v1/auth/logout", {}]]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: "Cerrar sesión" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Opciones de cuenta" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Cerrar sesión" }));
     await waitFor(() => expect(app.find("POST", "/api/v1/auth/logout")).toHaveLength(1));
     expect(await screen.findByRole("heading", { name: "Iniciar sesión" })).toBeTruthy();
     expect(window.location.pathname).toBe("/central/resumen");
@@ -55,10 +56,12 @@ describe("Tema", () => {
     mountApp("/toku/clientes", [listHandler]);
     await appReady();
     await waitFor(() => expect(document.documentElement.getAttribute("data-theme")).toBe("dark"));
-    fireEvent.click(screen.getByRole("button", { name: "Cambiar tema" }));
+    fireEvent.click(screen.getByRole("button", { name: "Opciones de cuenta" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Cambiar tema" }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(localStorage.getItem("crm-theme")).toBe("light");
-    expect(screen.getByText("Modo oscuro")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Opciones de cuenta" }));
+    expect(screen.getByRole("menuitem", { name: "Cambiar tema" })).toHaveTextContent("Modo oscuro");
   });
 
   it("sin valor guardado parte en claro", async () => {
@@ -108,7 +111,7 @@ describe("Rutas y permisos", () => {
     mountApp("/mi-perfil", []);
     await appReady();
     expect(await screen.findByRole("heading", { name: "Mi perfil" })).toBeTruthy();
-    expect(screen.getAllByText("operador.sintetico").length).toBeGreaterThan(0);
+    expect(within(document.querySelector<HTMLElement>(".app-layout main")!).getAllByText("operador.sintetico").length).toBeGreaterThan(0);
     resetApp();
     mountApp("/admin/usuarios", [["GET", /^\/api\/v1\/(users|roles|permissions)/, []]]);
     await appReady();
@@ -129,7 +132,7 @@ describe("Rutas y permisos", () => {
   });
 });
 
-describe("Menú lateral (un solo nivel, UX-05)", () => {
+describe("Menú lateral (secciones desplegables)", () => {
   const tchSummary: Handler = ["GET", "/api/v1/tch/summary", { suscripciones: { vigentes: 0, eliminadas: 0, total: 0, monto_vigentes: 0, monto_eliminadas: 0, monto_total: 0 }, transacciones: { total: 0, aceptadas: 0, rechazadas: 0, tasa_rechazo_pct: null, monto: 0 }, kpis: { mrr: 0, arpu: null, active_clients: 0, active_subscribers: 0, churn_rate: null, ltv: null }, years: [], ultimo_etl: { id: null, status: null, started_at: null, records_upserted: null } }];
   const emptyPage = { items: [], total: 0, offset: 0, limit: 50 };
 
@@ -151,7 +154,7 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/central/clientes"));
     fireEvent.click(navTop("Reportes"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/reporte-automatico"));
-    fireEvent.click(navTop("Resumen"));
+    fireEvent.click(navTop("Dashboard"));
     await waitFor(() => expect(window.location.pathname).toBe("/central/resumen"));
     fireEvent.click(navTop("Recuperador"));
     await waitFor(() => expect(window.location.pathname).toBe("/general/recuperador"));
@@ -180,9 +183,12 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
   });
 
   it("un enlace profundo a una pantalla de canal deja el detalle desplegado con su ítem activo", async () => {
+    localStorage.setItem("crm-sidebar-pinned", "1");
     mountApp("/payku/planes", [listHandler]);
     await appReady();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Detalle por canal/ }).getAttribute("aria-expanded")).toBe("true"));
+    const detail = screen.getByRole("button", { name: /Detalle por canal/ });
+    await waitFor(() => expect(detail).toHaveClass("has-active"));
+    await waitFor(() => expect(detail).toHaveAttribute("aria-expanded", "true"));
     expect(navDetail("Payku", "Planes").getAttribute("aria-current")).toBe("page");
   });
 
@@ -208,7 +214,7 @@ describe("Menú lateral (un solo nivel, UX-05)", () => {
     mountApp("/central/resumen", [listHandler]);
     await appReady();
     const nav = document.querySelector(".sidebar-nav") as HTMLElement;
-    expect(within(nav).getByRole("button", { name: "Cobros" })).toBeTruthy();
+    expect(navTop("Cobros")).toBeVisible();
     expect(within(nav).queryByRole("button", { name: "Identidad" })).toBeNull();
   });
 
@@ -232,7 +238,7 @@ describe("Resumen unificado y vista anterior (rutas del paso 3)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Resumen" })).toBeTruthy();
     expect(unifiedCalls(app)).toHaveLength(1);
     expect(legacyCalls(app)).toHaveLength(0);
-    expect(navTop("Resumen").getAttribute("aria-current")).toBe("page");
+    expect(navTop("Dashboard").getAttribute("aria-current")).toBe("page");
   });
 
   it("/central/resumen-clasico (retirada en UX-15) redirige al Resumen unificado sin pedir los datos anteriores", async () => {
@@ -242,7 +248,7 @@ describe("Resumen unificado y vista anterior (rutas del paso 3)", () => {
     await screen.findByRole("region", { name: "Indicadores del mes" });
     expect(unifiedCalls(app)).toHaveLength(1);
     expect(legacyCalls(app)).toHaveLength(0);
-    expect(navTop("Resumen").getAttribute("aria-current")).toBe("page");
+    expect(navTop("Dashboard").getAttribute("aria-current")).toBe("page");
   });
 
   it("la URL antigua respeta el permiso dashboard.view: sin él vuelve al inicio del usuario", async () => {
