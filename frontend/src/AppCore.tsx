@@ -16,6 +16,7 @@ import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { DirectCancelContext } from "./features/cancellations/directCancel";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
+import { PageSkeleton } from "./components/PageSkeleton";
 import { useEnabledChannels } from "./features/shared/environment";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
 import { useEtl } from "./features/dashboard/useEtl";
@@ -653,10 +654,10 @@ function AppCore() {
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
 
+  const fallbackVariant = onSummaryRoute || channel ? "cards" : "table";
+
   const content = detailLoading ? (
-    <main className="app-shell">
-      <p className="muted-copy">Cargando ficha...</p>
-    </main>
+    <PageSkeleton label="Cargando ficha..." />
   ) : (
     (clientDetailView ??
     planDetailView ??
@@ -678,9 +679,7 @@ function AppCore() {
           </div>
         </main>
       ) : channelLoading || !channelData ? (
-        <main className="app-shell">
-          <p className="muted-copy">Cargando mini dashboard...</p>
-        </main>
+        <PageSkeleton label="Cargando mini dashboard..." variant="cards" />
       ) : (
         <ChannelDashboardView
           data={channelData}
@@ -701,7 +700,7 @@ function AppCore() {
       generalView === "report" ? <AutomaticReport /> : generalView === "charges" ? <UnifiedChargesView can={can} onOpenPath={openPath} /> : generalView === "subscriptions" ? <UnifiedSubscriptionsView can={can} onOpenPath={openPath} /> : generalView === "summary" ? (
         // El estado inicial es «summary» aunque el enlace profundo apunte a otra vista: solo se monta el Resumen
         // unificado si la URL es de verdad la suya (así un enlace a otra pantalla no dispara su petición).
-        onSummaryRoute ? <SummaryView /> : <main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>
+        onSummaryRoute ? <SummaryView /> : <PageSkeleton label="Cargando vista..." variant="cards" />
       ) : globalDashboard
     )))
   );
@@ -761,7 +760,7 @@ function AppCore() {
         health={channelHealth}
       />
       {adminOpen ? (
-        <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>
+        <Suspense fallback={<PageSkeleton label="Cargando vista..." />}>
           <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
         </Suspense>
       ) : profileView ? (
@@ -775,7 +774,7 @@ function AppCore() {
         />
       ) : (
         <ContentErrorBoundary>
-          <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>{content}</Suspense>
+          <Suspense fallback={<PageSkeleton label="Cargando vista..." variant={fallbackVariant} />}>{content}</Suspense>
         </ContentErrorBoundary>
       )}
       {can("dashboard.view") ? <ChangeToasts /> : null}

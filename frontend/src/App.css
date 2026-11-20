@@ -122,6 +122,8 @@ h3 { margin: 0; font-size: var(--fs-h3); font-weight: 600; letter-spacing: -.01e
 
 /* ── Table ───────────────────────────────────────────────────────── */
 .table-wrap { width: 100%; overflow-x: auto; }
+/* Mientras carga, la tabla conserva un alto mínimo para que no salte al llegar los datos (PERF-03d). */
+.table-wrap[aria-busy="true"] { min-height: 360px; }
 table { width: 100%; min-width: max-content; border-collapse: collapse; text-align: left; }
 th { color: var(--text-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
 th, td { padding: 13px 8px; border-bottom: 1px solid var(--border-subtle); font-size: 14px; color: var(--text-1); }

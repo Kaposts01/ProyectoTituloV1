@@ -38,7 +38,7 @@ function RejectionSummaryPanel({ channel, dateFrom, dateTo }: { channel: string;
         Rechazados / (pagados + rechazados), con fecha de cobro hasta hoy (hora de Chile) y sin cancelados, expirados ni anulados.
         VirtualPOS y TCH cuentan cargos; Toku y Payku cuentan intentos de cobro, porque el canal no marca el cargo como rechazado.
       </p>
-      <div className="table-wrap">
+      <div className="table-wrap" aria-busy={loading}>
         <table>
           <thead><tr><th>Canal</th><th>Base</th><th>Pagados</th><th>Rechazados</th><th>Tasa</th></tr></thead>
           <tbody>
