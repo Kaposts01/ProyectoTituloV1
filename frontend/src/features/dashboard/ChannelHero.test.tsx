@@ -46,4 +46,20 @@ describe("canal en AppCore mientras llegan los datos", () => {
     expect((screen.getByRole("button", { name: "Generar reporte" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Cantidad" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("con un enlace directo al canal, el esqueleto nace con la cabecera y nunca sin ella (sin salto de ~150 px)", async () => {
+    // Antes, el primer render con sesión (channel aún null) pintaba el esqueleto con su barra de título y luego el
+    // mismo nodo recibía la cabecera encima. Se vigila que la barra de título no aparezca nunca en el documento.
+    let titleBars = 0;
+    const watch = () => { titleBars += document.querySelectorAll(".page-skeleton-title").length; };
+    const observer = new MutationObserver(watch);
+    observer.observe(document.body, { childList: true, subtree: true });
+    mountApp("/toku/resumen", [["GET", "/api/v1/staging/dashboard/toku", () => new Promise(() => undefined)]]);
+    await appReady();
+    await screen.findByRole("heading", { name: /Resumen operativo/ });
+    watch();
+    observer.disconnect();
+    expect(titleBars).toBe(0);
+    expect(document.querySelectorAll(".page-skeleton-after-header").length).toBeGreaterThan(0);
+  });
 });

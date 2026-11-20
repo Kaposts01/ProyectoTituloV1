@@ -672,7 +672,11 @@ function AppCore() {
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
 
-  const fallbackVariant = onSummaryRoute || channel ? "cards" : "table";
+  // PERF-03 (CLS): `channel` se fija en un efecto, después del primer render con sesión. Con un enlace directo a un canal,
+  // ese primer render mostraba el esqueleto sin cabecera y, al fijarse `channel`, el mismo nodo recibía la cabecera encima
+  // (el esqueleto bajaba ~150 px). La ruta ya dice qué canal es, así que la cabecera se decide desde ella.
+  const routeChannel = channel ?? (summaryRoute?.kind === "channel" ? summaryRoute.source : null);
+  const fallbackVariant = onSummaryRoute || routeChannel ? "cards" : "table";
 
   const content = detailLoading ? (
     <PageSkeleton label="Cargando ficha..." />
@@ -718,7 +722,7 @@ function AppCore() {
       generalView === "report" ? <AutomaticReport /> : generalView === "charges" ? <UnifiedChargesView can={can} onOpenPath={openPath} /> : generalView === "subscriptions" ? <UnifiedSubscriptionsView can={can} onOpenPath={openPath} /> : generalView === "summary" ? (
         // El estado inicial es «summary» aunque el enlace profundo apunte a otra vista: solo se monta el Resumen
         // unificado si la URL es de verdad la suya (así un enlace a otra pantalla no dispara su petición).
-        onSummaryRoute ? <SummaryView /> : <PageSkeleton label="Cargando vista..." variant="cards" />
+        onSummaryRoute ? <SummaryView /> : <PageSkeleton label="Cargando vista..." variant="cards" header={routeChannel ? <ChannelHero source={routeChannel} loading /> : undefined} />
       ) : globalDashboard
     )))
   );
@@ -792,7 +796,7 @@ function AppCore() {
         />
       ) : (
         <ContentErrorBoundary>
-          <Suspense fallback={<PageSkeleton label="Cargando vista..." variant={fallbackVariant} header={channel ? <ChannelHero source={channel} loading /> : undefined} />}>{content}</Suspense>
+          <Suspense fallback={<PageSkeleton label="Cargando vista..." variant={fallbackVariant} header={routeChannel ? <ChannelHero source={routeChannel} loading /> : undefined} />}>{content}</Suspense>
         </ContentErrorBoundary>
       )}
       {can("dashboard.view") ? <ChangeToasts /> : null}
