@@ -7,6 +7,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -15,7 +16,13 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import get_current_user, get_db, require_permissions
+from app.core.security import (
+    get_current_user,
+    get_db,
+    require_csrf,
+    require_permissions,
+    require_role,
+)
 from app.models.etl_run import EtlRun
 from app.models.sync_run import SyncRun
 from app.scheduler import event_bus
@@ -38,12 +45,17 @@ from app.scheduler.jobs.cancellation_jobs import (
 )
 from app.scheduler.jobs.sync_all import channel_is_enabled, sync_all_channels
 from app.scheduler.run_lock import ActiveRunError, start_exclusive_run
+from app.services import alerts, report_delivery
 
 _VALID_CHANNELS = frozenset({"virtualpos1", "virtualpos2", "toku", "payku", "tch"})
 
 
 class TriggerBody(BaseModel):
     channels: list[str] | None = None
+
+
+class ReportTestBody(BaseModel):
+    kind: Literal["weekly", "monthly"]
 
 
 # 13D: jobs que corren una sincronizacion global (`etl_runs`); su ultima corrida es la del orquestador.
@@ -291,3 +303,31 @@ async def stream_run(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.post(
+    "/reports/test",
+    tags=["Scheduler"],
+    dependencies=[Depends(require_role("admin")), Depends(require_csrf)],
+)
+def send_test_report(
+    body: ReportTestBody,
+    db: Session = Depends(get_db),
+) -> dict:
+    """REP-02: envia ahora un reporte de prueba (`weekly` o `monthly`) a `REPORT_EMAIL_TO` por el SMTP de las alertas.
+
+    Solo administrador. Ignora las banderas `REPORTS_*` pero no la falta de destinatario o de servidor; usa un
+    `period_key` `test:<marca de tiempo>`, asi que no consume el envio del periodo real. La respuesta lleva solo la
+    cantidad de destinatarios y el nombre de la clase del error: nunca direcciones ni mensajes."""
+    result = report_delivery.dispatch_report(db, body.kind, test=True)
+    if result.status == "skipped":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "report_test_skipped", "reason": result.reason, "message": "El reporte de prueba no se envió: falta configuración."},
+        )
+    if result.status == "failed":
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "report_test_failed", "error_class": result.error_class, "message": "El servidor de correo no aceptó el reporte de prueba."},
+        )
+    return {"status": "sent", "kind": body.kind, "period_key": result.period_key, "recipients": len(alerts.report_recipients())}
