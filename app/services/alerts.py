@@ -460,28 +460,70 @@ def _build(kind: str, cond: Condition | None, key: str, since: datetime, now: da
     return msg
 
 
+def _deliver(msg: EmailMessage) -> None:
+    """Un solo intento por el SMTP de las alertas, timeout corto. Lanza lo que lance el servidor."""
+    host, port = settings.alert_smtp_host, int(settings.alert_smtp_port)
+    if port == SMTPS_PORT:
+        server: smtplib.SMTP = smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT_SECONDS,
+                                                context=ssl.create_default_context())
+    else:
+        server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
+    with server:
+        if port != SMTPS_PORT:
+            server.ehlo()
+            if settings.alert_smtp_starttls:
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+        if settings.alert_smtp_user and settings.alert_smtp_password:
+            server.login(settings.alert_smtp_user, settings.alert_smtp_password)
+        server.send_message(msg)
+
+
 def _send(msg: EmailMessage) -> bool:
     """Un solo intento, timeout corto. Nunca lanza: devuelve False y deja el nombre de la clase de la excepcion en el log."""
-    host, port = settings.alert_smtp_host, int(settings.alert_smtp_port)
     try:
-        if port == SMTPS_PORT:
-            server: smtplib.SMTP = smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT_SECONDS,
-                                                    context=ssl.create_default_context())
-        else:
-            server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
-        with server:
-            if port != SMTPS_PORT:
-                server.ehlo()
-                if settings.alert_smtp_starttls:
-                    server.starttls(context=ssl.create_default_context())
-                    server.ehlo()
-            if settings.alert_smtp_user and settings.alert_smtp_password:
-                server.login(settings.alert_smtp_user, settings.alert_smtp_password)
-            server.send_message(msg)
+        _deliver(msg)
         return True
     except Exception as exc:  # noqa: BLE001 - el correo jamas debe tumbar al llamador
         logger.warning("Alerta no enviada: fallo del SMTP (%s).", type(exc).__name__)
         return False
+
+
+def send_report(
+    subject: str,
+    text_body: str,
+    html_body: str,
+    recipients: list[str],
+    attachments: tuple[tuple[str, str], ...] = (),
+) -> tuple[bool, str | None]:
+    """REP-02: envia un reporte por el mismo SMTP, timeout y servidor de las alertas, con HTML y adjuntos CSV
+    `(nombre, contenido)`. Un solo intento; nunca lanza. Devuelve (enviado, nombre de la clase del error): jamas el mensaje
+    de la excepcion ni las direcciones. No mira banderas: eso lo decide quien llama (`report_jobs`)."""
+    if not recipients or not settings.alert_smtp_host.strip():
+        logger.warning("Reporte no enviado: falta destinatario o ALERT_SMTP_HOST.")
+        return False, "ConfigurationMissing"
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = settings.alert_email_from or settings.alert_smtp_user or "alertas@localhost"
+    msg["To"] = ", ".join(recipients)
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+    for name, content in attachments:
+        msg.add_attachment(content.encode("utf-8"), maintype="text", subtype="csv", filename=name)
+    try:
+        _deliver(msg)
+        return True, None
+    except Exception as exc:  # noqa: BLE001 - el correo jamas debe tumbar al llamador
+        logger.warning("Reporte no enviado: fallo del SMTP (%s).", type(exc).__name__)
+        return False, type(exc).__name__
+
+
+def report_recipients() -> list[str]:
+    """REP-02: destinatarios de `REPORT_EMAIL_TO` (mismo parser que las alertas). Sin valor: lista vacia."""
+    valid, invalid = parse_recipients(settings.report_email_to)
+    if invalid:
+        logger.warning("REPORT_EMAIL_TO tiene %d destinatario(s) sin forma de correo: se omiten.", invalid)
+    return valid
 
 
 def build_message(kind: str, cond: Condition, since: datetime, now: datetime) -> EmailMessage:
