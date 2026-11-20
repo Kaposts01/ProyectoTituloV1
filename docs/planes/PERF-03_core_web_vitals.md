@@ -81,3 +81,35 @@ Lectura:
 - **TBT alto en móvil** en Dashboard (371 ms) y VirtualPOS (312 ms), las dos pantallas con gráficos: riesgo de INP; apunta a recharts y al render inicial.
 - En Suscripciones de escritorio el LCP es la franja de sandbox: confirma que la franja influye en la medición (corrección 2). Hay que separar el CLS propio de sandbox del de producción.
 - El perfil móvil simula 4G lento; el CRM se usa en red local, así que es una cota pesimista, pero es el criterio de Google.
+
+## Medición después de 03b a 03e (2026-11-20)
+
+Misma pauta que la base (Lighthouse 12.6.1, 1 descarte + 5 pasadas, p75; escritorio y móvil emulado), sobre `bd0082b`. Dos variantes, las dos contra el backend de sandbox (8001):
+
+- **Con franja:** build `--mode sandbox` en 5178.
+- **Sin franja:** build de producción en 5179 con proxy forzado al 8001 y `/api/v1/system/environment` bloqueado en Lighthouse, para que no aparezca la franja (como en producción).
+
+Las 120 pasadas terminaron sin error.
+
+| Pantalla | Perfil | LCP antes → con franja → sin franja (ms) | CLS antes → con → sin | TBT antes → con → sin (ms) |
+| --- | --- | --- | --- | --- |
+| Dashboard | Escritorio | 815 → 797 → 792 | 0,033 → 0,009 → 0,008 | 27 → 37 → 32 |
+| | Móvil | **3.563 → 3.621 → 3.644** | 0,012 → 0 → 0 | **371 → 269 → 292** |
+| Suscripciones | Escritorio | 671 → 549 → 630 | **0,216 → 0,195 → 0,203** | 0 |
+| | Móvil | **2.887 → 2.891 → 2.887** | 0,045 → 0,006 → 0,007 | 0 |
+| VirtualPOS | Escritorio | 787 → 833 → 797 | 0,024 → 0 → 0 | 37 → 25 → 33 |
+| | Móvil | **3.666 → 3.838 → 3.651** | 0,039 → 0 → 0 | **312 → 346 → 262** |
+| Clientes | Escritorio | 676 → 587 → 586 | 0,033 → 0 → 0 | 0 |
+| | Móvil | 2.291 → 2.584 → **2.738** | 0,041 → 0 → 0 | 0 |
+| Cobros | Escritorio | 673 → 588 → 588 | **0,172** → 0,049 → 0,060 | 0 |
+| | Móvil | **2.733 → 2.584 → 2.584** | **0,136** → 0,038 → 0 | 0 |
+
+Lectura:
+
+- **CLS: resuelto en 9 de 10 casos** (todos ≤ 0,06). Queda **Suscripciones en escritorio, ~0,2**, y no es la franja: el desplazamiento viene de `section.panel > div.table-wrap` (la tabla cambia de alto al llegar los datos aunque tenga alto mínimo). Corrección siguiente: reservar el alto real de la página de resultados (filas fijas o `min-height` acorde a 50 filas) o filas esqueleto dentro de la tabla.
+- **LCP en escritorio:** cumple en todas (≤ 0,85 s), algo mejor que antes en Clientes, Cobros y Suscripciones.
+- **LCP en móvil emulado: no mejoró** (2,6 a 3,8 s; solo cumple ninguna con holgura). La primera pintura bajó de ~2,1 s a ~1,8–2,0 s con las fuentes locales, pero el elemento LCP sigue siendo un texto que aparece cuando llegan los datos (`section.panel p.muted-copy` o el aviso de mes en curso). El cuello es el hilo principal: en VirtualPOS móvil, 1,3 s de trabajo en el hilo principal, 0,7 s de arranque de JS y ~80 KB de JS sin usar en la carga.
+- **TBT en móvil:** bajó en Dashboard (371 → ~270–290 ms) y en VirtualPOS sin franja (312 → 262), pero sigue sobre 200 ms. Es el indicio de INP: va a PERF-03f.
+- La compresión del servidor (`vite preview` no comprime) ahorraría solo ~10 KB: no es la causa principal.
+
+Siguiente tanda propuesta: (1) Suscripciones: alto real de la tabla o filas esqueleto; (2) móvil: que el LCP sea el contenido estable de la página (título o tarjeta reservada) y no un texto tardío, y aligerar el arranque (diferir recharts y vistas pesadas, revisar el JS sin usar); (3) PERF-03f para TBT/INP.
