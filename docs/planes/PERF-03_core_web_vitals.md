@@ -159,3 +159,7 @@ Lectura:
 ## INP de VirtualPOS después de d1969f6 (2026-11-20)
 
 Mismo guion (CPU 4x, 7 interacciones, usuario temporal de solo lectura), build de sandbox de `d1969f6` en 5178, 5 cargas: **144, 88, 80, 72, 80 ms → mediana 80, p75 88 ms** (antes, con fd97748: mediana 272, p75 312 ms; sin fd97748: 336 / 336 ms). **VirtualPOS cumple la meta de INP (≤ 200 ms)**, como ya cumplían Dashboard (64 ms) y Suscripciones (64 ms). Misma advertencia de muestra: 5 cargas y resolución de 8 ms.
+
+## Decisiones del usuario
+
+- H2 de la QA (los gráficos ya no se animan): el usuario eligió «Sin animación» el 2026-11-20; se mantiene `isAnimationActive={false}`.
