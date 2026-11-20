@@ -19,8 +19,8 @@ const PAGE = 50;
 type Tab = "charges" | "payments";
 
 const FIELDS: Record<Tab, { value: string; label: string }[]> = {
-  charges: [{ value: "all", label: "Todos los campos" }, { value: "id", label: "ID de cobro" }, { value: "subscription_id", label: "ID de suscripción" }, { value: "status", label: "Estado" }],
-  payments: [{ value: "all", label: "Todos los campos" }, { value: "id", label: "ID de pago" }, { value: "charge_id", label: "ID de cobro" }, { value: "status", label: "Estado" }],
+  charges: [{ value: "all", label: "Todos los campos" }, { value: "id", label: "ID de cobro" }, { value: "subscription_id", label: "ID de suscripción" }, { value: "status", label: "Estado" }, { value: "client", label: "Socio" }, { value: "rut", label: "RUT" }],
+  payments: [{ value: "all", label: "Todos los campos" }, { value: "id", label: "ID de pago" }, { value: "charge_id", label: "ID de cobro" }, { value: "status", label: "Estado" }, { value: "client", label: "Socio" }, { value: "rut", label: "RUT" }],
 };
 
 const pct = (rate: number | null) => (rate === null ? "—" : `${rate.toFixed(1).replace(".", ",")} %`);
@@ -121,7 +121,9 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
     { id: "date", label: "Fecha de cobro", className: "mono", cell: (row) => day(row.charge_date) },
     { id: "period", label: "Período", initiallyHidden: true, className: "mono", cell: (row) => row.period ?? "—" },
     { id: "amount", label: "Monto", className: "mono num", cell: (row) => money(row.amount, row.currency) },
-    { id: "reason", label: "Motivo de rechazo", cell: (row) => row.rejection_reason ? <span data-raw-text>{row.rejection_reason}</span> : "—" },
+    { id: "reason", label: "Motivo de rechazo", cell: (row) => row.rejection_reason ? row.rejection_reason.length > 48
+      ? <details className="charge-reason"><summary aria-label="Ver motivo completo"><span data-raw-text>{row.rejection_reason.slice(0, 42)}…</span></summary><p data-raw-text>{row.rejection_reason}</p></details>
+      : <span data-raw-text>{row.rejection_reason}</span> : "—" },
   ];
   const paymentColumns: PortfolioColumn<PaymentRow>[] = [
     { id: "channel", label: "Canal", cell: (row) => channelText(row.channel) },
@@ -138,7 +140,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
   ];
 
   return (
-    <main className="app-shell unified-page">
+    <main className="app-shell unified-page portfolio-page">
       <div className="topbar">
         <div>
           <p className="eyebrow">Cartera</p>
@@ -154,7 +156,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
           {canPayments ? <button type="button" role="tab" aria-selected={tab === "payments"} className={tab === "payments" ? "active" : ""} onClick={() => switchTab("payments")}>Pagos</button> : null}
         </div>
         <section className="panel">
-          <div className="panel-heading">
+          <div className="panel-heading sr-only">
             <div>
               <p className="eyebrow">{tab === "charges" ? "Cobros de todos los canales" : "Pagos de todos los canales"}</p>
               <h3>Listado de {tab === "charges" ? "cobros" : "pagos"}</h3>
@@ -171,7 +173,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
             fields={FIELDS[tab]}
             field={field}
             onField={reset(setField)}
-            placeholder={tab === "charges" ? "ID de cobro, suscripción o estado" : "ID de pago, cobro o estado"}
+            placeholder={tab === "charges" ? "Nombre, RUT, ID de cobro o estado" : "Nombre, RUT, ID de pago o estado"}
             busy={busy || invertedRange}
             query={query}
             onQuery={reset(setQuery)}

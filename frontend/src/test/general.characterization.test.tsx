@@ -188,10 +188,10 @@ describe("Clientes consolidados (/central/clientes)", () => {
     ]);
     await appReady();
     fireEvent.click(await screen.findByRole("button", { name: "11.111.111-1" }));
-    expect(await screen.findByRole("heading", { name: "Ficha general: 11.111.111-1" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Persona Sintética 1", level: 2 })).toBeTruthy();
     expect(app.find("GET", "/api/v1/staging/dashboard/general/clients/11111111-1")).toHaveLength(1);
-    for (const title of ["IDs de cliente", "Suscripciones", "Cargos", "Transacciones"]) expect(screen.getByRole("heading", { name: title })).toBeTruthy();
-    expect(screen.getByText("$10.000")).toBeTruthy();
+    for (const title of ["Suscripciones", "Cobros", "Pagos"]) expect(screen.getByRole("heading", { name: new RegExp(title) })).toBeTruthy();
+    expect(screen.getByText("10.000")).toBeTruthy();
     expect(screen.getByText("Sin registros relacionados.")).toBeTruthy();
     await listSettled();
     expect(contentHtml()).toMatchSnapshot();
@@ -233,7 +233,7 @@ describe("Suscripciones unificadas (/central/suscripciones)", () => {
     expect(screen.getByRole("heading", { name: "Suscripciones", level: 1 })).toBeTruthy();
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Canal", "ID", "Socio", "RUT", "Estado", "Último cobro", "Monto"]);
     expect(screen.getByText("CLP $10.000")).toBeTruthy();
-    expect(screen.getByText("2025-03-05")).toBeTruthy();
+    expect(screen.getByText("05-03-2025")).toBeTruthy();
     fireEvent.click(document.querySelector(".portfolio-columns summary")!);
     fireEvent.click(screen.getByRole("checkbox", { name: "Mostrar columna Estado secundario" }));
     expect(screen.getByText("Cobrable").className).toContain("badge-green");

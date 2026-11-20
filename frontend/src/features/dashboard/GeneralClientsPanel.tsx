@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { label } from "../../i18n/label";
 import { getJson, friendlyError } from "../../api";
 import { adaptGeneralClientDetail, type GeneralClientDetailWire } from "./generalClientAdapter";
@@ -9,6 +9,7 @@ import { PortfolioFilters, UnifiedPagination, type FilterChip } from "../general
 import { PortfolioTable, type PortfolioColumn } from "../general/PortfolioTable";
 import type { GeneralClient } from "../shared/types";
 import { Rut } from "../shared/RutCell";
+import { MemberDetail } from "./MemberDetail";
 import { rutText } from "../shared/rut";
 
 const CLIENT_FIELDS = [
@@ -22,7 +23,7 @@ const CLIENT_CHANNELS = [
 const CLIENT_STATUSES = [{ value: "active", label: "Con suscripción activa" }, { value: "inactive", label: "Sin suscripción activa" }];
 
 /** Tabla de clientes consolidados por RUT, con búsqueda, paginación y ficha general. */
-export function GeneralClientsPanel({ general, setError, can }: { general: GeneralState; setError: (message: string | null) => void; can?: (permission: string) => boolean }) {
+export function GeneralClientsPanel({ general, setError, can, onOpenPath }: { general: GeneralState; setError: (message: string | null) => void; can?: (permission: string) => boolean; onOpenPath?: (path: string) => void }) {
   const {
     generalClients, generalClientsLoading, generalClientsError, generalClientsForbidden, reloadGeneralClients,
     generalClientQuery,
@@ -39,9 +40,20 @@ export function GeneralClientsPanel({ general, setError, can }: { general: Gener
     setGeneralClientStatus,
   } = general;
   const exportTarget = consolidatedExportTarget("clientes", generalClientFilter, generalClientQuery);
+  const [opening, setOpening] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<GeneralClient | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
+  const restoringFocus = useRef(false);
   useEffect(() => () => detailRequest.current?.abort(), []);
-  const resetOffset = () => { detailRequest.current?.abort(); setGeneralClientDetail(null); setGeneralClientOffset(0); };
+  useEffect(() => {
+    if (!generalClientDetail && restoringFocus.current) {
+      const trigger = selectedMember ? document.getElementById(`member-open-${encodeURIComponent(selectedMember.rut)}`) : null;
+      (trigger ?? document.querySelector<HTMLInputElement>('[aria-label="Buscar socios"]'))?.focus();
+      restoringFocus.current = false;
+    }
+  }, [generalClientDetail, selectedMember]);
+  const resetOffset = () => { detailRequest.current?.abort(); setGeneralClientDetail(null); setOpening(false); setDetailError(null); setGeneralClientOffset(0); };
   const optionLabel = (options: { value: string; label: string }[], value: string) => options.find((option) => option.value === value)?.label ?? value;
   const chips: FilterChip[] = [];
   if (generalClientQuery.trim()) {
@@ -51,22 +63,30 @@ export function GeneralClientsPanel({ general, setError, can }: { general: Gener
   if (generalClientChannel) chips.push({ key: "canal", label: `Canal: ${optionLabel(CLIENT_CHANNELS, generalClientChannel)}`, onRemove: () => { setGeneralClientChannel(""); resetOffset(); } });
   if (generalClientStatus) chips.push({ key: "estado", label: `Estado: ${optionLabel(CLIENT_STATUSES, generalClientStatus)}`, onRemove: () => { setGeneralClientStatus(""); resetOffset(); } });
   const clearAll = () => { setGeneralClientQuery(""); setGeneralClientFilter("all"); setGeneralClientChannel(""); setGeneralClientStatus(""); resetOffset(); };
+  async function openMember(client: GeneralClient) {
+    detailRequest.current?.abort();
+    const controller = new AbortController(); detailRequest.current = controller;
+    setError(null); setDetailError(null); setSelectedMember(client); setOpening(true);
+    try {
+      const result = await getJson<GeneralClientDetailWire>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(client.rut)}`, controller.signal);
+      if (!controller.signal.aborted) setGeneralClientDetail(adaptGeneralClientDetail(result));
+    } catch (err: unknown) {
+      if (!controller.signal.aborted) setDetailError(friendlyError(err, "No se pudo abrir la ficha. Inténtalo nuevamente."));
+    } finally { if (!controller.signal.aborted) setOpening(false); }
+  }
+  function closeMember() {
+    restoringFocus.current = true;
+    setGeneralClientDetail(null);
+  }
   const columns: PortfolioColumn<GeneralClient>[] = [
-    { id: "rut", label: "RUT", required: true, cell: (client) => <button className="record-link" aria-label={rutText(client.rut)} onClick={() => {
-      setError(null);
-      detailRequest.current?.abort();
-      const controller = new AbortController(); detailRequest.current = controller;
-      void getJson<GeneralClientDetailWire>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(client.rut)}`, controller.signal)
-        .then((detail) => { if (!controller.signal.aborted) setGeneralClientDetail(adaptGeneralClientDetail(detail)); })
-        .catch((err: unknown) => { if (!controller.signal.aborted) setError(friendlyError(err, "No se pudo cargar la ficha general.")); });
-    }}><Rut value={client.rut} /></button> },
+    { id: "rut", label: "RUT", required: true, cell: (client) => <button id={`member-open-${encodeURIComponent(client.rut)}`} className="record-link" aria-label={rutText(client.rut)} disabled={opening} onClick={() => { void openMember(client); }}><Rut value={client.rut} /><span className="member-open-label">Ver ficha</span></button> },
     { id: "name", label: "Nombre completo", required: true, cell: (client) => client.name || "—" },
     { id: "origins", label: "Plataforma de origen", cell: (client) => client.origins.map((origin) => label("channel", origin)).join(" · ") },
     { id: "active", label: "Suscripciones activas", cell: (client) => client.active_origins.map((origin) => label("channel", origin)).join(" · ") || "—" },
   ];
   return (
     <section className="panel">
-      <div className="panel-heading"><div><p className="eyebrow">Cartera</p><h3>Listado de socios</h3></div></div>
+      <div className="panel-heading sr-only"><div><p className="eyebrow">Cartera</p><h3>Listado de socios</h3></div></div>
       <PortfolioFilters searchLabel="Buscar socios" placeholder="Nombre, RUT, correo o teléfono" query={generalClientQuery} busy={generalClientsLoading}
         onQuery={(value) => { setGeneralClientQuery(value); resetOffset(); }} fieldLabel={optionLabel(CLIENT_FIELDS, generalClientFilter)}
         count={generalClientsLoading ? null : generalClients?.total ?? null} noun="socios" chips={chips} onClear={clearAll}
@@ -90,9 +110,11 @@ export function GeneralClientsPanel({ general, setError, can }: { general: Gener
         </>}
         actions={<ExportButton entity="clientes" canal={generalClientChannel || undefined} ignoredFilters={generalClientStatus ? [generalClientStatus === "active" ? "estado: con suscripción activa" : "estado: sin suscripción activa"] : []} params={exportTarget.params} window={{ offset: generalClientOffset, limit: 50 }} canPii={can?.("export.pii")} notes={["El archivo lista un registro por canal, no uno por RUT: sus filas pueden diferir de las de la pantalla."]} />}
       />
-      <p className="muted-copy">Agrupado por RUT <strong>no verificado</strong>: el mismo RUT en dos canales se muestra como un solo socio, pero el CRM aún no confirma que sea la misma persona (identidad centralizada pendiente).</p>
+      <aside className="member-identity-note"><p>Agrupación por RUT · Identidad sin confirmar</p><details><summary>Qué significa</summary><p>Agrupado por RUT <strong>no verificado</strong>: un RUT compartido entre canales se agrupa, pero no confirma que corresponda a la misma persona. La identidad centralizada sigue pendiente.</p></details></aside>
+      {opening ? <p className="member-loading" role="status" aria-live="polite">Abriendo ficha de {selectedMember?.name || "socio"}…</p> : null}
+      {detailError ? <div className="error-message" role="alert"><p>{detailError}</p><button className="secondary-button" type="button" onClick={() => { if (selectedMember) void openMember(selectedMember); }}>Reintentar ficha</button></div> : null}
       {generalClientDetail ? (
-        <div className="record-detail"><button onClick={() => setGeneralClientDetail(null)}>← Volver a socios</button><h3>Ficha general: <Rut value={generalClientDetail.rut} /></h3>{(["clients", "subscriptions", "charges", "transactions"] as const).map((section) => <div key={section}><h4>{section === "clients" ? "IDs de cliente" : section === "subscriptions" ? "Suscripciones" : section === "charges" ? "Cargos" : "Transacciones"}</h4><div className="table-wrap"><table><thead><tr><th>Portal</th><th>ID interno</th><th>ID origen</th><th>Estado</th><th>Monto</th></tr></thead><tbody>{generalClientDetail[section].map((item) => <tr key={`${item.portal}-${item.externalId}`}><td>{label("channel", item.portal)}</td><td>{item.internalId}</td><td>{item.externalId}</td><td>{item.status !== null ? label("status", item.status) : "—"}</td><td>{item.amount ? `$${Number(item.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{generalClientDetail[section].length === 0 ? <tr><td colSpan={5}>Sin registros relacionados.</td></tr> : null}</tbody></table></div></div>)}</div>
+        <MemberDetail member={selectedMember} detail={generalClientDetail} can={can} onOpenPath={onOpenPath} onClose={closeMember} />
       ) : <>
         <PortfolioTable view="members" caption="socios" columns={columns} rows={generalClients?.items ?? []} rowKey={(row) => row.rut}
           loading={generalClientsLoading} error={generalClientsError} forbidden={generalClientsForbidden} onRetry={reloadGeneralClients}

@@ -31,6 +31,21 @@ const handlers: Handler[] = [
 ];
 
 describe("Cobros unificados", () => {
+  it("permite buscar por socio o RUT y muestra la fecha local sin alterar el valor enviado", async () => {
+    const app = mountApp("/central/cobros", handlers);
+    await appReady(); await screen.findByRole("button", { name: "C-1" });
+    expect(screen.getByText("03-10-2026")).toBeTruthy();
+    fireEvent.click(screen.getByText("Más filtros", { exact: true }));
+    fireEvent.change(screen.getByLabelText("Buscar en"), { target: { value: "client" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Buscar" }), { target: { value: "DEMO Socia" } });
+    await waitFor(() => expect(app.exact("GET", "/api/v1/general/charges").at(-1)?.query.get("filter_field")).toBe("client"));
+    fireEvent.change(screen.getByLabelText("Buscar en"), { target: { value: "rut" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Buscar" }), { target: { value: "11.111.111-1" } });
+    await waitFor(() => expect(app.exact("GET", "/api/v1/general/charges").at(-1)?.query.get("query")).toBe("11.111.111-1"));
+    expect(app.exact("GET", "/api/v1/general/charges").at(-1)?.query.get("filter_field")).toBe("rut");
+    expect(window.location.href + JSON.stringify(localStorage)).not.toContain("11.111.111-1");
+  });
+
   it("lista cobros de varios canales con la tasa de rechazo única y enlaza a la ficha por canal", async () => {
     const app = mountApp("/central/cobros", handlers);
     await appReady();
@@ -80,7 +95,7 @@ describe("Cobros unificados", () => {
     fireEvent.change(screen.getByLabelText("Desde"), { target: { value: "2026-10-01" } });
     const chips = screen.getByRole("list", { name: "Filtros activos" });
     expect(within(chips).getByText("Canal: TCH")).toBeTruthy();
-    expect(within(chips).getByText("Desde: 2026-10-01")).toBeTruthy();
+    expect(within(chips).getByText("Desde: 01-10-2026")).toBeTruthy();
     // quitar un filtro
     fireEvent.click(screen.getByRole("button", { name: "Quitar filtro Canal: TCH" }));
     expect((screen.getByLabelText("Canal") as HTMLSelectElement).value).toBe("");
@@ -159,7 +174,7 @@ describe("Cobros unificados", () => {
     expect(screen.queryByText(/es posterior a «Hasta»/)).toBeNull();
     fireEvent.change(screen.getByLabelText("Desde"), { target: { value: "2026-10-31" } });
     fireEvent.change(screen.getByLabelText("Hasta"), { target: { value: "2026-10-01" } });
-    expect(screen.getByText(/La fecha «Desde» \(2026-10-31\) es posterior a «Hasta» \(2026-10-01\)/)).toBeTruthy();
+    expect(screen.getByText(/La fecha «Desde» \(31-10-2026\) es posterior a «Hasta» \(01-10-2026\)/)).toBeTruthy();
     expect(screen.getByLabelText("Desde")).toHaveAttribute("aria-invalid", "true");
     fireEvent.change(screen.getByLabelText("Hasta"), { target: { value: "2026-11-30" } });
     expect(screen.queryByText(/es posterior a «Hasta»/)).toBeNull();

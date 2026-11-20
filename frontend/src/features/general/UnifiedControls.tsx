@@ -94,7 +94,7 @@ export function PortfolioFilters({ searchLabel = "Buscar", placeholder, query, o
           <input ref={input} type="search" aria-label={searchLabel} placeholder={placeholder} value={query} aria-describedby={hintId} onChange={(event) => onQuery(event.target.value)} />
           {query ? <button type="button" aria-label="Borrar búsqueda" onClick={() => { onQuery(""); input.current?.focus(); }}>×</button> : null}
         </span>
-        <small id={hintId}>Busca en {fieldLabel === "Todos los campos" ? "todos los campos" : fieldLabel}. Los resultados se actualizan al escribir.</small>
+        <small id={hintId} className={fieldLabel === "Todos los campos" ? "sr-only" : undefined}>Busca en {fieldLabel === "Todos los campos" ? "todos los campos" : fieldLabel}. Los resultados se actualizan al escribir.</small>
       </label>
       {channelControl}
       {actions ? <fieldset className="filter-actions portfolio-export" disabled={busy}><legend className="sr-only">Exportación</legend>{actions}</fieldset> : null}

@@ -1,5 +1,5 @@
 import { pageLabels } from "../../pageLabels";
-import { useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "../../hooks";
 import { labelOr } from "../../i18n/label";
 import { ExportButton } from "../shared/ExportButton";
@@ -12,6 +12,8 @@ import { DashboardContextNotice } from "../summary/DashboardContextNotice";
 import { PortfolioTable, type PortfolioColumn } from "./PortfolioTable";
 import { Rut } from "../shared/RutCell";
 import { rutText } from "../shared/rut";
+
+import { SubscriptionMemory } from "./subscriptionContext";
 
 const PAGE = 50;
 const FIELDS = [
@@ -29,11 +31,18 @@ const secondaryBadge = (value: string | null) =>
 export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission: string) => boolean; onOpenPath?: (path: string) => void }) {
   const allowed = can(GENERAL_VIEW_PERMISSIONS.subscriptions) || canAny(can, VIEW_PERMISSIONS.subscriptions);
   const [initial] = useState(() => readPortfolioLocation(window.location.search));
-  const [channel, setChannel] = useState(initial.channel);
-  const [status, setStatus] = useState("");
-  const [field, setField] = useState("all");
-  const [query, setQuery] = useState("");
-  const [offset, setOffset] = useState(initial.offset);
+  const memory = useContext(SubscriptionMemory);
+  const [restored] = useState(() => memory?.saved?.search === window.location.search ? memory.saved : null);
+  const search = window.location.search;
+  const [channel, setChannel] = useState(restored?.filters.channel ?? initial.channel);
+  const [status, setStatus] = useState(restored?.filters.status ?? "");
+  const [field, setField] = useState(restored?.filters.field ?? "all");
+  const [query, setQuery] = useState(restored?.filters.query ?? "");
+  const [offset, setOffset] = useState(restored?.filters.offset ?? initial.offset);
+  const save = memory?.save;
+  useEffect(() => { save?.({ search, filters: { channel, status, field, query, offset } }); }, [save, search, channel, status, field, query, offset]);
+  const returnFocus = useRef<HTMLButtonElement | null>(null);
+  const focusRestored = useRef(false);
   const debouncedQuery = useDebouncedValue(query);
   const reset = (setter: (value: string) => void) => (value: string) => { setter(value); setOffset(0); };
 
@@ -45,13 +54,17 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
   const open = (path: string | null) => (path && onOpenPath && (path.startsWith("/central/clientes?") ? can("dashboard.view") : canOpenRecordPath(path, can)) ? () => onOpenPath(path) : undefined);
 
   const busy = list.loading || query !== debouncedQuery;
+  useEffect(() => { if (!busy && returnFocus.current && !focusRestored.current) { returnFocus.current.focus(); focusRestored.current = true; } }, [busy]);
   const filtered = Boolean(channel || status || query.trim());
   const clearAll = () => { setChannel(""); setStatus(""); setField("all"); setQuery(""); setOffset(0); };
   const columns: PortfolioColumn<SubscriptionRow>[] = [
     { id: "channel", label: "Canal", cell: (row) => channelText(row.channel) },
     { id: "id", label: "ID", required: true, className: "mono", cell: (row) => {
       const go = open(detailPath("subscription", row.channel, row.subscription_id));
-      return go ? <button type="button" className="text-button" onClick={go}>{row.subscription_id}</button> : row.subscription_id;
+      const focusKey = `${row.channel}:${row.subscription_id}`;
+      return go ? <button ref={(node) => { if (restored?.focusKey === focusKey) returnFocus.current = node; }} type="button" className="text-button" onClick={() => {
+        save?.({ search, filters: { channel, status, field, query, offset }, focusKey }); go();
+      }}>{row.subscription_id}</button> : row.subscription_id;
     } },
     { id: "member", label: "Socio", required: true, cell: (row) => row.name || "—" },
     { id: "rut", label: "RUT", cell: (row) => {
@@ -67,7 +80,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
   ];
 
   return (
-    <main className="app-shell unified-page">
+    <main className="app-shell unified-page portfolio-page">
       <div className="topbar">
         <div>
           <p className="eyebrow">Cartera</p>
@@ -79,7 +92,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
         <p className="muted-copy">Tu rol no puede ver suscripciones de ningún canal. Pide acceso a un administrador.</p>
       ) : (
         <section className="panel">
-          <div className="panel-heading">
+          <div className="panel-heading sr-only">
             <div>
               <p className="eyebrow">Suscripciones de todos los canales</p>
               <h3>Listado de suscripciones</h3>
@@ -113,6 +126,10 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
             }
           />
           {list.data && !busy ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
+          {list.data && !busy && list.data.items.some((row) => {
+            const path = detailPath("subscription", row.channel, row.subscription_id);
+            return !path || !canOpenRecordPath(path, can);
+          }) ? <p className="detail-access-note">Los identificadores sin enlace no tienen una ficha disponible o tu rol no permite abrirla. Puedes consultar sus datos en este listado.</p> : null}
           <PortfolioTable view="subscriptions" caption="suscripciones" columns={columns} rows={list.data?.items ?? []}
             rowKey={(row) => `${row.channel}-${row.subscription_id}`} loading={busy} error={list.error} forbidden={list.forbidden}
             onRetry={list.reload} filtered={filtered} onClear={clearAll} />

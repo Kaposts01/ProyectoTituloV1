@@ -2,6 +2,8 @@
 
 Fecha: 20-11-2026. Etapa UXG-00. Alcance: diagnóstico; sin implementar cambios de interfaz.
 
+Estado posterior: los ocho hallazgos observados se atendieron en [UXG-FIX-01](uxg-fix-2026-11-20.md). Este documento conserva la referencia inicial; las hipótesis de investigación siguen diferenciadas de las correcciones implementadas.
+
 ## Usuario, alcance y método
 
 El usuario confirmó que los destinatarios son **ejecutivos sin conocimientos de programación**, que buscan cobros, socios y planes. Se revisaron consulta de socio, seguimiento de suscripción y revisión de cobro; se añadió una comprobación acotada del acceso a Planes. No se presupone que el ejecutivo conozca IDs internos o el proveedor de cada registro.

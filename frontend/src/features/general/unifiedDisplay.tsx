@@ -31,7 +31,12 @@ export function money(amount: string | number | null | undefined, currency: stri
   return `${currency ?? ""} $${value.toLocaleString("es-CL")}`.trim();
 }
 
-export const day = (value: string | null | undefined): string => (value ? String(value).slice(0, 10) : "—");
+/** Format a calendar date without interpreting it as UTC or shifting its day. */
+export const day = (value: string | null | undefined): string => {
+  if (!value) return "—";
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T| )/.exec(value);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : value;
+};
 
 /** Ruta de la ficha por canal (pantallas transitorias del «Detalle por canal»); null si no existe ficha. */
 export function detailPath(entity: "subscription" | "charge" | "payment", channel: string, id: string | null | undefined): string | null {

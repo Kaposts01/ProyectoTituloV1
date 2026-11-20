@@ -3,6 +3,7 @@ import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson } from "./api";
 import { useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
+import { SubscriptionMemoryProvider } from "./features/general/SubscriptionMemory";
 import { PageBreadcrumbs } from "./components/PageBreadcrumbs";
 import { pageLocation } from "./pageNavigation";
 import { ChangeToasts } from "./components/ChangeToasts";
@@ -647,7 +648,7 @@ function AppCore() {
     />
   ) : null;
 
-  const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} can={can} />;
+  const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} can={can} onOpenPath={openPath} />;
 
   const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSubscription={showTchSubscription} onReport={setReportScope} can={can} /> : null;
 
@@ -722,6 +723,7 @@ function AppCore() {
 
   return (
     <DirectCancelContext.Provider value={directCancelAccess}>
+    <SubscriptionMemoryProvider key={JSON.stringify([session.user.id, [...session.user.permissions].sort()])}>
     <div className="app-layout">
       <button
         ref={burgerRef}
@@ -794,6 +796,7 @@ function AppCore() {
       <ProviderWriteDialogs writes={providerWrites} />
       {reportScope ? <ReportDialog scope={reportScope} onClose={() => setReportScope(null)} /> : null}
     </div>
+    </SubscriptionMemoryProvider>
     </DirectCancelContext.Provider>
   );
 }

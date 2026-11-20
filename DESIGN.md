@@ -205,6 +205,8 @@ Radio interno de un elemento dentro de un card: `outer_radius - gap`. Un card co
 
 ## Components
 
+**Cartera para ejecutivos (UXG-FIX-01, 2026-11-20):** Cabeceras compactas, sin repetir visualmente los títulos de listado; búsqueda y canal siempre visibles, explicación por campo cuando la búsqueda se restringe y criterios activos fuera del desplegable. El aviso breve de identidad sigue visible y su significado puede ampliarse. Socios ofrece Ver ficha, feedback de apertura y foco de entrada/retorno. La ficha prioriza nombre, RUT y registros de negocio; identificadores secundarios desplegables y enlaces sujetos a permisos de canal. No asumir la moneda cuando el contrato no la incluye. Suscripciones conserva contexto solo durante la sesión autenticada, sin persistir búsquedas. Cobros permite nombre/RUT y fechas locales; motivos largos tienen resumen y texto completo accesible. Validar siempre altura útil de filas, no solo el ancho responsive.
+
 **Cabecera del Dashboard (2026-11-18):** Un titulo, mes mostrado como subtitulo y una fila independiente de filtros Mes / Canales. Casillas sencillas, sin chips. El mes en curso se explica en un aviso breve con acceso al ultimo mes cerrado. Actualizacion de datos usa un desplegable con resumen de incidencias; estados de canal y hora de generacion se consultan dentro. La hora de generacion no representa frescura de origen. En movil el titulo deja espacio al boton del menu. Mantener definiciones de KPI y acciones existentes.
 
 **Botones:** Tres variantes: primary (`--color-primary` bg, `--text-on-primary`), secondary (accent-sub bg, accent text), ghost (transparent bg, border). Destructive (error-bg, error text). Todos con `border-radius: var(--r2)`. Disabled siempre con `opacity: 0.45`, cursor `not-allowed`.

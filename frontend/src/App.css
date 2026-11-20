@@ -991,3 +991,53 @@ td.num { text-align: right; }
   background: var(--bg-muted); color: var(--text-1); font-size: 13px;
 }
 .summary-partial p { margin: 0; flex: 1 1 280px; }
+
+/* Cartera: reserve the first screen for results, retaining context and active criteria. */
+.app-page:has(> .portfolio-page) > .page-breadcrumbs { padding: 4px 16px 0; }
+.app-page > .portfolio-page { padding: 8px 16px 16px; }
+.portfolio-page > .topbar { flex-direction: row; align-items: center; margin-bottom: 8px; gap: 8px; }
+.portfolio-page > .topbar .eyebrow { display: none; }
+.portfolio-page > .topbar h1 { margin: 0; font-size: 22px; }
+.portfolio-page > .panel { padding: 12px; }
+.portfolio-page .portfolio-filters { padding: 0; margin-bottom: 8px; background: transparent; gap: 4px; }
+.portfolio-page .portfolio-filter-primary { gap: 8px; }
+.portfolio-page .portfolio-more-filters > summary, .portfolio-page .portfolio-columns > summary { min-height: 0; padding: 5px 0; }
+.portfolio-page .filter-summary { gap: 6px 12px; }
+.portfolio-page .filter-count { margin: 0; }
+.portfolio-page .portfolio-table-toolbar { margin: 4px 0; }
+.portfolio-page .portfolio-table-scroll th, .portfolio-page .portfolio-table-scroll td { padding: 9px 8px; }
+.portfolio-page .portfolio-table-scroll td:nth-child(3) { min-width: 160px; }
+.portfolio-page .portfolio-table-scroll td:nth-child(8) { min-width: 200px; }
+.portfolio-page.unified-page .portfolio-table-scroll td:nth-child(3) { min-width: 240px; }
+.charge-reason summary { cursor: pointer; line-height: 1.4; }
+.charge-reason p { margin: 6px 0; line-height: 1.4; }
+.portfolio-page > .recovery-tabs { margin-bottom: 6px; }
+.portfolio-page > .recovery-tabs button { padding: 6px 12px; }
+.member-identity-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 6px 0; color: var(--text-2); font-size: 12px; }
+.member-identity-note p { margin: 0; line-height: 1.4; }
+.member-identity-note > details { min-width: 0; }
+.member-identity-note summary { cursor: pointer; padding: 4px 0; }
+.member-identity-note details[open] { flex-basis: 100%; }
+.member-open-label { display: block; font: inherit; font-size: 11px; color: var(--link-color); text-decoration: underline; text-underline-offset: 2px; }
+.member-loading { padding: 8px 0; color: var(--text-1); }
+.member-detail-heading { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px; }
+.member-detail-heading h2 { margin: 0; font-size: 20px; }
+.member-detail-heading p { margin: 6px 0; }
+.member-detail-heading h2:focus { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.member-related { margin: 18px 0; }
+.member-related h3 { margin: 0 0 8px; font-size: 15px; }
+.member-related .table-wrap { max-height: 45vh; overflow: auto; }
+.member-related .muted-copy { font-size: 12px; }
+.member-record-ids { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.member-record-ids summary { padding: 8px 0; cursor: pointer; }
+.member-record-ids p { margin: 4px 0; line-height: 1.5; }
+.detail-access-note { margin: 6px 0; color: var(--text-2); font-size: 12px; line-height: 1.4; }
+@media (max-width: 800px) {
+  .app-page:has(> .portfolio-page) > .page-breadcrumbs { padding-top: 62px; }
+  .portfolio-page .portfolio-search { flex-basis: 100%; }
+  .portfolio-page .portfolio-filter-primary > .filter-field:not(.portfolio-search) { flex: 1 1 150px; min-width: 0; }
+  .portfolio-page .portfolio-filter-primary > .filter-actions { flex: 0 0 auto; width: auto; align-self: end; margin: 0; }
+  .portfolio-page .portfolio-more-filters > summary, .portfolio-page .portfolio-columns > summary { min-height: 24px; padding: 8px 0; }
+  .portfolio-page .portfolio-filter-primary { align-items: end; }
+  .portfolio-page .portfolio-table-scroll th, .portfolio-page .portfolio-table-scroll td { padding: 8px 6px; }
+}

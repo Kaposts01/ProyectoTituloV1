@@ -28,17 +28,18 @@ export function EnvironmentChip() {
  * solo para quien puede lanzarlo (`etl.run`). La vista anterior del resumen (/central/resumen-clasico) se retiró en UX-15;
  * el resumen vive en features/summary.
  */
-export function GeneralDashboardView({ general, etl, error, setError, can }: {
+export function GeneralDashboardView({ general, etl, error, setError, can, onOpenPath }: {
   general: GeneralState;
   etl: ReturnType<typeof useEtl>;
   error: string | null;
   setError: (message: string | null) => void;
   can?: (permission: string) => boolean;
+  onOpenPath?: (path: string) => void;
 }) {
   const { generalView } = general;
   const isSubscriptions = generalView === "subscriptions";
   return (
-    <main className="app-shell">
+    <main className="app-shell portfolio-page">
       <header className="topbar">
         <div>
           <p className="eyebrow">Cartera</p>
@@ -50,7 +51,7 @@ export function GeneralDashboardView({ general, etl, error, setError, can }: {
       {isSubscriptions ? (
         <GeneralSubscriptionsPanel general={general} can={can} />
       ) : (
-        <GeneralClientsPanel general={general} setError={setError} can={can} />
+        <GeneralClientsPanel general={general} setError={setError} can={can} onOpenPath={onOpenPath} />
       )}
       {can === undefined || can("etl.run") ? (
         <EtlPanel etlRunning={etl.etlRunning} lastEtlRun={etl.lastEtlRun} etlError={etl.etlError} runFullSync={etl.runFullSync} providers={etl.providers} />
