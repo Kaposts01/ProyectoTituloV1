@@ -29,7 +29,7 @@ Pedido del usuario (2026-11-20): «debemos cumplir con el: Velocidad de carga pe
 
 ## 3. Correcciones candidatas (por impacto y costo)
 
-1. Fuentes autoalojadas (`woff2`, subconjunto latino con tildes y ñ, `font-display: swap`, `preload` de las críticas, métricas de reserva ajustadas) y sin pedidos a dominios externos.
+1. Fuentes autoalojadas (`woff2`, originales sin recortar para las de ITF porque su licencia prohíbe subconjuntar, `font-display: swap`, `preload` de las críticas, métricas de reserva ajustadas) y sin pedidos a dominios externos.
 2. Reservar el espacio de la franja de ambiente de forma síncrona (según el modo de la build).
 3. Esqueletos con alto reservado en Dashboard, Suscripciones, Cobros, Clientes y VirtualPOS; tablas con alto mínimo.
 4. Romper la cascada: vista de entrada sin `lazy` o con `modulepreload`, precarga del chunk de la ruta mientras `/auth/me` está en vuelo, y `environment` y salud en paralelo.

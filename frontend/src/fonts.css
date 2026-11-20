@@ -1,14 +1,14 @@
 /* Fuentes autoalojadas (PERF-03c). Archivos en public/fonts, licencias junto a ellos. */
 @font-face {
   font-family: 'Cabinet Grotesk';
-  src: url('/fonts/cabinet-grotesk-latin.woff2') format('woff2');
+  src: url('/fonts/cabinet-grotesk-variable.woff2') format('woff2');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'General Sans';
-  src: url('/fonts/general-sans-latin.woff2') format('woff2');
+  src: url('/fonts/general-sans-variable.woff2') format('woff2');
   font-weight: 200 700;
   font-style: normal;
   font-display: swap;
