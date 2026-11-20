@@ -206,3 +206,38 @@ Misma pauta: Lighthouse 12.6.1, sin franja, con la build de producción en 5179,
 - **Escritorio:** el LCP cumple en las cinco pantallas (≤ 0,82 s).
 
 No se itera más sin consultar. La decisión es del coordinador y del usuario.
+
+## Aislamiento del LCP móvil y comprobación del CLS (8c94855, 2026-11-20)
+
+Lighthouse 12.6.1 sin franja (build de producción en 5179, proxy al 8001, `/system/environment` bloqueado), móvil emulado, 1 descarte y 10 pasadas por pantalla y variante, de a una. Las variantes V1 a V3 se armaron en copias temporales fuera del repo, ya borradas.
+
+- **V0:** la punta tal cual.
+- **V1:** sin datos adelantados (C).
+- **V2:** sin precarga de fuentes.
+- **V3:** solo se precarga General Sans, con `font-display: optional` en Cabinet Grotesk y JetBrains Mono.
+
+| Variante | Dashboard: LCP mediana / p75 (rango) | Cobros: LCP mediana / p75 (rango) |
+| --- | --- | --- |
+| V0 | 3.780 / 3.793 (3.756–3.817) | 3.027 / 3.028 (3.024–3.033) |
+| V1 sin C | 3.938 / 3.971 (3.910–4.092), **peor** | 2.888 / 2.893 (2.882–2.898), **mejor** |
+| V2 sin precarga | **3.616 / 3.643** (3.594–3.762), mejor | **2.875 / 2.987** (2.869–3.026), mejor |
+| V3 precarga mínima | 3.767 / 3.790 (3.757–3.838), empata con V0 | 3.026 / 3.027 (3.021–3.032), empata con V0 |
+
+El throttling simulado de Lighthouse varía poco entre pasadas: los rangos de V0 frente a V1 y V2 casi no se tocan, así que las diferencias de 140 a 160 ms son reales en laboratorio. V3 empata con V0 dentro del ruido.
+
+Lectura:
+
+- **Quitar la precarga de fuentes (V2) mejora las dos pantallas:** −164 ms en Dashboard y −152 ms en Cobros (medianas). **Se aplica.**
+- **C (datos adelantados) tiene efecto mixto:** mejora el Dashboard (sin C, +158 ms) y empeora Cobros (sin C, −139 ms). No se revierte, porque viene de d264 = b; va a la ficha del usuario con estos números.
+- **Precargar solo General Sans (V3) no cambia nada:** se descarta.
+- **El LCP móvil sigue sobre 2,5 s en las dos pantallas** (mejor caso: 2,88 s en Cobros y 3,62 s en Dashboard). Se para aquí y decide el usuario.
+
+Comprobación del CLS corregido (V0):
+
+| Pantalla | Antes | Ahora |
+| --- | --- | --- |
+| Cobros móvil | 0,103 | 0,031 (p75 de 10) |
+| Cobros escritorio | 0,092 | 0,050 (p75 de 5) |
+| VirtualPOS escritorio | 0,083 | 0 (p75 de 5) |
+
+Las tres quedan dentro de la meta.
