@@ -285,8 +285,8 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
 
 
 def _register_report_jobs(scheduler: AsyncIOScheduler) -> None:
-    """REP-02: reportes por correo. Semanal: lunes 07:30. Mensual: chequeo diario 07:45 que solo actua el primer dia
-    habil. Detras de REPORTS_WEEKLY_ENABLED / REPORTS_MONTHLY_ENABLED (apagadas). `misfire_grace_time` de 6 h con
+    """REP-02: reportes por correo. Semanal: lunes 07:30. Mensual: chequeo diario 07:45 que envia el ultimo cierre
+    vencido si falta (el primer dia habil es el caso normal). Detras de REPORTS_WEEKLY_ENABLED / REPORTS_MONTHLY_ENABLED (apagadas). `misfire_grace_time` de 6 h con
     `coalesce`: si el backend estuvo caido, el job se ejecuta tarde (la tabla `report_dispatches` evita el doble envio).
     Se registra solo si falta (para no perder una ejecucion vencida al reiniciar); si cambio la hora por variable de
     entorno, se reprograma."""
