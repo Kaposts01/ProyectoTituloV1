@@ -1,0 +1,9 @@
+Cabinet Grotesk y General Sans
+Autor: Indian Type Foundry (ITF). Distribuidas por Fontshare.
+Licencia: ITF Free Font License (ITF FFL), que permite el uso comercial y el
+autoalojamiento (self-hosting) de los archivos web.
+Texto completo: https://www.fontshare.com/licenses/itf-ffl
+Origen de los archivos: https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@variable&f[]=general-sans@variable
+Los archivos *-latin.woff2 son las fuentes variables oficiales reducidas al
+subconjunto latino (U+0000-00FF y puntuacion general; incluye tildes y enie)
+con fonttools (pyftsubset), sin otras modificaciones.

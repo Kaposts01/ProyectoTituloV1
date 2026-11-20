@@ -1,12 +1,12 @@
 :root {
-  font-family: 'General Sans', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'General Sans', 'General Sans Fallback', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
   /* fonts */
-  --font-display:    'Cabinet Grotesk', 'Barlow', ui-sans-serif, system-ui, sans-serif;
-  --font-body:       'General Sans', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-mono:       'JetBrains Mono', 'Courier New', monospace;
+  --font-display:    'Cabinet Grotesk', 'Cabinet Grotesk Fallback', 'Barlow', ui-sans-serif, system-ui, sans-serif;
+  --font-body:       'General Sans', 'General Sans Fallback', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono:       'JetBrains Mono', 'JetBrains Mono Fallback', 'Courier New', monospace;
   /* escala de encabezados (DESIGN.md) */
   --fs-display:      22px;
   --fs-h3:           17px;

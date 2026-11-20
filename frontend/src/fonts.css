@@ -1,0 +1,48 @@
+/* Fuentes autoalojadas (PERF-03c). Archivos en public/fonts, licencias junto a ellos. */
+@font-face {
+  font-family: 'Cabinet Grotesk';
+  src: url('/fonts/cabinet-grotesk-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'General Sans';
+  src: url('/fonts/general-sans-latin.woff2') format('woff2');
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Reservas con métricas ajustadas para reducir el salto al cambiar de fuente. */
+@font-face {
+  font-family: 'Cabinet Grotesk Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 108.3%;
+  ascent-override: 80.3%;
+  descent-override: 25.9%;
+  line-gap-override: 8.3%;
+}
+@font-face {
+  font-family: 'General Sans Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 115.4%;
+  ascent-override: 87.5%;
+  descent-override: 20.8%;
+  line-gap-override: 8.7%;
+}
+@font-face {
+  font-family: 'JetBrains Mono Fallback';
+  src: local('Courier New'), local('Liberation Mono');
+  size-adjust: 100%;
+  ascent-override: 102%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+}
