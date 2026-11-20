@@ -162,6 +162,14 @@ class Settings(BaseSettings):
     alert_smtp_user: str = ""
     alert_smtp_password: str = ""
     alert_smtp_starttls: bool = True
+    # REP-02: reportes por correo (resumen semanal y cierre mensual), con el mismo SMTP de las alertas. Cada uno APAGADO por
+    # defecto y con su propia bandera (independiente de ALERTS_ENABLED). `REPORT_EMAIL_TO` (lista separada por comas) solo
+    # va en el .env real; sin valor no se envia nada. En sandbox/qa se admite UN solo destinatario. Ver docs/data/scheduled_reports.md.
+    reports_weekly_enabled: bool = False
+    reports_monthly_enabled: bool = False
+    report_email_to: str = ""
+    report_weekly_hour: int = 7  # hora de Chile; el minuto es 30 (lunes)
+    report_monthly_hour: int = 7  # hora de Chile; el minuto es 45 (primer dia habil)
     # RT-13: umbrales de las alertas de webhooks (solo cuentan si las alertas estan encendidas y configuradas).
     alert_webhook_lag_minutes: int = 60  # evento pendiente mas viejo que esto (solo con el procesador encendido)
     alert_webhook_silence_hours: int = 0  # 0 = apagado; >0: canal que ya recibio webhooks y lleva N h sin recibir
@@ -325,7 +333,17 @@ class Settings(BaseSettings):
             self._guard_sandbox()
             self._apply_sandbox()
         self._check_google_oauth()
+        self._check_report_settings()
         return self
+
+    def _check_report_settings(self) -> None:
+        """REP-02: horas validas y, en sandbox/qa, a lo mas un destinatario (nunca se imprime la direccion)."""
+        for name, hour in (("REPORT_WEEKLY_HOUR", self.report_weekly_hour), ("REPORT_MONTHLY_HOUR", self.report_monthly_hour)):
+            if not 0 <= hour <= 23:
+                raise ValueError(f"{name} debe estar entre 0 y 23")
+        recipients = [part for part in self.report_email_to.split(",") if part.strip()]
+        if not self.is_production and len(recipients) > 1:
+            raise ValueError("REPORT_EMAIL_TO admite un solo destinatario cuando APP_ENV es sandbox o qa")
 
     def _check_google_oauth(self) -> None:
         """Habilitado pero incompleto: queda desactivado y se avisa (solo nombres de variables, nunca valores)."""

@@ -795,6 +795,9 @@
  "POST /api/v1/scheduler/jobs/{}/run": [
   "cookie:crm_access_token"
  ],
+ "POST /api/v1/scheduler/reports/test": [
+  "cookie:crm_access_token"
+ ],
  "POST /api/v1/staging/sync/{}": [
   "cookie:crm_access_token"
  ],

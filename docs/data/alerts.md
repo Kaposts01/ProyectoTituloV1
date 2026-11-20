@@ -188,6 +188,10 @@ Nada de esto lo hace un agente.
 5. Verificar: el job `alerts_check` aparece en `GET /api/v1/scheduler/jobs`; `GET /api/v1/health/heartbeat` responde `ok`.
 6. Opcional: registrar `heartbeat_check.py` en el Programador de tareas.
 
+## Reportes programados (REP-02)
+
+Los reportes por correo (resumen semanal y cierre mensual) comparten el SMTP de las alertas (`ALERT_SMTP_*`, `ALERT_EMAIL_FROM`, timeout de 10 s y la regla de dejar en el log solo la clase de la excepción, vía `alerts.send_report`), pero son independientes: sus banderas son `REPORTS_WEEKLY_ENABLED` y `REPORTS_MONTHLY_ENABLED` (no dependen de `ALERTS_ENABLED`), sus destinatarios son `REPORT_EMAIL_TO` y su estado va en la tabla `report_dispatches`, no en `source_records`. Ver `docs/data/scheduled_reports.md`.
+
 ## Límites conocidos
 
 - El job depende de que el backend (y el PC) estén encendidos; el heartbeat local mitiga, pero el monitor externo real depende de DEC-11.

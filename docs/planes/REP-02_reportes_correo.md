@@ -58,3 +58,12 @@ Ventana: sandbox primero con el correo del usuario y un envío de prueba; en pro
 - Un canal con muy pocos socios podría hacer identificable a alguien: conviene un mínimo de agregación.
 - Feriados chilenos: tabla que hay que actualizar cada año.
 - Por definir con el usuario (valores por defecto propuestos): si el backend estuvo caído, se envía tarde dentro de 6 h; el CSV lleva 13 meses; horas 07:30 y 07:45; el estado de sincronizaciones se calcula al armar el correo.
+
+## Paralelismo (2026-11-20)
+
+REP-02 corre en paralelo con PERF-03 (rama `perf/web-vitals`), cada uno en su rama y worktree. Archivos de cada frente:
+
+- **REP-02 (backend):** `app/services/` (reportes y envío), `app/scheduler/`, `app/core/config.py`, `app/core/business_days.py`, `app/api/v1/routes/reports.py` y `scheduler.py`, `app/models/`, `alembic/versions/`, `tests/`, `.env.example` y `docs/data/`. El botón de prueba del frontend (paso 7) queda **fuera de esta tanda** para no tocar `frontend/`.
+- **PERF-03 (frontend):** `frontend/index.html`, `frontend/src/` (CSS, `AppCore.tsx`, vistas, gráficos y el módulo de web-vitals), `frontend/package.json` y `package-lock.json`. Sin cambios en `app/`, `alembic/` ni `tests/` de Python. Su especialista tiene instrucción de no tocar el panel de tareas programadas.
+
+No comparten archivos de código. El único archivo común posible es `docs/tasks.md`; se concilia al integrar.

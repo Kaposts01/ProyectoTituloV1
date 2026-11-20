@@ -24,7 +24,11 @@ FILES = ("app/api/v1/routes/writes.py", "app/api/v1/routes/staging.py", "app/cor
 CODE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 LEGACY_UPPERCASE = {"INVOICE_IN_PROGRESS"}  # codigo preexistente que consume el frontend
 # Datos estructurados que el frontend necesita además del mensaje (BUG-VP-03: la pregunta de confirmación del alta).
-EXTRA_DETAIL_KEYS = {"duplicate_active_subscription": ["existing_external_id", "existing_status"]}
+EXTRA_DETAIL_KEYS = {
+    "duplicate_active_subscription": ["existing_external_id", "existing_status"],
+    "report_test_failed": ["error_class"],  # REP-02: solo el nombre de la clase, nunca el mensaje
+    "report_test_skipped": ["reason"],
+}
 
 
 def _http_exceptions():
