@@ -238,6 +238,14 @@ class Settings(BaseSettings):
     toku_sandbox_api_key: str = ""
     toku_sandbox_account_key: str = ""
     toku_sandbox_writes_enabled: bool = False
+    # AUTH-04: entrar con Google (solo cuentas del dominio permitido, usuarios dados de alta antes). Un solo cliente OAuth
+    # para produccion y sandbox (d254); solo cambia la URI de retorno (SANDBOX_GOOGLE_OAUTH_REDIRECT_URI).
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_oauth_allowed_domain: str = "techo.org"
+    google_oauth_enabled: bool = False
+    google_oauth_redirect_uri: str = ""
+    sandbox_google_oauth_redirect_uri: str = ""
     # Payku
     payku_base_url: str = ""
     payku_api_key: str = ""
@@ -278,6 +286,17 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.env_mode == "production"
 
+    @property
+    def google_login_active(self) -> bool:
+        """El login con Google solo esta activo si esta habilitado y tiene id, secreto y URI de retorno."""
+        return bool(
+            self.google_oauth_enabled
+            and self.google_oauth_client_id.strip()
+            and self.google_oauth_client_secret.strip()
+            and self.google_oauth_redirect_uri.strip()
+            and self.google_oauth_allowed_domain.strip()
+        )
+
     def channel_enabled(self, channel: str) -> bool:
         """Produccion: siempre habilitado. Sandbox/qa: solo si el canal tiene sus variables sandbox."""
         if self.is_production:
@@ -302,10 +321,30 @@ class Settings(BaseSettings):
             if not (self.virtualpos_base_url and self.virtualpos_api_key and self.virtualpos_secret_key):
                 raise ValueError("VIRTUALPOS_BASE_URL/API_KEY/SECRET_KEY son obligatorias en production")
             self._apply_production_aliases()
-            return self
-        self._guard_sandbox()
-        self._apply_sandbox()
+        else:
+            self._guard_sandbox()
+            self._apply_sandbox()
+        self._check_google_oauth()
         return self
+
+    def _check_google_oauth(self) -> None:
+        """Habilitado pero incompleto: queda desactivado y se avisa (solo nombres de variables, nunca valores)."""
+        if not self.google_oauth_enabled:
+            return
+        missing = [
+            name
+            for name, value in (
+                ("GOOGLE_OAUTH_CLIENT_ID", self.google_oauth_client_id),
+                ("GOOGLE_OAUTH_CLIENT_SECRET", self.google_oauth_client_secret),
+                ("GOOGLE_OAUTH_REDIRECT_URI" if self.is_production else "SANDBOX_GOOGLE_OAUTH_REDIRECT_URI",
+                 self.google_oauth_redirect_uri),
+                ("GOOGLE_OAUTH_ALLOWED_DOMAIN", self.google_oauth_allowed_domain),
+            )
+            if not value.strip()
+        ]
+        if missing:
+            self.google_oauth_enabled = False
+            log.warning("Login con Google desactivado: faltan %s.", ", ".join(missing))
 
     def _apply_production_aliases(self) -> None:
         """Alias de variables en produccion (como ya hace `_apply_sandbox`), sin pisar valores explicitos.
@@ -376,6 +415,7 @@ class Settings(BaseSettings):
     def _apply_sandbox(self) -> None:
         """Reemplaza los campos efectivos solo con variables *_SANDBOX_* (sin fallback a produccion)."""
         self.database_url = self.sandbox_database_url.strip()
+        self.google_oauth_redirect_uri = self.sandbox_google_oauth_redirect_uri.strip()
         self.auth_jwt_secret = self.sandbox_auth_jwt_secret.strip()
         self.virtualpos_base_url = self.virtualpos_sandbox_base_url
         self.virtualpos_api_key = self.virtualpos_sandbox_api_key
