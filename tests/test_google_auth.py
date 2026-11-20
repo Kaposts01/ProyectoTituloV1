@@ -366,16 +366,57 @@ def test_sandbox_uses_its_own_redirect_uri_and_same_client(monkeypatch) -> None:
     assert cfg.google_oauth_client_id == "cid" and cfg.google_login_active
 
 
-def test_failures_count_in_the_ip_throttle(google, monkeypatch) -> None:
+def _password_user() -> str:
+    username = f"pw-{uuid.uuid4().hex[:10]}"
+    db = SessionLocal()
+    try:
+        seed_permissions(db)
+        role = Role(name=f"pw-role-{uuid.uuid4().hex[:8]}")
+        db.add(role)
+        db.flush()
+        db.add(User(username=username, password_hash=hash_password("correct-password"), roles=[role]))
+        db.commit()
+    finally:
+        db.close()
+    return username
+
+
+def test_failures_with_valid_transaction_block_google_but_not_password_login(google, monkeypatch) -> None:
     monkeypatch.setattr(settings, "auth_login_max_failures_per_ip", 3)
+    username = _password_user()
     client = _client()
-    for _ in range(3):
-        assert _failed(_callback(client, "x"))
+    for _ in range(3):  # transaccion valida, usuario no registrado: cuenta
+        _, resp = _full_login(google, _email())
+        assert _failed(resp)
     email = _email()
     _make_user(email)
+    calls_before = len(google["calls"])
     _, resp = _full_login(google, email)  # bloqueada: ni con un token valido entra
     assert _failed(resp)
-    assert not google["calls"]
+    assert len(google["calls"]) == calls_before
+    # clave propia: el login con contrasena de la misma IP sigue funcionando
+    assert client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"}).status_code == 200
+
+
+def test_callback_failures_without_transaction_do_not_count(google, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "auth_login_max_failures_per_ip", 3)
+    username = _password_user()
+    client = _client()
+    for _ in range(20):
+        assert _failed(_callback(client, "x"))  # sin cookie
+    anon = _client()
+    state, _nonce, _ = _start(anon)
+    for _ in range(5):
+        assert _failed(_callback(anon, state + "x"))  # state distinto (la cookie se borra, da igual)
+        anon.cookies.clear()
+        state, _nonce, _ = _start(anon)
+        assert _failed(anon.get("/api/v1/auth/google/callback", params={"error": "access_denied", "state": state}, follow_redirects=False))
+        state, _nonce, _ = _start(anon)
+    assert client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"}).status_code == 200
+    email = _email()
+    _make_user(email)
+    _, resp = _full_login(google, email)  # y Google tampoco quedo bloqueado
+    assert resp.headers["location"] == "/"
 
 
 def test_login_with_password_is_unaffected(google) -> None:

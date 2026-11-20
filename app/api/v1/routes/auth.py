@@ -134,8 +134,11 @@ def google_start() -> RedirectResponse:
     return response
 
 
-def _google_failure(ip: str, reason: str) -> RedirectResponse:
-    login_throttle.register_failure(("ip", ip), settings.auth_login_max_failures_per_ip)
+def _google_failure(ip: str, reason: str, *, count: bool = False) -> RedirectResponse:
+    # M1: solo cuentan los fallos con una transaccion valida (state ya comprobado) y con clave propia, para que
+    # un GET anonimo al callback no pueda bloquear el login con contrasena de la IP compartida.
+    if count:
+        login_throttle.register_failure(("google_ip", ip), settings.auth_login_max_failures_per_ip)
     log_auth_event("google_login_failed", ip=ip, detail=reason)
     return _google_redirect(GOOGLE_LOGIN_ERROR_URL)
 
@@ -161,7 +164,7 @@ def google_callback(
     """
     _require_google_enabled()
     ip = _request_ip(request)
-    retry_after = login_throttle.retry_after([("ip", ip)])
+    retry_after = login_throttle.retry_after([("google_ip", ip)])
     if retry_after:
         log_auth_event("login_blocked", ip=ip)
         return _google_redirect(GOOGLE_LOGIN_ERROR_URL)
@@ -171,11 +174,14 @@ def google_callback(
             raise google_oauth.GoogleLoginError("google_returned_error")
         if not google_oauth.state_matches(tx.state, state):
             raise google_oauth.GoogleLoginError("state_mismatch")
+    except google_oauth.GoogleLoginError as exc:
+        return _google_failure(ip, exc.reason)  # sin transaccion valida: solo bitacora
+    try:
         if not code:
             raise google_oauth.GoogleLoginError("code_missing")
         email = google_oauth.verify_id_token(google_oauth.exchange_code(code, tx.verifier), tx.nonce)
     except google_oauth.GoogleLoginError as exc:
-        return _google_failure(ip, exc.reason)
+        return _google_failure(ip, exc.reason, count=True)
 
     user = db.scalar(
         select(User)
@@ -183,11 +189,11 @@ def google_callback(
         .where(func.lower(User.google_email) == email)
     )
     if user is None or not user.is_active:
-        return _google_failure(ip, "unknown_or_inactive")  # mismo resultado para no registrado e inactivo
+        return _google_failure(ip, "unknown_or_inactive", count=True)  # mismo resultado para no registrado e inactivo
     try:
         access_token, _csrf = create_access_token(user)
     except RuntimeError:
-        return _google_failure(ip, "auth_not_configured")
+        return _google_failure(ip, "auth_not_configured", count=True)
     response = _google_redirect("/")
     set_session_cookie(response, access_token)
     log_auth_event("google_login_success", ip=ip, user_id=user.id)
