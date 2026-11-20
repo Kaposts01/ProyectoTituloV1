@@ -323,11 +323,11 @@ def send_test_report(
     if result.status == "skipped":
         raise HTTPException(
             status_code=409,
-            detail={"code": "report_test_skipped", "reason": result.reason, "message": "El reporte de prueba no se envió: falta configuración."},
+            detail={"code": "report_test_skipped", "message": "El reporte de prueba no se envió: falta configuración.", "reason": result.reason},
         )
     if result.status == "failed":
         raise HTTPException(
             status_code=502,
-            detail={"code": "report_test_failed", "error_class": result.error_class, "message": "El servidor de correo no aceptó el reporte de prueba."},
+            detail={"code": "report_test_failed", "message": "El servidor de correo no aceptó el reporte de prueba.", "error_class": result.error_class},
         )
     return {"status": "sent", "kind": body.kind, "period_key": result.period_key, "recipients": len(alerts.report_recipients())}
