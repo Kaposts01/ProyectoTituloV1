@@ -8,7 +8,11 @@ describe("PageSkeleton", () => {
   it("anuncia la carga a lectores de pantalla y marca la zona como ocupada", () => {
     render(<PageSkeleton label="Cargando vista..." />);
     expect(screen.getByRole("status")).toHaveTextContent("Cargando vista...");
-    expect(screen.getByTestId("page-skeleton")).toHaveAttribute("aria-busy", "true");
+    const busy = screen.getByTestId("page-skeleton-blocks");
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    // H5: el aviso no está dentro de la zona ocupada ni el <main> entero lo está.
+    expect(busy).not.toContainElement(screen.getByRole("status"));
+    expect(screen.getByTestId("page-skeleton")).not.toHaveAttribute("aria-busy");
   });
 
   it("reserva bloques con alto (variante tabla: filtros y cuerpo)", () => {

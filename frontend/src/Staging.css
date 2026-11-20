@@ -1391,7 +1391,7 @@
 .kpi-card--featured .kpi-help { color: var(--kpi-hero-muted); }
 .summary-skeleton { min-height: 120px; border-radius: 12px; background: var(--bg-muted); animation: summary-pulse 1.4s ease-in-out infinite; }
 /* Esqueleto de página (PERF-03d): alturas reservadas parecidas a las de la vista real. */
-.page-skeleton { display: flex; flex-direction: column; gap: 16px; }
+.page-skeleton, .page-skeleton-blocks { display: flex; flex-direction: column; gap: 16px; }
 .page-skeleton-title { min-height: 44px; max-width: 360px; }
 .page-skeleton-filters { min-height: 72px; }
 .page-skeleton-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
