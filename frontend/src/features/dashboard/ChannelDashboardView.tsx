@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useDeferredValue, useMemo, useState, type ReactNode } from "react";
 import { getJson } from "../../api";
 import type { MonthlyStatusEntry } from "../shared/monthly";
 import { OperationalAlerts } from "./OperationalAlerts";
@@ -80,13 +80,19 @@ function ChannelDashboardViewImpl({
     }
     return { resolvedResources: resources, resolvedAmounts: amounts };
   }, [data, activeYear]);
+  // PERF-03 (INP): los controles de la cabecera muestran de inmediato `mode`, `year` y `churnSource`; los gráficos
+  // se alimentan de copias diferidas, de modo que recharts se redibuja en un turno de baja prioridad.
+  const dMode = useDeferredValue(mode);
+  const dYear = useDeferredValue(year);
+  const dChurnSource = useDeferredValue(churnSource);
+  const chartsStale = dMode !== mode || dYear !== year || dChurnSource !== churnSource;
   const activityTitle = "Tendencia de cobros";
   const isToku = data.source === "toku";
   const isPayku = data.source === "payku";
-  const chartYear = (rows: { year: number }[]) => (rows.some((e) => e.year === year) ? year : null);
+  const chartYear = (rows: { year: number }[]) => (rows.some((e) => e.year === dYear) ? dYear : null);
   // Sistema único (VIZ-08): todos los gráficos del canal son ChannelChart con tooltip único, teclado y «Ver datos».
   const chart = (props: ChartProps, kind: ChannelChartKind, opts: { legend?: boolean; mode?: "count" | "amount" | "percent"; ariaLabel: string; annotations?: ReturnType<typeof coverageGapAnnotations> }) => (
-    <ChannelChart series={props.series} data={props.rows} kind={kind} mode={opts.mode ?? mode} year={chartYear(props.rows)} legend={opts.legend} ariaLabel={opts.ariaLabel} annotations={opts.annotations} showDataToggle />
+    <ChannelChart series={props.series} data={props.rows} kind={kind} mode={opts.mode ?? dMode} year={chartYear(props.rows)} legend={opts.legend} ariaLabel={opts.ariaLabel} annotations={opts.annotations} showDataToggle />
   );
   const panel = (props: ChartProps, eyebrow: string, heading: string, body: ReactNode, wide = false) =>
     props.rows.length ? (
@@ -97,31 +103,33 @@ function ChannelDashboardViewImpl({
     ) : null;
   // PERF-03f: los modelos de gráfico se calculan por cambio de datos/modo (no en cada render), para que
   // `ChannelChart` (memo) reciba las mismas referencias y no vuelva a pintar recharts.
-  const m = useMemo(() => {
-    const virtualPos = data.source === "virtualpos";
-    const churnSeries = virtualPos && churnSource !== "all"
-      ? (churnSource === "vp1" ? data.churn_rate_monthly_vp1 : data.churn_rate_monthly_vp2) ?? []
+  // Un memo por gráfico con sus propias dependencias: al cambiar el modo no se recalcula (ni se repinta) lo que no lo usa.
+  const virtualPos = data.source === "virtualpos";
+  const activeSubs = useMemo(() => activeSubsLineChart(data.active_subs_monthly), [data.active_subs_monthly]);
+  const activationsVsCancellations = useMemo(() => activationVsChurnChart(data.activation_monthly, data.churn_monthly, dMode), [data.activation_monthly, data.churn_monthly, dMode]);
+  const netGrowth = useMemo(() => netGrowthChart(data.activation_monthly, data.churn_monthly, dMode), [data.activation_monthly, data.churn_monthly, dMode]);
+  const churnRates = useMemo(() => {
+    const series = virtualPos && dChurnSource !== "all"
+      ? (dChurnSource === "vp1" ? data.churn_rate_monthly_vp1 : data.churn_rate_monthly_vp2) ?? []
       : data.churn_rate_monthly ?? [];
-    const rejectedYear = (data.rejected_charges_monthly ?? []).some((e) => e.year === year) ? year : null;
-    return {
-      activeSubs: activeSubsLineChart(data.active_subs_monthly),
-      activationsVsCancellations: activationVsChurnChart(data.activation_monthly, data.churn_monthly, mode),
-      netGrowth: netGrowthChart(data.activation_monthly, data.churn_monthly, mode),
-      churnRates: churnRateChart(churnSeries),
-      rejectedRanking: rankingByStatus(data.rejected_charges_monthly, mode, rejectedYear),
-      gaps: coverageGapAnnotations(data.coverage_gaps),
-      methodSnapshot: paymentMethodSnapshot(data.statuses),
-      tokuActivity: data.source === "toku" ? tokuCollectionsChart(data.activity, mode) : null,
-      paykuTx: data.source === "payku" ? statusStackedChart(data.transactions_monthly, mode) : null,
-      paykuFallback: data.source === "payku" ? monthlyTrendChart(data.activity, mode, mode === "amount" ? "Monto" : "Cobros") : null,
-      charges: statusStackedChart(data.charges_monthly, mode),
-      payments: virtualPos ? statusStackedChart(data.payments_monthly, mode) : null,
-      invoices: statusStackedChart(data.invoices_monthly, mode),
-      tokuTransactions: data.source === "toku" ? statusStackedChart(data.transactions_monthly, mode) : null,
-      kpis: data.kpis ? normalizeKpis(data.source as Channel, data.kpis, data.churn_window_label) : null,
-    };
-  }, [data, mode, year, churnSource]);
-  const { activeSubs, activationsVsCancellations, netGrowth, churnRates, rejectedRanking, gaps, methodSnapshot } = m;
+    return churnRateChart(series);
+  }, [data.churn_rate_monthly, data.churn_rate_monthly_vp1, data.churn_rate_monthly_vp2, virtualPos, dChurnSource]);
+  const rejectedRanking = useMemo(() => {
+    const rejectedYear = (data.rejected_charges_monthly ?? []).some((e) => e.year === dYear) ? dYear : null;
+    return rankingByStatus(data.rejected_charges_monthly, dMode, rejectedYear);
+  }, [data.rejected_charges_monthly, dMode, dYear]);
+  const gaps = useMemo(() => coverageGapAnnotations(data.coverage_gaps), [data.coverage_gaps]);
+  const methodSnapshot = useMemo(() => paymentMethodSnapshot(data.statuses), [data.statuses]);
+  const m = useMemo(() => ({
+    tokuActivity: data.source === "toku" ? tokuCollectionsChart(data.activity, dMode) : null,
+    paykuTx: data.source === "payku" ? statusStackedChart(data.transactions_monthly, dMode) : null,
+    paykuFallback: data.source === "payku" ? monthlyTrendChart(data.activity, dMode, dMode === "amount" ? "Monto" : "Cobros") : null,
+    charges: statusStackedChart(data.charges_monthly, dMode),
+    payments: virtualPos ? statusStackedChart(data.payments_monthly, dMode) : null,
+    invoices: statusStackedChart(data.invoices_monthly, dMode),
+    tokuTransactions: data.source === "toku" ? statusStackedChart(data.transactions_monthly, dMode) : null,
+  }), [data, dMode, virtualPos]);
+  const kpis = useMemo(() => (data.kpis ? normalizeKpis(data.source as Channel, data.kpis, data.churn_window_label) : null), [data.kpis, data.source, data.churn_window_label]);
   const metricSections = providerGroups.find((group) => group.sections[0].source === data.source)?.sections ?? [];
   const isVirtualPos = data.source === "virtualpos";
   const channelName = CHANNEL_NAMES[data.source] ?? title(data.source);
@@ -195,7 +203,7 @@ function ChannelDashboardViewImpl({
       {data.kpis ? (
         <>
           <div className="dashboard-section-heading dashboard-section-heading-compact"><div><p className="eyebrow">CARTERA</p><h3>Salud de suscripciones</h3></div></div>
-          <ChannelKpiStrip kpis={m.kpis} churnHistory={data.churn_rate_monthly} ariaLabel="KPIs de suscripciones" />
+          <ChannelKpiStrip kpis={kpis} churnHistory={data.churn_rate_monthly} ariaLabel="KPIs de suscripciones" />
         </>
       ) : null}
       <section className={`channel-workspace${isVirtualPos ? " channel-workspace-status" : ""}`}>
@@ -228,13 +236,13 @@ function ChannelDashboardViewImpl({
         </article>
       </section>
       <div className="dashboard-section-heading dashboard-section-heading-charts"><div><p className="eyebrow">ACTIVIDAD Y TENDENCIAS</p><h3>Lectura mensual</h3></div></div>
-      <section className="extended-charts">
+      <section className="extended-charts" aria-busy={chartsStale || undefined} data-stale={chartsStale || undefined}>
         {panel(activeSubs, "SUSCRIPCIONES", "Suscripciones activas acumuladas", chart(activeSubs, "line", { mode: "count", ariaLabel: "Gráfico de suscripciones activas acumuladas" }), isVirtualPos)}
         {(() => { const p = m.charges; return panel(p, "CARGOS", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de cargos mensuales por estado" }), isVirtualPos); })()}
         {rejectedRanking.some((i) => (i.value ?? 0) > 0) ? (
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">CARGOS</p><h3>Rechazados por motivo</h3></div></div>
-            <RankingChart items={rejectedRanking} mode={mode} valueLabel={mode === "amount" ? "Monto rechazado" : "Cargos rechazados"} showDataToggle ariaLabel="Ranking de cargos rechazados por motivo" />
+            <RankingChart items={rejectedRanking} mode={dMode} valueLabel={dMode === "amount" ? "Monto rechazado" : "Cargos rechazados"} showDataToggle ariaLabel="Ranking de cargos rechazados por motivo" />
           </article>
         ) : null}
         {isVirtualPos ? (() => { const p = m.payments!; return panel(p, "TRANSACCIONES", "Estado mensual", chart(p, "stacked", { legend: true, ariaLabel: "Gráfico de transacciones mensuales por estado" })); })() : null}

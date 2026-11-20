@@ -247,6 +247,7 @@
   font-size: 26px !important;
 }
 
+.extended-charts[data-stale] { opacity: .6; transition: opacity .15s; }
 .extended-charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
