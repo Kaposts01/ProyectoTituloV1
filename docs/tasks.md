@@ -1003,6 +1003,31 @@ Filas canónicas creadas el 2026-11-07 (DOC-12) desde la Bandeja (colección `cr
 
 | UX-LOCAL-05 | Simplificar cabecera del Dashboard | Completada en rama local | Titulo unico, filtros Mes / Canales separados, aviso mensual breve y actualizacion desplegable. 40 pruebas, lint/build y Chrome escritorio, movil y temas pasan; datos y permisos conservados. [Evidencia](quality/dashboard-header-2026-11-18.md). Sin skills ni push. |
 
+### 4.16 Aplicacion gradual de criterio UX/UI (2026-11-20)
+
+Plan solicitado por el usuario. Las entregas siguientes estan pendientes: documentar el plan no equivale a implementarlas. Se parte de UX-LOCAL-01 a UX-LOCAL-05, sin rehacer mejoras ya verificadas. Supuesto de trabajo: CRM de uso intensivo, escritorio como contexto principal y consulta/gestion accesible desde movil; contrastarlo en UXG-00.
+
+Direccion propuesta: operativa, sobria y de densidad util; reutilizar identidad, tipografias, tokens y componentes existentes. Justificar excepciones con tareas y contenido. No incorporar otro framework, sustituir el stack ni reproducir la skill personal en el repositorio.
+
+**Unidad de entrega:** una pantalla o flujo acotado, con cambios revisables y reversibles. Cerrar su validacion y recoger observaciones antes de extender el patron a otras pantallas; no ejecutar toda esta tabla con una sola solicitud de comienzo. Los sublotes A/B/C se entregan por separado. Si aparece un problema critico, priorizarlo y registrar la reordenacion.
+
+| ID | Entrega | Estado | Alcance y criterio de aceptacion |
+| --- | --- | --- | --- |
+| UXG-00 | Diagnostico y referencia inicial | Completada con limites (2026-11-20) | Ejecutivo no tecnico confirmado; revision de Socios, Suscripciones, Cobros y acceso a Planes con datos sinteticos. Ocho hallazgos observados y tres hipotesis; 32 pruebas existentes pasan. [Informe y evidencia](quality/uxg00-diagnostico-2026-11-20.md). Sin cambios de interfaz ni acceso a base/proveedores. Sesiones de usuario, contraste completo y rendimiento real pendientes. |
+| UXG-01 | Socios como pantalla piloto | Pendiente; tras UXG-00 | Resolver el problema prioritario de /central/clientes. Aplicar jerarquia, busqueda, criterios activos, area de tabla y acceso a ficha usando el sistema existente. Comprobar encontrar un socio, abrir ficha y volver sin perder contexto donde el contrato lo permita. No introducir criterios de identidad o deduplicacion. Documentar el patron probado en DESIGN.md antes de reutilizarlo. |
+| UXG-02A | Suscripciones | Pendiente; tras UXG-01 | Mejorar /central/suscripciones reutilizando el patron validado, adaptado a estado, canal, monto y fechas. Distinguir datos ausentes y estados; verificar busqueda, filtros, ficha y retorno sin modificar contratos, permisos ni significado de indicadores. |
+| UXG-02B | Cobros y pagos | Pendiente; tras UXG-02A | Mejorar /central/cobros distinguiendo cobro, pago y resultado, y haciendo visible el alcance de fechas/canal. Verificar consulta y exportacion existentes con filtros; no crear ni reintentar cargos. Esta es una entrega independiente de Suscripciones. |
+| UXG-03 | Dashboard | Pendiente; tras UXG-02B | Revisar la cabecera y KPIs ya mejorados. Validar el recorrido entender periodo/cobertura -> identificar indicador -> consultar detalle autorizado -> volver. Corregir solo dificultades demostradas; conservar formulas, fecha de corte y cobertura TCH. Diferenciar salud de sincronizacion de ausencia de actividad. |
+| UXG-04 | Detalle por canal, por sublotes | Pendiente; tras UXG-03 | A: un listado VirtualPOS piloto; B: un listado Toku; C: un listado Payku; D: un listado TCH. Tras validar cada piloto, extender por recurso en entregas pequenas. Mantener espacio util, scroll nativo y encabezado fijo. Conservar filtros plegables y las decisiones del usuario de retirar ruta visual, retorno al resumen, barra horizontal adicional y botones de cuenta; no reintroducirlos por uniformidad. Verificar permisos, fichas y exportaciones sin escrituras a proveedores. |
+| UXG-05 | Flujos de operacion, por sublotes | Pendiente; tras UXG-04 | A: Recuperador; B: Cambios de cobro; C: Bajas. Una entrega por flujo. Diferenciar lectura de gestion, explicar consecuencias y validar errores, confirmacion y permisos con datos sinteticos o mocks. No habilitar escrituras, enviar mensajes ni ejecutar operaciones externas para probar UX. |
+| UXG-06 | Revision transversal y cierre | Pendiente; tras UXG-05 | Recorrer tareas completas entre modulos con roles autorizados. Revisar menu/cuenta/perfil solo si se demuestra una dificultad, sin rediseno global automatico. Probar teclado, foco, contraste, zoom, temas y movil. Documentar hallazgos residuales, evidencia y limitaciones; no declarar accesibilidad AA completa con una revision parcial. |
+
+**Cierre de cada entrega:** describir tarea y problema; indicar supuestos y direccion visual; implementar el lote acotado; mostrar resultado y decisiones; verificar escenario normal y adverso; ejecutar pruebas relevantes, lint y build cuando cambie frontend; revisar diff, privacidad y permisos; registrar limites y estado en esta tabla. La revision movil y de accesibilidad se hace desde el piloto, no se posterga hasta UXG-06. Repetir una tarea representativa antes/despues para comparar errores, pasos y esfuerzo sin inventar mejoras numericas.
+
+**Entorno y control:** rama local actual, sin push. Skills personales fuera del indice y sin copiar instrucciones o evaluaciones al repo. QA local con datos protegidos; sin migraciones ni cambios sobre la base original. Validacion visual de escritorio amplio y altura corta, movil 390/320px y ambos temas; usar los anchos y alturas reales del usuario como referencia adicional.
+
+**Calendario:** S7 fija congelamiento de codigo al cierre del 2026-11-21. Este backlog no modifica esa fecha ni promete completar el rediseño antes de ella. UXG-00 puede alimentar UX-16/MET-03; calendarizar los lotes de implementacion segun capacidad y ventana acordada, sin expandir automaticamente el cierre de S7.
+
 ## 5. Bloqueos y decisiones abiertas
 
 Las referencias de la primera columna son propias de esta sección (familia DEC); el ID de la tarea afectada va en la prosa.
