@@ -58,3 +58,12 @@ Verificación completa del token (sin saltarse `hd` ni `email_verified`; `alg=no
 - Si se pierde una cuenta @techo.org, entra quien la tenga: la baja del usuario o del correo revoca sesiones.
 - Cuentas recicladas o con alias: mejora opcional, guardar `google_sub` en el primer ingreso de un usuario ya registrado.
 - El límite de intentos es por proceso (no se comparte entre producción y sandbox).
+
+## Estado tras la QA (2026-11-20)
+
+- QA de seguridad con Fable (`QA_AUTH-04.md`): aprobado con observaciones. Corregidos en la rama: M1 (fallos sin transacción no cuentan; clave propia `google_ip`), SEC-04/X1 y B4 (d255) y el `typ` de sesión (d257). B3 (`google_sub`, d256) queda como tarea de seguimiento.
+- Re-verificación con sonnet (`QA_AUTH-04b.md`): aprobado con observaciones menores, que quedan anotadas sin corregir:
+  - O1: el contador `google_ip` no se limpia tras un ingreso correcto. Es coherente con el login con contraseña, que tampoco limpia su contador por IP.
+  - O2: el literal `"session"` del `typ` está repetido en `app/core/session_guard.py` y `app/core/security.py`; conviene una constante compartida.
+  - O3: formato.
+- Pruebas del líder (entorno aparte con `cryptography` 47.0.0): pytest 3761 pasan, 23 omitidas; vitest 1490/1490 (una corrida previa dio 1489/1490 sin cambios de frontend: falla intermitente sin rastrear).
