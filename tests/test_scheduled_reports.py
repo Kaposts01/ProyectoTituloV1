@@ -302,6 +302,44 @@ def test_send_report_builds_html_with_csv_attachment(smtp, db_session) -> None:
     assert names == [built.csv_name]
 
 
+def _full_mime_text(msg) -> str:
+    """Todo el mensaje tal como saldria por el cable (cabeceras, partes y adjunto) mas cada parte decodificada."""
+    pieces = [msg.as_string()]
+    for part in msg.walk():
+        if not part.is_multipart():
+            payload = part.get_payload(decode=True)
+            pieces.append(payload.decode(part.get_content_charset() or "utf-8") if payload else "")
+    return "\n".join(pieces)
+
+
+def test_full_mime_message_has_no_personal_data_nor_external_ids(smtp, db_session, caplog) -> None:
+    start, _ = scheduled_reports.weekly_period(NOW)
+    _seed(db_session, "virtualpos1", 6, start, "w-vp")
+    _seed(db_session, "toku", 3, start, "w-tk")
+    with caplog.at_level("DEBUG"):
+        built = scheduled_reports.build_weekly(db_session, NOW)
+        ok, error = alerts.send_report(built.subject, built.text, built.html, [TO], ((built.csv_name, built.csv_text),))
+    assert (ok, error) == (True, None)
+    (msg,) = smtp.messages
+    # cabeceras
+    assert msg["Subject"] == built.subject and msg["To"] == TO and msg["From"] == "crm@ejemplo.test"
+    assert set(msg.keys()) <= {"Subject", "From", "To", "Content-Type", "MIME-Version"}
+    # partes: texto, html y un unico adjunto CSV con el nombre esperado
+    assert msg.get_body(preferencelist=("plain",)).get_content().strip() == built.text.strip()
+    assert msg.get_body(preferencelist=("html",)).get_content().strip() == built.html.strip()
+    (attachment,) = list(msg.iter_attachments())
+    assert attachment.get_filename() == built.csv_name == f"resumen_semanal_{start.isoformat()}.csv"
+    assert attachment.get_content_type() == "text/csv"
+    assert attachment.get_content() == built.csv_text
+    # nada personal ni ids externos sembrados, en el mensaje completo ni en los logs del armado y el envio
+    full = _full_mime_text(msg)
+    # las unicas direcciones permitidas son las ficticias de remitente y destinatario de la prueba
+    _assert_no_personal_data(full.replace(TO, "").replace("crm@ejemplo.test", ""), caplog.text)
+    for ext in ([f"w-vp-{i}" for i in range(6)] + [f"w-tk-{i}" for i in range(3)]):
+        assert ext not in full and ext not in caplog.text
+    assert "w-vp" not in full and "w-tk" not in full and TO not in caplog.text
+
+
 def test_send_report_failure_returns_only_the_class_name(smtp, caplog) -> None:
     smtp.fail_with = OSError("smtp caido con persona@ejemplo.org")
     with caplog.at_level("WARNING"):

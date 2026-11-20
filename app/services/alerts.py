@@ -509,7 +509,8 @@ def send_report(
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
     for name, content in attachments:
-        msg.add_attachment(content.encode("utf-8"), maintype="text", subtype="csv", filename=name)
+        # texto (no bytes): asi el adjunto declara charset=utf-8 y el «—» del enmascarado no se ve roto
+        msg.add_attachment(content, subtype="csv", filename=name)
     try:
         _deliver(msg)
         return True, None
