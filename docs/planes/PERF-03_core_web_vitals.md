@@ -155,3 +155,7 @@ Lectura:
 - fd97748 **mejora el INP de VirtualPOS** (mediana −64 ms, p75 −24 ms) y deja igual Dashboard y Suscripciones, que ya cumplen con holgura (≤ 64 ms frente a la meta de 200 ms).
 - VirtualPOS **sigue sobre 200 ms** con o sin el commit: sus controles de la cabecera (año, modo) redibujan todos los gráficos de recharts.
 - El aumento del TBT de VirtualPOS en Lighthouse (262 → 384 ms) mide la carga, no la respuesta: con este dato, fd97748 se conserva. Lo que queda para VirtualPOS es aligerar el redibujado de gráficos al cambiar año o modo (por ejemplo, `startTransition` en ese cambio o diferir los gráficos fuera de pantalla).
+
+## INP de VirtualPOS después de d1969f6 (2026-11-20)
+
+Mismo guion (CPU 4x, 7 interacciones, usuario temporal de solo lectura), build de sandbox de `d1969f6` en 5178, 5 cargas: **144, 88, 80, 72, 80 ms → mediana 80, p75 88 ms** (antes, con fd97748: mediana 272, p75 312 ms; sin fd97748: 336 / 336 ms). **VirtualPOS cumple la meta de INP (≤ 200 ms)**, como ya cumplían Dashboard (64 ms) y Suscripciones (64 ms). Misma advertencia de muestra: 5 cargas y resolución de 8 ms.
