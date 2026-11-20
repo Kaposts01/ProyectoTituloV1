@@ -90,7 +90,10 @@ def test_reports_use_the_same_rejection_universe(db_session, monkeypatch) -> Non
     """UI-30: reportes HTML con la misma regla: sin cancelados, pendientes ni cargos futuros en la tasa."""
     from app.api.v1.routes import reports
 
+    from app.services import report_figures
+
     monkeypatch.setattr(reports, "chile_today", lambda: date(2001, 6, 15))
+    monkeypatch.setattr(report_figures, "chile_today", lambda: date(2001, 6, 15))  # REP-02: las cifras viven aqui
     rows = (
         ("pagado", "2001-06-01"), ("rechazado", "2001-06-02"), ("pendiente", "2001-06-03"),
         ("cancelado", "2001-06-04"), ("rechazado", "2001-06-20"),  # futuro respecto a hoy
