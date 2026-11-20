@@ -4,6 +4,20 @@ import { getJson, postJson, putJson, patchJson } from "../../api";
 import { refreshCsrfToken } from "../shared/utils";
 import type { AdminRole, AuthUser } from "../shared/types";
 
+const GOOGLE_EMAIL_LABEL = "Correo de Google (@techo.org)";
+
+function googleEmailErrorMessage(e: unknown, fallback: string): string {
+  const status = (e as { status?: number } | null)?.status;
+  if (status === 409) return "Ese correo de Google ya está asignado a otro usuario.";
+  if (status === 422) return "El correo de Google no es válido: debe ser una cuenta @techo.org.";
+  return e instanceof Error ? e.message : fallback;
+}
+
+function googleEmailValue(form: FormData): string | null {
+  const value = String(form.get("google_email") ?? "").trim();
+  return value === "" ? null : value;
+}
+
 export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles: AdminRole[] }) {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,12 +38,12 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
     const formEl = event.currentTarget; // tras un await, React deja currentTarget en null
     const form = new FormData(event.currentTarget);
     try {
-      await postJson("/api/v1/admin/users", { username: form.get("username"), password: form.get("password"), role_ids: form.getAll("role_ids") });
+      await postJson("/api/v1/admin/users", { username: form.get("username"), password: form.get("password"), role_ids: form.getAll("role_ids"), google_email: googleEmailValue(form) });
       formEl.reset();
       setCreating(false);
       setMessage("Usuario creado.");
       reload();
-    } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo crear el usuario."); }
+    } catch (e) { setMessage(googleEmailErrorMessage(e, "No se pudo crear el usuario.")); }
   }
 
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
@@ -37,11 +51,11 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
     if (!editTarget) return;
     const form = new FormData(event.currentTarget);
     try {
-      await putJson(`/api/v1/admin/users/${editTarget.id}`, { role_ids: form.getAll("role_ids"), is_active: form.get("is_active") === "true" });
+      await putJson(`/api/v1/admin/users/${editTarget.id}`, { role_ids: form.getAll("role_ids"), is_active: form.get("is_active") === "true", google_email: googleEmailValue(form) });
       setEditTarget(null);
       setMessage("Usuario actualizado.");
       reload();
-    } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo actualizar el usuario."); }
+    } catch (e) { setMessage(googleEmailErrorMessage(e, "No se pudo actualizar el usuario.")); }
   }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
@@ -70,6 +84,7 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
         <form className="edit-form-grid" onSubmit={createUser} style={{ marginBottom: "1.5rem" }}>
           <label>Usuario<input name="username" required minLength={3} /></label>
           <label>Contraseña temporal<input name="password" type="password" required minLength={12} /></label>
+          <label className="edit-form-wide">{GOOGLE_EMAIL_LABEL}<input name="google_email" type="email" autoComplete="off" placeholder="nombre@techo.org" /></label>
           <fieldset className="edit-form-wide">
             <legend>Roles</legend>
             {roles.map((r) => <label key={r.id}><input type="checkbox" name="role_ids" value={r.id} /> {r.name}</label>)}
@@ -82,7 +97,7 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
           <table className="staging-table">
             <thead>
               <tr>
-                <th>Usuario</th><th>Roles</th><th>Estado</th><th>Creado</th>
+                <th>Usuario</th><th>Correo de Google</th><th>Roles</th><th>Estado</th><th>Creado</th>
                 {canManage ? <th>Acciones</th> : null}
               </tr>
             </thead>
@@ -90,6 +105,7 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
               {users.map((u) => (
                 <tr key={u.id}>
                   <td>{u.username}</td>
+                  <td>{u.google_email ? u.google_email : <em className="muted-copy">Sin correo</em>}</td>
                   <td>{u.roles.length ? u.roles.map((r) => r.name).join(", ") : <em className="muted-copy">Sin roles</em>}</td>
                   <td><span className={`badge ${u.is_active ? "badge-green" : "badge-gray"}`}>{u.is_active ? "Activo" : "Inactivo"}</span></td>
                   <td>{u.created_at ? new Date(u.created_at).toLocaleDateString("es-CL") : "-"}</td>
@@ -110,6 +126,10 @@ export function UsersSubPanel({ canManage, roles }: { canManage: boolean; roles:
           <div className="edit-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="edit-dialog-heading"><div><p className="eyebrow">EDITAR USUARIO</p><h3>{editTarget.username}</h3></div></div>
             <form className="edit-form-grid" onSubmit={saveEdit}>
+              <label className="edit-form-wide">
+                {GOOGLE_EMAIL_LABEL}
+                <input name="google_email" type="email" autoComplete="off" placeholder="nombre@techo.org" defaultValue={editTarget.google_email ?? ""} />
+              </label>
               <fieldset className="edit-form-wide">
                 <legend>Roles</legend>
                 {roles.map((r) => (
