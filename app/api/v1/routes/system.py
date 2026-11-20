@@ -40,6 +40,7 @@ def get_environment() -> dict:
         "is_production": settings.is_production,
         "access_cookie_name": access_cookie_name(mode),
         "enabled_channels": enabled_channels(),
+        "google_login_enabled": settings.google_login_active,
     }
 
 

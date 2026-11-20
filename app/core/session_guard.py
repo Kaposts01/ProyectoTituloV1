@@ -10,6 +10,7 @@ activo, permisos, CSRF) sigue en las dependencias de cada ruta; esto es solo la 
 
 Rutas publicas (excepciones explicitas, ver `tests/test_authz_route_matrix.py`):
   - POST /api/v1/auth/login: inicio de sesion.
+  - GET  /api/v1/auth/google/start y /callback: inicio de sesion con Google (AUTH-04); 404 si esta deshabilitado.
   - GET  /api/v1/system/environment: ambiente y canales, la pantalla de login lo necesita sin sesion.
   - /api/v1/health/...: latido para el monitor externo, sin datos personales (d139c).
   - /api/v1/webhooks/...: receptores de proveedores, autenticados por firma HMAC (Toku, payout VirtualPOS) o token
@@ -32,7 +33,12 @@ from app.core.config import settings
 from app.core.security import ACCESS_COOKIE, get_current_user
 
 API_PREFIX = "/api/v1/"
-PUBLIC_API_PATHS: frozenset[str] = frozenset({"/api/v1/auth/login", "/api/v1/system/environment"})
+PUBLIC_API_PATHS: frozenset[str] = frozenset({
+    "/api/v1/auth/login",
+    "/api/v1/auth/google/start",
+    "/api/v1/auth/google/callback",
+    "/api/v1/system/environment",
+})
 PUBLIC_API_PREFIXES: tuple[str, ...] = ("/api/v1/health/", "/api/v1/webhooks/")
 
 Scope = MutableMapping[str, Any]
