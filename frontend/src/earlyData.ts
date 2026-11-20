@@ -60,7 +60,7 @@ export function startEarlyData(pathname: string = window.location.pathname, sear
   // Los enlaces con filtros u offset en la URL piden otra cosa: no se adelanta nada.
   if (hasSearch) return;
   if (route.view === "subscriptions") warm(FIRST_PAGE_URLS.subscriptions, () => getJson(FIRST_PAGE_URLS.subscriptions));
-  else if (route.view === "charges") warm(FIRST_PAGE_URLS.charges, () => getJson(FIRST_PAGE_URLS.charges));
+  // d267 = b: en Cobros no se adelanta (medido el 2026-11-20: con el adelantado el LCP móvil empeoraba ~140 ms).
   else if (route.view === "clients") warm(FIRST_PAGE_URLS.clients, () => getJson(FIRST_PAGE_URLS.clients));
 }
 

@@ -23,7 +23,6 @@ afterEach(() => {
 describe("startEarlyData: qué se pide según la ruta", () => {
   it.each([
     ["/central/suscripciones", FIRST_PAGE_URLS.subscriptions],
-    ["/central/cobros", FIRST_PAGE_URLS.charges],
     ["/central/clientes", FIRST_PAGE_URLS.clients],
     ["/central/resumen", "/api/v1/dashboard/general"],
     ["/", "/api/v1/dashboard/general"],
@@ -37,7 +36,8 @@ describe("startEarlyData: qué se pide según la ruta", () => {
     expect(urls()).toEqual([expected]);
   });
 
-  it("no pide nada para otras rutas ni cuando la URL trae filtros u offset", async () => {
+  it("no pide nada en Cobros (d267 = b), en otras rutas ni cuando la URL trae filtros u offset", async () => {
+    startEarlyData("/central/cobros", ""); // d267 = b
     startEarlyData("/admin/usuarios", "");
     startEarlyData("/mi-perfil", "");
     startEarlyData("/central/suscripciones", "?offset=50");

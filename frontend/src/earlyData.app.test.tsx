@@ -48,15 +48,15 @@ describe("datos adelantados con AppCore", () => {
   it("al cerrar sesión se descarta lo adelantado", async () => {
     mountApp("/central/suscripciones", [
       ["GET", "/api/v1/general/subscriptions", page], statuses, ["POST", "/api/v1/auth/logout", {}],
-      ["GET", "/api/v1/general/charges", { items: [], total: 0, offset: 0, limit: 50, by_channel: {}, canales: [] }],
+      ["GET", "/api/v1/staging/dashboard/general/clients", { items: [], total: 0, offset: 0, limit: 50 }],
     ]);
     await appReady();
     await screen.findByText("DEMO Uno");
-    startEarlyData("/central/cobros", "");
-    await waitFor(() => expect(getCached(`early:${FIRST_PAGE_URLS.charges}`, 60_000)).not.toBeNull());
+    startEarlyData("/central/clientes", "");
+    await waitFor(() => expect(getCached(`early:${FIRST_PAGE_URLS.clients}`, 60_000)).not.toBeNull());
     fireEvent.click(await screen.findByRole("button", { name: "Opciones de cuenta" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Cerrar sesión" }));
     expect(await screen.findByRole("heading", { name: "Iniciar sesión" })).toBeTruthy();
-    expect(takeEarly(FIRST_PAGE_URLS.charges)).toBeNull();
+    expect(takeEarly(FIRST_PAGE_URLS.clients)).toBeNull();
   });
 });
