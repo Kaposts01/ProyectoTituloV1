@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getJson, friendlyError } from "../../api";
+import { takeEarly } from "../../earlyData";
 import { useDebouncedValue } from "../../hooks";
 import type { GeneralClientDetail } from "./generalClientAdapter";
 import type {
@@ -50,8 +51,10 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   useEffect(() => {
     if (!session || generalView !== "clients") return;
     const controller = new AbortController();
-    getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${clientsQuery}`, controller.signal)
-      .then((data) => { setGeneralClients(data); setSettledClientsQuery(clientsQuery); })
+    const url = `/api/v1/staging/dashboard/general/clients?${clientsQuery}`;
+    // PERF-03 (d264 C): la primera página puede venir adelantada, pedida en paralelo con /auth/me (earlyData.ts).
+    (takeEarly<GeneralClients>(url) ?? getJson<GeneralClients>(url, controller.signal))
+      .then((data) => { if (controller.signal.aborted) return; setGeneralClients(data); setSettledClientsQuery(clientsQuery); })
       .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setSettledClientsQuery(clientsQuery); setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")); });
     return () => controller.abort();
   }, [session, generalView, clientsQuery, setError]);

@@ -1,5 +1,6 @@
 import { startTransition, useEffect, useState } from "react";
 import { ApiError, friendlyError, getJson } from "../../api";
+import { listUrl, takeEarly } from "../../earlyData";
 
 export type UnifiedLoad<T> = { data: T | null; loading: boolean; error: string | null; forbidden: boolean };
 
@@ -29,9 +30,11 @@ export function useUnifiedGet<T>(path: string, params: Record<string, string>, e
     setState((prev) => (prev.path === path
       ? { ...prev, loading: true, error: null }
       : { data: null, loading: true, error: null, forbidden: false, path }));
-    getJson<T>(`${path}${query ? `?${query}` : ""}`, controller.signal)
+    const url = listUrl(path, query);
+    // PERF-03 (d264 C): la primera página puede venir adelantada, pedida en paralelo con /auth/me (earlyData.ts).
+    (takeEarly<T>(url) ?? getJson<T>(url, controller.signal))
       // PERF-03f: pintar la página nueva (50 filas) es una actualización diferible: no bloquea una tecla o un clic que llegue en medio.
-      .then((data) => startTransition(() => setState({ data, loading: false, error: null, forbidden: false, path })))
+      .then((data) => { if (!controller.signal.aborted) startTransition(() => setState({ data, loading: false, error: null, forbidden: false, path })); })
       .catch((err: unknown) => {
         if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
         const forbidden = err instanceof ApiError && err.status === 403;

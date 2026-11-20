@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { getCached } from "./apiCache";
+import { discardEarlyData } from "./earlyData";
 import { setCsrfToken, getJson, postJson } from "./api";
 import { fetchChannelHealth, useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
@@ -147,7 +148,8 @@ function AppCore() {
     void fetchChannelHealth();
     getJson<AuthSession>("/api/v1/auth/me")
       .then((current) => { setCsrfToken(current.csrf_token); setSession(current); })
-      .catch(() => setSession(null));
+      // d264 C: sin sesión confirmada, lo que se adelantó en paralelo se descarta.
+      .catch(() => { discardEarlyData(); setSession(null); });
   }, []);
 
   useEffect(() => {
@@ -543,6 +545,7 @@ function AppCore() {
 
   async function logout() {
     try { await postJson("/api/v1/auth/logout"); } finally {
+      discardEarlyData();
       setCsrfToken("");
       setSession(null);
       setAdminOpen(false);
@@ -720,7 +723,7 @@ function AppCore() {
   );
 
   if (session === undefined) return <main className="app-shell"><p className="muted-copy">Verificando sesión...</p></main>;
-  if (session === null) return <LoginScreen onLogin={setSession} />;
+  if (session === null) return <LoginScreen onLogin={(next) => { discardEarlyData(); setSession(next); }} />;
 
   // Botones directos de baja: solo admin (el backend lo exige); el resto pide la baja en «Bajas».
   const directCancelAccess = { isAdmin: session.user.roles.some((role) => role.name === "admin"), canOpenCancellations: can(PERM_CANCELLATION_VIEW) };
