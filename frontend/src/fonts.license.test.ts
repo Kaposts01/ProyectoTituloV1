@@ -7,13 +7,13 @@ const fonts = resolve(__dirname, "../public/fonts");
 const read = (name: string) => readFileSync(resolve(fonts, name), "utf8");
 
 describe("fuentes autoalojadas y licencia ITF", () => {
-  it("usa los woff2 variables originales (sin el sufijo -latin de los recortados) en CSS y precarga", () => {
+  it("usa los woff2 variables originales (sin el sufijo -latin de los recortados) en CSS, sin precarga (890e3da)", () => {
     const css = readFileSync(resolve(__dirname, "fonts.css"), "utf8");
     const html = readFileSync(resolve(__dirname, "../index.html"), "utf8");
     for (const name of ["cabinet-grotesk-variable.woff2", "general-sans-variable.woff2"]) {
       expect(existsSync(resolve(fonts, name))).toBe(true);
       expect(css).toContain(`/fonts/${name}`);
-      expect(html).toContain(`/fonts/${name}`);
+      expect(html).not.toContain(`/fonts/${name}`); // la precarga empeoraba el LCP móvil (medido el 2026-11-20)
       expect(readFileSync(resolve(fonts, name)).subarray(0, 4).toString("latin1")).toBe("wOF2");
     }
     expect(existsSync(resolve(fonts, "cabinet-grotesk-latin.woff2"))).toBe(false);

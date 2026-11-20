@@ -1,4 +1,4 @@
-import { getJson } from "./api";
+import { ApiError, getJson } from "./api";
 import { deleteCached, getCachedOrFetch, invalidateCache, isCachedOrPending } from "./apiCache";
 import { fetchSummary } from "./features/summary/summaryApi";
 import { parseRoute } from "./routes";
@@ -75,6 +75,18 @@ export function takeEarly<T>(id: string): Promise<T> | null {
   const clear = () => deleteCached(key);
   promise.then(clear, clear);
   return promise;
+}
+
+/**
+ * QA PERF-03b F2: usa la respuesta adelantada si la hay; si falló por algo que no sea 401/403 (red caída, 5xx),
+ * reintenta con la petición normal del hook en vez de mostrar el error del adelantado.
+ */
+export function earlyOr<T>(early: Promise<T> | null, fetcher: () => Promise<T>): Promise<T> {
+  if (!early) return fetcher();
+  return early.catch((err: unknown) => {
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) throw err;
+    return fetcher();
+  });
 }
 
 export const takeEarlySummary = () => takeEarly<Awaited<ReturnType<typeof fetchSummary>>>(SUMMARY_ID);

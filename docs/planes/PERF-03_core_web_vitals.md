@@ -241,3 +241,12 @@ Comprobación del CLS corregido (V0):
 | VirtualPOS escritorio | 0,083 | 0 (p75 de 5) |
 
 Las tres quedan dentro de la meta.
+
+## QA de la tanda 3 (QA_PERF-03b, 2026-11-20)
+
+- **F1 (media):** corregido. `fonts.license.test.ts` ahora afirma que `index.html` no precarga las fuentes, como decidió 890e3da.
+- **F2 (baja):** corregido con `earlyOr` en `earlyData.ts`. Si el pedido adelantado falla por red o 5xx, el hook reintenta con su propia petición; un 401 o 403 se propaga sin reintentar. Además, `useGeneralDashboard` ya no llama a `setError` con una consulta cancelada. Tiene prueba.
+- **F3 (baja), anotado:** durante el instante del esqueleto, la cabecera de canal sale de la URL sin comprobar permisos. Solo muestra el nombre del canal y los controles deshabilitados, ningún dato; después `canAccessRoute` redirige.
+- **F4 (info), anotado:** la cookie del usuario ficticio del job `perf-budget` pasa por argv a `lhci`. Es efímera y de una base sintética.
+- **F5 (info), anotado:** `pageReserve` guarda conteos de filas a nivel de módulo y no los limpia al cerrar sesión. No son datos.
+- **F6 (info), anotado:** `perf-budget` no debe figurar como check requerido en la protección de ramas mientras esté en modo aviso.

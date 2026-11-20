@@ -104,3 +104,26 @@ describe("seguridad de los datos adelantados", () => {
     expect(getCached("dashboard:virtualpos", 300_000)).toBeNull();
   });
 });
+
+describe("earlyOr (QA PERF-03b F2)", () => {
+  it("sin adelantado usa la petición normal", async () => {
+    const { earlyOr } = await import("./earlyData");
+    await expect(earlyOr(null, () => Promise.resolve("normal"))).resolves.toBe("normal");
+  });
+  it("si el adelantado falla por red o 5xx, reintenta con la petición normal", async () => {
+    const { earlyOr } = await import("./earlyData");
+    const { ApiError } = await import("./api");
+    const fallo = Promise.reject(new ApiError("caído", 503, null));
+    await expect(earlyOr(fallo, () => Promise.resolve("reintento"))).resolves.toBe("reintento");
+    await expect(earlyOr(Promise.reject(new TypeError("Failed to fetch")), () => Promise.resolve("reintento"))).resolves.toBe("reintento");
+  });
+  it("si el adelantado falla por 401 o 403, no reintenta y propaga el error", async () => {
+    const { earlyOr } = await import("./earlyData");
+    const { ApiError } = await import("./api");
+    for (const status of [401, 403]) {
+      let llamadas = 0;
+      await expect(earlyOr(Promise.reject(new ApiError("sin acceso", status, null)), () => { llamadas++; return Promise.resolve("x"); })).rejects.toBeInstanceOf(ApiError);
+      expect(llamadas).toBe(0);
+    }
+  });
+});
