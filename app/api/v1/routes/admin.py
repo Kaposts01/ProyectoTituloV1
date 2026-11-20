@@ -1,11 +1,16 @@
+import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.auth_audit import log_auth_event
+from app.core.config import settings
 from app.core.password_policy import PasswordPolicyError, validate_new_password
+from app.core.rate_limit import client_ip_from
 from app.core.security import (
     get_db,
     hash_password,
@@ -31,11 +36,38 @@ class UserInput(BaseModel):
     username: str = Field(min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9_.-]+$")
     password: str = Field(min_length=12, max_length=256)
     role_ids: set[uuid.UUID] = Field(min_length=1)
+    google_email: str | None = Field(default=None, max_length=255)  # AUTH-04
 
 
 class UserUpdate(BaseModel):
     is_active: bool | None = None
     role_ids: set[uuid.UUID] | None = Field(default=None, min_length=1)
+    # AUTH-04: ausente = sin cambio; null o vacio = quitar el correo de Google.
+    google_email: str | None = Field(default=None, max_length=255)
+
+
+def _normalize_google_email(raw: str | None) -> str | None:
+    """AUTH-04: minusculas, sin espacios y del dominio permitido (422 si no). Vacio o None = sin correo."""
+    value = (raw or "").strip().lower()
+    if not value:
+        return None
+    domain = settings.google_oauth_allowed_domain.strip().lower()
+    local, _, host = value.partition("@")
+    if not domain or not local or host != domain or not re.fullmatch(r"[a-z0-9._%+-]+", local):
+        raise HTTPException(status_code=422, detail=f"El correo de Google debe ser de la forma usuario@{domain}")
+    return value
+
+
+def _ensure_google_email_free(db: Session, email: str, exclude_user_id: uuid.UUID | None = None) -> None:
+    query = select(User.id).where(func.lower(User.google_email) == email)
+    if exclude_user_id is not None:
+        query = query.where(User.id != exclude_user_id)
+    if db.scalar(query) is not None:
+        raise HTTPException(status_code=409, detail="Ese correo de Google ya está asignado a otro usuario")
+
+
+def _admin_ip(request: Request) -> str:
+    return client_ip_from(request.client.host if request.client else None, request.headers.get("x-forwarded-for"))
 
 
 def _check_password_policy(password: str, username: str) -> None:
@@ -134,11 +166,11 @@ def update_role(role_id: uuid.UUID, body: RoleInput, db: Session = Depends(get_d
 @router.get("/users", dependencies=[Depends(require_permissions("users.manage"))], tags=["Administration"])
 def list_users(db: Session = Depends(get_db)) -> list[dict]:  # noqa: B008
     users = db.scalars(select(User).options(selectinload(User.roles).selectinload(Role.permissions)).order_by(User.username)).all()
-    return [serialize_user(user) for user in users]
+    return [{**serialize_user(user), "google_email": user.google_email} for user in users]
 
 
 @router.post("/users", dependencies=[Depends(require_csrf)], tags=["Administration"])
-def create_user(body: UserInput, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
+def create_user(body: UserInput, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
     if db.scalar(select(User).where(User.username == body.username)):
         raise HTTPException(status_code=409, detail="Username already exists")
     new_roles = _roles(db, body.role_ids)
@@ -146,15 +178,24 @@ def create_user(body: UserInput, db: Session = Depends(get_db), current_user: Us
     if any(role.name == "admin" for role in new_roles) and not any(role.name == "admin" for role in current_user.roles):
         raise HTTPException(status_code=403, detail="Only an admin can create an admin account")
     _check_password_policy(body.password, body.username)
-    user = User(username=body.username, password_hash=hash_password(body.password), roles=new_roles)
+    google_email = _normalize_google_email(body.google_email)
+    if google_email is not None:
+        _ensure_google_email_free(db, google_email)
+    user = User(username=body.username, password_hash=hash_password(body.password), roles=new_roles, google_email=google_email)
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ese correo de Google ya está asignado a otro usuario") from exc
     db.refresh(user)
+    if google_email is not None:
+        log_auth_event("google_email_set", ip=_admin_ip(request), user_id=user.id)
     return {"id": str(user.id), "username": user.username}
 
 
 @router.put("/users/{user_id}", dependencies=[Depends(require_csrf)], tags=["Administration"])
-def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
+def update_user(user_id: uuid.UUID, body: UserUpdate, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_permissions("users.manage"))) -> dict:  # noqa: B008
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -173,13 +214,28 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
         ).all()
         if len(locked_ids) == 1:
             raise HTTPException(status_code=422, detail="Cannot deactivate or remove the last active admin")
+    google_changed = False
+    if "google_email" in body.model_fields_set:
+        new_google_email = _normalize_google_email(body.google_email)
+        if new_google_email is not None:
+            _ensure_google_email_free(db, new_google_email, exclude_user_id=user.id)
+        google_changed = new_google_email != (user.google_email or None)
     approvers_before = policy_effective_approvers(db)
+    if google_changed:
+        user.google_email = new_google_email
+        revoke_sessions(user)  # cambiar o quitar el correo cierra las sesiones abiertas del usuario
     if body.is_active is not None:
         user.is_active = body.is_active
     if body.role_ids is not None:
         user.roles = next_roles
     _guard_billing_approvers(db, approvers_before)  # desactivar / quitar rol al ultimo aprobador efectivo
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ese correo de Google ya está asignado a otro usuario") from exc
+    if google_changed:
+        log_auth_event("google_email_changed", ip=_admin_ip(request), user_id=user.id, detail="set" if user.google_email else "cleared")
     return {"id": str(user.id), "username": user.username, "is_active": user.is_active}
 
 
