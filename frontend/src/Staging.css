@@ -248,6 +248,8 @@
 }
 
 .extended-charts[data-stale] { opacity: .6; transition: opacity .15s; }
+/* H1: con prefers-reduced-motion la atenuación mientras se redibujan los gráficos no se anima. */
+@media (prefers-reduced-motion: reduce) { .extended-charts[data-stale] { transition: none; } }
 .extended-charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
