@@ -31,3 +31,36 @@ Pedido del usuario (2026-11-18): «Agreguemos a las tareas revisar los console l
 ## Restricciones
 
 Sin datos personales en consola, capturas ni informe. Nada en producción sin ficha y confirmación en el chat. Modelo sonnet.
+
+## Resultados de los pasos 1 a 3 (2026-11-19, sandbox 5174, servidor de desarrollo)
+
+Criterio aplicado (escrito arriba, paso 1): Dashboard (`/central/resumen`), Cartera › Suscripciones (`/central/suscripciones`) y Detalle por canal › VirtualPOS (`/virtualpos/resumen`); usuario temporal de solo lectura en crm_sandbox, borrado al terminar; Chrome, una pestaña. Medido con `performance.getEntriesByType`. Una sola pasada por pantalla (no las 3 repeticiones del criterio: las cifras en caliente varían poco y la comparación de fondo queda para el paso 4).
+
+### Consola
+
+- En las tres pantallas, solo mensajes del propio servidor de desarrollo: `[vite] connecting/connected` y el aviso de React DevTools. **Ningún error, ningún aviso de React, ningún valor sin traducir, ningún pedido fallido.** Nada con datos personales.
+
+### Pedidos y tiempos
+
+| Pantalla | Módulos JS | Fin de módulos | Pedidos a la API | Fin del último pedido |
+| --- | --- | --- | --- | --- |
+| Dashboard, en caliente | 98 | 191 ms | 6 | 534 ms |
+| Cartera › Suscripciones | 83 | 166 ms | 8 | 548 ms |
+| VirtualPOS › Resumen | 99 | 309 ms | 5 | 264 ms |
+| Primera carga tras el login (frío, después del `npm ci`) | 97 | — | 7 | **13,4 s**, 5,2 MB |
+
+- `/auth/me` se pide dos veces en cada carga y los listados se piden, se cancelan y se repiten: es el doble montaje de `StrictMode`, que solo ocurre en el servidor de desarrollo. En una build no pasa.
+- Hay ~300 ms entre la salud de canales y el pedido de datos de cada pantalla: es la carga perezosa de la vista (VirtualPOS baja ~20 módulos más, entre ellos `recharts`, después del primer render).
+- La primera carga en frío (13,4 s y 5,2 MB) es la que el usuario nota: Vite transforma y sirve cada módulo por separado. Es el argumento para los pasos 4 y 5.
+
+### Paso 3: correcciones
+
+**No hay correcciones de código que valgan la pena.** No hay `console.log` de depuración; los dos `console.error` de `AdminUsers` son errores reales y se dejan; el aviso de i18n ya está limitado a desarrollo y no apareció. Los pedidos duplicados son del modo desarrollo. Se cierra el paso 3 sin cambios de código: no hay PR que pedir.
+
+## Propuesta para los pasos 4 y 5 (solo texto; detenidos hasta que el Maestro lo decida con el usuario)
+
+1. **Medir (PERF-02c), en sandbox:** misma pauta contra 5174 (desarrollo) y contra la build servida por un backend de sandbox en otro puerto (`npm run build` en el worktree y el backend sirviendo `frontend/dist`). Tres repeticiones en frío y en caliente por pantalla. Necesita un turno corto para la build.
+2. **Desplegar (PERF-02d), con ficha crítica y confirmación en el chat:** que producción sirva la build. Dos caminos:
+   - a) el backend 8000 sirve `frontend/dist` (ya lo hace si existe) y la web se abre en `127.0.0.1:8000`; 5173 queda solo para desarrollo. Agrega `npm run build` a cada despliegue y a REANUDAR_SESIONES.md.
+   - b) `vite preview` en 5173 sobre la build, con el mismo proxy; mantiene la URL de hoy.
+   Ninguno toca la base. Vuelta atrás: volver a `npm run dev`.
