@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.events import EVENT_JOB_EXECUTED
 from apscheduler.executors.asyncio import AsyncIOExecutor
@@ -280,3 +280,64 @@ def register_jobs(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
         )
         logger.info("Job '%s' registrado (domingo 01:00; detras de SYNC_TIERS_ENABLED).", JOB_SYNC_COLD)
+
+    _register_report_jobs(scheduler)
+
+
+def _register_report_jobs(scheduler: AsyncIOScheduler) -> None:
+    """REP-02: reportes por correo. Semanal: lunes 07:30. Mensual: chequeo diario 07:45 que envia el ultimo cierre
+    vencido si falta (el primer dia habil es el caso normal). Detras de REPORTS_WEEKLY_ENABLED / REPORTS_MONTHLY_ENABLED (apagadas). `misfire_grace_time` de 6 h con
+    `coalesce`: si el backend estuvo caido, el job se ejecuta tarde (la tabla `report_dispatches` evita el doble envio).
+    Se registra solo si falta (para no perder una ejecucion vencida al reiniciar); si cambio la hora por variable de
+    entorno, se reprograma."""
+    from apscheduler.triggers.cron import CronTrigger
+
+    from app.scheduler.jobs.report_jobs import (
+        CATCH_UP_DELAY_SECONDS,
+        JOB_REPORT_CATCHUP,
+        JOB_REPORT_MONTHLY,
+        JOB_REPORT_WEEKLY,
+        MISFIRE_GRACE_SECONDS,
+        MONTHLY_MINUTE,
+        WEEKLY_MINUTE,
+        report_catch_up,
+        report_monthly,
+        report_weekly,
+    )
+
+    specs = (
+        (JOB_REPORT_WEEKLY, report_weekly, "Resumen semanal por correo",
+         CronTrigger(day_of_week="mon", hour=settings.report_weekly_hour, minute=WEEKLY_MINUTE,
+                     timezone="America/Santiago")),
+        (JOB_REPORT_MONTHLY, report_monthly, "Cierre mensual por correo (primer día hábil)",
+         CronTrigger(hour=settings.report_monthly_hour, minute=MONTHLY_MINUTE, timezone="America/Santiago")),
+    )
+    for job_id, func, name, trigger in specs:
+        existing = scheduler.get_job(job_id)
+        if existing is None:
+            scheduler.add_job(
+                func,
+                trigger=trigger,
+                id=job_id,
+                name=name,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=MISFIRE_GRACE_SECONDS,
+                replace_existing=True,
+            )
+            logger.info("Job '%s' registrado (%s; detras de su bandera REPORTS_*).", job_id, trigger)
+        elif str(existing.trigger) != str(trigger):
+            scheduler.reschedule_job(job_id, trigger=trigger)
+            logger.info("Job '%s' reprogramado (%s).", job_id, trigger)
+
+    # Envio tardio tras un reinicio: una sola vez, poco despues de arrancar.
+    if scheduler.get_job(JOB_REPORT_CATCHUP) is None:
+        scheduler.add_job(
+            report_catch_up,
+            trigger="date",
+            run_date=datetime.now(UTC) + timedelta(seconds=CATCH_UP_DELAY_SECONDS),
+            id=JOB_REPORT_CATCHUP,
+            name="Envío tardío de reportes vencidos",
+            misfire_grace_time=MISFIRE_GRACE_SECONDS,
+            replace_existing=True,
+        )

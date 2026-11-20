@@ -69,6 +69,8 @@ Notas:
 | `permission_denied` | 403 | (función `_require_source_access`, usada por varias rutas)<br>`POST /api/v1/writes/toku/subscriptions/{subscription_id}/status`<br>toda ruta protegida (dependencia de seguridad) | No tienes permiso para realizar esta acción. |
 | `provider_resource_not_found` | 404 | (función `_require_source_access`, usada por varias rutas) | Recurso del proveedor no encontrado. |
 | `reassignment_requires_reconciliation` | 503 | `POST /api/v1/writes/virtualpos/subscriptions/{subscription_id}/reassign-amount` | La reasignación requiere reconciliación local |
+| `report_test_failed` | 502 | `POST /api/v1/scheduler/reports/test` | El servidor de correo no aceptó el reporte de prueba (trae `error_class`, sin el mensaje del error). |
+| `report_test_skipped` | 409 | `POST /api/v1/scheduler/reports/test` | El reporte de prueba no se envió por falta de configuración (trae `reason`: sin destinatario o sin servidor de correo). |
 | `retry_requires_reconciliation` | 503 | `POST /api/v1/writes/virtualpos/charges/{charge_id}/retry` | El reintento requiere reconciliación local |
 | `secondary_status_filter_invalid` | 422 | (función `_list_vp`, usada por varias rutas) | El filtro de estado secundario solo vale para suscripciones. |
 | `staging_record_not_found` | 404 | `GET /api/v1/staging/{source}/{resource_type}/{external_id}` | Registro no encontrado. |

@@ -766,6 +766,8 @@ export const es = {
     "permission denied": "No tienes permiso para realizar esta acción.",
     "provider resource not found": "No se encontró el recurso del proveedor.",
     "reassignment requires reconciliation": "La reasignación se hizo en el proveedor, pero quedó pendiente de conciliación en el CRM. Revisa la suscripción antes de reintentar.",
+    "report test failed": "El servidor de correo no aceptó el reporte de prueba. Revisa la configuración de correo del CRM.",
+    "report test skipped": "El reporte de prueba no se envió: falta el destinatario o el servidor de correo en la configuración.",
     "retry requires reconciliation": "El reintento se hizo en el proveedor, pero quedó pendiente de conciliación en el CRM. Revisa el cargo antes de reintentar.",
     "secondary status filter invalid": "El filtro de estado secundario solo vale para suscripciones.",
     "staging record not found": "No se encontró el registro.",
