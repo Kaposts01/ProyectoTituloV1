@@ -15,7 +15,8 @@
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "web-vitals": "6.2.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",
