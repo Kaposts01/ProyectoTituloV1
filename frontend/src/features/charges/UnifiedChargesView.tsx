@@ -20,6 +20,9 @@ const FIELDS: Record<Tab, { value: string; label: string }[]> = {
   payments: [{ value: "all", label: "Todos los campos" }, { value: "id", label: "ID de pago" }, { value: "charge_id", label: "ID de cobro" }, { value: "status", label: "Estado" }],
 };
 
+/** Canales que trae el resumen de rechazo (VirtualPOS, Toku, Payku y TCH). */
+const REJECTION_ROWS = 4;
+
 const pct = (rate: number | null) => (rate === null ? "—" : `${rate.toFixed(1).replace(".", ",")} %`);
 
 /** Tasa de rechazo por canal con la definición única (`charge_stats`): pagados y rechazados con fecha hasta hoy. */
@@ -39,7 +42,9 @@ function RejectionSummaryPanel({ channel, dateFrom, dateTo }: { channel: string;
         Rechazados / (pagados + rechazados), con fecha de cobro hasta hoy (hora de Chile) y sin cancelados, expirados ni anulados.
         VirtualPOS y TCH cuentan cargos; Toku y Payku cuentan intentos de cobro, porque el canal no marca el cargo como rechazado.
       </p>
-      <div className="table-wrap" aria-busy={loading}>
+      {/* PERF-03 (CLS): la tabla de tasas reserva las filas de la última respuesta (4 canales la primera vez); sin esto
+          crecía al llegar los datos y empujaba todo el panel de cobros que está debajo. */}
+      <div {...pageReserve("rechazo", data ? { items: data.channels } : null, { defaultRows: REJECTION_ROWS, minRows: 1 })} aria-busy={loading}>
         <table>
           <thead><tr><th>Canal</th><th>Base</th><th>Pagados</th><th>Rechazados</th><th>Tasa</th></tr></thead>
           <tbody>

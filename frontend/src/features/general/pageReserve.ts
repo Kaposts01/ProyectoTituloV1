@@ -13,12 +13,18 @@ const lastRows = new Map<string, number>();
  * (50) la primera vez. Se suelta apenas llega cualquier respuesta (con filas, vacía o con error): el `aria-busy`
  * baja y la regla `min-height` deja de aplicar, de modo que un error no deja un hueco de ~2.500 px.
  */
-export function pageReserve(key: string, data: { items: unknown[] } | null): { className: string; style?: CSSProperties } {
+export function pageReserve(
+  key: string,
+  data: { items: unknown[] } | null,
+  options: { defaultRows?: number; minRows?: number } = {},
+): { className: string; style?: CSSProperties } {
+  const defaultRows = options.defaultRows ?? DEFAULT_PAGE_ROWS;
+  const minRows = options.minRows ?? MIN_RESERVED_ROWS;
   if (data) {
-    lastRows.set(key, Math.min(DEFAULT_PAGE_ROWS, Math.max(MIN_RESERVED_ROWS, data.items.length)));
+    lastRows.set(key, Math.min(defaultRows, Math.max(minRows, data.items.length)));
     return { className: "table-wrap" };
   }
-  const rows = lastRows.get(key) ?? DEFAULT_PAGE_ROWS;
+  const rows = lastRows.get(key) ?? defaultRows;
   return { className: "table-wrap table-wrap-page", style: { "--page-rows": rows } as CSSProperties };
 }
 
