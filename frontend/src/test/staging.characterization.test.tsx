@@ -114,7 +114,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     await appReady();
     fireEvent.click(await screen.findByText("Volver al resumen VirtualPOS"));
     await waitFor(() => expect(window.location.pathname).toBe("/virtualpos/resumen"));
-    expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
+    expect(await screen.findByLabelText("Explorar recursos")).toBeTruthy();
     expect(app.exact("GET", "/api/v1/staging/dashboard/virtualpos")).toHaveLength(1);
   });
 });
@@ -274,7 +274,7 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
   it("pide dashboard/{canal} una vez y muestra el resumen operativo con los accesos a recursos", async () => {
     const app = mountApp("/virtualpos/resumen", [["GET", "/api/v1/staging/dashboard/virtualpos", channelDashboard("virtualpos")]]);
     await appReady();
-    expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
+    expect(await screen.findByLabelText("Explorar recursos")).toBeTruthy();
     expect(app.exact("GET", "/api/v1/staging/dashboard/virtualpos")).toHaveLength(1);
     expect(screen.getByText("VIRTUALPOS")).toBeTruthy();
     expect(screen.getByText("Sincronización completada")).toBeTruthy();
@@ -303,7 +303,7 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
     expect(alert.textContent).toContain("dashboard roto");
     expect(screen.queryByText("Cargando mini dashboard...")).toBeNull();
     fireEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
-    expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
+    expect(await screen.findByLabelText("Explorar recursos")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(app.exact("GET", "/api/v1/staging/dashboard/toku")).toHaveLength(2);
   });
@@ -314,7 +314,7 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
       recordsHandler(page([vpClient(1)])),
     ]);
     await appReady();
-    await screen.findByText("Indicadores y actividad del período seleccionado.");
+    await screen.findByLabelText("Explorar recursos");
     fireEvent.click(screen.getByRole("button", { name: "Monto" }));
     expect(screen.getByRole("button", { name: "Monto" }).className).toBe("active");
     fireEvent.change(screen.getByLabelText("Año"), { target: { value: "2024" } });
@@ -331,12 +331,12 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
       ["POST", "/api/v1/staging/sync/virtualpos", { status: "ok" }],
     ]);
     await appReady();
-    await screen.findByText("Indicadores y actividad del período seleccionado.");
+    await screen.findByLabelText("Explorar recursos");
     fireEvent.click(screen.getByRole("button", { name: "↻ Sincronizar" }));
     await waitFor(() => expect(app.exact("POST", "/api/v1/staging/sync/virtualpos")).toHaveLength(1));
     await waitFor(() => expect(app.exact("GET", "/api/v1/staging/dashboard/virtualpos")).toHaveLength(2));
     // Hallazgo 2 de UX-04 (corregido): antes `channelLoading` quedaba en true y la vista no volvía.
-    expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
+    expect(await screen.findByLabelText("Explorar recursos")).toBeTruthy();
     expect(screen.queryByText("Cargando mini dashboard...")).toBeNull();
     expect(screen.getByRole("button", { name: "↻ Sincronizar" })).toBeTruthy();
   });
@@ -344,7 +344,7 @@ describe("Dashboard de canal (/virtualpos/resumen)", () => {
   it("«Generar reporte» abre el diálogo del canal", async () => {
     mountApp("/toku/resumen", [["GET", "/api/v1/staging/dashboard/toku", channelDashboard("toku")]]);
     await appReady();
-    await screen.findByText("Indicadores y actividad del período seleccionado.");
+    await screen.findByLabelText("Explorar recursos");
     fireEvent.click(screen.getByRole("button", { name: "Generar reporte" }));
     expect(screen.getByRole("heading", { name: "Toku" })).toBeTruthy();
   });
