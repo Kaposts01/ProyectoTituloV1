@@ -53,7 +53,7 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
     const controller = new AbortController();
     const url = `/api/v1/staging/dashboard/general/clients?${clientsQuery}`;
     // PERF-03 (d264 C): la primera página puede venir adelantada, pedida en paralelo con /auth/me (earlyData.ts).
-    earlyOr(takeEarly<GeneralClients>(url), () => getJson<GeneralClients>(url, controller.signal))
+    earlyOr(takeEarly<GeneralClients>(url), () => getJson<GeneralClients>(url, controller.signal), controller.signal)
       .then((data) => { if (controller.signal.aborted) return; setGeneralClients(data); setSettledClientsQuery(clientsQuery); })
       .catch((err: unknown) => { if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return; setSettledClientsQuery(clientsQuery); setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")); });
     return () => controller.abort();

@@ -127,3 +127,14 @@ describe("earlyOr (QA PERF-03b F2)", () => {
     }
   });
 });
+
+describe("earlyOr con la consulta cancelada", () => {
+  it("si la señal ya está abortada, no reintenta aunque el fallo sea de red", async () => {
+    const { earlyOr } = await import("./earlyData");
+    const controller = new AbortController();
+    controller.abort();
+    let llamadas = 0;
+    await expect(earlyOr(Promise.reject(new TypeError("Failed to fetch")), () => { llamadas++; return Promise.resolve("x"); }, controller.signal)).rejects.toBeInstanceOf(TypeError);
+    expect(llamadas).toBe(0);
+  });
+});

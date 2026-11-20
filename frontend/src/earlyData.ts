@@ -81,9 +81,10 @@ export function takeEarly<T>(id: string): Promise<T> | null {
  * QA PERF-03b F2: usa la respuesta adelantada si la hay; si falló por algo que no sea 401/403 (red caída, 5xx),
  * reintenta con la petición normal del hook en vez de mostrar el error del adelantado.
  */
-export function earlyOr<T>(early: Promise<T> | null, fetcher: () => Promise<T>): Promise<T> {
+export function earlyOr<T>(early: Promise<T> | null, fetcher: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!early) return fetcher();
   return early.catch((err: unknown) => {
+    if (signal?.aborted) throw err; // la consulta ya se canceló (p. ej. cierre de sesión): no reintentar
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) throw err;
     return fetcher();
   });
