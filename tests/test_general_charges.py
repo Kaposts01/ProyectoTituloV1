@@ -132,7 +132,13 @@ def test_unified_charges_lists_channels_paginates_and_filters(monkeypatch) -> No
     assert channels["RECHAZADA"] == ["tch"]
     assert all(isinstance(value, list) and value for value in channels.values())
     assert client.get("/api/v1/general/charges", params={"outcome": "nope"}).status_code == 422
-    assert client.get("/api/v1/general/charges", params={"filter_field": "rut"}).status_code == 422
+    assert client.get("/api/v1/general/charges", params={"filter_field": "unknown_field"}).status_code == 422
+    by_rut = client.get("/api/v1/general/charges", params={**DATES, "filter_field": "rut", "query": "11.111.111-1"})
+    assert by_rut.status_code == 200
+    assert {row["charge_id"] for row in by_rut.json()["items"]} == {f"c1-{sfx}", f"c2-{sfx}"}
+    by_member = client.get("/api/v1/general/charges", params={**DATES, "filter_field": "client", "query": "Ana Prueba"})
+    assert by_member.status_code == 200
+    assert {row["charge_id"] for row in by_member.json()["items"]} == {f"c1-{sfx}", f"c2-{sfx}"}
 
 
 def test_unified_charges_permissions_filter_on_server(monkeypatch) -> None:

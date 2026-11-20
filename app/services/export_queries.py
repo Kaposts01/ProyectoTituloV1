@@ -98,9 +98,11 @@ ENTITY_COLUMNS: dict[str, tuple[ExportColumn, ...]] = {
 FILTER_FIELDS: dict[str, tuple[str, ...]] = {
     "clientes": ("all", "rut", "name", "last_name", "platform", "email", "phone"),
     "suscripciones": ("all", "id", "rut", "client", "platform", "status"),
-    "cobros": ("all", "id", "subscription_id", "status"),
-    "pagos": ("all", "id", "charge_id", "status"),
+    "cobros": ("all", "id", "subscription_id", "status", "rut", "client"),
+    "pagos": ("all", "id", "charge_id", "status", "rut", "client"),
 }
+# Member search uses the same source-linked expressions as display. Export without PII keeps those output
+# columns NULL, even when they participate in WHERE; audit stores only the length of personal search text.
 PERSONAL_FILTER_FIELDS = {"all", "rut", "name", "last_name", "email", "phone", "client"}
 
 
@@ -493,15 +495,17 @@ def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, embe
         core.latest_rejection_code.label("_rej_code"), rpt.response_code.label("_rej_report_code"),
         rpt.response_text.label("_rej_report"), core.latest_rejection_reason.label("_rej_api"),
     ]
-    if pii:
+    fields = {"id": CCharge.external_id, "subscription_id": CCharge.subscription_external_id, "status": CCharge.status}
+    if pii or (f.query and f.filter_field in {"all", "rut", "client"}):
         sub, cli = aliased(CSub), aliased(CClient)
         if embedded:
             name = func.coalesce(_blank_to_null(_name(cli.first_name, cli.last_name)), _embedded_name(CCharge.raw_payload),
                                  _embedded_name(sub.raw_payload), _core_subscription_name(sub))
         else:
             name = _name(cli.first_name, cli.last_name)
+        fields.update(rut=func.coalesce(cli.social_id, sub.client_social_id), client=name)
         stmt = (
-            select(*cols, func.coalesce(cli.social_id, sub.client_social_id).label("rut"), name.label("name"))
+            select(*cols, _pii(func.coalesce(cli.social_id, sub.client_social_id), pii).label("rut"), _pii(name, pii).label("name"))
             .select_from(CCharge)
             .outerjoin(sub, and_(sub.source == CCharge.source, sub.external_id == CCharge.subscription_external_id))
             .outerjoin(cli, and_(cli.source == CCharge.source,
@@ -514,7 +518,7 @@ def _charges_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, embe
         .outerjoin(rpt, and_(rpt.charge_external_id == CCharge.external_id, rpt.platform == CCharge.source,
                              rpt.platform_status == "resolved", rpt.charge_status == "rechazado"))
     )
-    search = _search(f, {"id": CCharge.external_id, "subscription_id": CCharge.subscription_external_id, "status": CCharge.status})
+    search = _search(f, fields, "rut" if "rut" in fields else None)
     conds = [CCharge.source.in_(sources), *_common_conditions(f, CCharge.status, CCharge.charge_date, CCharge.amount)]
     outcome = outcome_condition(CCharge.status, f.outcome)
     if outcome is not None:
@@ -534,16 +538,19 @@ def _charges_tch(_sources: tuple[str, ...], f: ExportFilters, pii: bool) -> Any:
         t.response_code.label("_rej_code"), null().label("_rej_report_code"), t.rejection_reason.label("_rej_report"),
         null().label("_rej_api"),
     ]
-    if pii:
+    fields = {"id": cast(t.id, String), "subscription_id": cast(t.file_number, String), "status": t.status}
+    if pii or (f.query and f.filter_field in {"all", "rut", "client"}):
+        name = _name(TchClient.name, TchClient.last_name)
+        fields.update(rut=TchSubscription.client_rut, client=name)
         stmt = (
-            select(*cols, TchSubscription.client_rut.label("rut"), _name(TchClient.name, TchClient.last_name).label("name"))
+            select(*cols, _pii(TchSubscription.client_rut, pii).label("rut"), _pii(name, pii).label("name"))
             .select_from(t)
             .outerjoin(TchSubscription, TchSubscription.file_number == t.file_number)
             .outerjoin(TchClient, TchClient.rut == TchSubscription.client_rut)
         )
     else:
         stmt = select(*cols, null().label("rut"), null().label("name"))
-    search = _search(f, {"id": cast(t.id, String), "subscription_id": cast(t.file_number, String), "status": t.status})
+    search = _search(f, fields, "rut" if "rut" in fields else None)
     conds = _common_conditions(f, t.status, t.charge_date, t.amount)
     outcome = outcome_condition(t.status, f.outcome)
     if outcome is not None:
@@ -572,11 +579,14 @@ def _charges_payku_cycles(_sources: tuple[str, ...], f: ExportFilters, pii: bool
         core.latest_rejection_code.label("_rej_code"), null().label("_rej_report_code"), null().label("_rej_report"),
         core.latest_rejection_reason.label("_rej_api"),
     ]
-    if pii:
+    fields = {"id": c.external_id, "subscription_id": c.subscription_id, "status": status}
+    if pii or (f.query and f.filter_field in {"all", "rut", "client"}):
         sub, cli = aliased(CSub), aliased(CClient)
+        name = _name(cli.first_name, cli.last_name)
+        fields.update(rut=func.coalesce(sub.client_social_id, cli.social_id), client=name)
         stmt = (
-            select(*cols, func.coalesce(sub.client_social_id, cli.social_id).label("rut"),
-                   _name(cli.first_name, cli.last_name).label("name"))
+            select(*cols, _pii(func.coalesce(sub.client_social_id, cli.social_id), pii).label("rut"),
+                   _pii(name, pii).label("name"))
             .select_from(c)
             .outerjoin(sub, and_(sub.source == "payku", sub.external_id == c.subscription_id))
             .outerjoin(cli, and_(cli.source == "payku", cli.external_id == sub.client_external_id))
@@ -584,7 +594,7 @@ def _charges_payku_cycles(_sources: tuple[str, ...], f: ExportFilters, pii: bool
     else:
         stmt = select(*cols, null().label("rut"), null().label("name")).select_from(c)
     stmt = stmt.outerjoin(core, and_(core.source == "payku", core.external_id == c.external_id))
-    search = _search(f, {"id": c.external_id, "subscription_id": c.subscription_id, "status": status})
+    search = _search(f, fields, "rut" if "rut" in fields else None)
     conds = _common_conditions(f, status, c.cycle_day, c.amount_paid)
     conds.append(not_excluded(c.subscription_id))  # d207: ciclos de una suscripcion de prueba fuera
     outcome = outcome_condition(status, f.outcome)
@@ -607,7 +617,8 @@ def _payments_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, emb
         CPayment.status.label("status"), CPayment.payment_date.label("payment_date"), CPayment.amount.label("amount"),
         CPayment.currency.label("currency"),
     ]
-    if pii:
+    fields = {"id": CPayment.external_id, "charge_id": CPayment.charge_external_id, "status": CPayment.status}
+    if pii or (f.query and f.filter_field in {"all", "rut", "client"}):
         cli = aliased(CClient)
         rut = func.coalesce(cli.social_id, CPayment.raw_payload["client"]["social_id"].astext)
         if embedded:
@@ -615,14 +626,15 @@ def _payments_cclient(sources: tuple[str, ...], f: ExportFilters, pii: bool, emb
                                  _core_payment_name())
         else:
             name = _name(cli.first_name, cli.last_name)
+        fields.update(rut=rut, client=name)
         stmt = (
-            select(*cols, rut.label("rut"), name.label("name"))
+            select(*cols, _pii(rut, pii).label("rut"), _pii(name, pii).label("name"))
             .select_from(CPayment)
             .outerjoin(cli, and_(cli.source == CPayment.source, cli.external_id == CPayment.client_external_id))
         )
     else:
         stmt = select(*cols, null().label("rut"), null().label("name"))
-    search = _search(f, {"id": CPayment.external_id, "charge_id": CPayment.charge_external_id, "status": CPayment.status})
+    search = _search(f, fields, "rut" if "rut" in fields else None)
     conds = [CPayment.source.in_(sources), *_common_conditions(f, CPayment.status, CPayment.payment_date, CPayment.amount)]
     outcome = outcome_condition(CPayment.status, f.outcome)
     if outcome is not None:
