@@ -113,3 +113,26 @@ Lectura:
 - La compresión del servidor (`vite preview` no comprime) ahorraría solo ~10 KB: no es la causa principal.
 
 Siguiente tanda propuesta: (1) Suscripciones: alto real de la tabla o filas esqueleto; (2) móvil: que el LCP sea el contenido estable de la página (título o tarjeta reservada) y no un texto tardío, y aligerar el arranque (diferir recharts y vistas pesadas, revisar el JS sin usar); (3) PERF-03f para TBT/INP.
+
+## Medición después de la tanda 2 (a9d0bd3 y fd97748, 2026-11-20)
+
+Misma pauta, variante sin franja (build de producción en 5179, proxy al 8001, `/system/environment` bloqueado). 60 pasadas sin error.
+
+| Pantalla | Perfil | LCP base → tanda 1 → ahora (ms) | CLS base → tanda 1 → ahora | TBT base → tanda 1 → ahora (ms) |
+| --- | --- | --- | --- | --- |
+| Dashboard | Escritorio | 815 → 792 → 796 | 0,033 → 0,008 → 0,008 | 27 → 32 → 34 |
+| | Móvil | 3.563 → 3.644 → **3.665** | 0,012 → 0 → 0 | 371 → 292 → **291** |
+| Suscripciones | Escritorio | 671 → 630 → 631 | 0,216 → 0,203 → **0,014** | 0 |
+| | Móvil | 2.887 → 2.887 → **2.896** | 0,045 → 0,007 → 0,002 | 0 |
+| VirtualPOS | Escritorio | 787 → 797 → 808 | 0,024 → 0 → 0 | 37 → 33 → 48 |
+| | Móvil | 3.666 → 3.651 → **3.724** | 0,039 → 0 → 0 | 312 → 262 → **384** |
+| Clientes | Escritorio | 676 → 586 → 588 | 0,033 → 0 → 0 | 0 |
+| | Móvil | 2.291 → 2.738 → **2.733** | 0,041 → 0 → 0 | 0 |
+| Cobros | Escritorio | 673 → 588 → 588 | 0,172 → 0,060 → 0,054 | 0 |
+| | Móvil | 2.733 → 2.584 → **2.586** | 0,136 → 0 → 0,044 | 0 |
+
+Lectura:
+
+- **CLS: cumple en las 10** (máximo 0,054). Suscripciones en escritorio bajó de 0,203 a **0,014**: resuelto con el alto real de la página y la línea de totales reservada.
+- **LCP escritorio:** cumple en todas (≤ 0,81 s). **LCP móvil:** sin cambios (2,59 a 3,72 s); esta tanda no lo atacaba (depende de d264).
+- **TBT móvil no bajó:** Dashboard queda igual (291 ms) y **VirtualPOS empeoró** (262 → 384 ms; pasadas 260, 282, 364, 384 y 427 frente a 235 a 274 en la tanda 1). Lo aplicado en fd97748 (`memo`, manejadores estables, `startTransition`) evita re-renders en interacciones, pero en la carga inicial que mide Lighthouse agrega trabajo y no lo quita. El INP real de las interacciones no se puede medir en navegación; falta medirlo con web-vitals en sandbox. Antes de integrar fd97748, revisar qué parte agrega costo en la carga de VirtualPOS (posibles: comparación de props de `memo` en muchos componentes, `useStableCallbacks`, `startTransition` en la primera página) o medir el INP real para decidir si se conserva.
