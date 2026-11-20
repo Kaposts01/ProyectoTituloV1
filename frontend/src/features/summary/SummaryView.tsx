@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useChannelHealth } from "../../hooks/useChannelHealth";
 import { ChannelFilter, MonthPicker } from "./SummaryControls";
 import { SummaryCharts } from "./SummaryCharts";
@@ -51,7 +51,7 @@ function QualityNote({ summary }: { summary: UnifiedSummary }) {
  * mes anterior y gráficos de 12 meses. Consume `GET /api/v1/dashboard/general` solo a través de `summaryApi` /
  * `summaryAdapter`. No existen metas todavía (D2): todos los KPIs muestran el chip «sin meta».
  */
-export function SummaryView() {
+function SummaryViewImpl() {
   const [month, setMonth] = useState<string | undefined>(undefined);
   const [selected, setSelected] = useState<SummaryChannel[] | null>(null);
   const { state, availableChannels, currentMonth, reload } = useSummary(month, selected ?? undefined);
@@ -128,3 +128,6 @@ export function SummaryView() {
     </main>
   );
 }
+
+/** PERF-03f: sin props; los re-renders de AppCore (escribir en un buscador, salud) no lo repintan. */
+export const SummaryView = memo(SummaryViewImpl);

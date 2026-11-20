@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ChurnKpiCard, KPI_EMPTY_CAPTION, KpiCard, type KpiChipStatus } from "../../components/KpiCard";
 import type { KpiFormat } from "../../components/formatKpi";
 import { churnHistory, netGrowthHistory, sparkValues } from "./summaryChartData";
@@ -30,7 +31,7 @@ function common(kpi: SummaryKpi, goodWhen: "up" | "down" = "up", partial = false
  * Rejilla de KPIs del mes: 12 tarjetas. Cada una lleva variación contra el mes anterior y el chip de meta; mientras
  * no existan metas (D2 pendiente) el chip dice «sin meta» y no se dibuja barra de avance. Un KPI sin dato se ve «—».
  */
-export function SummaryKpiGrid({ summary }: { summary: UnifiedSummary }) {
+function SummaryKpiGridImpl({ summary }: { summary: UnifiedSummary }) {
   const { kpis, series } = summary;
   const members = sparkValues(series.totalMembers);
   const activations = sparkValues(series.activations);
@@ -68,6 +69,9 @@ export function SummaryKpiGrid({ summary }: { summary: UnifiedSummary }) {
     </section>
   );
 }
+
+/** PERF-03f: solo se repinta si cambia el resumen. */
+export const SummaryKpiGrid = memo(SummaryKpiGridImpl);
 
 /** Esqueleto de carga de la rejilla (decorativo; el aviso accesible lo da el padre). */
 export function SummaryKpiSkeleton() {

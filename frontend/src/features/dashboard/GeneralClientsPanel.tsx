@@ -1,13 +1,16 @@
+import { memo, useCallback } from "react";
 import { label } from "../../i18n/label";
 import { getJson, friendlyError } from "../../api";
 import { adaptGeneralClientDetail, type GeneralClientDetailWire } from "./generalClientAdapter";
 import { ExportButton } from "../shared/ExportButton";
 import { consolidatedExportTarget } from "../shared/exportMapping";
+import type { GeneralClients } from "../shared/types";
 import type { GeneralState } from "./useGeneralDashboard";
 import { ActiveFilters, type FilterChip } from "../general/UnifiedControls";
 import { Rut } from "../shared/RutCell";
 import { rutText } from "../shared/rut";
 
+const NO_CLIENTS: GeneralClients["items"] = [];
 const CLIENT_FIELDS = [
   { value: "all", label: "Todos los campos" }, { value: "rut", label: "RUT" }, { value: "name", label: "Nombre" },
   { value: "last_name", label: "Apellido" }, { value: "platform", label: "Plataforma" }, { value: "email", label: "Correo" },
@@ -17,6 +20,18 @@ const CLIENT_CHANNELS = [
   { value: "virtualpos", label: "VirtualPOS" }, { value: "toku", label: "Toku" }, { value: "payku", label: "Payku" }, { value: "tch", label: "TCH" },
 ];
 const CLIENT_STATUSES = [{ value: "active", label: "Con suscripción activa" }, { value: "inactive", label: "Sin suscripción activa" }];
+
+/**
+ * Filas de la tabla de clientes (PERF-03f): con `memo` y un `onOpen` estable, escribir en el buscador (estado de
+ * AppCore, que re-renderiza esta pantalla en cada tecla) no repinta las 50 filas.
+ */
+const ClientRows = memo(function ClientRows({ items, onOpen }: { items: GeneralClients["items"]; onOpen: (rut: string) => void }) {
+  return (
+    <>
+      {items.map((client) => <tr key={client.rut}><td><button className="record-link" onClick={() => onOpen(client.rut)} aria-label={rutText(client.rut)}><Rut value={client.rut} /></button></td><td>{client.name || "—"}</td><td>{client.origins.map((origin) => label("channel", origin)).join(" · ")}</td><td>{client.active_origins.map((origin) => label("channel", origin)).join(" · ") || "—"}</td></tr>)}
+    </>
+  );
+});
 
 /** Tabla de clientes consolidados por RUT, con búsqueda, paginación y ficha general. */
 export function GeneralClientsPanel({ general, setError, can }: { general: GeneralState; setError: (message: string | null) => void; can?: (permission: string) => boolean }) {
@@ -35,6 +50,9 @@ export function GeneralClientsPanel({ general, setError, can }: { general: Gener
     generalClientStatus,
     setGeneralClientStatus,
   } = general;
+  const openClient = useCallback((rut: string) => {
+    getJson<GeneralClientDetailWire>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(rut)}`).then((detail) => setGeneralClientDetail(adaptGeneralClientDetail(detail))).catch((err: unknown) => setError(friendlyError(err, "No se pudo cargar la ficha general.")));
+  }, [setGeneralClientDetail, setError]);
   const exportTarget = consolidatedExportTarget("clientes", generalClientFilter, generalClientQuery);
   const resetOffset = () => setGeneralClientOffset(0);
   const optionLabel = (options: { value: string; label: string }[], value: string) => options.find((option) => option.value === value)?.label ?? value;
@@ -86,7 +104,7 @@ export function GeneralClientsPanel({ general, setError, can }: { general: Gener
       <p className="muted-copy">Agrupado por RUT <strong>no verificado</strong>: el mismo RUT en dos canales se muestra como un solo socio, pero el CRM aún no confirma que sea la misma persona (identidad centralizada pendiente).</p>
       {generalClientDetail ? (
         <div className="record-detail"><button onClick={() => setGeneralClientDetail(null)}>← Volver a clientes</button><h3>Ficha general: <Rut value={generalClientDetail.rut} /></h3>{(["clients", "subscriptions", "charges", "transactions"] as const).map((section) => <div key={section}><h4>{section === "clients" ? "IDs de cliente" : section === "subscriptions" ? "Suscripciones" : section === "charges" ? "Cargos" : "Transacciones"}</h4><div className="table-wrap"><table><thead><tr><th>Portal</th><th>ID interno</th><th>ID origen</th><th>Estado</th><th>Monto</th></tr></thead><tbody>{generalClientDetail[section].map((item) => <tr key={`${item.portal}-${item.externalId}`}><td>{label("channel", item.portal)}</td><td>{item.internalId}</td><td>{item.externalId}</td><td>{item.status !== null ? label("status", item.status) : "—"}</td><td>{item.amount ? `$${Number(item.amount).toLocaleString("es-CL")}` : "—"}</td></tr>)}{generalClientDetail[section].length === 0 ? <tr><td colSpan={5}>Sin registros relacionados.</td></tr> : null}</tbody></table></div></div>)}</div>
-      ) : <><div className={generalClients ? "table-wrap" : "table-wrap table-wrap-page"} aria-busy={!generalClients}><table><thead><tr><th>RUT</th><th>Nombre completo</th><th>Plataforma de origen</th><th>Suscripciones activas</th></tr></thead><tbody>{(generalClients?.items ?? []).map((client) => <tr key={client.rut}><td><button className="record-link" onClick={() => getJson<GeneralClientDetailWire>(`/api/v1/staging/dashboard/general/clients/${encodeURIComponent(client.rut)}`).then((detail) => setGeneralClientDetail(adaptGeneralClientDetail(detail))).catch((err: unknown) => setError(friendlyError(err, "No se pudo cargar la ficha general.")))} aria-label={rutText(client.rut)}><Rut value={client.rut} /></button></td><td>{client.name || "—"}</td><td>{client.origins.map((origin) => label("channel", origin)).join(" · ")}</td><td>{client.active_origins.map((origin) => label("channel", origin)).join(" · ") || "—"}</td></tr>)}{(generalClients?.items ?? []).length === 0 ? <tr><td colSpan={4}>Sin clientes con RUT.</td></tr> : null}</tbody></table></div>{generalClients && generalClients.total > generalClients.limit ? <div className="pagination"><button disabled={generalClientOffset === 0} onClick={() => setGeneralClientOffset((offset) => Math.max(0, offset - generalClients.limit))}>← Anterior</button><span>{generalClientOffset + 1}-{Math.min(generalClientOffset + generalClients.items.length, generalClients.total)} de {generalClients.total.toLocaleString("es-CL")}</span><button disabled={generalClientOffset + generalClients.limit >= generalClients.total} onClick={() => setGeneralClientOffset((offset) => offset + generalClients.limit)}>Siguiente →</button></div> : null}</>}
+      ) : <><div className={generalClients ? "table-wrap" : "table-wrap table-wrap-page"} aria-busy={!generalClients}><table><thead><tr><th>RUT</th><th>Nombre completo</th><th>Plataforma de origen</th><th>Suscripciones activas</th></tr></thead><tbody><ClientRows items={generalClients?.items ?? NO_CLIENTS} onOpen={openClient} />{(generalClients?.items ?? []).length === 0 ? <tr><td colSpan={4}>Sin clientes con RUT.</td></tr> : null}</tbody></table></div>{generalClients && generalClients.total > generalClients.limit ? <div className="pagination"><button disabled={generalClientOffset === 0} onClick={() => setGeneralClientOffset((offset) => Math.max(0, offset - generalClients.limit))}>← Anterior</button><span>{generalClientOffset + 1}-{Math.min(generalClientOffset + generalClients.items.length, generalClients.total)} de {generalClients.total.toLocaleString("es-CL")}</span><button disabled={generalClientOffset + generalClients.limit >= generalClients.total} onClick={() => setGeneralClientOffset((offset) => offset + generalClients.limit)}>Siguiente →</button></div> : null}</>}
     </section>
   );
 }

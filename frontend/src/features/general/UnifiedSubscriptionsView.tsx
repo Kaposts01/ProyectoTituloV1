@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDebouncedValue } from "../../hooks";
 import { labelOr } from "../../i18n/label";
 import { ExportButton } from "../shared/ExportButton";
@@ -42,7 +42,29 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
     "/api/v1/general/subscriptions", { ...filterParams, ...cleanParams({ canal: channel, offset, limit: PAGE }) }, allowed);
   const facets = useUnifiedGet<StatusFacets>("/api/v1/general/subscriptions/statuses", cleanParams({ canal: channel }), allowed);
   const channels = list.data?.canales ?? facets.data?.canales ?? [];
-  const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+  // PERF-03f: las filas se arman solo cuando cambia la página o el manejador; escribir en el buscador (que re-renderiza
+  // la vista a cada tecla) ya no repinta las 50 filas.
+  const rows = useMemo(() => {
+    const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+    return (list.data?.items ?? []).map((row) => {
+      const go = open(detailPath("subscription", row.channel, row.subscription_id));
+      const member = row.rut ? open(`/central/clientes?rut=${encodeURIComponent(row.rut)}`) : undefined;
+      return (
+        <tr key={`${row.channel}-${row.subscription_id}`}>
+          <td>{channelText(row.channel)}</td>
+          <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.subscription_id}</button> : row.subscription_id}</td>
+          <td>{row.name || "—"}</td>
+          <td>{row.rut ? (member ? <button type="button" className="text-button" aria-label={`Ver socio ${rutText(row.rut)}`} onClick={member}><Rut value={row.rut} /></button> : <Rut value={row.rut} />) : "—"}</td>
+          <td><StatusText value={row.status} /></td>
+          <td><span className={`badge badge-${secondaryBadge(row.secondary_status)}`}>{labelOr("secondaryStatus", row.secondary_status, "—")}</span></td>
+          <td className="mono">{day(row.last_charge)}</td>
+          <td className="mono">{day(row.start_date)}</td>
+          <td className="mono">{day(row.end_date)}</td>
+          <td className="mono">{money(row.amount, row.currency)}</td>
+        </tr>
+      );
+    });
+  }, [list.data, onOpenPath]);
 
   return (
     <main className="app-shell unified-page">
@@ -94,24 +116,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
             <table>
               <thead><tr><th>Canal</th><th>ID</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Estado secundario</th><th>Último cobro</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead>
               <tbody>
-                {(list.data?.items ?? []).map((row) => {
-                  const go = open(detailPath("subscription", row.channel, row.subscription_id));
-                  const member = row.rut ? open(`/central/clientes?rut=${encodeURIComponent(row.rut)}`) : undefined;
-                  return (
-                    <tr key={`${row.channel}-${row.subscription_id}`}>
-                      <td>{channelText(row.channel)}</td>
-                      <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.subscription_id}</button> : row.subscription_id}</td>
-                      <td>{row.name || "—"}</td>
-                      <td>{row.rut ? (member ? <button type="button" className="text-button" aria-label={`Ver socio ${rutText(row.rut)}`} onClick={member}><Rut value={row.rut} /></button> : <Rut value={row.rut} />) : "—"}</td>
-                      <td><StatusText value={row.status} /></td>
-                      <td><span className={`badge badge-${secondaryBadge(row.secondary_status)}`}>{labelOr("secondaryStatus", row.secondary_status, "—")}</span></td>
-                      <td className="mono">{day(row.last_charge)}</td>
-                      <td className="mono">{day(row.start_date)}</td>
-                      <td className="mono">{day(row.end_date)}</td>
-                      <td className="mono">{money(row.amount, row.currency)}</td>
-                    </tr>
-                  );
-                })}
+                {rows}
                 {!list.loading && list.data && list.data.items.length === 0 ? <tr><td colSpan={10}>Sin suscripciones.</td></tr> : null}
               </tbody>
             </table>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChannelHealthMap } from "../hooks/useChannelHealth";
 import { label } from "../i18n/label";
 import type { ProviderSection, ProviderSource } from "../routes";
@@ -79,7 +79,7 @@ function prefersReducedMotion(): boolean {
   }
 }
 
-export function Sidebar({
+function SidebarImpl({
   username, activeSection, channel, tchView, detailOpen, onToggleDetail, theme, onDashboard,
   generalView, onGeneralClients, onGeneralSubscriptions, onGeneralCharges, onAutoReport,
   onChannel, onSection, onTheme, onTch,
@@ -386,3 +386,6 @@ export function Sidebar({
     </>
   );
 }
+
+/** PERF-03f: memo; AppCore le pasa manejadores estables (useStableCallbacks) para no repintarlo en cada tecla. */
+export const Sidebar = memo(SidebarImpl);

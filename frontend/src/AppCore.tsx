@@ -3,6 +3,7 @@ import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson } from "./api";
 import { fetchChannelHealth, useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
+import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { ChangeToasts } from "./components/ChangeToasts";
 import { canOpenBilling, canOpenCharges, canOpenMembers, canOpenRecovery, canOpenSubscriptions, providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
@@ -649,6 +650,17 @@ function AppCore() {
     />
   ) : null;
 
+  // PERF-03f: manejadores con identidad estable para el menú lateral y el dashboard de canal (ambos con `memo`):
+  // escribir en un buscador (estado de AppCore) ya no los repinta. Cada uno llama a la versión actual.
+  const stable = useStableCallbacks({
+    onToggleDetail: () => setDetailOpen((open) => !open),
+    onDashboard: showDashboard, onGeneralClients: showGeneralClients, onGeneralSubscriptions: showGeneralSubscriptions,
+    onGeneralCharges: showGeneralCharges, onAutoReport: showAutoReport, onChannel: showChannel, onSection: showSection,
+    onTheme: toggleTheme, onTch: showTch, onAdmin: showAdmin, onProfile: () => showProfile("summary"), onLogout: logout,
+    onClose: closeSidebar, onRecovery: showRecovery, onBilling: showBillingChanges, onCancellations: showCancellations,
+    onOpenResource: openChannelResource, onSync: syncChannel,
+  });
+
   const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} can={can} />;
 
   const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSubscription={showTchSubscription} onReport={setReportScope} can={can} /> : null;
@@ -691,9 +703,9 @@ function AppCore() {
           refreshing={channelRefreshing}
           onMode={setMode}
           onYear={setYear}
-          onOpenResource={openChannelResource}
+          onOpenResource={stable.onOpenResource}
           onReport={setReportScope}
-          onSync={syncChannel}
+          onSync={stable.onSync}
           syncUnavailable={!isChannelEnabled(channelData.source === "virtualpos" ? "virtualpos1" : channelData.source)}
           canWithdrawWallet={can("payku.wallet.withdraw")}
         />
@@ -732,32 +744,32 @@ function AppCore() {
         channel={channel}
         tchView={tchView}
         detailOpen={detailOpen}
-        onToggleDetail={() => setDetailOpen((open) => !open)}
+        onToggleDetail={stable.onToggleDetail}
         theme={theme}
-        onDashboard={showDashboard}
+        onDashboard={stable.onDashboard}
         generalView={generalView}
-        onGeneralClients={showGeneralClients}
-        onGeneralSubscriptions={showGeneralSubscriptions}
-        onGeneralCharges={showGeneralCharges}
-        onAutoReport={showAutoReport}
-        onChannel={showChannel}
-        onSection={showSection}
-        onTheme={toggleTheme}
-        onTch={showTch}
+        onGeneralClients={stable.onGeneralClients}
+        onGeneralSubscriptions={stable.onGeneralSubscriptions}
+        onGeneralCharges={stable.onGeneralCharges}
+        onAutoReport={stable.onAutoReport}
+        onChannel={stable.onChannel}
+        onSection={stable.onSection}
+        onTheme={stable.onTheme}
+        onTch={stable.onTch}
         permissions={session.user.permissions}
-        onAdmin={showAdmin}
+        onAdmin={stable.onAdmin}
         adminOpen={adminOpen}
         adminTab={adminTab}
-        onProfile={() => showProfile("summary")}
-        onLogout={logout}
+        onProfile={stable.onProfile}
+        onLogout={stable.onLogout}
         open={sidebarOpen}
-        onClose={closeSidebar}
+        onClose={stable.onClose}
         recoveryOpen={recoveryOpen}
-        onRecovery={showRecovery}
+        onRecovery={stable.onRecovery}
         billingOpen={billingOpen}
-        onBilling={showBillingChanges}
+        onBilling={stable.onBilling}
         cancellationsOpen={cancellationsOpen}
-        onCancellations={showCancellations}
+        onCancellations={stable.onCancellations}
         profileOpen={profileView !== null}
         health={channelHealth}
       />
