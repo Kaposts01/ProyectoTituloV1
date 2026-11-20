@@ -5,6 +5,7 @@ import './index.css'
 import App from './App.tsx'
 import { reserveEnvironmentBannerSpace } from './components/EnvironmentBanner'
 import { preloadRouteChunk } from './routePreload'
+import { registerWebVitals } from './webVitals'
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
   state = { message: null };
@@ -29,6 +30,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { message: st
 
 reserveEnvironmentBannerSpace()
 preloadRouteChunk()
+void registerWebVitals().catch(() => undefined)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
