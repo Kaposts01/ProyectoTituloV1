@@ -1,7 +1,7 @@
 """REP-02: jobs e idempotencia de los reportes por correo. SMTP simulado; destinatario ficticio, nunca un correo real."""
 
 import asyncio
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -161,22 +161,16 @@ def test_jobs_are_noops_when_flags_are_off(monkeypatch) -> None:
     asyncio.run(report_jobs.report_catch_up())
 
 
-@pytest.mark.parametrize(
-    ("today", "runs"),
-    [
-        (date(2026, 8, 1), False),   # sabado
-        (date(2026, 8, 3), True),    # primer dia habil de un mes que empieza en sabado
-        (date(2026, 11, 1), False),  # domingo
-        (date(2026, 11, 2), True),   # primer dia habil de un mes que empieza en domingo
-        (date(2026, 6, 1), True),    # lunes
-        (date(2026, 6, 2), False),
-        (date(2026, 1, 1), False),   # feriado
-        (date(2026, 1, 2), True),    # primer dia habil tras el feriado
-        (date(2026, 5, 1), False),   # feriado (viernes)
-        (date(2026, 5, 4), True),
-    ],
-)
-def test_monthly_job_acts_only_on_the_first_business_day(monkeypatch, today, runs) -> None:
+def _freeze(monkeypatch, moment: datetime) -> None:
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment.astimezone(tz) if tz else moment
+
+    monkeypatch.setattr(report_jobs, "datetime", Frozen)
+
+
+def test_monthly_job_runs_every_day_and_relies_on_the_idempotent_table(monkeypatch) -> None:
     calls: list[str] = []
 
     async def fake_run(kind: str) -> None:
@@ -184,16 +178,15 @@ def test_monthly_job_acts_only_on_the_first_business_day(monkeypatch, today, run
 
     monkeypatch.setattr(report_jobs, "_run", fake_run)
     monkeypatch.setattr(settings, "reports_monthly_enabled", True)
-    monkeypatch.setattr(report_jobs.scheduled_reports, "chile_date", lambda _now: today)
     asyncio.run(report_jobs.report_monthly())
-    assert calls == (["monthly"] if runs else [])
+    assert calls == ["monthly"]
 
 
 def test_job_retries_failures_with_a_pause_and_stops_after_three(monkeypatch) -> None:
     attempts: list[int] = []
     sleeps: list[float] = []
 
-    def fake_dispatch(kind: str):
+    def fake_dispatch(kind: str, period_at):
         attempts.append(1)
         return report_delivery.DispatchResult("failed", "send_failed", len(attempts), "OSError")
 
@@ -207,32 +200,58 @@ def test_job_retries_failures_with_a_pause_and_stops_after_three(monkeypatch) ->
     assert len(attempts) == 3 and sleeps == [report_jobs.RETRY_DELAY_SECONDS] * 2
 
 
-def test_due_kinds_window_is_six_hours_after_the_scheduled_time() -> None:
-    # lunes 23-nov-2026 (UTC-3): 07:30 programado
-    assert report_jobs.due_kinds(datetime(2026, 11, 23, 10, 29, tzinfo=UTC)) == []  # 07:29
-    assert report_jobs.due_kinds(datetime(2026, 11, 23, 10, 31, tzinfo=UTC)) == ["weekly"]
-    assert report_jobs.due_kinds(datetime(2026, 11, 23, 16, 29, tzinfo=UTC)) == ["weekly"]  # 13:29
-    assert report_jobs.due_kinds(datetime(2026, 11, 23, 16, 31, tzinfo=UTC)) == []  # 13:31, fuera de las 6 h
-    # martes: no es lunes
-    assert report_jobs.due_kinds(datetime(2026, 11, 24, 11, 0, tzinfo=UTC)) == []
-    # lunes 2-nov-2026: lunes y primer dia habil -> ambos (07:45 el mensual)
-    assert report_jobs.due_kinds(datetime(2026, 11, 2, 11, 0, tzinfo=UTC)) == ["weekly", "monthly"]
-    # 3-ago-2026 (lunes, primer habil): a las 07:40 solo el semanal
-    assert report_jobs.due_kinds(datetime(2026, 8, 3, 11, 40, tzinfo=UTC)) == ["weekly"]
+@pytest.mark.parametrize(
+    ("kind", "now_utc", "expected_key"),
+    [
+        # semanal: lunes 23-nov-2026 07:30 Chile = 10:30 UTC. Antes de la hora, el ultimo vencido es el del lunes anterior.
+        ("weekly", datetime(2026, 11, 23, 10, 29, tzinfo=UTC), "weekly:2026-W46"),
+        ("weekly", datetime(2026, 11, 23, 10, 31, tzinfo=UTC), "weekly:2026-W47"),
+        ("weekly", datetime(2026, 11, 26, 15, 0, tzinfo=UTC), "weekly:2026-W47"),  # jueves, equipo recien encendido
+        ("weekly", datetime(2026, 11, 29, 20, 0, tzinfo=UTC), "weekly:2026-W47"),  # domingo
+        # mensual: primer dia habil de nov-2026 es lunes 2 (domingo 1) a las 07:45 = 10:45 UTC
+        ("monthly", datetime(2026, 11, 1, 15, 0, tzinfo=UTC), "monthly:2026-09"),  # domingo 1: aun no vence octubre
+        ("monthly", datetime(2026, 11, 2, 10, 44, tzinfo=UTC), "monthly:2026-09"),
+        ("monthly", datetime(2026, 11, 2, 10, 46, tzinfo=UTC), "monthly:2026-10"),
+        ("monthly", datetime(2026, 11, 20, 15, 0, tzinfo=UTC), "monthly:2026-10"),  # varios dias despues
+        ("monthly", datetime(2026, 8, 3, 15, 0, tzinfo=UTC), "monthly:2026-07"),  # mes que empieza en sabado
+    ],
+)
+def test_last_due_ref_points_to_the_last_period_whose_time_already_passed(kind, now_utc, expected_key) -> None:
+    ref = report_jobs.last_due_ref(kind, now_utc)
+    assert report_delivery.period_key_for(kind, ref) == expected_key
 
 
-def test_catch_up_runs_only_enabled_and_due_reports(monkeypatch) -> None:
-    calls: list[str] = []
+def test_machine_off_for_days_sends_the_last_due_period_once(db_session, smtp, monkeypatch) -> None:
+    # El equipo estuvo apagado del lunes 23 al viernes 27 y arranca el viernes 14:00 Chile.
+    boot = datetime(2026, 11, 27, 17, 0, tzinfo=UTC)
+    ref = report_jobs.last_due_ref("weekly", boot)
+    first = report_delivery.dispatch_report(db_session, "weekly", boot, period_at=ref)
+    assert (first.status, first.period_key) == ("sent", "weekly:2026-W47")
+    again = report_delivery.dispatch_report(db_session, "weekly", boot + timedelta(minutes=2), period_at=ref)
+    assert (again.status, again.reason) == ("skipped", "already_sent")
+    assert len(smtp.messages) == 1
+    assert [r.period_key for r in _rows(db_session)] == ["weekly:2026-W47"]
+    # el asunto es de la semana que se perdio, no de la siguiente
+    assert "16-11-2026 al 22-11-2026" in smtp.messages[0]["Subject"]
 
-    async def fake_run(kind: str) -> None:
-        calls.append(kind)
 
-    monkeypatch.setattr(report_jobs, "_run", fake_run)
-    monkeypatch.setattr(report_jobs, "due_kinds", lambda _now: ["weekly", "monthly"])
+def test_catch_up_passes_the_last_due_reference_for_each_enabled_report(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+
+    def fake_dispatch(kind: str, period_at):
+        seen.append((kind, report_delivery.period_key_for(kind, period_at)))
+        return report_delivery.DispatchResult("sent", None, 1)
+
+    monkeypatch.setattr(report_jobs, "_dispatch_sync", fake_dispatch)
+    _freeze(monkeypatch, datetime(2026, 11, 27, 17, 0, tzinfo=UTC))
     monkeypatch.setattr(settings, "reports_weekly_enabled", True)
     monkeypatch.setattr(settings, "reports_monthly_enabled", False)
     asyncio.run(report_jobs.report_catch_up())
-    assert calls == ["weekly"]
+    assert seen == [("weekly", "weekly:2026-W47")]
+    seen.clear()
+    monkeypatch.setattr(settings, "reports_monthly_enabled", True)
+    asyncio.run(report_jobs.report_catch_up())
+    assert seen == [("weekly", "weekly:2026-W47"), ("monthly", "monthly:2026-10")]
 
 
 # ----------------------------- registro en el programador -----------------------------

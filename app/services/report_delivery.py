@@ -96,9 +96,14 @@ def _finish(db: Session, kind: str, key: str, ok: bool, error_class: str | None,
     db.commit()
 
 
-def dispatch_report(db: Session, kind: str, now: datetime | None = None, *, test: bool = False) -> DispatchResult:
-    """Arma y envia el reporte `kind` si corresponde. Una sola vez por periodo. Nunca lanza."""
+def dispatch_report(
+    db: Session, kind: str, now: datetime | None = None, *, test: bool = False, period_at: datetime | None = None
+) -> DispatchResult:
+    """Arma y envia el reporte `kind` si corresponde. Una sola vez por periodo. Nunca lanza.
+    `now` fija el reloj (sellos de la reserva); `period_at` (envio tardio) fija el instante que define el periodo y la
+    clave, por defecto el mismo `now`."""
     moment = now or datetime.now(UTC)
+    ref = period_at or moment
     if not test and not _enabled(kind):
         return DispatchResult("skipped", "disabled")
     recipients = alerts.report_recipients()
@@ -108,7 +113,7 @@ def dispatch_report(db: Session, kind: str, now: datetime | None = None, *, test
     if not settings.alert_smtp_host.strip():
         logger.warning("Reporte %s: ALERT_SMTP_HOST está vacío: no se envía nada.", kind)
         return DispatchResult("skipped", "no_smtp_host")
-    key = f"test:{moment.strftime('%Y%m%dT%H%M%S%f')}" if test else period_key_for(kind, moment)
+    key = f"test:{moment.strftime('%Y%m%dT%H%M%S%f')}" if test else period_key_for(kind, ref)
     try:
         reserved, attempts, reason = _claim(db, kind, key, len(recipients), moment)
     except Exception as exc:  # noqa: BLE001
@@ -118,7 +123,7 @@ def dispatch_report(db: Session, kind: str, now: datetime | None = None, *, test
     if not reserved:
         return DispatchResult("skipped", reason, attempts, period_key=key)
     try:
-        built = scheduled_reports.build_report(db, kind, moment)
+        built = scheduled_reports.build_report(db, kind, ref)
         ok, error_class = alerts.send_report(
             built.subject, built.text, built.html, recipients, ((built.csv_name, built.csv_text),)
         )
