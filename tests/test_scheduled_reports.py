@@ -8,6 +8,7 @@ import csv
 import io
 import re
 from datetime import UTC, date, datetime, timedelta
+from itertools import pairwise
 from typing import ClassVar
 
 import pytest
@@ -118,7 +119,44 @@ def test_small_channel_figures_are_masked_and_total_cannot_be_subtracted() -> No
     assert rows["tch"]["recuperacion"] == "<5"
     assert rows["toku"]["altas"] == "10"
     assert rows["total"]["altas"] == "—" and rows["total"]["recuperacion"] == "—"
-    assert rows["total"]["activas"] == "480"  # columna sin enmascarar: total visible
+    # altas oculta => activas del canal tambien (activas(t) - activas(t-1) = altas - bajas), y el total de activas no sale
+    assert rows["tch"]["activas"] == "<5" and rows["total"]["activas"] == "—"
+    assert rows["toku"]["activas"] == "120"
+    assert rows["total"]["cobros_aprobados"] == "400"  # columna sin enmascarar: total visible
+
+
+def _unknowns(prev_row, row) -> int:
+    """Cuantas de las 4 cifras de activas(t) - activas(t-1) = altas(t) - bajas(t) no se pueden leer (no numericas)."""
+    return sum(not r[c].isdigit() for r, c in ((prev_row, "activas"), (row, "activas"), (row, "altas"), (row, "bajas")))
+
+
+def test_hidden_figure_cannot_be_reconstructed_from_two_adjacent_periods() -> None:
+    # Toku: activas 40 -> 42, bajas 0, altas 2 (oculta). Restando periodos se despejaria altas = 2.
+    prev = scheduled_reports.display_rows("w1", _figures(toku=_fig(activas=40, activas_inicio=40, altas=1, bajas=0)))
+    cur = scheduled_reports.display_rows("w2", _figures(toku=_fig(activas=42, activas_inicio=40, altas=2, bajas=0)))
+    scheduled_reports.protect_series(prev, cur)
+    for a, b in zip(prev, cur, strict=True):
+        assert _unknowns(a, b) != 1, (a, b)
+    toku_prev = next(r for r in prev if r["canal"] == "toku")
+    toku_cur = next(r for r in cur if r["canal"] == "toku")
+    assert toku_cur["altas"] == "<5" and toku_cur["bajas"] == "0"
+    assert toku_prev["activas"] == "<5" and toku_cur["activas"] == "<5"  # ambos periodos
+    assert next(r for r in cur if r["canal"] == "total")["activas"] == "—"
+    # un canal sin cifras pequenas conserva sus activas
+    assert next(r for r in cur if r["canal"] == "payku")["activas"] == "120"
+
+
+def test_small_activas_in_one_period_hides_the_series_even_with_visible_flows() -> None:
+    # activas pequena (3) con altas y bajas visibles: se despejaria desde el periodo vecino.
+    periods = [
+        scheduled_reports.display_rows(f"m{i}", _figures(tch=_fig(activas=a, activas_inicio=a, altas=10, bajas=6)))
+        for i, a in enumerate((120, 3, 120))
+    ]
+    scheduled_reports.protect_series(*periods)
+    assert {next(r for r in p if r["canal"] == "tch")["activas"] for p in periods} == {"<5"}
+    for prev, cur in pairwise(periods):
+        for a, b in zip(prev, cur, strict=True):
+            assert _unknowns(a, b) != 1
 
 
 def test_five_is_the_threshold() -> None:

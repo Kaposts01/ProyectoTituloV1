@@ -184,6 +184,10 @@ def display_rows(
             row[column], hidden = _count(fig[column])
             if hidden:
                 masked_columns.add(column)
+        if MASKED in (row["altas"], row["bajas"]) and row["activas"] != MASKED:
+            # activas(t) - activas(t-1) = altas - bajas: con activas visibles se despejaria la cifra oculta.
+            row["activas"] = MASKED
+            masked_columns.add("activas")
         small = any(0 < int(fig[k] or 0) < MIN_GROUP for k in ("bajas", "activas_inicio"))
         row["churn"] = NOT_AVAILABLE if small else str(round(float(fig["churn"] or 0), 2))
         if mrr is None or channel not in mrr:
@@ -208,6 +212,27 @@ def display_rows(
         total["mrr"] = str(sum(int(v) for v in mrr_values))
     rows.append(total)
     return rows
+
+
+def protect_series(*periods: list[dict[str, str]]) -> None:
+    """Enmascarado entre periodos (modifica las filas en su lugar). `periods` son las filas de `display_rows` de periodos
+    que se muestran juntos (correo y CSV). Como activas(t) - activas(t-1) = altas(t) - bajas(t), una cifra pequena oculta
+    de un canal se despejaria restando periodos vecinos. Regla: si en CUALQUIER periodo del conjunto altas, bajas o activas
+    de un canal estan enmascaradas, las activas de ese canal se enmascaran en TODOS los periodos (y el total de activas
+    pasa a "—" donde algun canal quedo oculto). Asi nunca queda una sola incognita en esa ecuacion."""
+    risky: set[str] = set()
+    for rows in periods:
+        for row in rows:
+            if row["canal"] != "total" and MASKED in (row["activas"], row["altas"], row["bajas"]):
+                risky.add(row["canal"])
+    for rows in periods:
+        for row in rows:
+            if row["canal"] in risky:
+                row["activas"] = MASKED
+        if any(r["activas"] == MASKED for r in rows if r["canal"] != "total"):
+            for row in rows:
+                if row["canal"] == "total":
+                    row["activas"] = NOT_AVAILABLE
 
 
 def to_csv(rows: list[dict[str, str]]) -> str:
@@ -358,6 +383,7 @@ def build_weekly(db: Session, now: datetime | None = None) -> BuiltReport:
     prev_label = f"{prev_start.isocalendar().year}-W{prev_start.isocalendar().week:02d}"
     rows = display_rows(cur_label, current, mrr)
     prev_rows = display_rows(prev_label, previous)
+    protect_series(prev_rows, rows)
     csv_text = to_csv(prev_rows + rows)
     title = "Resumen semanal"
     subtitle = f"Semana del {_fmt_date(start)} al {_fmt_date(end)}"
@@ -380,18 +406,20 @@ def build_monthly(db: Session, now: datetime | None = None) -> BuiltReport:
     first, last = monthly_period(moment)
     today = chile_date(moment)
     mrr = mrr_snapshot(db, today)
-    csv_rows: list[dict[str, str]] = []
+    periods: list[list[dict[str, str]]] = []
     current_rows: list[dict[str, str]] = []
     previous_rows: list[dict[str, str]] = []
     for back in range(CSV_MONTHS - 1, -1, -1):
         start, end = _month_bounds(first, back)
         label = f"{start:%Y-%m}"
         rows = display_rows(label, period_figures(db, start, end), mrr if back == 0 else None)
-        csv_rows += rows
+        periods.append(rows)
         if back == 0:
             current_rows = rows
         elif back == 1:
             previous_rows = rows
+    protect_series(*periods)
+    csv_rows = [row for rows in periods for row in rows]
     title = "Cierre mensual"
     subtitle = f"{_month_label(first).capitalize()} ({_fmt_date(first)} al {_fmt_date(last)})"
     env = _env_label()
