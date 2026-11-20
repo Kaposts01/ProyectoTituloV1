@@ -64,3 +64,18 @@ Criterio aplicado (escrito arriba, paso 1): Dashboard (`/central/resumen`), Cart
    - a) el backend 8000 sirve `frontend/dist` (ya lo hace si existe) y la web se abre en `127.0.0.1:8000`; 5173 queda solo para desarrollo. Agrega `npm run build` a cada despliegue y a REANUDAR_SESIONES.md.
    - b) `vite preview` en 5173 sobre la build, con el mismo proxy; mantiene la URL de hoy.
    Ninguno toca la base. Vuelta atrás: volver a `npm run dev`.
+
+## Paso 4: medición servidor de desarrollo contra build (2026-11-19)
+
+Aprobado por el usuario vía el Maestro («Sí, el paso 4»), con turno pesado del Orquestador. Sandbox: desarrollo en 5174 (backend 8001) contra build servida por un backend de sandbox propio en 8004 desde este worktree (`npx vite build --mode sandbox`); los dos contra `crm_sandbox`. Usuario temporal de solo lectura, borrado al terminar. Chrome, una pestaña. «Frío» = recarga sin caché (Ctrl+Shift+R) con el servidor ya encendido; «caliente» = navegación normal. «Listo» = fin del último pedido de la página (módulos y API). Mediana de 3 pasadas (2 en tres casos en caliente).
+
+| Pantalla | Desarrollo frío | Build frío | Desarrollo caliente | Build caliente |
+| --- | --- | --- | --- | --- |
+| Dashboard | 629 ms · 4,8 MB · 105 pedidos | 223 ms · 0,5 MB · 15 | 572 ms | 198 ms |
+| Cartera › Suscripciones | 340 ms · 4,8 MB · 92 | 147 ms · 0,5 MB · 18 | ~370 ms | ~115 ms |
+| VirtualPOS › Resumen | 314 ms · 4,8 MB · 105 | 157 ms · 0,5 MB · 19 | ~270 ms | 146 ms |
+
+- La build tarda entre la mitad y un tercio, baja ~10 veces menos datos (0,5 MB contra 4,8 MB) y hace ~6 veces menos pedidos.
+- Con la build cada pedido a la API sale una sola vez (sin el doble montaje de StrictMode).
+- **Lo que más nota el usuario es otra cosa:** la primera carga después de encender o reiniciar el servidor de desarrollo (o tras `npm ci`) tardó **13,4 s** (paso 2), porque Vite transforma todo al primer pedido. Con la build ese costo no existe: los archivos ya están listos.
+- En esta máquina la red es local; en otra máquina de la red la diferencia de 4,8 MB contra 0,5 MB pesa más.
