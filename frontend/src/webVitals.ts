@@ -20,12 +20,12 @@ export function formatMetric(metric: Metric): string {
 }
 
 export async function registerWebVitals(
-  load: () => Promise<WebVitalsModule> = () => import("web-vitals/attribution") as unknown as Promise<WebVitalsModule>,
+  load?: () => Promise<WebVitalsModule>,
   log: (line: string) => void = (line) => console.info(line),
 ): Promise<boolean> {
   // import.meta.env.MODE se reemplaza al compilar: en producción esta rama y el import() desaparecen del bundle.
   if (import.meta.env.MODE !== "sandbox") return false;
-  const { onLCP, onINP, onCLS } = await load();
+  const { onLCP, onINP, onCLS } = load ? await load() : ((await import("web-vitals/attribution")) as unknown as WebVitalsModule);
   const report = (metric: Metric) => log(formatMetric(metric));
   onLCP(report, { reportAllChanges: true });
   onINP(report, { reportAllChanges: true });
