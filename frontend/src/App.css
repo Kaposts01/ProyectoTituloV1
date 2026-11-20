@@ -918,6 +918,9 @@ td.num { text-align: right; }
   .filter-chip button { width: 28px; height: 28px; }
 }
 .unified-totals { margin: 0 0 10px; font-size: 13px; line-height: 20px; min-height: 20px; }
+/* PERF-03 (CLS): en pantallas angostas los totales de 3 o 4 canales ocupan 2 líneas; la reserva y la línea real guardan
+   las dos, así la tabla no baja 20 px al llegar los totales. */
+@media (max-width: 640px) { .unified-totals { min-height: 40px; } }
 .unified-summary { margin-bottom: 16px; }
 
 /* L7-IMPORT: panel «Importar reportes de plataformas». Contenedor sin tarjeta propia (no se anidan cards). */

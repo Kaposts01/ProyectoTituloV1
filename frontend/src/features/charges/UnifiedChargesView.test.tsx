@@ -207,4 +207,15 @@ describe("Cobros: la tabla de rechazo reserva su alto (CLS)", () => {
     await waitFor(() => expect(rejection.querySelector(".table-wrap-page")).toBeNull());
     expect(pageReserve("rechazo", null).style).toMatchObject({ "--page-rows": 2 });
   });
+
+  it("los totales por canal reservan 2 líneas en móvil, igual que la línea real", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const css = readFileSync(resolve(__dirname, "../../App.css"), "utf8");
+    expect(css).toMatch(/@media \(max-width: 640px\) \{ \.unified-totals \{ min-height: 40px; \} \}/);
+    mountApp("/central/cobros", handlers.map((h): Handler => (h[1] === "/api/v1/general/charges" ? ["GET", h[1], () => new Promise(() => undefined)] : h)));
+    await appReady();
+    const reserve = await screen.findByTestId("channel-totals-reserve");
+    expect(reserve.className).toContain("unified-totals");
+  });
 });
