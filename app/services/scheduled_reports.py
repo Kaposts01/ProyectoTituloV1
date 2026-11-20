@@ -262,7 +262,10 @@ def sync_status(db: Session, now: datetime) -> list[dict[str, str]]:
         last = item.get("last_finished_at")
         last_text = "sin sincronizaciones"
         if last:
-            last_text = datetime.fromisoformat(str(last)).astimezone(CHILE).strftime("%d-%m-%Y %H:%M")
+            moment = datetime.fromisoformat(str(last))
+            if moment.tzinfo is None:  # sin zona: UTC explicito (no la zona del equipo)
+                moment = moment.replace(tzinfo=UTC)
+            last_text = moment.astimezone(CHILE).strftime("%d-%m-%Y %H:%M")
         out.append({
             "canal": LABELS.get(str(item["channel"]), str(item["channel"])),
             "estado": _STATE_TEXT.get(str(item.get("state")), "Sin datos"),

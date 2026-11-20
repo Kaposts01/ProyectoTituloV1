@@ -244,6 +244,24 @@ def test_sync_status_has_no_error_messages(db_session) -> None:
     assert "persona@ejemplo.org" not in built.html and "12.345.678-5" not in built.html
 
 
+@pytest.mark.parametrize(
+    ("last_finished", "expected"),
+    [
+        ("2026-11-20T15:30:00", "20-11-2026 12:30"),  # sin zona: se toma como UTC (Chile UTC-3 en noviembre)
+        ("2026-11-20T15:30:00+00:00", "20-11-2026 12:30"),
+        ("2026-07-20T15:30:00", "20-07-2026 11:30"),  # horario de invierno, UTC-4
+    ],
+)
+def test_sync_status_reads_naive_timestamps_as_utc(db_session, monkeypatch, last_finished, expected) -> None:
+    from app.api.v1.routes import sync_runs
+
+    monkeypatch.setattr(sync_runs, "_compute_health", lambda _db, _now: [
+        {"channel": "toku", "state": "ok", "last_finished_at": last_finished}
+    ])
+    (item,) = scheduled_reports.sync_status(db_session, NOW)
+    assert item["ultima"] == expected
+
+
 # ----------------------------- envio con SMTP simulado -----------------------------
 
 

@@ -46,6 +46,14 @@ Tabla `report_dispatches` (migración `20261120_0085`), una fila por `(report_ki
 
 Probar en sandbox sin correo real: levantar el SMTP de depuración (`scripts/maintenance/debug_smtp_server.py --port 1025`, ver `docs/data/alerts.md`), con `APP_ENV=sandbox`, `ALERT_SMTP_HOST=127.0.0.1`, `ALERT_SMTP_PORT=1025`, `ALERT_SMTP_STARTTLS=false` y `REPORT_EMAIL_TO` con una dirección ficticia, y llamar al endpoint con el backend sandbox. El correo (con su CSV) queda en la consola o en `--out-dir`; no sale nada de este equipo. El botón del frontend (paso 7 del plan) queda para una tanda posterior.
 
+## Límites conocidos (no se cambiaron a propósito)
+
+- **Duplicado posible si falla el registro del resultado.** Si el correo salió bien pero `_finish` falla (error de base justo después del envío), la fila queda `sending`; pasados 30 minutos el siguiente disparo (o el catch-up) puede reenviarlo. Muy improbable; el costo es un correo duplicado.
+- **Alias de producción.** El tope de «una sola dirección» en `REPORT_EMAIL_TO` rige cuando `env_mode` no es producción. Los alias `development`, `dev` y `local` cuentan como producción (`is_production`), por lo que ahí no rige. Es coherente con el resto del código.
+- **Filas `test:` sin limpieza y sin límite de frecuencia.** Cada envío de prueba deja una fila `test:<marca>` en `report_dispatches` que no se borra, y el mensual arma 13 períodos dentro de la petición. Aceptable para un botón de administrador.
+- **Referencia de un período vencido antes de su hora.** Si el equipo estuvo apagado más de un ciclo y el envío tardío cae antes de la hora programada del ciclo en curso, el correo recupera el ciclo anterior y la foto de MRR y el estado de sincronizaciones se calculan con esa fecha de referencia, no con la actual.
+- **Fechas sin zona.** `last_finished_at` de las sincronizaciones sin zona horaria se interpreta como UTC (antes dependía de la zona del equipo).
+
 ## Ventana de puesta en marcha
 
 Sandbox primero con el envío de prueba. En producción: migración 0085 antes de reiniciar, fuera de 02:00 a 04:30, y encender las banderas después de revisar la prueba. Rollback: apagar las banderas; `downgrade` de la 0085 elimina la tabla.
