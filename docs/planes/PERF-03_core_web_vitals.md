@@ -108,7 +108,7 @@ Lectura:
 
 - **CLS: resuelto en 9 de 10 casos** (todos ≤ 0,06). Queda **Suscripciones en escritorio, ~0,2**, y no es la franja: el desplazamiento viene de `section.panel > div.table-wrap` (la tabla cambia de alto al llegar los datos aunque tenga alto mínimo). Corrección siguiente: reservar el alto real de la página de resultados (filas fijas o `min-height` acorde a 50 filas) o filas esqueleto dentro de la tabla.
 - **LCP en escritorio:** cumple en todas (≤ 0,85 s), algo mejor que antes en Clientes, Cobros y Suscripciones.
-- **LCP en móvil emulado: no mejoró** (2,6 a 3,8 s; solo cumple ninguna con holgura). La primera pintura bajó de ~2,1 s a ~1,8–2,0 s con las fuentes locales, pero el elemento LCP sigue siendo un texto que aparece cuando llegan los datos (`section.panel p.muted-copy` o el aviso de mes en curso). El cuello es el hilo principal: en VirtualPOS móvil, 1,3 s de trabajo en el hilo principal, 0,7 s de arranque de JS y ~80 KB de JS sin usar en la carga.
+- **LCP en móvil emulado: no mejoró** (2,6 a 3,8 s; ninguna cumple). La primera pintura bajó de ~2,1 s a ~1,8–2,0 s con las fuentes locales, pero el elemento LCP sigue siendo un texto que aparece cuando llegan los datos (`section.panel p.muted-copy` o el aviso de mes en curso). El cuello es el hilo principal: en VirtualPOS móvil, 1,3 s de trabajo en el hilo principal, 0,7 s de arranque de JS y ~80 KB de JS sin usar en la carga.
 - **TBT en móvil:** bajó en Dashboard (371 → ~270–290 ms) y en VirtualPOS sin franja (312 → 262), pero sigue sobre 200 ms. Es el indicio de INP: va a PERF-03f.
 - La compresión del servidor (`vite preview` no comprime) ahorraría solo ~10 KB: no es la causa principal.
 
