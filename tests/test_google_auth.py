@@ -398,6 +398,23 @@ def test_failures_with_valid_transaction_block_google_but_not_password_login(goo
     assert client.post("/api/v1/auth/login", json={"username": username, "password": "correct-password"}).status_code == 200
 
 
+def test_successful_google_login_clears_the_google_ip_counter(google, monkeypatch) -> None:
+    # O1: todos llegan desde 127.0.0.1 por el proxy; un ingreso correcto limpia los fallos acumulados de la IP.
+    monkeypatch.setattr(settings, "auth_login_max_failures_per_ip", 3)
+    for _ in range(2):  # dos fallos que cuentan, sin llegar al umbral
+        _, resp = _full_login(google, _email())
+        assert _failed(resp)
+    email = _email()
+    _make_user(email)
+    _, resp = _full_login(google, email)
+    assert resp.headers["location"] == "/"
+    for _ in range(2):  # sin la limpieza, el tercer fallo bloquearia; con ella el contador parte de cero
+        _, resp = _full_login(google, _email())
+        assert _failed(resp)
+    _, resp = _full_login(google, email)
+    assert resp.headers["location"] == "/"
+
+
 def test_callback_failures_without_transaction_do_not_count(google, monkeypatch) -> None:
     monkeypatch.setattr(settings, "auth_login_max_failures_per_ip", 3)
     username = _password_user()

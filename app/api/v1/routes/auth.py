@@ -194,6 +194,7 @@ def google_callback(
         access_token, _csrf = create_access_token(user)
     except RuntimeError:
         return _google_failure(ip, "auth_not_configured", count=True)
+    login_throttle.clear(("google_ip", ip))  # O1: un ingreso correcto limpia el contador; todos llegan desde 127.0.0.1
     response = _google_redirect("/")
     set_session_cookie(response, access_token)
     log_auth_event("google_login_success", ip=ip, user_id=user.id)

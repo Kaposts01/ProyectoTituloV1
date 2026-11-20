@@ -30,7 +30,7 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 
 from app.core.config import settings
-from app.core.security import ACCESS_COOKIE, get_current_user
+from app.core.security import ACCESS_COOKIE, SESSION_TYP, get_current_user
 
 API_PREFIX = "/api/v1/"
 PUBLIC_API_PATHS: frozenset[str] = frozenset({
@@ -79,7 +79,7 @@ def _token_rejection(token: str | None) -> dict[str, str] | None:
         payload = jwt.decode(token, secret, algorithms=["HS256"])
     except InvalidTokenError:
         return _INVALID
-    return None if payload.get("typ") == "session" and isinstance(payload.get("sub"), str) else _INVALID
+    return None if payload.get("typ") == SESSION_TYP and isinstance(payload.get("sub"), str) else _INVALID
 
 
 class SessionFirstMiddleware:
