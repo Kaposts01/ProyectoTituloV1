@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ChurnKpiCard, KpiCard, KPI_EMPTY_CAPTION } from "./KpiCard";
 import type { ChannelKpis } from "../features/shared/kpis";
 import { CHANNEL_CHURN_HELP, churnSparkline } from "./chartModel";
@@ -6,7 +7,7 @@ import { CHANNEL_CHURN_HELP, churnSparkline } from "./chartModel";
  * KPIs del canal. El churn usa la tarjeta D20 (chip, sparkline) SIN meta mientras no existan (DEC-38): el chip dice
  * «sin meta» y no hay barra de avance. `churnHistory` es la serie `churn_rate_monthly` del canal.
  */
-export function ChannelKpiStrip({ kpis, ariaLabel = "KPIs del canal", churnHistory }: {
+function ChannelKpiStripImpl({ kpis, ariaLabel = "KPIs del canal", churnHistory }: {
   kpis: ChannelKpis | null;
   ariaLabel?: string;
   churnHistory?: { year: number; month: number; rate: number | null }[] | null;
@@ -40,3 +41,6 @@ export function ChannelKpiStrip({ kpis, ariaLabel = "KPIs del canal", churnHisto
     </>
   );
 }
+
+/** PERF-03f: `kpis` y `churnHistory` llegan memoizados del padre. */
+export const ChannelKpiStrip = memo(ChannelKpiStripImpl);

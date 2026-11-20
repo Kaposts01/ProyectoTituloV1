@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { ChannelChart, type ChannelChartRow, type ChannelChartSeries } from "../../components/ChannelChart";
 import { ChartRangeSelector } from "../../components/ChartRangeSelector";
 import { filterByRange, type ChartRange } from "../../components/chartRows";
@@ -29,7 +29,7 @@ function Panel({ id, title, note, children }: { id: string; title: string; note?
  * elegido); el selector de rango solo recorta lo ya recibido. «Año» = el año del último mes y «Todo» = los 12 meses
  * recibidos (el endpoint no entrega más historia). `tchDataDate` es la fecha del último dato de TCH (viene de Excel).
  */
-export function SummaryCharts({ summary, tchDataDate }: { summary: UnifiedSummary; tchDataDate: string | null }) {
+function SummaryChartsImpl({ summary, tchDataDate }: { summary: UnifiedSummary; tchDataDate: string | null }) {
   const [range, setRange] = useState<ChartRange>("12m");
   const { series, channels } = summary;
   const revenueSeries = useMemo<ChannelChartSeries[]>(
@@ -65,3 +65,6 @@ export function SummaryCharts({ summary, tchDataDate }: { summary: UnifiedSummar
     </section>
   );
 }
+
+/** PERF-03f: no se repinta (ni recharts) cuando el padre cambia por otra causa (salud de canales, etc.). */
+export const SummaryCharts = memo(SummaryChartsImpl);

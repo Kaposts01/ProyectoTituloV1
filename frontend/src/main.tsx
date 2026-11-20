@@ -1,7 +1,12 @@
 import { Component, StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
+import './fonts.css'
 import './index.css'
 import App from './App.tsx'
+import { reserveEnvironmentBannerSpace } from './components/EnvironmentBanner'
+import { preloadRouteChunk } from './routePreload'
+import { startEarlyData } from './earlyData'
+import { registerWebVitals } from './webVitals'
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
   state = { message: null };
@@ -23,6 +28,11 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { message: st
     return this.props.children;
   }
 }
+
+reserveEnvironmentBannerSpace()
+preloadRouteChunk()
+startEarlyData()
+void registerWebVitals().catch(() => undefined)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

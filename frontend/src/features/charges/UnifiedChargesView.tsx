@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDebouncedValue } from "../../hooks";
 import { tryLabel } from "../../i18n/label";
 import { ExportButton } from "../shared/ExportButton";
@@ -8,6 +8,7 @@ import {
   CHARGE_OUTCOMES, VIEW_PERMISSIONS, canAny,
   type ChargeRow, type PaymentRow, type RejectionSummary, type StatusFacets, type UnifiedPage,
 } from "../general/unifiedTypes";
+import { pageReserve } from "../general/pageReserve";
 import { cleanParams, useUnifiedGet } from "../general/useUnifiedList";
 import { Rut } from "../shared/RutCell";
 
@@ -18,6 +19,9 @@ const FIELDS: Record<Tab, { value: string; label: string }[]> = {
   charges: [{ value: "all", label: "Todos los campos" }, { value: "id", label: "ID de cobro" }, { value: "subscription_id", label: "ID de suscripción" }, { value: "status", label: "Estado" }],
   payments: [{ value: "all", label: "Todos los campos" }, { value: "id", label: "ID de pago" }, { value: "charge_id", label: "ID de cobro" }, { value: "status", label: "Estado" }],
 };
+
+/** Canales que trae el resumen de rechazo (VirtualPOS, Toku, Payku y TCH). */
+const REJECTION_ROWS = 4;
 
 const pct = (rate: number | null) => (rate === null ? "—" : `${rate.toFixed(1).replace(".", ",")} %`);
 
@@ -38,7 +42,9 @@ function RejectionSummaryPanel({ channel, dateFrom, dateTo }: { channel: string;
         Rechazados / (pagados + rechazados), con fecha de cobro hasta hoy (hora de Chile) y sin cancelados, expirados ni anulados.
         VirtualPOS y TCH cuentan cargos; Toku y Payku cuentan intentos de cobro, porque el canal no marca el cargo como rechazado.
       </p>
-      <div className="table-wrap">
+      {/* PERF-03 (CLS): la tabla de tasas reserva las filas de la última respuesta (4 canales la primera vez); sin esto
+          crecía al llegar los datos y empujaba todo el panel de cobros que está debajo. */}
+      <div {...pageReserve("rechazo", data ? { items: data.channels } : null, { defaultRows: REJECTION_ROWS, minRows: 1 })} aria-busy={loading}>
         <table>
           <thead><tr><th>Canal</th><th>Base</th><th>Pagados</th><th>Rechazados</th><th>Tasa</th></tr></thead>
           <tbody>
@@ -91,7 +97,45 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
   };
   // QA-16: un rango invertido devolvía «0 cobros» sin explicación; ahora se avisa (las fechas AAAA-MM-DD se comparan como texto).
   const invertedRange = dateFrom !== "" && dateTo !== "" && dateFrom > dateTo;
-  const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+  // PERF-03f: filas memoizadas por página y manejador (escribir en el buscador no las repinta).
+  const chargeRows = useMemo(() => {
+    const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+    return ((list.data?.items ?? []) as ChargeRow[]).filter((row) => row.charge_id !== undefined).map((row, index) => {
+  const go = open(detailPath("charge", row.channel, row.charge_id));
+  return (
+    <tr key={`${row.channel}-${row.charge_id}-${index}`}>
+      <td>{channelText(row.channel)}</td>
+      <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.charge_id}</button> : row.charge_id}</td>
+      <td className="mono">{row.subscription_id ?? "—"}</td>
+      <td>{row.name || "—"}</td>
+      <td><Rut value={row.rut} /></td>
+      <td><StatusText value={row.status} /></td>
+      <td className="mono">{day(row.charge_date)}</td>
+      <td className="mono">{row.period ?? "—"}</td>
+      <td className="mono">{money(row.amount, row.currency)}</td>
+      <td>{row.rejection_reason ? <span data-raw-text>{row.rejection_reason}</span> : "—"}</td>
+    </tr>
+  );
+});
+  }, [list.data, onOpenPath]);
+  const paymentRows = useMemo(() => {
+    const open = (path: string | null) => (path && onOpenPath ? () => onOpenPath(path) : undefined);
+    return ((list.data?.items ?? []) as PaymentRow[]).filter((row) => row.payment_id !== undefined).map((row, index) => {
+  const go = open(detailPath("payment", row.channel, row.payment_id));
+  return (
+    <tr key={`${row.channel}-${row.payment_id}-${index}`}>
+      <td>{channelText(row.channel)}</td>
+      <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.payment_id}</button> : row.payment_id}</td>
+      <td className="mono">{row.charge_id ?? "—"}</td>
+      <td>{row.name || "—"}</td>
+      <td><Rut value={row.rut} /></td>
+      <td><StatusText value={row.status} /></td>
+      <td className="mono">{day(row.payment_date)}</td>
+      <td className="mono">{money(row.amount, row.currency)}</td>
+    </tr>
+  );
+});
+  }, [list.data, onOpenPath]);
   const extraChips: FilterChip[] = [];
   if (outcome) extraChips.push({ key: "resultado", label: `Resultado: ${tryLabel("chargeOutcome", outcome) ?? outcome}`, onRemove: () => reset(setOutcome)("") });
   if (dateFrom) extraChips.push({ key: "desde", label: `Desde: ${day(dateFrom)}`, onRemove: () => reset(setDateFrom)("") });
@@ -169,31 +213,15 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
             </p>
           ) : null}
           {tab === "charges" ? <p className="muted-copy">Payku aparece con sus ciclos de cobro cuando existen; cada intento de cobro está en la pestaña Pagos.</p> : null}
-          {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
+          {!list.error && !list.forbidden ? <ChannelTotals byChannel={list.data?.by_channel ?? null} /> : null}
           {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
           {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}
-          <div className="table-wrap" aria-busy={list.loading}>
+          <div {...pageReserve(tab, list.data)} aria-busy={list.loading}>
             {tab === "charges" ? (
               <table>
                 <thead><tr><th>Canal</th><th>ID de cobro</th><th>Suscripción</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Fecha de cobro</th><th>Período</th><th>Monto</th><th>Motivo de rechazo</th></tr></thead>
                 <tbody>
-                  {((list.data?.items ?? []) as ChargeRow[]).filter((row) => row.charge_id !== undefined).map((row, index) => {
-                    const go = open(detailPath("charge", row.channel, row.charge_id));
-                    return (
-                      <tr key={`${row.channel}-${row.charge_id}-${index}`}>
-                        <td>{channelText(row.channel)}</td>
-                        <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.charge_id}</button> : row.charge_id}</td>
-                        <td className="mono">{row.subscription_id ?? "—"}</td>
-                        <td>{row.name || "—"}</td>
-                        <td><Rut value={row.rut} /></td>
-                        <td><StatusText value={row.status} /></td>
-                        <td className="mono">{day(row.charge_date)}</td>
-                        <td className="mono">{row.period ?? "—"}</td>
-                        <td className="mono">{money(row.amount, row.currency)}</td>
-                        <td>{row.rejection_reason ? <span data-raw-text>{row.rejection_reason}</span> : "—"}</td>
-                      </tr>
-                    );
-                  })}
+                  {chargeRows}
                   {!list.loading && list.data && list.data.items.length === 0 ? <tr><td colSpan={10}>Sin cobros con estos filtros.</td></tr> : null}
                 </tbody>
               </table>
@@ -201,21 +229,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
               <table>
                 <thead><tr><th>Canal</th><th>ID de pago</th><th>ID de cobro</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Fecha de pago</th><th>Monto</th></tr></thead>
                 <tbody>
-                  {((list.data?.items ?? []) as PaymentRow[]).filter((row) => row.payment_id !== undefined).map((row, index) => {
-                    const go = open(detailPath("payment", row.channel, row.payment_id));
-                    return (
-                      <tr key={`${row.channel}-${row.payment_id}-${index}`}>
-                        <td>{channelText(row.channel)}</td>
-                        <td className="mono">{go ? <button type="button" className="text-button" onClick={go}>{row.payment_id}</button> : row.payment_id}</td>
-                        <td className="mono">{row.charge_id ?? "—"}</td>
-                        <td>{row.name || "—"}</td>
-                        <td><Rut value={row.rut} /></td>
-                        <td><StatusText value={row.status} /></td>
-                        <td className="mono">{day(row.payment_date)}</td>
-                        <td className="mono">{money(row.amount, row.currency)}</td>
-                      </tr>
-                    );
-                  })}
+                  {paymentRows}
                   {!list.loading && list.data && list.data.items.length === 0 ? <tr><td colSpan={8}>Sin pagos con estos filtros.</td></tr> : null}
                 </tbody>
               </table>

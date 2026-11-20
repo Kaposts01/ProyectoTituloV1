@@ -168,7 +168,7 @@ export function RenewalTasksView({ can, refreshKey, onViewRequest, onRequestRene
       ) : null}
 
       {items.length > 0 ? (
-        <div className="table-wrap" aria-busy={loading}>
+        <div className="table-wrap table-wrap-tall" aria-busy={loading}>
           <table className="bx-table bx-stack bx-stack-renewals" role="table">
             <caption className="bx-sr">Tareas de renovación de calendario</caption>
             <thead role="rowgroup">

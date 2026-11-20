@@ -96,7 +96,7 @@ export function ManualTasksPanel({ can }: Props) {
       <p className="bx-sr" role="status" aria-live="polite">{loading ? "Cargando tareas manuales…" : `${total} tareas.`}</p>
       {!loading && items.length === 0 && !result.error ? <div className="bx-notice"><p style={{ margin: 0 }}>No hay tareas manuales {view === "open" ? "abiertas" : "cerradas"}.</p></div> : null}
       {items.length > 0 ? (
-        <div className="table-wrap" aria-busy={loading}>
+        <div className="table-wrap table-wrap-tall" aria-busy={loading}>
           <table className="bx-table bx-stack" role="table">
             <caption className="bx-sr">Tareas manuales de suscripciones</caption>
             <thead role="rowgroup">

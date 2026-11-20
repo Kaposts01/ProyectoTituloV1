@@ -107,3 +107,131 @@ jobs:
             frontend/coverage/lcov.info
           if-no-files-found: ignore
       - run: npm run build
+
+  # PERF-03g: presupuesto de rendimiento (Lighthouse CI) de las 5 pantallas principales, en móvil y en escritorio.
+  #
+  # MODO AVISO (decisión d260 = b: avisar dos semanas y después bloquear). Hoy NO bloquea el merge:
+  #   - el job entero lleva `continue-on-error: true`, y
+  #   - las aserciones de `frontend/lighthouserc.json` están en nivel "warn".
+  # Fecha prevista de paso a bloqueo: 2026-12-04 (dos semanas después del 2026-11-20, fecha prevista de integración de
+  # este job a master). Si la integración cambia, la fecha es «integración + 14 días». Ese día: (1) quitar
+  # `continue-on-error: true` de este job y (2) cambiar "warn" por "error" en las tres aserciones de lighthouserc.json.
+  # Antes de bloquear conviene revisar el historial del resumen del job: el ruido de laboratorio en CI es de ±10 % o más.
+  #
+  # Todo es sintético y de sandbox: base PostgreSQL de servicio, semilla propia (scripts/sandbox/seed_perf_ci.py), usuario
+  # ficticio de solo lectura con contraseña generada AQUÍ (no hay secretos nuevos en el repositorio ni en GitHub), backend
+  # con APP_ENV=sandbox sin llaves de proveedores reales y sin sincronizaciones. Nada sale a la red.
+  perf-budget:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: crm_sandbox
+          POSTGRES_USER: crm
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crm -d crm_sandbox"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: sandbox
+      # En sandbox la base efectiva es SANDBOX_DATABASE_URL; DATABASE_URL solo tiene que existir y ser distinta.
+      DATABASE_URL: postgresql+psycopg://crm:test-password@localhost:5432/crm
+      SANDBOX_DATABASE_URL: postgresql+psycopg://crm:test-password@localhost:5432/crm_sandbox
+      AUTH_JWT_SECRET: test-jwt-secret-with-at-least-32-characters
+      # Canal VirtualPOS «habilitado» con llaves de prueba (las mismas del job backend) y host de ejemplo: no hay red.
+      VIRTUALPOS_SANDBOX_BASE_URL: https://virtualpos.example.test
+      VIRTUALPOS_SANDBOX_API_KEY: test-sandbox-api-key
+      VIRTUALPOS_SANDBOX_SECRET_KEY: test-sandbox-secret-key
+      PERF_CI_USER: perf-ci
+      VITE_API_PROXY_TARGET: http://127.0.0.1:8001
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.lock
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Generar secretos efímeros del job (no se guardan en ningún lado)
+        run: |
+          PERF_CI_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          SANDBOX_AUTH_JWT_SECRET="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$PERF_CI_PASSWORD"
+          echo "::add-mask::$SANDBOX_AUTH_JWT_SECRET"
+          echo "PERF_CI_PASSWORD=$PERF_CI_PASSWORD" >> "$GITHUB_ENV"
+          echo "SANDBOX_AUTH_JWT_SECRET=$SANDBOX_AUTH_JWT_SECRET" >> "$GITHUB_ENV"
+      - run: alembic upgrade head
+      - name: Sembrar datos sintéticos y el usuario ficticio de solo lectura
+        run: python scripts/sandbox/seed_perf_ci.py --clients 2000
+      - name: Levantar el backend (sandbox)
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8001/api/v1/auth/me || true)"
+            [ "$code" != "000" ] && exit 0
+            sleep 2
+          done
+          echo "El backend no respondió"; tail -n 50 "$RUNNER_TEMP/backend.log"; exit 1
+      - name: Build del frontend (modo sandbox) y vite preview
+        working-directory: frontend
+        run: |
+          npm ci
+          npx vite build --mode sandbox
+          nohup npx vite preview --mode sandbox --port 4173 --strictPort > "$RUNNER_TEMP/preview.log" 2>&1 &
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/ || true)"
+            [ "$code" = "200" ] && exit 0
+            sleep 1
+          done
+          echo "vite preview no respondió"; tail -n 50 "$RUNNER_TEMP/preview.log"; exit 1
+      - name: Iniciar sesión por script (cookie para Lighthouse CI)
+        run: python scripts/sandbox/perf_ci_login.py --base-url http://127.0.0.1:8001 --out "$RUNNER_TEMP/lhci-headers.json"
+      - name: Lighthouse CI, móvil (3 corridas por pantalla)
+        working-directory: frontend
+        run: |
+          npx lhci collect --config=lighthouserc.json --collect.settings.extraHeaders="$(cat "$RUNNER_TEMP/lhci-headers.json")"
+          npx lhci assert --config=lighthouserc.json 2>&1 | tee "$RUNNER_TEMP/lhci-mobile.txt"
+          npx lhci upload --target=filesystem --outputDir="$RUNNER_TEMP/lhci-reports/movil"
+      - name: Lighthouse CI, escritorio (3 corridas por pantalla)
+        working-directory: frontend
+        run: |
+          npx lhci collect --config=lighthouserc.json --collect.settings.preset=desktop --collect.settings.extraHeaders="$(cat "$RUNNER_TEMP/lhci-headers.json")"
+          npx lhci assert --config=lighthouserc.json 2>&1 | tee "$RUNNER_TEMP/lhci-desktop.txt"
+          npx lhci upload --target=filesystem --outputDir="$RUNNER_TEMP/lhci-reports/escritorio"
+      - name: Resumen del presupuesto (solo aviso)
+        if: always()
+        continue-on-error: true
+        run: |
+          {
+            echo "## Presupuesto de rendimiento (Lighthouse CI, modo aviso)"
+            echo
+            echo "Metas: LCP <= 2500 ms, CLS <= 0,1, TBT <= 200 ms (mediana de 3 corridas). No bloquea el merge."
+            for name in mobile desktop; do
+              echo
+              echo "### $name"
+              echo '```'
+              cat "$RUNNER_TEMP/lhci-$name.txt" 2>/dev/null || echo "sin resultados"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Subir reportes de Lighthouse
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: ${{ runner.temp }}/lhci-reports
+          if-no-files-found: ignore

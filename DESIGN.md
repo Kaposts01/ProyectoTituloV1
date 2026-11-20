@@ -144,9 +144,9 @@ Los colores semánticos (success/warning/error) son independientes del acento. E
 
 **General Sans** (Fontshare): body, UI, labels, table content, form fields. Clean, con precisión casi mecánica en tamaños pequeños. Reemplaza Inter en todos los roles de text-rendering. Pesos 400 y 600.
 
-**JetBrains Mono** (Google Fonts): TODOS los valores que vienen de la base de datos. RUTs, IDs de suscripción, montos, timestamps, códigos de proveedor, hashes. Esto no es estilo — es semántica: el mono indica "este valor vino del sistema, no fue tipeado". 13px regular para celdas de tabla, 11px para timestamps secundarios.
+**JetBrains Mono** (OFL, autoalojada): TODOS los valores que vienen de la base de datos. RUTs, IDs de suscripción, montos, timestamps, códigos de proveedor, hashes. Esto no es estilo — es semántica: el mono indica "este valor vino del sistema, no fue tipeado". 13px regular para celdas de tabla, 11px para timestamps secundarios.
 
-Carga: Fontshare via `<link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@variable,general-sans@variable&display=swap">`. Google Fonts para JetBrains Mono. Fallbacks: system-ui para display/body, Courier New para mono.
+Carga: autoalojada (PERF-03c, d261): variables `woff2` en `frontend/public/fonts/` (Cabinet Grotesk y General Sans son los originales de Fontshare sin modificar: la ITF FFL prohíbe subconjuntar y convertir; JetBrains Mono sí va recortada al subconjunto latino, OFL), declaradas en `frontend/src/fonts.css` con `font-display: swap`; Cabinet Grotesk y General Sans (ITF Free Font License) y JetBrains Mono (OFL). Sin pedidos a dominios externos. Fallbacks con métricas ajustadas (`size-adjust`) sobre Arial para display/body y Courier New para mono.
 
 ## Layout
 

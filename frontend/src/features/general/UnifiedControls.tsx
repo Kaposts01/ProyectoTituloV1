@@ -177,7 +177,9 @@ export function UnifiedPagination({ offset, limit, total, shown, onOffset }: {
 }
 
 /** Totales por canal con los filtros activos («VirtualPOS 120 · Toku 30»). */
-export function ChannelTotals({ byChannel }: { byChannel: Record<string, number> }) {
+export function ChannelTotals({ byChannel }: { byChannel: Record<string, number> | null }) {
+  // Sin datos aún (primera carga): línea vacía con el alto reservado, para que la tabla no baje al llegar los totales.
+  if (byChannel === null) return <p className="muted-copy unified-totals" aria-hidden="true" data-testid="channel-totals-reserve" />;
   const entries = Object.entries(byChannel);
   if (entries.length === 0) return null;
   return (

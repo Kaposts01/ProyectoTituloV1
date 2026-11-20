@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getJson, friendlyError } from "../../api";
+import { earlyOr, takeEarly } from "../../earlyData";
 import { useDebouncedValue } from "../../hooks";
 import type { GeneralClientDetail } from "./generalClientAdapter";
 import type {
@@ -25,6 +26,8 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   const { session, setError } = ctx;
   const [generalView, setGeneralView] = useState<GeneralView>("summary");
   const [generalClients, setGeneralClients] = useState<GeneralClients | null>(null);
+  /** Consulta de clientes que ya se resolvió (con datos o con error): «cargando» = la consulta actual aún no se resolvió (PERF-03, H4). */
+  const [settledClientsQuery, setSettledClientsQuery] = useState<string | null>(null);
   const [generalClientQuery, setGeneralClientQuery] = useState("");
   const [generalClientFilter, setGeneralClientFilter] = useState<GeneralClientFilter>("all");
   const [generalClientOffset, setGeneralClientOffset] = useState(0);
@@ -38,18 +41,23 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
   const [generalSubscriptionOffset, setGeneralSubscriptionOffset] = useState(0);
   const debouncedGeneralClientQuery = useDebouncedValue(generalClientQuery);
 
+  const clientsParams = new URLSearchParams({ limit: "50", offset: String(generalClientOffset), filter_field: generalClientFilter });
+  if (generalClientChannel) clientsParams.set("canal", generalClientChannel);
+  if (generalClientStatus) clientsParams.set("status", generalClientStatus);
+  if (debouncedGeneralClientQuery.trim()) clientsParams.set("query", debouncedGeneralClientQuery.trim());
+  const clientsQuery = clientsParams.toString();
+  const generalClientsLoading = settledClientsQuery !== clientsQuery;
+
   useEffect(() => {
     if (!session || generalView !== "clients") return;
-    const params = new URLSearchParams({ limit: "50", offset: String(generalClientOffset), filter_field: generalClientFilter });
-    if (generalClientChannel) params.set("canal", generalClientChannel);
-    if (generalClientStatus) params.set("status", generalClientStatus);
-    if (debouncedGeneralClientQuery.trim()) params.set("query", debouncedGeneralClientQuery.trim());
     const controller = new AbortController();
-    getJson<GeneralClients>(`/api/v1/staging/dashboard/general/clients?${params}`, controller.signal)
-      .then(setGeneralClients)
-      .catch((err: unknown) => { if (err instanceof DOMException && err.name === "AbortError") return; setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")); });
+    const url = `/api/v1/staging/dashboard/general/clients?${clientsQuery}`;
+    // PERF-03 (d264 C): la primera página puede venir adelantada, pedida en paralelo con /auth/me (earlyData.ts).
+    earlyOr(takeEarly<GeneralClients>(url), () => getJson<GeneralClients>(url, controller.signal), controller.signal)
+      .then((data) => { if (controller.signal.aborted) return; setGeneralClients(data); setSettledClientsQuery(clientsQuery); })
+      .catch((err: unknown) => { if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return; setSettledClientsQuery(clientsQuery); setError(friendlyError(err, "No se pudieron cargar los clientes consolidados.")); });
     return () => controller.abort();
-  }, [session, generalView, debouncedGeneralClientQuery, generalClientFilter, generalClientOffset, generalClientChannel, generalClientStatus, setError]);
+  }, [session, generalView, clientsQuery, setError]);
 
   // UX-08: /central/suscripciones usa la vista unificada paginada en SQL (features/general/UnifiedSubscriptionsView);
   // ya no se pide la lista consolidada en memoria (/staging/dashboard/general/subscriptions).
@@ -58,6 +66,7 @@ export function useGeneralDashboard(ctx: GeneralDashboardContext) {
     generalView,
     setGeneralView,
     generalClients,
+    generalClientsLoading,
     setGeneralClients,
     generalClientQuery,
     setGeneralClientQuery,

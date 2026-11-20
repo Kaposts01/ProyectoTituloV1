@@ -2,9 +2,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "./UnifiedChargesView";
+import { pageReserve, resetPageReserve } from "../general/pageReserve";
 import { appReady, mountApp, navTop, resetApp, type Handler } from "../../test/appHarness";
 
-afterEach(resetApp);
+afterEach(() => { resetApp(); resetPageReserve(); });
 
 const chargesPage = {
   items: [
@@ -183,5 +184,38 @@ describe("Cobros unificados", () => {
     expect(screen.getByRole("option", { name: "Pagado · VirtualPOS (1.847)" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Pagado · Payku (32)" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Rechazada (20)" })).toBeTruthy();
+  });
+});
+
+describe("Cobros: la tabla de rechazo reserva su alto (CLS)", () => {
+  it("mientras llega el resumen reserva 4 filas y al llegar queda sin reserva", async () => {
+    const pending = handlers.map((h): Handler => (h[1] === "/api/v1/general/charges/summary" ? ["GET", h[1], () => new Promise(() => undefined)] : h));
+    mountApp("/central/cobros", pending);
+    await appReady();
+    const rejection = await screen.findByRole("region", { name: "Rechazo por canal" });
+    const wrap = rejection.querySelector(".table-wrap") as HTMLElement;
+    expect(wrap.className).toContain("table-wrap-page");
+    expect(wrap.getAttribute("aria-busy")).toBe("true");
+    expect(wrap.style.getPropertyValue("--page-rows")).toBe("4");
+  });
+
+  it("con el resumen cargado no queda reserva y la segunda visita reserva las filas de la primera", async () => {
+    mountApp("/central/cobros", handlers);
+    await appReady();
+    await screen.findByRole("button", { name: "C-1" });
+    const rejection = screen.getByRole("region", { name: "Rechazo por canal" });
+    await waitFor(() => expect(rejection.querySelector(".table-wrap-page")).toBeNull());
+    expect(pageReserve("rechazo", null).style).toMatchObject({ "--page-rows": 2 });
+  });
+
+  it("los totales por canal reservan 2 líneas en móvil, igual que la línea real", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const css = readFileSync(resolve(__dirname, "../../App.css"), "utf8");
+    expect(css).toMatch(/@media \(max-width: 640px\) \{ \.unified-totals \{ min-height: 40px; \} \}/);
+    mountApp("/central/cobros", handlers.map((h): Handler => (h[1] === "/api/v1/general/charges" ? ["GET", h[1], () => new Promise(() => undefined)] : h)));
+    await appReady();
+    const reserve = await screen.findByTestId("channel-totals-reserve");
+    expect(reserve.className).toContain("unified-totals");
   });
 });

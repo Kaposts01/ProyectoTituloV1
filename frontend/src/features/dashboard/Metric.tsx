@@ -1,7 +1,8 @@
+import { memo } from "react";
 import type React from "react";
 import { METRIC_COLORS } from "../shared/constants";
 
-export function Metric({
+function MetricImpl({
   label,
   value,
   tone,
@@ -33,3 +34,6 @@ export function Metric({
     </article>
   );
 }
+
+/** PERF-03f: props primitivas; solo se repinta si cambia su valor. */
+export const Metric = memo(MetricImpl);

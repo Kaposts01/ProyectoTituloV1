@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { friendlyError } from "../../api";
+import { earlyOr, takeEarlySummary } from "../../earlyData";
 import { fetchSummary } from "./summaryApi";
 import type { SummaryChannel, UnifiedSummary } from "./summaryTypes";
 
@@ -29,7 +30,9 @@ export function useSummary(month: string | undefined, channels: SummaryChannel[]
   useEffect(() => {
     const controller = new AbortController();
     const query = { month, channels: channelsKey ? (channelsKey.split(",") as SummaryChannel[]) : undefined };
-    fetchSummary(query, controller.signal)
+    // PERF-03 (d264 C): el resumen inicial (mes actual, todos los canales) puede venir adelantado, pedido en paralelo con /auth/me.
+    const early = attempt === 0 && !query.month && !query.channels ? takeEarlySummary() : null;
+    earlyOr(early, () => fetchSummary(query, controller.signal), controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
         setResult({ key: requestKey, data });

@@ -1,8 +1,10 @@
 import { Component, lazy, Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { getCached } from "./apiCache";
+import { discardEarlyData } from "./earlyData";
 import { setCsrfToken, getJson, postJson } from "./api";
-import { useChannelHealth } from "./hooks/useChannelHealth";
+import { fetchChannelHealth, useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
+import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { ChangeToasts } from "./components/ChangeToasts";
 import { canOpenBilling, canOpenCharges, canOpenMembers, canOpenRecovery, canOpenSubscriptions, providerGroups, resourcePermission } from "./navigation";
 import type { ProviderSection } from "./routes";
@@ -16,6 +18,8 @@ import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { DirectCancelContext } from "./features/cancellations/directCancel";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
+import { ChannelHero } from "./features/dashboard/ChannelHero";
+import { PageSkeleton } from "./components/PageSkeleton";
 import { useEnabledChannels } from "./features/shared/environment";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
 import { useEtl } from "./features/dashboard/useEtl";
@@ -141,9 +145,12 @@ function AppCore() {
   const can = (permission: string) => (session?.user?.permissions ?? []).includes(permission);
 
   useEffect(() => {
+    // En paralelo con /auth/me: la salud de canales calienta la caché y useChannelHealth la usa al llegar la sesión.
+    void fetchChannelHealth();
     getJson<AuthSession>("/api/v1/auth/me")
       .then((current) => { setCsrfToken(current.csrf_token); setSession(current); })
-      .catch(() => setSession(null));
+      // d264 C: sin sesión confirmada, lo que se adelantó en paralelo se descarta.
+      .catch(() => { discardEarlyData(); setSession(null); });
   }, []);
 
   useEffect(() => {
@@ -539,6 +546,7 @@ function AppCore() {
 
   async function logout() {
     try { await postJson("/api/v1/auth/logout"); } finally {
+      discardEarlyData();
       setCsrfToken("");
       setSession(null);
       setAdminOpen(false);
@@ -646,6 +654,17 @@ function AppCore() {
     />
   ) : null;
 
+  // PERF-03f: manejadores con identidad estable para el menú lateral y el dashboard de canal (ambos con `memo`):
+  // escribir en un buscador (estado de AppCore) ya no los repinta. Cada uno llama a la versión actual.
+  const stable = useStableCallbacks({
+    onToggleDetail: () => setDetailOpen((open) => !open),
+    onDashboard: showDashboard, onGeneralClients: showGeneralClients, onGeneralSubscriptions: showGeneralSubscriptions,
+    onGeneralCharges: showGeneralCharges, onAutoReport: showAutoReport, onChannel: showChannel, onSection: showSection,
+    onTheme: toggleTheme, onTch: showTch, onAdmin: showAdmin, onProfile: () => showProfile("summary"), onLogout: logout,
+    onClose: closeSidebar, onRecovery: showRecovery, onBilling: showBillingChanges, onCancellations: showCancellations,
+    onOpenResource: openChannelResource, onSync: syncChannel,
+  });
+
   const globalDashboard = <GeneralDashboardView general={general} etl={etl} error={error} setError={setError} can={can} />;
 
   const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSubscription={showTchSubscription} onReport={setReportScope} can={can} /> : null;
@@ -653,10 +672,14 @@ function AppCore() {
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
 
+  // PERF-03 (CLS): `channel` se fija en un efecto, después del primer render con sesión. Con un enlace directo a un canal,
+  // ese primer render mostraba el esqueleto sin cabecera y, al fijarse `channel`, el mismo nodo recibía la cabecera encima
+  // (el esqueleto bajaba ~150 px). La ruta ya dice qué canal es, así que la cabecera se decide desde ella.
+  const routeChannel = channel ?? (summaryRoute?.kind === "channel" ? summaryRoute.source : null);
+  const fallbackVariant = onSummaryRoute || routeChannel ? "cards" : "table";
+
   const content = detailLoading ? (
-    <main className="app-shell">
-      <p className="muted-copy">Cargando ficha...</p>
-    </main>
+    <PageSkeleton label="Cargando ficha..." />
   ) : (
     (clientDetailView ??
     planDetailView ??
@@ -678,9 +701,7 @@ function AppCore() {
           </div>
         </main>
       ) : channelLoading || !channelData ? (
-        <main className="app-shell">
-          <p className="muted-copy">Cargando mini dashboard...</p>
-        </main>
+        <PageSkeleton label="Cargando mini dashboard..." variant="cards" header={<ChannelHero source={channel} loading />} />
       ) : (
         <ChannelDashboardView
           data={channelData}
@@ -690,9 +711,9 @@ function AppCore() {
           refreshing={channelRefreshing}
           onMode={setMode}
           onYear={setYear}
-          onOpenResource={openChannelResource}
+          onOpenResource={stable.onOpenResource}
           onReport={setReportScope}
-          onSync={syncChannel}
+          onSync={stable.onSync}
           syncUnavailable={!isChannelEnabled(channelData.source === "virtualpos" ? "virtualpos1" : channelData.source)}
           canWithdrawWallet={can("payku.wallet.withdraw")}
         />
@@ -701,13 +722,13 @@ function AppCore() {
       generalView === "report" ? <AutomaticReport /> : generalView === "charges" ? <UnifiedChargesView can={can} onOpenPath={openPath} /> : generalView === "subscriptions" ? <UnifiedSubscriptionsView can={can} onOpenPath={openPath} /> : generalView === "summary" ? (
         // El estado inicial es «summary» aunque el enlace profundo apunte a otra vista: solo se monta el Resumen
         // unificado si la URL es de verdad la suya (así un enlace a otra pantalla no dispara su petición).
-        onSummaryRoute ? <SummaryView /> : <main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>
+        onSummaryRoute ? <SummaryView /> : <PageSkeleton label="Cargando vista..." variant="cards" header={routeChannel ? <ChannelHero source={routeChannel} loading /> : undefined} />
       ) : globalDashboard
     )))
   );
 
   if (session === undefined) return <main className="app-shell"><p className="muted-copy">Verificando sesión...</p></main>;
-  if (session === null) return <LoginScreen onLogin={setSession} />;
+  if (session === null) return <LoginScreen onLogin={(next) => { discardEarlyData(); setSession(next); }} />;
 
   // Botones directos de baja: solo admin (el backend lo exige); el resto pide la baja en «Bajas».
   const directCancelAccess = { isAdmin: session.user.roles.some((role) => role.name === "admin"), canOpenCancellations: can(PERM_CANCELLATION_VIEW) };
@@ -731,37 +752,37 @@ function AppCore() {
         channel={channel}
         tchView={tchView}
         detailOpen={detailOpen}
-        onToggleDetail={() => setDetailOpen((open) => !open)}
+        onToggleDetail={stable.onToggleDetail}
         theme={theme}
-        onDashboard={showDashboard}
+        onDashboard={stable.onDashboard}
         generalView={generalView}
-        onGeneralClients={showGeneralClients}
-        onGeneralSubscriptions={showGeneralSubscriptions}
-        onGeneralCharges={showGeneralCharges}
-        onAutoReport={showAutoReport}
-        onChannel={showChannel}
-        onSection={showSection}
-        onTheme={toggleTheme}
-        onTch={showTch}
+        onGeneralClients={stable.onGeneralClients}
+        onGeneralSubscriptions={stable.onGeneralSubscriptions}
+        onGeneralCharges={stable.onGeneralCharges}
+        onAutoReport={stable.onAutoReport}
+        onChannel={stable.onChannel}
+        onSection={stable.onSection}
+        onTheme={stable.onTheme}
+        onTch={stable.onTch}
         permissions={session.user.permissions}
-        onAdmin={showAdmin}
+        onAdmin={stable.onAdmin}
         adminOpen={adminOpen}
         adminTab={adminTab}
-        onProfile={() => showProfile("summary")}
-        onLogout={logout}
+        onProfile={stable.onProfile}
+        onLogout={stable.onLogout}
         open={sidebarOpen}
-        onClose={closeSidebar}
+        onClose={stable.onClose}
         recoveryOpen={recoveryOpen}
-        onRecovery={showRecovery}
+        onRecovery={stable.onRecovery}
         billingOpen={billingOpen}
-        onBilling={showBillingChanges}
+        onBilling={stable.onBilling}
         cancellationsOpen={cancellationsOpen}
-        onCancellations={showCancellations}
+        onCancellations={stable.onCancellations}
         profileOpen={profileView !== null}
         health={channelHealth}
       />
       {adminOpen ? (
-        <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>
+        <Suspense fallback={<PageSkeleton label="Cargando vista..." />}>
           <AdminPanel permissions={session.user.permissions} isAdmin={session.user.roles.some((role) => role.name === "admin")} tab={adminTab} />
         </Suspense>
       ) : profileView ? (
@@ -775,7 +796,7 @@ function AppCore() {
         />
       ) : (
         <ContentErrorBoundary>
-          <Suspense fallback={<main className="app-shell"><p className="muted-copy">Cargando vista...</p></main>}>{content}</Suspense>
+          <Suspense fallback={<PageSkeleton label="Cargando vista..." variant={fallbackVariant} header={routeChannel ? <ChannelHero source={routeChannel} loading /> : undefined} />}>{content}</Suspense>
         </ContentErrorBoundary>
       )}
       {can("dashboard.view") ? <ChangeToasts /> : null}

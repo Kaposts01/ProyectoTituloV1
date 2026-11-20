@@ -127,7 +127,7 @@ describe("Rutas y permisos", () => {
       window.history.pushState({}, "", "/toku/resumen");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-    expect(await screen.findByText("Indicadores y actividad del período seleccionado.")).toBeTruthy();
+    expect(await screen.findByLabelText("Explorar recursos")).toBeTruthy();
     expect(screen.queryByText("TOKU / STAGING")).toBeNull();
   });
 });

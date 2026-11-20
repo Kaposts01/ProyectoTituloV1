@@ -122,6 +122,14 @@ h3 { margin: 0; font-size: var(--fs-h3); font-weight: 600; letter-spacing: -.01e
 
 /* ── Table ───────────────────────────────────────────────────────── */
 .table-wrap { width: 100%; overflow-x: auto; }
+/* Mientras carga, las bandejas largas (.table-wrap-tall) conservan un alto mínimo para que no salten al llegar los datos
+   (PERF-03d). No es global: una tabla de pocas filas (p. ej. la tasa de rechazo) no debe reservar 360 px y luego contraerse. */
+.table-wrap-tall[aria-busy="true"] { min-height: 360px; }
+/* PERF-03: listados paginados (50 filas). Mientras llega la primera página se reserva el alto real de una página
+   (fila de ~49 px = 26 de relleno + 22 de texto + 1 de borde, más el encabezado), de modo que al llegar las filas
+   no se mueve ni la tabla ni lo que está debajo. */
+.table-wrap.table-wrap-page { --page-rows: 50; }
+.table-wrap.table-wrap-page[aria-busy="true"] { min-height: calc(var(--page-rows) * 49px + 44px); }
 table { width: 100%; min-width: max-content; border-collapse: collapse; text-align: left; }
 th { color: var(--text-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
 th, td { padding: 13px 8px; border-bottom: 1px solid var(--border-subtle); font-size: 14px; color: var(--text-1); }
@@ -909,7 +917,10 @@ td.num { text-align: right; }
   .filter-chip { height: 32px; }
   .filter-chip button { width: 28px; height: 28px; }
 }
-.unified-totals { margin: 0 0 10px; font-size: 13px; }
+.unified-totals { margin: 0 0 10px; font-size: 13px; line-height: 20px; min-height: 20px; }
+/* PERF-03 (CLS): en pantallas angostas los totales de 3 o 4 canales ocupan 2 líneas; la reserva y la línea real guardan
+   las dos, así la tabla no baja 20 px al llegar los totales. */
+@media (max-width: 640px) { .unified-totals { min-height: 40px; } }
 .unified-summary { margin-bottom: 16px; }
 
 /* L7-IMPORT: panel «Importar reportes de plataformas». Contenedor sin tarjeta propia (no se anidan cards). */

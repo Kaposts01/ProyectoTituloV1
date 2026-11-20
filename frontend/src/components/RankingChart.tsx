@@ -37,7 +37,7 @@ export function RankingChart({ items, mode, ariaLabel, color = "var(--series-1)"
             <XAxis type="number" tickLine={false} axisLine={false} tick={tick} allowDecimals={mode !== "count"} tickFormatter={(v) => fmt(v, mode)} />
             <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tick={{ ...tick, fill: "var(--text-1)" }} width={labelWidth} />
             <Tooltip content={<ChartTooltipContent mode={mode} />} cursor={{ fill: "var(--bg-hover)" }} />
-            <Bar dataKey="value" name={valueLabel} maxBarSize={28} radius={[0, 4, 4, 0]}>
+            <Bar isAnimationActive={false} dataKey="value" name={valueLabel} maxBarSize={28} radius={[0, 4, 4, 0]}>
               {rows.map((r, i) => <Cell key={i} fill={r.color} />)}
             </Bar>
           </BarChart>
