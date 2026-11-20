@@ -1,7 +1,7 @@
 import { Component, lazy, Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { getCached } from "./apiCache";
 import { setCsrfToken, getJson, postJson } from "./api";
-import { useChannelHealth } from "./hooks/useChannelHealth";
+import { fetchChannelHealth, useChannelHealth } from "./hooks/useChannelHealth";
 import { Sidebar } from "./components/Sidebar";
 import { ChangeToasts } from "./components/ChangeToasts";
 import { canOpenBilling, canOpenCharges, canOpenMembers, canOpenRecovery, canOpenSubscriptions, providerGroups, resourcePermission } from "./navigation";
@@ -142,6 +142,8 @@ function AppCore() {
   const can = (permission: string) => (session?.user?.permissions ?? []).includes(permission);
 
   useEffect(() => {
+    // En paralelo con /auth/me: la salud de canales calienta la caché y useChannelHealth la usa al llegar la sesión.
+    void fetchChannelHealth();
     getJson<AuthSession>("/api/v1/auth/me")
       .then((current) => { setCsrfToken(current.csrf_token); setSession(current); })
       .catch(() => setSession(null));

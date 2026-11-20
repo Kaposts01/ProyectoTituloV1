@@ -4,6 +4,7 @@ import './fonts.css'
 import './index.css'
 import App from './App.tsx'
 import { reserveEnvironmentBannerSpace } from './components/EnvironmentBanner'
+import { preloadRouteChunk } from './routePreload'
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
   state = { message: null };
@@ -27,6 +28,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { message: st
 }
 
 reserveEnvironmentBannerSpace()
+preloadRouteChunk()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

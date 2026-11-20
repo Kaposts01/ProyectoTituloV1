@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
+import { memo, useId, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 import { buildChartRows, buildCumulativeRows, pctOfTarget, type ChannelChartRow, type CumulativeRow } from "./chartRows";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { FLOW_IN_COLOR, FLOW_OUT_COLOR } from "../chartColors";
@@ -123,7 +123,7 @@ type TableModel = { head: string[]; rows: Array<{ id: string; label: string; cel
  * Escape suelta la selección. El mes elegido se marca en el gráfico y se lee en voz alta (región `aria-live`).
  * El selector de rango es un componente aparte (`ChartRangeSelector` + `filterByRange`).
  */
-export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Gráfico de evolución mensual del canal", legend = false, annotations = [], reference, percentAxis = false, cumulative, showDataToggle = false, overlayLine, waterfallStart = 0 }: {
+function ChannelChartImpl({ series, data, kind, mode, year, ariaLabel = "Gráfico de evolución mensual del canal", legend = false, annotations = [], reference, percentAxis = false, cumulative, showDataToggle = false, overlayLine, waterfallStart = 0 }: {
   series: ChannelChartSeries[];
   data: ChannelChartRow[];
   kind: ChannelChartKind;
@@ -219,30 +219,30 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
     chart = (
       <LineChart data={cumRows} margin={margin} {...a11y}>
         {axes}
-        <Line type="linear" dataKey="real" name="Real acumulado" stroke={series[0]?.color ?? "var(--series-1)"} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-        {hasPace ? <Line type="linear" dataKey="pace" name="Ritmo meta" stroke="var(--chart-ref)" strokeWidth={2} strokeDasharray="6 4" dot={false} /> : null}
-        <Line type="linear" dataKey="projection" name="Proyección" stroke="var(--series-6)" strokeWidth={2} strokeDasharray="2 4" dot={false} connectNulls={false} />
+        <Line isAnimationActive={false} type="linear" dataKey="real" name="Real acumulado" stroke={series[0]?.color ?? "var(--series-1)"} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
+        {hasPace ? <Line isAnimationActive={false} type="linear" dataKey="pace" name="Ritmo meta" stroke="var(--chart-ref)" strokeWidth={2} strokeDasharray="6 4" dot={false} /> : null}
+        <Line isAnimationActive={false} type="linear" dataKey="projection" name="Proyección" stroke="var(--series-6)" strokeWidth={2} strokeDasharray="2 4" dot={false} connectNulls={false} />
       </LineChart>
     );
   } else if (kind === "area") {
     chart = (
       <AreaChart data={plotRows} margin={margin} {...a11y}>
         {axes}
-        {series.map((s) => <Area key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} fill="var(--series-muted)" fillOpacity={0.9} dot={{ r: 3 }} connectNulls={false} />)}
+        {series.map((s) => <Area isAnimationActive={false} key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} fill="var(--series-muted)" fillOpacity={0.9} dot={{ r: 3 }} connectNulls={false} />)}
       </AreaChart>
     );
   } else if (kind === "line") {
     chart = (
       <LineChart data={plotRows} margin={margin} {...a11y}>
         {axes}
-        {series.map((s) => <Line key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={rows.length <= 1 ? { r: 3 } : false} connectNulls={false} />)}
+        {series.map((s) => <Line isAnimationActive={false} key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={rows.length <= 1 ? { r: 3 } : false} connectNulls={false} />)}
       </LineChart>
     );
   } else if (kind === "waterfall") {
     chart = (
       <BarChart data={plotRows} margin={margin} {...a11y}>
         {axes}
-        <Bar maxBarSize={MAX_BAR_SIZE} dataKey={RANGE} name={series[0]?.label ?? "Variación"} radius={2}>
+        <Bar isAnimationActive={false} maxBarSize={MAX_BAR_SIZE} dataKey={RANGE} name={series[0]?.label ?? "Variación"} radius={2}>
           {plotRows.map((r, i) => <Cell key={`wf-${i}`} fill={waterfallFill(Number(r.__delta))} />)}
         </Bar>
       </BarChart>
@@ -250,16 +250,16 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
   } else {
     const bars = series.map((s, i) => {
       if (kind === "diverging") {
-        return <Bar key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={i === 0 ? s.key : `${NEG}${s.key}`} name={s.label} fill={s.color} stackId="d" />;
+        return <Bar isAnimationActive={false} key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={i === 0 ? s.key : `${NEG}${s.key}`} name={s.label} fill={s.color} stackId="d" />;
       }
-      if (kind === "stacked100") return <Bar key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={`${PCT}${s.key}`} name={s.label} fill={s.color} stackId="p" />;
-      return <Bar key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={s.key} name={s.label} fill={s.color} stackId={kind === "stacked" ? "a" : undefined} radius={kind === "bar" ? [4, 4, 0, 0] : undefined} />;
+      if (kind === "stacked100") return <Bar isAnimationActive={false} key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={`${PCT}${s.key}`} name={s.label} fill={s.color} stackId="p" />;
+      return <Bar isAnimationActive={false} key={s.key} maxBarSize={MAX_BAR_SIZE} dataKey={s.key} name={s.label} fill={s.color} stackId={kind === "stacked" ? "a" : undefined} radius={kind === "bar" ? [4, 4, 0, 0] : undefined} />;
     });
     chart = overlayLine ? (
       <ComposedChart data={plotRows} margin={margin} stackOffset={kind === "diverging" ? "sign" : undefined} {...a11y}>
         {axes}
         {bars}
-        <Line type="linear" dataKey={overlayLine.key} name={overlayLine.label} stroke={overlayLine.color} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
+        <Line isAnimationActive={false} type="linear" dataKey={overlayLine.key} name={overlayLine.label} stroke={overlayLine.color} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
       </ComposedChart>
     ) : (
       <BarChart data={plotRows} margin={margin} stackOffset={kind === "diverging" ? "sign" : undefined} {...a11y}>
@@ -388,3 +388,6 @@ export function ChannelChart({ series, data, kind, mode, year, ariaLabel = "Grá
     </div>
   );
 }
+
+// Los gráficos no se redibujan si el padre se re-renderiza con los mismos datos (INP) y no animan al cambiar datos.
+export const ChannelChart = memo(ChannelChartImpl);
