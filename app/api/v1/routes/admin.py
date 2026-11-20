@@ -99,6 +99,9 @@ def _is_active_admin(user: User, roles: list[Role] | None = None, is_active: boo
     active = user.is_active if is_active is None else is_active
     return active and any(role.name == "admin" for role in assigned_roles)
 
+def _has_admin_role(user: User) -> bool:
+    """SEC-04: cuenta admin esté activa o no (una inactiva se puede reactivar y entrar con ella)."""
+    return any(role.name == "admin" for role in user.roles)
 
 
 def _guard_billing_approvers(db: Session, before: set[uuid.UUID] | None) -> None:
@@ -200,9 +203,12 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, request: Request, db: Sess
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     # SEC-2: only an admin can modify another admin account
-    if _is_active_admin(user) and not any(role.name == "admin" for role in current_user.roles):
+    if _has_admin_role(user) and not _has_admin_role(current_user):
         raise HTTPException(status_code=403, detail="Only an admin can modify another admin account")
     next_roles = _roles(db, body.role_ids) if body.role_ids is not None else user.roles
+    # SEC-04: only an admin can grant the admin role (same guard as create_user, SEC-4)
+    if body.role_ids is not None and any(role.name == "admin" for role in next_roles) and not _has_admin_role(current_user):
+        raise HTTPException(status_code=403, detail="Only an admin can assign the admin role")
     next_active = body.is_active if body.is_active is not None else user.is_active
     if _is_active_admin(user) and not _is_active_admin(user, next_roles, next_active):
         # SEC-3: lock active admin rows before counting to eliminate TOCTOU race
@@ -249,7 +255,7 @@ def reset_user_password(user_id: uuid.UUID, body: PasswordReset, db: Session = D
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     # SEC-1: only an admin can reset another admin's password
-    if _is_active_admin(user) and not any(role.name == "admin" for role in current_user.roles):
+    if _has_admin_role(user) and not _has_admin_role(current_user):
         raise HTTPException(status_code=403, detail="Only an admin can reset another admin's password")
     _check_password_policy(body.new_password, user.username)
     user.password_hash = hash_password(body.new_password)
