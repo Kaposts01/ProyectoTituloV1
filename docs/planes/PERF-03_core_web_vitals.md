@@ -163,3 +163,9 @@ Mismo guion (CPU 4x, 7 interacciones, usuario temporal de solo lectura), build d
 ## Decisiones del usuario
 
 - H2 de la QA (los gráficos ya no se animan): el usuario eligió «Sin animación» el 2026-11-20; se mantiene `isAnimationActive={false}`.
+
+## Presupuesto en CI (PERF-03g, modo aviso)
+
+- Dependencia: `@lhci/cli` 0.16.1 (Apache-2.0), exacta, en `devDependencies` del frontend (d259 = a). Configuración en `frontend/lighthouserc.json`: LCP ≤ 2500 ms, CLS ≤ 0,1 y TBT ≤ 200 ms, nivel «warn», mediana de 3 corridas, 5 pantallas, móvil (predeterminado) y escritorio (`--collect.settings.preset=desktop`).
+- Job `perf-budget` de `.github/workflows/ci.yml`: PostgreSQL de servicio (`crm_sandbox`), migraciones, semilla sintética (`scripts/sandbox/seed_perf_ci.py`, 2.000 socios VirtualPOS con sus suscripciones, cobros y pagos, y un usuario ficticio de solo lectura con contraseña generada en el job), backend con `APP_ENV=sandbox`, build `--mode sandbox` y `vite preview`, inicio de sesión por script (`scripts/sandbox/perf_ci_login.py`) y la cookie a Lighthouse CI con `extraHeaders`.
+- Decisión d260 = b: avisa dos semanas y después bloquea. Hoy el job lleva `continue-on-error: true` y las aserciones están en «warn». Fecha prevista de paso a bloqueo: 2026-12-04 (integración prevista el 2026-11-20 más 14 días; recalcular si la integración cambia): quitar `continue-on-error` y cambiar «warn» por «error».
