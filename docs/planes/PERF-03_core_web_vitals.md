@@ -151,6 +151,7 @@ Interacciones: VirtualPOS, botones y selector de la cabecera y secciones del men
 
 Lectura:
 
+- Alcance de la muestra: 5 cargas por build y la duración de eventos del navegador viene redondeada a 8 ms, así que la diferencia es una indicación y no una prueba fina.
 - fd97748 **mejora el INP de VirtualPOS** (mediana −64 ms, p75 −24 ms) y deja igual Dashboard y Suscripciones, que ya cumplen con holgura (≤ 64 ms frente a la meta de 200 ms).
 - VirtualPOS **sigue sobre 200 ms** con o sin el commit: sus controles de la cabecera (año, modo) redibujan todos los gráficos de recharts.
 - El aumento del TBT de VirtualPOS en Lighthouse (262 → 384 ms) mide la carga, no la respuesta: con este dato, fd97748 se conserva. Lo que queda para VirtualPOS es aligerar el redibujado de gráficos al cambiar año o modo (por ejemplo, `startTransition` en ese cambio o diferir los gráficos fuera de pantalla).
