@@ -8,6 +8,7 @@ import {
   CHARGE_OUTCOMES, VIEW_PERMISSIONS, canAny,
   type ChargeRow, type PaymentRow, type RejectionSummary, type StatusFacets, type UnifiedPage,
 } from "../general/unifiedTypes";
+import { pageReserve } from "../general/pageReserve";
 import { cleanParams, useUnifiedGet } from "../general/useUnifiedList";
 import { Rut } from "../shared/RutCell";
 
@@ -210,7 +211,7 @@ export function UnifiedChargesView({ can, onOpenPath }: { can: (permission: stri
           {!list.error && !list.forbidden ? <ChannelTotals byChannel={list.data?.by_channel ?? null} /> : null}
           {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
           {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}
-          <div className={list.data ? "table-wrap" : "table-wrap table-wrap-page"} aria-busy={list.loading}>
+          <div {...pageReserve(tab, list.data)} aria-busy={list.loading}>
             {tab === "charges" ? (
               <table>
                 <thead><tr><th>Canal</th><th>ID de cobro</th><th>Suscripción</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Fecha de cobro</th><th>Período</th><th>Monto</th><th>Motivo de rechazo</th></tr></thead>

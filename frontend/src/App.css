@@ -122,8 +122,9 @@ h3 { margin: 0; font-size: var(--fs-h3); font-weight: 600; letter-spacing: -.01e
 
 /* ── Table ───────────────────────────────────────────────────────── */
 .table-wrap { width: 100%; overflow-x: auto; }
-/* Mientras carga, la tabla conserva un alto mínimo para que no salte al llegar los datos (PERF-03d). */
-.table-wrap[aria-busy="true"] { min-height: 360px; }
+/* Mientras carga, las bandejas largas (.table-wrap-tall) conservan un alto mínimo para que no salten al llegar los datos
+   (PERF-03d). No es global: una tabla de pocas filas (p. ej. la tasa de rechazo) no debe reservar 360 px y luego contraerse. */
+.table-wrap-tall[aria-busy="true"] { min-height: 360px; }
 /* PERF-03: listados paginados (50 filas). Mientras llega la primera página se reserva el alto real de una página
    (fila de ~49 px = 26 de relleno + 22 de texto + 1 de borde, más el encabezado), de modo que al llegar las filas
    no se mueve ni la tabla ni lo que está debajo. */

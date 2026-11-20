@@ -290,7 +290,7 @@ export function BillingInbox({ can, currentUserId, isAdmin = false }: Props) {
         </div>
       ) : null}
       {items.length > 0 ? (
-        <div className="table-wrap" aria-busy={loading}>
+        <div className="table-wrap table-wrap-tall" aria-busy={loading}>
           <table className="bx-table bx-stack bx-stack-requests" role="table">
             <caption className="bx-sr">Solicitudes de cambio de cobro</caption>
             <thead role="rowgroup">

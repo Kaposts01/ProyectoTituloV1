@@ -5,6 +5,7 @@ import { ExportButton } from "../shared/ExportButton";
 import { ChannelTotals, UnifiedFilterBar, UnifiedPagination } from "./UnifiedControls";
 import { StatusText, channelText, day, detailPath, money } from "./unifiedDisplay";
 import { VIEW_PERMISSIONS, canAny, type StatusFacets, type SubscriptionRow, type UnifiedPage } from "./unifiedTypes";
+import { pageReserve } from "./pageReserve";
 import { cleanParams, useUnifiedGet } from "./useUnifiedList";
 import { Rut } from "../shared/RutCell";
 import { rutText } from "../shared/rut";
@@ -112,7 +113,7 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
           {!list.error && !list.forbidden ? <ChannelTotals byChannel={list.data?.by_channel ?? null} /> : null}
           {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
           {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}
-          <div className={list.data ? "table-wrap" : "table-wrap table-wrap-page"} aria-busy={list.loading} data-testid="subscriptions-table">
+          <div {...pageReserve("subscriptions", list.data)} aria-busy={list.loading} data-testid="subscriptions-table">
             <table>
               <thead><tr><th>Canal</th><th>ID</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Estado secundario</th><th>Último cobro</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead>
               <tbody>
