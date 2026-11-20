@@ -169,3 +169,40 @@ Mismo guion (CPU 4x, 7 interacciones, usuario temporal de solo lectura), build d
 - Dependencia: `@lhci/cli` 0.16.1 (Apache-2.0), exacta, en `devDependencies` del frontend (d259 = a). Configuración en `frontend/lighthouserc.json`: LCP ≤ 2500 ms, CLS ≤ 0,1 y TBT ≤ 200 ms, nivel «warn», mediana de 3 corridas, 5 pantallas, móvil (predeterminado) y escritorio (`--collect.settings.preset=desktop`).
 - Job `perf-budget` de `.github/workflows/ci.yml`: PostgreSQL de servicio (`crm_sandbox`), migraciones, semilla sintética (`scripts/sandbox/seed_perf_ci.py`, 2.000 socios VirtualPOS con sus suscripciones, cobros y pagos, y un usuario ficticio de solo lectura con contraseña generada en el job), backend con `APP_ENV=sandbox`, build `--mode sandbox` y `vite preview`, inicio de sesión por script (`scripts/sandbox/perf_ci_login.py`) y la cookie a Lighthouse CI con `extraHeaders`.
 - Decisión d260 = b: avisa dos semanas y después bloquea. Hoy el job lleva `continue-on-error: true` y las aserciones están en «warn». Fecha prevista de paso a bloqueo: 2026-12-04 (integración prevista el 2026-11-20 más 14 días; recalcular si la integración cambia): quitar `continue-on-error` y cambiar «warn» por «error».
+
+## Medición después de la tanda 3 (0432c0e, 2026-11-20)
+
+Misma pauta: Lighthouse 12.6.1, sin franja, con la build de producción en 5179, el proxy apuntando al 8001 y `/system/environment` bloqueado. Se hizo 1 pasada de descarte y después 5 por pantalla y perfil, tomando el p75. Las 60 pasadas terminaron sin error.
+
+| Pantalla | Perfil | LCP base → tanda 2 → ahora (ms) | CLS base → tanda 2 → ahora | TBT base → tanda 2 → ahora (ms) |
+| --- | --- | --- | --- | --- |
+| Dashboard | Escritorio | 815 → 796 → 822 | 0,033 → 0,008 → 0 | 27 → 34 → 29 |
+| | Móvil | 3.563 → 3.665 → **3.772** | 0,012 → 0 → 0,004 | 371 → 291 → **222** |
+| Suscripciones | Escritorio | 671 → 631 → 668 | 0,216 → 0,014 → 0 | 0 |
+| | Móvil | 2.887 → 2.896 → **3.026** | 0,045 → 0,002 → 0 | 0 |
+| VirtualPOS | Escritorio | 787 → 808 → 823 | 0,024 → 0 → **0,083** | 37 → 48 → 21 |
+| | Móvil | 3.666 → 3.724 → **3.471** | 0,039 → 0 → 0 | 312 → 384 → **220** |
+| Clientes | Escritorio | 676 → 588 → 629 | 0,033 → 0 → 0 | 0 |
+| | Móvil | 2.291 → 2.733 → **2.893** | 0,041 → 0 → 0 | 0 |
+| Cobros | Escritorio | 673 → 588 → 666 | 0,172 → 0,054 → **0,092** | 0 |
+| | Móvil | 2.733 → 2.586 → **3.022** | 0,136 → 0,044 → **0,103** | 0 |
+
+### Lectura
+
+- **LCP en móvil: no cumple, y empeoró en cuatro de las cinco pantallas.**
+  - Empeoraron Cobros (2,59 → 3,02 s), Suscripciones (2,90 → 3,03 s), Clientes (2,73 → 2,89 s) y Dashboard (3,67 → 3,77 s).
+  - Solo mejoró VirtualPOS (3,72 → 3,47 s), que es donde actúa la opción A (la cabecera real).
+  - La primera pintura llega en 1,97 a 2,35 s, igual que antes.
+  - Causas probables, sin aislar:
+    - Las fuentes originales de ITF pesan unos 18 KB más y ahora se precargan sin recortar.
+    - Los pedidos adelantados de C compiten por la red con el JS en el 4G simulado.
+  - Para separar las dos causas hay que medir con y sin C.
+- **CLS: tres regresiones.**
+  - Cobros en móvil queda en **0,103**, sobre la meta. El desplazamiento es de `section.panel`.
+  - Cobros en escritorio queda en 0,092 y VirtualPOS en escritorio en 0,083: dentro de la meta, pero peor que antes.
+  - El desplazamiento de VirtualPOS en escritorio viene de `div.page-skeleton-blocks`, el esqueleto que acompaña a la cabecera nueva.
+  - Lo más probable es que vengan de la reserva por filas de H4 (en Cobros) y del alto del esqueleto bajo la cabecera de A (en VirtualPOS).
+- **TBT en móvil: baja.** Dashboard pasa de 291 a 222 ms y VirtualPOS de 384 a 220 ms. Los dos siguen algo sobre 200 ms en laboratorio; el INP real de VirtualPOS ya cumplía (80 ms).
+- **Escritorio:** el LCP cumple en las cinco pantallas (≤ 0,82 s).
+
+No se itera más sin consultar. La decisión es del coordinador y del usuario.
