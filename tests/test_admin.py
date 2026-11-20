@@ -339,3 +339,70 @@ def test_reset_password_returns_404_for_unknown_user(monkeypatch) -> None:
     nonexistent_id = str(uuid.uuid4())
     resp = client.patch(f"/api/v1/admin/users/{nonexistent_id}/password", headers=headers, json={"new_password": "New-password-123"})
     assert resp.status_code == 404
+
+
+def _make_inactive_admin(suffix: str) -> str:
+    db = SessionLocal()
+    try:
+        admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+        user = User(username=f"inact-adm-{suffix}", password_hash=hash_password("Admin-pw-12345"), is_active=False, roles=[admin_role])
+        db.add(user)
+        db.commit()
+        return str(user.id)
+    finally:
+        db.close()
+
+
+def _admin_role_id() -> str:
+    db = SessionLocal()
+    try:
+        return str(db.scalar(select(Role).where(Role.name == "admin")).id)
+    finally:
+        db.close()
+
+
+def test_non_admin_cannot_grant_admin_role_on_update(monkeypatch) -> None:
+    # SEC-04 (X1): un no-admin con users.manage no puede darse (ni dar) el rol admin por PUT
+    suffix = uuid.uuid4().hex[:12]
+    _admin_id, client, headers = _setup_admin_and_manager(monkeypatch, suffix)
+    me = client.get("/api/v1/auth/me").json()["user"]["id"]
+    admin_role_id = _admin_role_id()
+    assert client.put(f"/api/v1/admin/users/{me}", headers=headers, json={"role_ids": [admin_role_id]}).status_code == 403
+    db = SessionLocal()
+    try:
+        assert not any(r.name == "admin" for r in db.get(User, uuid.UUID(me)).roles)
+    finally:
+        db.close()
+
+
+def test_non_admin_cannot_touch_inactive_admin(monkeypatch) -> None:
+    # SEC-04 (B4): un admin inactivo sigue siendo cuenta admin
+    suffix = uuid.uuid4().hex[:12]
+    _admin_id, client, headers = _setup_admin_and_manager(monkeypatch, suffix)
+    inactive_id = _make_inactive_admin(suffix)
+    url = f"/api/v1/admin/users/{inactive_id}"
+    assert client.put(url, headers=headers, json={"is_active": True}).status_code == 403
+    assert client.put(url, headers=headers, json={"google_email": f"persona{suffix}@techo.org"}).status_code == 403
+    db = SessionLocal()
+    try:
+        other_role_id = str(db.scalar(select(Role).where(Role.name == f"mgr-role-{suffix}")).id)
+    finally:
+        db.close()
+    assert client.put(url, headers=headers, json={"role_ids": [other_role_id]}).status_code == 403
+    assert client.patch(f"{url}/password", headers=headers, json={"new_password": "New-password-123"}).status_code == 403
+    db = SessionLocal()
+    try:
+        user = db.get(User, uuid.UUID(inactive_id))
+        assert user.is_active is False and user.google_email is None
+    finally:
+        db.close()
+
+
+def test_admin_can_grant_admin_role_and_manage_inactive_admin(monkeypatch) -> None:
+    suffix = uuid.uuid4().hex[:12]
+    _admin_id, _role_id, client, headers = _setup_single_admin_session(monkeypatch, suffix)
+    inactive_id = _make_inactive_admin(suffix)
+    url = f"/api/v1/admin/users/{inactive_id}"
+    assert client.patch(f"{url}/password", headers=headers, json={"new_password": "New-password-123"}).status_code == 200
+    assert client.put(url, headers=headers, json={"google_email": f"persona{suffix}@techo.org"}).status_code == 200
+    assert client.put(url, headers=headers, json={"is_active": True, "role_ids": [_admin_role_id()]}).status_code == 200

@@ -108,3 +108,45 @@ Todas tienen valor por defecto; no hace falta tocar el `.env`.
 `tests/test_auth_limits_unit.py` (piezas puras), `tests/test_login_hardening.py` (login, bloqueo, revocación,
 política, registro, cookie) y `tests/test_api_rate_limit.py` (middleware). `tests/conftest.py` limpia los contadores
 en memoria antes y después de cada test.
+
+## AUTH-04: entrar con Google y correcciones de la QA (19/11/2026)
+
+### Bloqueo por intentos del callback de Google (M1)
+
+- Los fallos del callback previos a una transacción válida (`no_tx_cookie`, `bad_tx_cookie`, `state_mismatch`,
+  `google_returned_error`) **no cuentan** en el bloqueo: solo van a la bitácora. Si no, un GET anónimo repetido
+  bloquearía el login de toda la IP compartida (el proxy de Vite no reenvía `X-Forwarded-For`).
+- Los fallos que sí cuentan (intercambio del código, `id_token`, usuario desconocido o inactivo) usan la clave propia
+  `("google_ip", ip)`, separada de la `("ip", ip)` de `POST /login`. Google nunca bloquea el login con contraseña.
+
+### Cookie temporal `oauth_tx` y SameSite (I1)
+
+La cookie temporal usa `AUTH_COOKIE_SAMESITE` (`lax` por defecto). Con `strict` el navegador no la envía en el
+retorno desde `accounts.google.com` (navegación entre sitios) y el login con Google falla siempre (falla cerrado).
+Para AUTH-04 se requiere `lax`.
+
+### Un solo worker (B2)
+
+El bloqueo por intentos vive en memoria por proceso. El 8000 debe correr con **un solo worker**; con varios, cada
+uno cuenta aparte y el límite efectivo se multiplica por N. Si eso cambia, hará falta un contador compartido.
+
+### `code` y `state` en los logs de acceso (B5)
+
+`code` y `state` viajan en la query de `GET /api/v1/auth/google/callback` y quedan en los logs de acceso de uvicorn
+y Vite. El riesgo es bajo (de un solo uso, no canjeable sin el verifier de la cookie HttpOnly), pero si se conservan
+o comparten logs de acceso, hay que filtrar la query de esa ruta.
+
+### Administración de usuarios (SEC-04)
+
+- `PUT /admin/users/{id}`: solo un usuario con rol `admin` puede asignar el rol `admin` (misma guarda que la
+  creación, SEC-4).
+- Las guardas SEC-1 y SEC-2 (modificar o resetear la contraseña de un admin) consideran admin a cualquier usuario con
+  el rol `admin`, esté activo o no; un no-admin con `users.manage` no puede reactivar una cuenta admin inactiva, ni
+  asignarle correo de Google, contraseña o roles. SEC-3 (último admin activo) no cambia.
+
+### Tipo de sesión `typ` (B1)
+
+El JWT de sesión lleva `"typ": "session"` y todas las decodificaciones de sesión (`get_current_user`,
+`get_csrf_token`, el límite de la API y `session_guard`) lo exigen: un token sin `typ` o con otro (por ejemplo la
+cookie temporal `oauth_tx`) se rechaza como sesión inválida. **Al desplegar, todas las sesiones abiertas dejan de
+valer y todos vuelven a iniciar sesión** (aceptado en la decisión d257). Va en el mismo despliegue que AUTH-04.

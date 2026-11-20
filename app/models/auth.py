@@ -6,12 +6,14 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,7 +37,10 @@ role_permissions = Table(
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("username", name="users_username_key"),)
+    __table_args__ = (
+        UniqueConstraint("username", name="users_username_key"),
+        Index("uq_users_google_email_lower", func.lower(text("google_email")), unique=True, postgresql_where=text("google_email IS NOT NULL")),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
@@ -44,6 +49,9 @@ class User(Base):
     # CRM-16A: version de sesion. Va en el JWT (`tv`); logout, cambio o reseteo de clave la incrementan y todas las
     # sesiones emitidas antes dejan de valer.
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # AUTH-04: correo de Google con el que puede entrar (alta previa por el administrador). Minusculas; unico (indice parcial
+    # sobre lower() en la migracion 0084).
+    google_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True)
     roles: Mapped[list["Role"]] = relationship(secondary=user_roles, back_populates="users")

@@ -51,6 +51,7 @@ html.has-env-banner .app-layout, html.has-env-banner .login-shell { min-height: 
 }
 .login-panel { width: min(100%, 420px); }
 .login-form { display: grid; gap: 16px; margin-top: 24px; }
+.login-google { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; box-sizing: border-box; width: 100%; text-decoration: none; }
 .login-form label { display: grid; gap: 6px; color: var(--text-label); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .login-form input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; padding: 10px; color: var(--text-1); background: var(--bg-input); font: inherit; }
 .sidebar-config { margin-top: 24px; }

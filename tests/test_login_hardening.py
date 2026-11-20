@@ -126,7 +126,7 @@ def test_session_cookie_flags_and_token_claims(monkeypatch) -> None:
     assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
 
     payload = jwt.decode(client.cookies[ACCESS_COOKIE], SECRET, algorithms=["HS256"])
-    assert {"sub", "csrf", "exp", "iat", "jti", "tv"} <= payload.keys()
+    assert {"typ", "sub", "csrf", "exp", "iat", "jti", "tv"} <= payload.keys()
     assert payload["exp"] - payload["iat"] == settings.auth_access_token_minutes * 60
 
     monkeypatch.setattr(settings, "auth_cookie_samesite", "strict")
@@ -162,10 +162,36 @@ def test_tokens_issued_before_the_migration_without_tv_claim_stay_valid() -> Non
     username = _make_user()
     _login(client, username)
     payload = jwt.decode(client.cookies[ACCESS_COOKIE], SECRET, algorithms=["HS256"])
-    legacy = jwt.encode({"sub": payload["sub"], "csrf": "x", "exp": payload["exp"]}, SECRET, algorithm="HS256")
+    legacy = jwt.encode({"typ": "session", "sub": payload["sub"], "csrf": "x", "exp": payload["exp"]}, SECRET, algorithm="HS256")
     other = _client()
     other.cookies.set(ACCESS_COOKIE, legacy)
     assert other.get("/api/v1/auth/me").status_code == 200
+
+
+def test_session_token_without_typ_or_with_other_typ_is_rejected() -> None:
+    username = _make_user()
+    client = _client()
+    _login(client, username)
+    assert client.get("/api/v1/auth/me").status_code == 200
+    payload = jwt.decode(client.cookies[ACCESS_COOKIE], SECRET, algorithms=["HS256"])
+    for typ in (None, "oauth_tx", "otro"):
+        claims = {k: v for k, v in payload.items() if k != "typ"}
+        if typ:
+            claims["typ"] = typ
+        other = _client()
+        other.cookies.set(ACCESS_COOKIE, jwt.encode(claims, SECRET, algorithm="HS256"))
+        response = other.get("/api/v1/auth/me")
+        assert response.status_code == 401, typ
+        assert response.json()["detail"]["code"] == "invalid_or_expired_session"
+
+
+def test_transaction_cookie_does_not_work_as_session() -> None:
+    from app.services import google_oauth
+
+    tx = google_oauth.new_transaction()
+    other = _client()
+    other.cookies.set(ACCESS_COOKIE, google_oauth.encode_transaction(tx))
+    assert other.get("/api/v1/auth/me").status_code == 401
 
 
 def test_password_change_enforces_policy_and_revokes_other_sessions() -> None:
