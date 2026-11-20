@@ -62,7 +62,7 @@ Documento para quien retome el trabajo (persona o Claude). Léelo completo antes
 |---|---|---|---|
 | PostgreSQL 17 | 5433 | `crm`, `crm_sandbox`, `crm_test` | `docker compose up -d` (servicio `postgres` de `compose.yaml`, volumen `postgres_data`) |
 | Backend producción | 8000 | `crm` | `.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000` (con `--reload` si se está desarrollando) |
-| Front producción | 5173 | — | `cd frontend; npm run dev` (proxy `/api` a `127.0.0.1:8000`) |
+| Front producción | 5173 | — | `cd frontend; npm run build; npx vite preview --port 5173 --strictPort` (build servida; el proxy `/api` a `127.0.0.1:8000` sale de `server.proxy`). Tras cada pull hay que recompilar (d247) |
 | Backend sandbox | 8001 | `crm_sandbox` | `scripts/run_sandbox_backend.ps1` (fija `APP_ENV=sandbox`; **sin recarga automática**; scheduler apagado por defecto con `SANDBOX_SCHEDULER_ENABLED=false`; con el PR #10 exige `SANDBOX_AUTH_JWT_SECRET` en el `.env`, regla 2) |
 | Front sandbox | 5174 | — | `cd frontend; npm run dev:sandbox` |
 

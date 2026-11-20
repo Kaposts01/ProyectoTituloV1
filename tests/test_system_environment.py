@@ -81,7 +81,7 @@ def test_public_environment_no_auth_no_sensitive(monkeypatch) -> None:
     assert res.status_code == 200
     body = res.json()
     assert body["app_env"] in {"production", "sandbox", "qa"}
-    assert set(body) == {"app_env", "label", "is_production", "access_cookie_name", "enabled_channels"}
+    assert set(body) == {"app_env", "label", "is_production", "access_cookie_name", "enabled_channels", "google_login_enabled"}
     assert "example.test" not in res.text
     assert settings.database_url not in res.text
 

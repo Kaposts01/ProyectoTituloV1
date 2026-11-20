@@ -26,5 +26,5 @@ def log_auth_event(
         fields.append(f"user_ref={username_ref(username)}")
     if detail:
         fields.append(f"detail={detail}")
-    level = logging.INFO if event in {"login_success", "logout", "password_changed"} else logging.WARNING
+    level = logging.INFO if event in {"login_success", "logout", "password_changed", "google_login_success"} else logging.WARNING
     logger.log(level, "auth %s", " ".join(fields))

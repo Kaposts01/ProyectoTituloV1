@@ -26,7 +26,7 @@ CRM de socios y donantes de la organización. Centraliza socios, suscripciones, 
 
 | Entorno | Backend | Frontend | Base |
 |---|---|---|---|
-| Producción | `127.0.0.1:8000` (`--reload`) | `5173` | `crm` |
+| Producción | `127.0.0.1:8000` (`--reload`) | `5173`: build servida con `vite preview` (d247). Tras cada pull: `npm run build` y reiniciar el 5173; sin rebuild queda la versión anterior | `crm` |
 | Sandbox | `127.0.0.1:8001` (`scripts\run_sandbox_backend.ps1`, **sin** reload: reiniciar tras cada merge) | `5174` (`npm run dev:sandbox`) | `crm_sandbox` |
 | Pruebas | — | — | `crm_test` (pytest la borra y la recrea en cada sesión) |
 
