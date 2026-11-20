@@ -79,7 +79,7 @@ def _token_rejection(token: str | None) -> dict[str, str] | None:
         payload = jwt.decode(token, secret, algorithms=["HS256"])
     except InvalidTokenError:
         return _INVALID
-    return None if isinstance(payload.get("sub"), str) else _INVALID
+    return None if payload.get("typ") == "session" and isinstance(payload.get("sub"), str) else _INVALID
 
 
 class SessionFirstMiddleware:

@@ -54,6 +54,9 @@ def burn_password_check(password: str) -> None:
     _password_hash.verify(password, _dummy_hash)
 
 
+SESSION_TYP = "session"  # B1: la cookie temporal de Google (typ=oauth_tx) y otros JWT no valen como sesion
+
+
 def create_access_token(user: User) -> tuple[str, str]:
     if len(settings.auth_jwt_secret) < 32:
         raise RuntimeError("AUTH_JWT_SECRET must contain at least 32 characters")
@@ -62,6 +65,7 @@ def create_access_token(user: User) -> tuple[str, str]:
     expires_at = issued_at + timedelta(minutes=settings.auth_access_token_minutes)
     token = jwt.encode(
         {
+            "typ": SESSION_TYP,
             "sub": str(user.id),
             "csrf": csrf_token,
             "iat": issued_at,
@@ -112,22 +116,27 @@ def token_subject(token: str) -> str | None:
     if len(settings.auth_jwt_secret) < 32:
         return None
     try:
-        sub = jwt.decode(token, settings.auth_jwt_secret, algorithms=["HS256"]).get("sub")
+        payload = jwt.decode(token, settings.auth_jwt_secret, algorithms=["HS256"])
     except InvalidTokenError:
         return None
-    return sub if isinstance(sub, str) else None
+    sub = payload.get("sub")
+    return sub if payload.get("typ") == SESSION_TYP and isinstance(sub, str) else None
 
 
 def _decode_token(token: str) -> dict:
     if len(settings.auth_jwt_secret) < 32:
         raise HTTPException(status_code=503, detail={"code": "authentication_not_configured", "message": "La autenticación no está configurada en este servidor."})
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"code": "invalid_or_expired_session", "message": "Sesión inválida o expirada. Vuelve a iniciar sesión."},
+    )
     try:
-        return jwt.decode(token, settings.auth_jwt_secret, algorithms=["HS256"])
+        payload = jwt.decode(token, settings.auth_jwt_secret, algorithms=["HS256"])
     except InvalidTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "invalid_or_expired_session", "message": "Sesión inválida o expirada. Vuelve a iniciar sesión."},
-        ) from exc
+        raise invalid from exc
+    if payload.get("typ") != SESSION_TYP:
+        raise invalid
+    return payload
 
 
 def get_current_user(
