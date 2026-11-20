@@ -10,6 +10,7 @@ import { title, defaultYear } from "../shared/utils";
 import type { ChannelDashboard } from "../shared/types";
 import { adaptAlertDetailItems, adaptAlerts, type AlertDetailItemWire } from "./alertAdapter";
 import { Metric } from "./Metric";
+import { ChannelHero } from "./ChannelHero";
 import { ChannelKpiStrip } from "../../components/ChannelKpiStrip";
 import { ChannelChart, type ChannelChartKind } from "../../components/ChannelChart";
 import { RankingChart } from "../../components/RankingChart";
@@ -144,38 +145,24 @@ function ChannelDashboardViewImpl({
     </div>
   );
   const statusEmpty = statusBarResources(data.source, data.statuses, data.resources).length === 0;
-  const syncLabel = data.last_sync?.status === "completed" ? "Sincronización completada"
-    : data.last_sync?.status === "running" ? "Sincronización en curso"
-    : data.last_sync?.status === "failed" ? "Última sincronización con errores"
-    : "Sin sincronizaciones registradas";
   return (
     <main className="app-shell channel-dashboard-page">
-      <p className="eyebrow">{title(data.source).toUpperCase()}</p>
-      <header className="channel-hero">
-        <div>
-          <h2>Resumen operativo {refreshing && <span className="refreshing-badge">⟳ Actualizando</span>}</h2>
-          <p>Indicadores y actividad del período seleccionado.</p>
-        </div>
-        <div className="channel-hero-controls">
-          <div className="dashboard-controls">
-            <div className="mode-switch">
-              <button className={mode === "count" ? "active" : ""} onClick={() => onMode("count")}>Cantidad</button>
-              <button className={mode === "amount" ? "active" : ""} onClick={() => onMode("amount")}>Monto</button>
-            </div>
-            {data.years.length ? (
-              <select aria-label="Año" value={year ?? defaultYear(data.years) ?? data.years[0]} onChange={(e) => onYear(Number(e.target.value))}>
-                {data.years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-              </select>
-            ) : null}
-          </div>
-          <div className="channel-hero-bottom-row">
-            <div className={`sync-state ${data.last_sync?.status === "completed" ? "ready" : "attention"}`}><span />{syncLabel}</div>
-            <button className={`sync-btn ${syncing ? "syncing" : ""}`} disabled={syncing || syncUnavailable} title={syncUnavailable ? unavailableReason : undefined} aria-describedby={syncUnavailable ? reasonId : undefined} onClick={() => onSync(data.source)}>{syncing ? "Sincronizando…" : "↻ Sincronizar"}</button>
-            <button className="sync-btn sync-btn-secondary" onClick={() => onReport(data.source)}>Generar reporte</button>
-          </div>
-          {syncUnavailable ? <p id={reasonId} className="sync-reason muted-copy">{unavailableReason}</p> : null}
-        </div>
-      </header>
+      <ChannelHero
+        source={data.source}
+        years={data.years}
+        lastSyncStatus={data.last_sync?.status ?? null}
+        mode={mode}
+        year={year}
+        syncing={syncing}
+        refreshing={refreshing}
+        syncUnavailable={syncUnavailable}
+        unavailableReason={unavailableReason}
+        reasonId={reasonId}
+        onMode={onMode}
+        onYear={onYear}
+        onSync={onSync}
+        onReport={onReport}
+      />
       <section className="channel-resources channel-resources-quick" aria-label="Explorar recursos">
         <div><p className="eyebrow">EXPLORAR</p><h3>Ir a un recurso</h3></div>
         <div>

@@ -18,6 +18,7 @@ import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
 import { DirectCancelContext } from "./features/cancellations/directCancel";
 import { PERM_CANCELLATION_VIEW } from "./features/cancellations/types";
+import { ChannelHero } from "./features/dashboard/ChannelHero";
 import { PageSkeleton } from "./components/PageSkeleton";
 import { useEnabledChannels } from "./features/shared/environment";
 import { ReportDialog } from "./features/dashboard/ReportDialog";
@@ -696,7 +697,7 @@ function AppCore() {
           </div>
         </main>
       ) : channelLoading || !channelData ? (
-        <PageSkeleton label="Cargando mini dashboard..." variant="cards" />
+        <PageSkeleton label="Cargando mini dashboard..." variant="cards" header={<ChannelHero source={channel} loading />} />
       ) : (
         <ChannelDashboardView
           data={channelData}
@@ -791,7 +792,7 @@ function AppCore() {
         />
       ) : (
         <ContentErrorBoundary>
-          <Suspense fallback={<PageSkeleton label="Cargando vista..." variant={fallbackVariant} />}>{content}</Suspense>
+          <Suspense fallback={<PageSkeleton label="Cargando vista..." variant={fallbackVariant} header={channel ? <ChannelHero source={channel} loading /> : undefined} />}>{content}</Suspense>
         </ContentErrorBoundary>
       )}
       {can("dashboard.view") ? <ChangeToasts /> : null}
