@@ -8,6 +8,8 @@ export interface EnvironmentInfo {
   is_production: boolean;
   csrf_cookie_name?: string;
   enabled_channels?: string[];
+  /** Falta en backends antiguos: se trata como false. */
+  google_login_enabled?: boolean;
 }
 
 export interface EnvironmentSwitch {
