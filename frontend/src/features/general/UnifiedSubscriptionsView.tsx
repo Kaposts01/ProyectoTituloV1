@@ -87,10 +87,10 @@ export function UnifiedSubscriptionsView({ can, onOpenPath }: { can: (permission
               />
             }
           />
-          {list.data ? <ChannelTotals byChannel={list.data.by_channel} /> : null}
+          {!list.error && !list.forbidden ? <ChannelTotals byChannel={list.data?.by_channel ?? null} /> : null}
           {list.error ? <p className="error-message" role="alert">{list.error}</p> : null}
           {list.forbidden ? <p className="muted-copy">Tu rol no puede ver este canal.</p> : null}
-          <div className="table-wrap" aria-busy={list.loading}>
+          <div className={list.data ? "table-wrap" : "table-wrap table-wrap-page"} aria-busy={list.loading} data-testid="subscriptions-table">
             <table>
               <thead><tr><th>Canal</th><th>ID</th><th>Socio</th><th>RUT</th><th>Estado</th><th>Estado secundario</th><th>Último cobro</th><th>Inicio</th><th>Término</th><th>Monto</th></tr></thead>
               <tbody>

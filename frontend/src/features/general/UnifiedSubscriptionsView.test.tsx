@@ -45,3 +45,23 @@ describe("Suscripciones unificadas: nombre del socio", () => {
     });
   });
 });
+
+describe("Suscripciones unificadas: alto reservado (PERF-03, CLS)", () => {
+  it("reserva el alto de una página y la línea de totales mientras llega la primera página, y los suelta al llegar", async () => {
+    let release: (value: unknown) => void = () => undefined;
+    const pending = new Promise((resolve) => { release = resolve; });
+    mountApp("/central/suscripciones", [
+      ["GET", "/api/v1/general/subscriptions", () => pending as Promise<typeof page>],
+      handlers[1],
+    ]);
+    await appReady();
+    const table = await screen.findByTestId("subscriptions-table");
+    expect(table.className).toContain("table-wrap-page");
+    expect(table.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByTestId("channel-totals-reserve")).toBeTruthy();
+    release(page);
+    await screen.findByText("DEMO Bruno Embebido");
+    expect(screen.getByTestId("subscriptions-table").className).not.toContain("table-wrap-page");
+    expect(screen.queryByTestId("channel-totals-reserve")).toBeNull();
+  });
+});

@@ -124,6 +124,11 @@ h3 { margin: 0; font-size: var(--fs-h3); font-weight: 600; letter-spacing: -.01e
 .table-wrap { width: 100%; overflow-x: auto; }
 /* Mientras carga, la tabla conserva un alto mínimo para que no salte al llegar los datos (PERF-03d). */
 .table-wrap[aria-busy="true"] { min-height: 360px; }
+/* PERF-03: listados paginados (50 filas). Mientras llega la primera página se reserva el alto real de una página
+   (fila de ~49 px = 26 de relleno + 22 de texto + 1 de borde, más el encabezado), de modo que al llegar las filas
+   no se mueve ni la tabla ni lo que está debajo. */
+.table-wrap.table-wrap-page { --page-rows: 50; }
+.table-wrap.table-wrap-page[aria-busy="true"] { min-height: calc(var(--page-rows) * 49px + 44px); }
 table { width: 100%; min-width: max-content; border-collapse: collapse; text-align: left; }
 th { color: var(--text-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
 th, td { padding: 13px 8px; border-bottom: 1px solid var(--border-subtle); font-size: 14px; color: var(--text-1); }
@@ -911,7 +916,7 @@ td.num { text-align: right; }
   .filter-chip { height: 32px; }
   .filter-chip button { width: 28px; height: 28px; }
 }
-.unified-totals { margin: 0 0 10px; font-size: 13px; }
+.unified-totals { margin: 0 0 10px; font-size: 13px; line-height: 20px; min-height: 20px; }
 .unified-summary { margin-bottom: 16px; }
 
 /* L7-IMPORT: panel «Importar reportes de plataformas». Contenedor sin tarjeta propia (no se anidan cards). */
