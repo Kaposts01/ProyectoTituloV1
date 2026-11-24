@@ -167,7 +167,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
     mountApp("/virtualpos/cargos", [recordsHandler(page(list))]);
     await appReady();
     expect((await screen.findAllByRole("button", { name: "Ver ficha de suscripción sub-1" }))).toHaveLength(3);
-    expect(headers().slice(0, 8)).toEqual(["ID suscripción", "Cliente", "RUT cliente", "Fecha de cargo", "Estado", "Monto", "Plataforma", "Acciones"]);
+    expect(headers().slice(0, 9)).toEqual(["Cargo", "Cliente", "RUT cliente", "Fecha de cargo", "Estado", "Monto", "Plataforma", "ID suscripción", "Acciones"]);
     expect(screen.getAllByRole("button", { name: "Cancelar" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Reintentar" })).toHaveLength(1);
     await listSettled();
@@ -177,7 +177,7 @@ describe("Listas VirtualPOS: planes, suscripciones, cargos y transacciones", () 
   it("cargos: sin el permiso de reintento no se ofrece «Reintentar»", async () => {
     mountApp("/virtualpos/cargos", [recordsHandler(page([vpCharge(2, "rechazado")]))], { permissions: ["dashboard.view", "virtualpos.charges.view"] });
     await appReady();
-    await screen.findAllByRole("button", { name: "Ver ficha de suscripción sub-1" });
+    await screen.findByRole("button", { name: "Ver cargo chg-2" });
     expect(screen.queryByRole("button", { name: "Reintentar" })).toBeNull();
   });
 

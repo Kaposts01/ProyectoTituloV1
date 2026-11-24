@@ -1,4 +1,6 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ChargeListFilters } from "../virtualpos/ChargeListFilters";
+import { day } from "../general/unifiedDisplay";
 import { ChannelTableScroll } from "../../components/ChannelTableScroll";
 import { useDirectCancel } from "../cancellations/directCancel";
 import { DirectCancelNote } from "../cancellations/DirectCancelNote";
@@ -26,6 +28,9 @@ export function StagingRecordsList({
   openVirtualPosClient,
   openVirtualPosPlan,
   openVirtualPosSubscription,
+  openVirtualPosCharge,
+  chargeReturnTarget,
+  onChargeReturnRestored,
   openVirtualPosPayment,
   openProviderRecord,
   onNewClient,
@@ -48,6 +53,9 @@ export function StagingRecordsList({
   openVirtualPosClient: (record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
   openVirtualPosPlan: (record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
   openVirtualPosSubscription: (record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
+  openVirtualPosCharge: (record: StagingRecord) => void | Promise<void>;
+  chargeReturnTarget?: { id: string; top: number; left: number } | null;
+  onChargeReturnRestored?: () => void;
   openVirtualPosPayment: (record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
   openProviderRecord: (source: ProviderSource, resource: string, record: Pick<StagingRecord, "external_id">) => void | Promise<void>;
   onNewClient: () => void;
@@ -66,6 +74,19 @@ export function StagingRecordsList({
   const [expandedFilters, setExpandedFilters] = useState<string | null>(null);
   const sectionKey = `${activeSection.source}:${activeSection.resource}`;
   const filtersOpen = expandedFilters === sectionKey;
+  const chargePilot = activeSection.source === "virtualpos" && activeSection.resource === "charge";
+  const pending = chargePilot ? list.chargePending : loading;
+  const unavailable = chargePilot && (pending || Boolean(error));
+  const root = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!chargePilot || !chargeReturnTarget || pending || error) return;
+    const button = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("[data-charge-id]") ?? []).find((el) => el.dataset.chargeId === chargeReturnTarget.id);
+    if (!button) return;
+    button.focus({ preventScroll: true });
+    const scroll = root.current?.querySelector(".channel-table-scroll");
+    if (scroll) { scroll.scrollTop = chargeReturnTarget.top; scroll.scrollLeft = chargeReturnTarget.left; }
+    onChargeReturnRestored?.();
+  }, [chargePilot, chargeReturnTarget, pending, error, onChargeReturnRestored]);
   const {
     records,
     setRecordsOffset,
@@ -84,7 +105,7 @@ export function StagingRecordsList({
   } = list;
   const activeFilterCount = Object.values(vpColumnFilters).filter((value) => value.trim()).length;
   const { client: clientSaveNotice, plan: planSaveNotice, subscription: subscriptionSaveNotice, charge: chargeSaveNotice } = notices;
-  const columns: TableColumn[] =
+  const baseColumns: TableColumn[] =
     activeSection?.source === "virtualpos"
       ? virtualPosColumns(activeSection.resource)
       : activeSection?.source === "toku"
@@ -92,6 +113,12 @@ export function StagingRecordsList({
         : activeSection?.source === "payku"
           ? paykuColumns(activeSection.resource)
           : [];
+  const chargeOrder = ["Cliente", "RUT cliente", "Fecha de cargo", "Estado", "Monto", "Plataforma", "ID subscripción", "Acciones"];
+  const columns = chargePilot ? [
+    { key: "Cargo", label: "Cargo", value: (record: StagingRecord) => record.external_id },
+    ...baseColumns.filter((column) => column.key !== "Acciones" || can("virtualpos.charges.cancel") || can("virtualpos.charges.retry"))
+      .sort((a, b) => chargeOrder.indexOf(a.key) - chargeOrder.indexOf(b.key)),
+  ] : baseColumns;
   function toggleColumnSort(column: TableColumn) {
     if (!activeSection || !filterFieldForColumn(activeSection.source, activeSection.resource, column.key)) return;
     if (sortColumn === column.key) {
@@ -176,12 +203,13 @@ export function StagingRecordsList({
     </section>
   ) : null;
   return (
-    <main className="app-shell detail-page provider-page channel-list-page">
+    <main ref={root} className={`app-shell detail-page provider-page channel-list-page${chargePilot ? " vp-charge-pilot" : ""}`}>
       <header className="channel-list-heading">
         <div><p className="eyebrow">{title(activeSection.source)}</p><h1>{activeSection.label}</h1></div>
       </header>
       {filterControls}
-      {activeSection.source === "virtualpos" ? (
+      {chargePilot ? <ChargeListFilters values={vpColumnFilters} setValues={setVpColumnFilters} onResetOffset={() => setRecordsOffset(0)} open={filtersOpen}
+        onToggle={() => setExpandedFilters(filtersOpen ? null : sectionKey)} /> : activeSection.source === "virtualpos" ? (
         <div className="vp-platform-filter">
           <button type="button" className="channel-filter-toggle" aria-expanded={filtersOpen} aria-controls={filterRowId}
             onClick={() => setExpandedFilters(filtersOpen ? null : sectionKey)}>
@@ -199,11 +227,11 @@ export function StagingRecordsList({
       <section className="panel provider-panel">
         <div className="panel-heading">
           <div>
-            <h3>Listado de registros</h3>
+            <h3>{chargePilot ? "Cargos registrados" : "Listado de registros"}</h3>
           </div>
-          <span aria-live="polite">{loading ? "Cargando" : `${records.total} registros`}</span>
+          <span aria-live="polite">{pending ? "Cargando" : chargePilot ? error ? "Consulta no disponible" : `${records.total.toLocaleString("es-CL")} ${records.total === 1 ? "registro" : "registros"}` : `${records.total} registros`}</span>
           {exportTarget && (!exportTarget.viewPermission || can(exportTarget.viewPermission)) ? (
-            <ExportButton
+            unavailable ? <button type="button" className="export-trigger" disabled>Exportar</button> : <ExportButton
               entity={exportTarget.entity}
               canal={exportTarget.canal}
               params={exportTarget.params}
@@ -226,13 +254,15 @@ export function StagingRecordsList({
         {planSaveNotice ? <p className="success-message" role="status">{planSaveNotice}</p> : null}
         {subscriptionSaveNotice ? <p className="success-message" role="status">{subscriptionSaveNotice}</p> : null}
         {chargeSaveNotice ? <p className="success-message" role="status">{chargeSaveNotice}</p> : null}
-        {error ? <p className="error-message">{error}</p> : null}
-        {!loading && !error && records.items.length === 0 ? (
-          <p>Sin registros sincronizados para este recurso.</p>
+        {error ? chargePilot ? <div className="error-message" role="alert"><p>{error}</p><button type="button" className="secondary-button" disabled={pending} onClick={list.reload}>Reintentar consulta</button></div> : <p className="error-message">{error}</p> : null}
+        {chargePilot && pending ? <p role="status" className="vp-charge-feedback">{records.items.length ? "Actualizando cargos. Los registros visibles corresponden a la consulta anterior." : "Cargando cargos…"}</p> : null}
+        {!pending && !error && records.items.length === 0 ? (
+          chargePilot ? <div className="vp-charge-empty" role="status"><strong>{activeFilterCount ? "No hay cargos que coincidan con estos filtros." : "No hay cargos registrados en esta cuenta o canal."}</strong>
+            <p>{activeFilterCount ? "Cambia los criterios o limpia los filtros para consultar todos los cargos disponibles." : "Pide a un administrador revisar la última sincronización si esperabas encontrar datos."}</p></div> : <p>Sin registros sincronizados para este recurso.</p>
         ) : null}
         {records.items.length > 0 ? (
           <ChannelTableScroll label={`${activeSection.label} de ${title(activeSection.source)}`}>
-            <table>
+            <table aria-busy={chargePilot ? pending : undefined}>
                 <thead>
                   <tr>
                   {columns.map((column) => {
@@ -259,7 +289,7 @@ export function StagingRecordsList({
                     );
                   })}
                   </tr>
-                  {activeSection.source === "virtualpos" ? (
+                  {activeSection.source === "virtualpos" && !chargePilot ? (
                     <tr id={filterRowId} className="table-column-filters" hidden={!filtersOpen}>
                       {columns.map((column) => {
                         const field = virtualPosFieldForColumn(activeSection.resource, column.key);
@@ -284,7 +314,8 @@ export function StagingRecordsList({
                   <tr key={record.id}>
                     {columns.map((column) => (
                       <td key={column.key} className={column.key.startsWith("RUT") ? "mono" : undefined}>
-                        {activeSection.source === "virtualpos" &&
+                        {chargePilot && column.key === "Cargo" ? <button className="record-link vp-charge-open" data-charge-id={record.external_id} disabled={unavailable}
+                          aria-label={`Ver cargo ${record.external_id}`} onClick={() => void openVirtualPosCharge(record)}>Ver cargo<span className="mono">{record.external_id}</span></button> : activeSection.source === "virtualpos" &&
                         activeSection.resource === "subscription" &&
                         column.key === "Acciones" ? (
                           isActiveSubscription(record) ? (
@@ -310,9 +341,10 @@ export function StagingRecordsList({
                         ) : activeSection.source === "virtualpos" &&
                           activeSection.resource === "charge" &&
                           column.key === "ID subscripción" ? (
-                          record.subscription_id ? (
+                          record.subscription_id && can("virtualpos.subscriptions.view") ? (
                             <button
                               className="record-link"
+                              disabled={unavailable}
                               aria-label={`Ver ficha de suscripción ${record.subscription_id}`}
                               onClick={() => void openVirtualPosSubscription({ external_id: record.subscription_id! })}
                             >
@@ -335,9 +367,10 @@ export function StagingRecordsList({
                           activeSection.resource === "charge" &&
                           column.key === "Acciones" ? (
                           <div className="table-actions-group">
-                            {isPendingCharge(record) ? (
+                            {isPendingCharge(record) && can("virtualpos.charges.cancel") ? (
                               <button
                                 className="cancel-charge-button"
+                                disabled={unavailable}
                                 onClick={() => onCancelCharge(record)}
                               >
                                 Cancelar
@@ -345,6 +378,7 @@ export function StagingRecordsList({
                             ) : isRejectedCharge(record) && can("virtualpos.charges.retry") ? (
                               <button
                                 className="retry-charge-button"
+                                disabled={unavailable}
                                 onClick={() => onRetryCharge(record)}
                               >
                                 Reintentar
@@ -454,7 +488,7 @@ export function StagingRecordsList({
                               </button>
                             )}
                           </div>
-                        ) : column.key === "Estado sec." && record.resource_type === "subscription" ? (
+                        ) : chargePilot && column.key === "Fecha de cargo" ? day(String(record.payload.charge_date ?? "")) : column.key === "Estado sec." && record.resource_type === "subscription" ? (
                           <span className={`badge badge-${record.secondary_status === "cobrable" ? "green" : record.secondary_status === "incobrable" ? "orange" : record.secondary_status === "inactiva" ? "gray" : "blue"}`}>{labelOr("secondaryStatus", record.secondary_status, "—")}</span>
                         ) : (
                           column.value(record)
@@ -470,8 +504,8 @@ export function StagingRecordsList({
         {records.items.length < records.total ? (
           <div className="table-load-more">
             <span>Mostrando {records.items.length.toLocaleString("es-CL")} de {records.total.toLocaleString("es-CL")}</span>
-            <button disabled={loading} onClick={() => setRecordsOffset((offset) => offset + RECORDS_PAGE_SIZE)}>
-              {loading ? "Cargando..." : "Ver más"}
+            <button disabled={pending || (chargePilot && Boolean(error))} onClick={() => setRecordsOffset((offset) => offset + RECORDS_PAGE_SIZE)}>
+              {pending ? "Cargando..." : "Ver más"}
             </button>
           </div>
         ) : null}

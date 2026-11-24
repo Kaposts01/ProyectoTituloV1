@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getJson, friendlyError } from "../../api";
 import { useDebouncedValue } from "../../hooks";
 import type { ProviderSection } from "../../routes";
@@ -34,10 +34,19 @@ export function useStagingRecords(ctx: {
   const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
   const debouncedFilterQuery = useDebouncedValue(filterQuery);
   const debouncedVpColumnFilters = useDebouncedValue(vpColumnFilters);
+  const chargePilot = activeSection?.source === "virtualpos" && activeSection.resource === "charge";
+  const [attempt, setAttempt] = useState(0);
+  const reload = useCallback(() => setAttempt((value) => value + 1), []);
+  const [settledKey, setSettledKey] = useState("");
+  const filterKey = chargePilot ? JSON.stringify(Object.entries(vpColumnFilters).filter(([, value]) => value.trim()).sort()) : "";
+  const debouncedFilterKey = chargePilot ? JSON.stringify(Object.entries(debouncedVpColumnFilters).filter(([, value]) => value.trim()).sort()) : "";
+  const requestKey = JSON.stringify([session?.user.id, session?.user.permissions, activeSection?.source, activeSection?.resource, vpPlatform, recordsOffset, sortColumn, sortDirection, debouncedFilterKey, attempt]);
+  const chargePending = chargePilot && (filterKey !== debouncedFilterKey || settledKey !== requestKey);
 
   useEffect(() => {
     if (!session || !activeSection) return;
     if (filterQuery !== debouncedFilterQuery) return;
+    if (chargePilot && filterKey !== debouncedFilterKey) return;
     let mounted = true;
     const controller = new AbortController();
     const effectiveSource =
@@ -73,6 +82,7 @@ export function useStagingRecords(ctx: {
     }
     const path = `/api/v1/staging/records?${params}`;
     setLoading(true);
+    if (chargePilot) setError(null);
     getJson<StagingResponse>(path, controller.signal)
       .then((data) => {
         if (mounted) {
@@ -85,13 +95,13 @@ export function useStagingRecords(ctx: {
         if (mounted && !(err instanceof DOMException && err.name === "AbortError")) setError(friendlyError(err, "No se pudieron cargar los registros."));
       })
       .finally(() => {
-        if (mounted) setLoading(false);
+        if (mounted) { setLoading(false); setSettledKey(requestKey); }
       });
     return () => {
       mounted = false;
       controller.abort();
     };
-  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, debouncedVpColumnFilters, sortColumn, sortDirection, vpPlatform, recordsOffset, setError, setLoading]);
+  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, debouncedVpColumnFilters, sortColumn, sortDirection, vpPlatform, recordsOffset, setError, setLoading, chargePilot, filterKey, debouncedFilterKey, requestKey]);
 
   useEffect(() => {
     if (!session || !activeSection || !["status", "secondary_status"].includes(filterField)) {
@@ -112,6 +122,8 @@ export function useStagingRecords(ctx: {
   }, [session, activeSection, filterField, vpPlatform, setError]);
 
   return {
+    chargePending,
+    reload,
     records,
     setRecords,
     recordsOffset,

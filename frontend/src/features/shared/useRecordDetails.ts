@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getJson, friendlyError } from "../../api";
 import type { AppRoute, ProviderSource } from "../../routes";
 import type {
@@ -28,8 +28,13 @@ export function useRecordDetails(ctx: {
   const [providerRecordDetail, setProviderRecordDetail] =
     useState<ProviderRecordDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [chargeDetailError, setChargeDetailError] = useState<string | null>(null);
+  const chargeRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => { chargeRequest.current?.abort(); }, []);
 
   function clearDetails() {
+    if (chargeRequest.current) { chargeRequest.current.abort(); chargeRequest.current = null; setDetailLoading(false); }
+    setChargeDetailError(null);
     setClientDetail(null);
     setPlanDetail(null);
     setSubscriptionDetail(null);
@@ -112,6 +117,11 @@ export function useRecordDetails(ctx: {
       navigate({ kind: "record", source: "virtualpos", resource: "charge", externalId: record.external_id });
       return;
     }
+    chargeRequest.current?.abort();
+    const controller = new AbortController();
+    chargeRequest.current = controller;
+    setChargeDetail(null);
+    setChargeDetailError(null);
     setClientDetail(null);
     setPlanDetail(null);
     setSubscriptionDetail(null);
@@ -119,15 +129,18 @@ export function useRecordDetails(ctx: {
     setDetailLoading(true);
     setError(null);
     try {
-      setChargeDetail(
-        await getJson<VirtualPosChargeDetail>(
+      const data = await getJson<VirtualPosChargeDetail>(
           `/api/v1/staging/virtualpos/charges/${encodeURIComponent(record.external_id)}`,
-        ),
-      );
+          controller.signal,
+        );
+      if (!controller.signal.aborted) setChargeDetail(data);
     } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha del cargo."));
+      if (!controller.signal.aborted) {
+        const message = friendlyError(err, "No se pudo cargar la ficha del cargo.");
+        setChargeDetailError(message); setError(message);
+      }
     } finally {
-      setDetailLoading(false);
+      if (chargeRequest.current === controller) { setDetailLoading(false); chargeRequest.current = null; }
     }
   }
   async function openVirtualPosPayment(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
@@ -193,6 +206,7 @@ export function useRecordDetails(ctx: {
   }
 
   return {
+    chargeDetailError,
     clientDetail,
     setClientDetail,
     planDetail,

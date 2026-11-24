@@ -13,7 +13,7 @@ import "./App.css";
 import "./Staging.css";
 import { legacyRedirectPath, parseRoute, routePath, tchPermissionSegment, type AppRoute, type ProviderSource, type TchRouteView } from "./routes";
 // Feature modules
-import type { ChannelDashboard, AuthSession } from "./features/shared/types";
+import type { ChannelDashboard, AuthSession, StagingRecord } from "./features/shared/types";
 import { stagingFilters } from "./features/virtualpos/constants";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { ProfilePanel } from "./features/auth/ProfilePanel";
@@ -93,10 +93,18 @@ function AppCore() {
   } = useChannelDashboard(session, setError);
   const stagingList = useStagingRecords({ session, activeSection, setError, setLoading });
   const {
-    records, setRecords, recordsOffset, setRecordsOffset, filterField, setFilterField, filterQuery, setFilterQuery, setVpColumnFilters, sortColumn, setSortColumn, sortDirection, setSortDirection, vpPlatform, setVpPlatform,
+    records, setRecords, recordsOffset, setRecordsOffset, filterField, setFilterField, filterQuery, setFilterQuery, vpColumnFilters, setVpColumnFilters, sortColumn, setSortColumn, sortDirection, setSortDirection, vpPlatform, setVpPlatform,
   } = stagingList;
+  const chargeOwner = JSON.stringify([session?.user.id, session?.user.permissions]);
+  const chargeListMemory = useRef<{
+    owner: string; awaitingReturn: boolean; filters: typeof vpColumnFilters; records: typeof records;
+    offset: number; sort: typeof sortColumn; direction: typeof sortDirection; platform: typeof vpPlatform;
+    target: { id: string; top: number; left: number };
+  } | null>(null);
+  const [chargeReturnTarget, setChargeReturnTarget] = useState<{ id: string; top: number; left: number } | null>(null);
+  useEffect(() => () => { chargeListMemory.current = null; }, [chargeOwner]);
   const {
-    clientDetail, setClientDetail, planDetail, subscriptionDetail, setSubscriptionDetail, chargeDetail, setChargeDetail, paymentDetail, providerRecordDetail, detailLoading, clearDetails, openVirtualPosClient, openVirtualPosPlan, openVirtualPosSubscription, openVirtualPosCharge, openVirtualPosPayment, openProviderRecord, openRecord,
+    clientDetail, setClientDetail, planDetail, subscriptionDetail, setSubscriptionDetail, chargeDetail, setChargeDetail, chargeDetailError, paymentDetail, providerRecordDetail, detailLoading, clearDetails, openVirtualPosClient, openVirtualPosPlan, openVirtualPosSubscription, openVirtualPosCharge, openVirtualPosPayment, openProviderRecord, openRecord,
   } = useRecordDetails({ navigate, setError });
   const vpWrites = useVirtualPosWrites({
     records, setRecords,
@@ -367,6 +375,14 @@ function AppCore() {
     else showDashboard();
   }
 
+  function openChargeFromList(record: StagingRecord) {
+    const scroll = document.querySelector(".vp-charge-pilot .channel-table-scroll");
+    chargeListMemory.current = { owner: chargeOwner, awaitingReturn: true, filters: { ...vpColumnFilters }, records,
+      offset: recordsOffset, sort: sortColumn, direction: sortDirection, platform: vpPlatform,
+      target: { id: record.external_id, top: scroll?.scrollTop ?? 0, left: scroll?.scrollLeft ?? 0 } };
+    void openVirtualPosCharge(record);
+  }
+
   function showRecovery(updateUrl = true) {
     clearDetails();
     setGeneralView("summary");
@@ -472,20 +488,30 @@ function AppCore() {
         .find((entry) => entry.source === route.source && entry.resource === route.resource);
       if (section) {
         showSection(section, false);
-        const filter = location.searchParams.get("filtro");
-        const status = location.searchParams.get("estado");
-        if ((filter === "status" || filter === "secondary_status") && status) {
-          setFilterField(filter);
-          setFilterQuery(status);
-        }
-        const sort = location.searchParams.get("orden");
-        const direction = location.searchParams.get("direccion");
-        setSortColumn(sort || null);
-        setSortDirection(direction === "desc" ? "desc" : "asc");
-        setRecordsOffset(listOffset(location.searchParams));
-        if (route.source === "virtualpos") {
-          const platform = location.searchParams.get("cuenta");
-          setVpPlatform(platform === "virtualpos1" || platform === "virtualpos2" ? platform : "all");
+        const memory = chargeListMemory.current;
+        if (route.kind === "resource" && route.source === "virtualpos" && route.resource === "charge" && memory?.awaitingReturn && memory.owner === chargeOwner) {
+          memory.awaitingReturn = false;
+          setVpColumnFilters(memory.filters); setRecords(memory.records); setRecordsOffset(memory.offset);
+          setSortColumn(memory.sort); setSortDirection(memory.direction); setVpPlatform(memory.platform);
+          // A previous response may have the same filters. Wait for this return's refresh before restoring focus.
+          stagingList.reload();
+          setChargeReturnTarget(memory.target);
+        } else {
+          const filter = location.searchParams.get("filtro");
+          const status = location.searchParams.get("estado");
+          if ((filter === "status" || filter === "secondary_status") && status) {
+            setFilterField(filter);
+            setFilterQuery(status);
+          }
+          const sort = location.searchParams.get("orden");
+          const direction = location.searchParams.get("direccion");
+          setSortColumn(sort || null);
+          setSortDirection(direction === "desc" ? "desc" : "asc");
+          setRecordsOffset(listOffset(location.searchParams));
+          if (route.source === "virtualpos") {
+            const platform = location.searchParams.get("cuenta");
+            setVpPlatform(platform === "virtualpos1" || platform === "virtualpos2" ? platform : "all");
+          }
         }
         if (route.kind === "record") void openRecord(route.source, route.resource, route.externalId, false);
       } else navigate(fallbackRoute(), true);
@@ -542,6 +568,8 @@ function AppCore() {
 
 
   async function logout() {
+    chargeListMemory.current = null;
+    setChargeReturnTarget(null);
     try { await postJson("/api/v1/auth/logout"); } finally {
       setCsrfToken("");
       setSession(null);
@@ -635,6 +663,9 @@ function AppCore() {
       openVirtualPosSubscription={openVirtualPosSubscription}
       openVirtualPosPayment={openVirtualPosPayment}
       openProviderRecord={openProviderRecord}
+      openVirtualPosCharge={openChargeFromList}
+      chargeReturnTarget={chargeReturnTarget}
+      onChargeReturnRestored={() => setChargeReturnTarget(null)}
       onNewClient={() => setCreatingClient(true)}
       onNewPlan={() => { setPlanFormError(null); setPlanFieldErrors({}); setPlanSaveNotice(null); setCreatingPlan(true); }}
       onNewSubscription={() => { setSubscriptionFormError(null); setSubscriptionFieldErrors({}); setSubscriptionSaveNotice(null); setCreatingSubscription(true); }}
@@ -653,6 +684,7 @@ function AppCore() {
   const tchContent = tch.tchView ? <TchContent tch={tch} showTch={showTch} showTchSubscription={showTchSubscription} onReport={setReportScope} can={can} /> : null;
 
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
+  const chargeRoute = summaryRoute?.kind === "record" && summaryRoute.source === "virtualpos" && summaryRoute.resource === "charge" ? summaryRoute : null;
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
   const onChannelDetailRoute = summaryRoute && ["channel", "resource", "record", "tch", "tchSubscription"].includes(summaryRoute.kind);
   const currentPage = session && summaryRoute && canAccessRoute(summaryRoute)
@@ -664,7 +696,16 @@ function AppCore() {
 
   const content = detailLoading ? (
     <main className="app-shell">
-      <p className="muted-copy">Cargando ficha...</p>
+      {chargeRoute ? <button className="back-button" onClick={() => showResourceList("virtualpos", "charge")}>Volver a cargos VirtualPOS</button> : null}
+      <p className="muted-copy" role={chargeRoute ? "status" : undefined}>Cargando ficha...</p>
+    </main>
+  ) : chargeRoute && chargeDetailError ? (
+    <main className="app-shell detail-page">
+      <button className="back-button" onClick={() => showResourceList("virtualpos", "charge")}>Volver a cargos VirtualPOS</button>
+      <h1>Ficha de cargo no disponible</h1>
+      <div className="error-message" role="alert"><p>{chargeDetailError}</p>
+        <button type="button" className="secondary-button" onClick={() => void openVirtualPosCharge({ external_id: chargeRoute.externalId }, false)}>Reintentar ficha</button>
+      </div>
     </main>
   ) : (
     (clientDetailView ??

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ProviderSource } from "../../routes";
 import type { StagingRecord, VirtualPosChargeDetail } from "../shared/types";
 import { fieldValue } from "../shared/display";
@@ -24,15 +25,17 @@ export function ChargeDetailView({
   onRetryCharge: (record: StagingRecord) => void;
   can: (permission: string) => boolean;
 }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [chargeDetail.charge.external_id]);
   return (
   <main className="app-shell detail-page">
     <button className="back-button" onClick={() => showResourceList("virtualpos", "charge")}>
       Volver a cargos VirtualPOS
     </button>
     <p className="eyebrow">VIRTUALPOS / CARGO</p>
-    <h1>{text(chargeDetail.charge.payload.id, chargeDetail.charge.external_id)}</h1>
+    <h1 ref={heading} tabIndex={-1}>{text(chargeDetail.charge.payload.id, chargeDetail.charge.external_id)}</h1>
     <div className="client-detail-actions">
-      {isPendingCharge(chargeDetail.charge) ? (
+      {isPendingCharge(chargeDetail.charge) && can("virtualpos.charges.cancel") ? (
         <button
           className="cancel-charge-button"
           onClick={() => onCancelCharge(chargeDetail.charge)}
@@ -63,10 +66,10 @@ export function ChargeDetailView({
     <section className="panel">
       <p className="eyebrow">RELACIONES</p>
       <dl className="field-list">
-        <div><dt>Cliente</dt><dd>{chargeDetail.client ? <button className="record-link" onClick={() => void openVirtualPosClient(chargeDetail.client!)}>{vpClientRecordName(chargeDetail.client)}</button> : "Sin cliente relacionado"}</dd></div>
+        <div><dt>Cliente</dt><dd>{chargeDetail.client ? can("virtualpos.clients.view") ? <button className="record-link" onClick={() => void openVirtualPosClient(chargeDetail.client!)}>{vpClientRecordName(chargeDetail.client)}</button> : vpClientRecordName(chargeDetail.client) : "Sin cliente relacionado"}</dd></div>
         <div><dt>RUT cliente</dt><dd>{chargeDetail.client ? text(chargeDetail.client.payload.social_id) : "—"}</dd></div>
-        <div><dt>Suscripción</dt><dd>{chargeDetail.subscription ? <button className="record-link" onClick={() => void openVirtualPosSubscription(chargeDetail.subscription!)}>{chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id}</button> : "Sin suscripción relacionada"}</dd></div>
-        <div><dt>Transacción</dt><dd>{chargeDetail.payment ? <button className="record-link" onClick={() => void openVirtualPosPayment(chargeDetail.payment!)}>{chargeDetail.payment.external_id}</button> : "Sin transacción relacionada"}</dd></div>
+        <div><dt>Suscripción</dt><dd>{chargeDetail.subscription ? can("virtualpos.subscriptions.view") ? <button className="record-link" onClick={() => void openVirtualPosSubscription(chargeDetail.subscription!)}>{chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id}</button> : chargeDetail.subscription.plan_name ?? chargeDetail.subscription.external_id : "Sin suscripción relacionada"}</dd></div>
+        <div><dt>Transacción</dt><dd>{chargeDetail.payment ? can("virtualpos.payments.view") ? <button className="record-link" onClick={() => void openVirtualPosPayment(chargeDetail.payment!)}>{chargeDetail.payment.external_id}</button> : chargeDetail.payment.external_id : "Sin transacción relacionada"}</dd></div>
       </dl>
     </section>
   </main>
