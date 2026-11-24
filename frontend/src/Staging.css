@@ -1415,6 +1415,9 @@
 .summary-health-item .health-dot { flex: none; margin: 0; }
 .summary-health-name { font-weight: 600; color: var(--text-1); }
 .summary-health-text { font-size: 11px; }
+.summary-health-date { display: block; margin-top: 4px; color: var(--text-2); }
+.summary-update-details .summary-health-item { align-items: baseline; }
+.summary-update-details .summary-health-text { flex: 1 1 150px; }
 
 .summary-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .summary-indicators { display: grid; gap: 16px; min-width: 0; }
@@ -1478,6 +1481,9 @@
   .summary-controls, .summary-control, .summary-month-row { width: 100%; }
   .summary-month-input { flex: 1; min-width: 0; min-height: 44px; }
   .summary-channel { min-height: 44px; }
+  .summary-controls .summary-channel { min-height: 44px; }
+  .summary-view .secondary-button { min-height: 44px; }
+  .summary-update-details > summary, .summary-more-indicators > summary { min-height: 44px; box-sizing: border-box; }
   .summary-chart-card { padding: 12px; }
   .summary-kpi-grid .kpi-value { font-size: 24px !important; }
 }

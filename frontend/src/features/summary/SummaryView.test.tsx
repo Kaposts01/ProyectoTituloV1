@@ -33,7 +33,7 @@ function installFetch(summary: Responder, health: unknown = HEALTH) {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     const url = new URL(String(input), "http://localhost");
     calls.push(url);
-    const reply: Reply = url.pathname === "/api/v1/sync-runs/health" ? { body: health } : summary(url);
+    const reply: Reply = url.pathname === "/api/v1/sync-runs/health" ? health === "pending" ? "pending" : { body: health } : summary(url);
     if (reply === "pending") return new Promise(() => {});
     const status = reply.status ?? 200;
     return { ok: status < 400, status, headers: { get: (key: string) => (key.toLowerCase() === "content-type" ? "application/json" : null) }, json: async () => reply.body };
@@ -92,11 +92,11 @@ describe("Resumen unificado: tarjetas", () => {
     expect(valueOf("ARPU")).toBe("$12.857");
   });
 
-  it("socios totales lleva la nota «suma por canal, no deduplicada»", async () => {
+  it("explica en lenguaje cotidiano que Socios totales suma suscripciones sin identificar personas únicas", async () => {
     installFetch(() => ({ body: rawSummary() }));
     render(<SummaryView />);
     await ready();
-    expect(within(card("Socios totales")).getByText(/suma por canal, no deduplicada/i)).toBeTruthy();
+    expect(within(card("Socios totales")).getByText(/Suma de suscripciones por canal; una persona puede aparecer más de una vez/)).toBeTruthy();
   });
 
   it("cada tarjeta lleva el delta contra el mes anterior y el chip «sin meta» (no se inventan metas)", async () => {
@@ -133,12 +133,13 @@ describe("Resumen unificado: tarjetas", () => {
     expect(within(card("Churn")).getByTestId("kpi-delta").className).toContain("bad");
   });
 
-  it("QA-07: el mes en curso avisa «al día X», no compara los flujos con el mes anterior y ofrece el último mes cerrado", async () => {
+  it("QA-07: avisa cierre pendiente sin prometer datos actualizados a hoy y no compara flujos parciales", async () => {
     installFetch(() => ({ body: rawSummary() }));
     render(<SummaryView />);
     await ready();
     const note = screen.getByRole("note", { name: "Mes en curso" });
-    expect(note.textContent).toMatch(/Mes en curso · Datos hasta el día \d{1,2}/);
+    expect(note.textContent).toContain("Mes en curso · Cierre pendiente");
+    expect(note.textContent).not.toMatch(/Datos hasta el día/);
     expect(note.textContent).toMatch(/datos parciales/i);
     for (const label of ["Ingreso total", "Acumulado del año", "Activaciones", "Bajas", "Crecimiento neto", "Churn", "No cobrado", "Por cobrar"]) {
       expect(within(card(label)).queryByTestId("kpi-delta"), label).toBeNull();
@@ -221,14 +222,15 @@ describe("Resumen unificado: gráficos", () => {
     expect(summaryCalls()).toHaveLength(1);
   });
 
-  it("rotula el dato de TCH como «Dato al <fecha>» (viene de Excel)", async () => {
+  it("distingue la ejecución de TCH en salud de la cobertura indicada en el gráfico", async () => {
     installFetch(() => ({ body: rawSummary() }));
     render(<SummaryView />);
     await ready();
     fireEvent.click(await screen.findByText("Actualización de datos"));
     const health = await screen.findByRole("region", { name: "Sincronización por canal" });
-    expect(within(health).getByText(/Dato al 12-10-2026/)).toBeTruthy();
-    expect(screen.getAllByText(/Dato al 12-10-2026/).length).toBeGreaterThanOrEqual(2); // salud y gráfico de ingreso
+    expect(within(health).getByText(/Última ejecución: 12-10-2026/)).toBeTruthy();
+    expect(within(health).getByText(/no garantiza cobertura completa/)).toBeTruthy();
+    expect(screen.getByText(/Dato al 12-10-2026/)).toBeTruthy(); // Cobertura del gráfico conservada.
   });
 
   it("sin TCH entre los canales no hay rótulo «Dato al»", async () => {
@@ -244,7 +246,7 @@ describe("Resumen unificado: salud de canal", () => {
     installFetch(() => ({ body: rawSummary() }), [HEALTH[0]]);
     render(<SummaryView />);
     await ready();
-    expect(await screen.findByText("Falta información de algunos canales")).toBeTruthy();
+    expect(await screen.findByText("3 canales requieren revisión")).toBeTruthy();
     expect(screen.queryByText("Canales al día")).toBeNull();
   });
 
@@ -254,21 +256,36 @@ describe("Resumen unificado: salud de canal", () => {
     await ready();
     const disclosure = await screen.findByText("Actualización de datos");
     expect(disclosure.closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByText("1 canal requiere revisión")).toBeTruthy();
+    expect(screen.getByText("3 canales requieren revisión")).toBeTruthy();
     fireEvent.click(disclosure);
     const health = await screen.findByRole("region", { name: "Sincronización por canal" });
     expect(calls.some((url) => url.pathname === "/api/v1/sync-runs/health")).toBe(true);
     expect(within(health).getByText("VirtualPOS")).toBeTruthy();
     expect(within(health).getByText(/Al día · hace 3 h/)).toBeTruthy();
     expect(within(health).getByText("TCH")).toBeTruthy();
-    expect(within(health).queryByText("Toku")).toBeNull(); // sin dato de salud: no se pinta
+    expect(within(health).getByText("Toku")).toBeTruthy();
+    expect(within(health).getAllByText("Sin información de actualización")).toHaveLength(2);
   });
 
-  it("si la salud no responde, la pantalla funciona igual y no pinta el indicador", async () => {
+  it("si no hay salud conserva cada canal con estado desconocido y la fecha de generación separada", async () => {
     installFetch(() => ({ body: rawSummary() }), []);
     render(<SummaryView />);
     await ready();
-    expect(screen.queryByRole("region", { name: "Sincronización por canal" })).toBeNull();
+    fireEvent.click(await screen.findByText("Actualización de datos"));
+    const health = screen.getByRole("region", { name: "Sincronización por canal" });
+    expect(within(health).getAllByText("Sin información de actualización")).toHaveLength(4);
+    expect(within(health).getByText(/Esta hora no indica cuándo se actualizaron los canales/)).toBeTruthy();
+    expect(screen.queryByText("Canales al día")).toBeNull();
+  });
+
+  it("no declara fallos ni canales al día mientras se consulta la salud", async () => {
+    installFetch(() => ({ body: rawSummary() }), "pending");
+    render(<SummaryView />);
+    await ready();
+    expect(screen.getByText("Consultando actualización…")).toBeTruthy();
+    expect(screen.queryByText(/canales requieren revisión/)).toBeNull();
+    expect(screen.queryByText("Canales al día")).toBeNull();
+    expect(screen.queryByText("Revisa la actualización de los datos")).toBeNull();
   });
 });
 
@@ -307,11 +324,37 @@ describe("Resumen unificado: estados", () => {
     await ready();
     const notice = screen.getByRole("status", { name: /sin datos/i });
     expect(notice.textContent).toContain("enero de 2027");
+    expect(notice.textContent).toContain("La falta de datos no confirma que no haya actividad");
+    expect(notice.textContent).not.toContain("Ningún canal tiene actividad");
     expect(within(notice).getByRole("button", { name: "Ver el mes anterior" })).toBeTruthy();
     for (const label of KPI_LABELS) expect(within(card(label)).getByRole("img", { name: "sin datos" }).textContent).toBe("—");
     expect(screen.queryByRole("button", { name: "Ver datos" })).toBeNull();
     fireEvent.click(within(notice).getByRole("button", { name: "Ver el mes anterior" }));
     await waitFor(() => expect(summaryCalls()[1].searchParams.get("month")).toBe("2026-12"));
+  });
+
+  it("sin canales permitidos explica el acceso y evita indicadores vacíos o acciones de período inútiles", async () => {
+    installFetch(() => ({ body: rawSummary({ channels: [] }) }));
+    render(<SummaryView />);
+    const notice = await screen.findByRole("status", { name: "Acceso a canales restringido" });
+    expect(notice).toHaveTextContent("Solicita a un administrador revisar tus permisos de consulta");
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Ver el mes anterior" })).toBeNull();
+    expect(screen.queryByText("Actualización de datos")).toBeNull();
+  });
+
+  it("mantiene los avisos antes de los indicadores secundarios, incluso al desplegarlos", async () => {
+    installFetch(() => ({ body: rawSummary() }));
+    render(<SummaryView />);
+    await ready();
+    const review = screen.getByRole("region", { name: /Qué revisar/ });
+    fireEvent.click(screen.getByText("Más indicadores (8)"));
+    expect(review.compareDocumentPosition(card("Activaciones")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const trigger = within(review).getByRole("button", { name: "Revisar no cobrado" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("heading", { name: "Detalle de No cobrado" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("region", { name: "Detalle de No cobrado" }), { key: "Escape" });
+    expect(trigger).toHaveFocus();
   });
 
   it("calidad de datos: avisa de las suscripciones sin fecha válida", async () => {

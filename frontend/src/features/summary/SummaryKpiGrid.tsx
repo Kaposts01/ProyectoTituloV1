@@ -10,7 +10,7 @@ const CHIP: Record<SummaryGoalStatus, KpiChipStatus> = { none: "none", met: "met
 
 /** Definición del churn (D31 confirmada): siempre visible dentro de la tarjeta. */
 export const CHURN_HELP = "Bajas del mes ÷ socios al inicio del mes";
-const MEMBERS_NOTE = "Suma por canal, no deduplicada";
+const MEMBERS_NOTE = "Suma de suscripciones por canal; una persona puede aparecer más de una vez.";
 const ONLY_CURRENT_MONTH = "Solo disponible para el mes en curso";
 
 /**
@@ -32,9 +32,9 @@ function common(kpi: SummaryKpi, goodWhen: "up" | "down" = "up", partial = false
  * Rejilla de KPIs del mes: 12 tarjetas. Cada una lleva variación contra el mes anterior y el chip de meta; mientras
  * no existan metas (D2 pendiente) el chip dice «sin meta» y no se dibuja barra de avance. Un KPI sin dato se ve «—».
  */
-export function SummaryKpiGrid({ summary, onDetail, selectedDetail, detail }: {
+export function SummaryKpiGrid({ summary, onDetail, selectedDetail, detail, review }: {
   summary: UnifiedSummary; onDetail?: (metric: PrimaryMetric, button: HTMLButtonElement) => void;
-  selectedDetail?: PrimaryMetric | null; detail?: ReactNode;
+  selectedDetail?: PrimaryMetric | null; detail?: ReactNode; review?: ReactNode;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const action = (metric: PrimaryMetric) => onDetail ? <button type="button" className="summary-detail-link"
@@ -45,7 +45,7 @@ export function SummaryKpiGrid({ summary, onDetail, selectedDetail, detail }: {
   const activations = sparkValues(series.activations);
   const cancellations = sparkValues(series.cancellations);
   const revenue = series.revenueByChannel.flatMap((point) => (point.total === null ? [] : [point.total]));
-  const membersCaption = kpis.totalMembers.note
+  const membersCaption = kpis.totalMembers.note && kpis.totalMembers.note.toLowerCase() !== "suma por canal, no deduplicada"
     ? `${kpis.totalMembers.note.charAt(0).toUpperCase()}${kpis.totalMembers.note.slice(1)}${kpis.totalMembers.noteUnit ? ` (unidad: ${kpis.totalMembers.noteUnit})` : ""}`
     : MEMBERS_NOTE;
   const recurringEmpty = summary.isCurrentMonth ? KPI_EMPTY_CAPTION : ONLY_CURRENT_MONTH;
@@ -63,6 +63,7 @@ export function SummaryKpiGrid({ summary, onDetail, selectedDetail, detail }: {
         <KpiCard label="No cobrado" {...common(kpis.uncollected, "down", flow)} caption="Importe no cobrado del mes" emptyCaption={KPI_EMPTY_CAPTION} action={action("uncollected")} />
       </div>
       {detail}
+      {review}
       <details className="summary-more-indicators" open={moreOpen}>
         <summary onClick={(event) => { event.preventDefault(); setMoreOpen((value) => !value); }}>Más indicadores (8)</summary>
         <div className="summary-kpi-grid" hidden={!moreOpen}>

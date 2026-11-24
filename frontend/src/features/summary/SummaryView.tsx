@@ -6,8 +6,7 @@ import { SummaryCharts } from "./SummaryCharts";
 import { SummaryHealth } from "./SummaryHealth";
 import { SummaryKpiGrid, SummaryKpiSkeleton } from "./SummaryKpiGrid";
 import { hasAnyData } from "./summaryAdapter";
-import { serverNow } from "../../serverClock";
-import { chileDayOfMonth, monthLabel, shiftMonth, tchDataDate } from "./summaryFormat";
+import { monthLabel, shiftMonth, tchDataDate } from "./summaryFormat";
 import type { SummaryChannel, UnifiedSummary } from "./summaryTypes";
 import { useSummary } from "./useSummary";
 import { dashboardSelection, type PrimaryMetric } from "./dashboardContext";
@@ -22,17 +21,16 @@ function formatGeneratedAt(iso: string | null): string | null {
 }
 
 /**
- * QA-07 (decisión: opción A). El Resumen sigue abriendo en el mes en curso, pero lo dice: «mes en curso, al día X»,
+ * QA-07 (decisión: opción A). El Resumen sigue abriendo en el mes en curso, pero lo dice sin prometer frescura:
  * datos parciales, y las tarjetas de flujo no muestran variación contra el mes anterior (comparar unos días contra
  * un mes completo dibujaba caídas que no ocurrieron). Un botón lleva al último mes cerrado.
  */
 function PartialMonthNote({ summary, onClosedMonth }: { summary: UnifiedSummary; onClosedMonth: () => void }) {
   if (!summary.isCurrentMonth) return null;
-  const day = chileDayOfMonth(serverNow());
   return (
     <div className="summary-partial" role="note" aria-label="Mes en curso">
       <p>
-        <strong>Mes en curso · Datos hasta el día {day.toLocaleString("es-CL")}</strong>
+        <strong>Mes en curso · Cierre pendiente</strong>
         <span>Datos parciales. Ingresos, altas, bajas y churn tendrán comparación mensual cuando termine el mes.</span>
       </p>
       <button type="button" className="secondary-button" onClick={onClosedMonth}>Ver el último mes cerrado</button>
@@ -98,8 +96,8 @@ export function SummaryView({ can = noPermissions, onOpenPath }: { can?: (permis
         <ChannelFilter available={availableChannels} selected={selected} onToggle={toggleChannel} />
       </section>
 
-      {shown ? <PartialMonthNote summary={shown} onClosedMonth={() => chooseMonth(shiftMonth(shown.month, -1))} /> : null}
-      {shown ? <SummaryHealth channels={shown.channels} health={health} generatedAt={generatedAt} /> : null}
+      {shown && shown.channels.length > 0 ? <PartialMonthNote summary={shown} onClosedMonth={() => chooseMonth(shiftMonth(shown.month, -1))} /> : null}
+      {shown ? <SummaryHealth channels={shown.channels} health={health} ready={healthReady} generatedAt={generatedAt} /> : null}
 
       {state.status === "loading" ? (
         <>
@@ -117,25 +115,25 @@ export function SummaryView({ can = noPermissions, onOpenPath }: { can?: (permis
 
       {shown ? (
         <>
-          {empty ? (
-            <div className="summary-empty" role="status" aria-label="Mes sin datos">
-              <p className="summary-empty-title">No hay datos para {monthLabel(shown.month)}.</p>
+          {empty || shown.channels.length === 0 ? (
+            <div className="summary-empty" role="status" aria-label={shown.channels.length === 0 ? "Acceso a canales restringido" : "Mes sin datos"}>
+              <p className="summary-empty-title">{shown.channels.length === 0 ? "No tienes canales habilitados para este Dashboard." : `No hay indicadores disponibles para ${monthLabel(shown.month)}.`}</p>
               <p className="summary-empty-copy">
                 {shown.channels.length === 0
-                  ? "No tienes canales con permiso para ver este resumen."
-                  : "Ningún canal tiene actividad registrada en ese mes."}
+                  ? "Solicita a un administrador revisar tus permisos de consulta."
+                  : "La falta de datos no confirma que no haya actividad. Revisa el mes seleccionado y la actualización de los canales."}
               </p>
-              <div className="summary-empty-actions">
+              {shown.channels.length > 0 ? <div className="summary-empty-actions">
                 <button type="button" className="secondary-button" onClick={() => chooseMonth(shiftMonth(shown.month, -1))}>Ver el mes anterior</button>
                 {month !== undefined ? <button type="button" className="secondary-button" onClick={() => chooseMonth(undefined)}>Volver al mes actual</button> : null}
-              </div>
+              </div> : null}
             </div>
           ) : null}
-          <SummaryKpiGrid summary={shown} onDetail={showDetail} selectedDetail={detail} detail={detail
+          {shown.channels.length > 0 ? <SummaryKpiGrid summary={shown} onDetail={showDetail} selectedDetail={detail} detail={detail
             ? <SummaryMetricDetail summary={shown} metric={detail} can={can} onClose={closeDetail} onOpenPath={onOpenPath} />
-            : <div id="summary-metric-detail" hidden />} />
-          <SummaryActions summary={shown} health={health} healthReady={healthReady} can={can} onOpenPath={onOpenPath} onDetail={showDetail} />
-          {empty ? null : <SummaryCharts summary={shown} tchDataDate={tchDataDate(health)} />}
+            : <div id="summary-metric-detail" hidden />}
+            review={<SummaryActions summary={shown} health={health} healthReady={healthReady} can={can} onOpenPath={onOpenPath} onDetail={showDetail} />} /> : null}
+          {empty || shown.channels.length === 0 ? null : <SummaryCharts summary={shown} tchDataDate={tchDataDate(health)} />}
         </>
       ) : null}
     </main>
