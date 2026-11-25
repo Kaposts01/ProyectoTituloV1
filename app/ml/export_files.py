@@ -241,3 +241,12 @@ def write_private_document(root: Path, relative: str, data: bytes) -> None:
     _parents(root, target)
     _write(target, data)
     _permissions(target)
+
+
+def require_new_private_destination(root: Path, relative: str) -> None:
+    """Fail on obvious destination errors before a one-shot holdout opening is consumed."""
+    root = private_root(root)
+    target = _child(root, relative)
+    if target.exists():
+        raise FileExistsError("El destino privado ya existe")
+    _parents(root, target)

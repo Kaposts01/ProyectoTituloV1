@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import hmac
-import re
 import subprocess
 import sys
 from pathlib import Path
 
-from app.ml.dataset_export import canonical_json, signature
+from app.ml.dataset_export import canonical_json
 from app.ml.evaluation_package import prepare_plan
 from app.ml.evaluation_protocol import PROTOCOL_VERSION, parse_protocol
+from app.ml.evaluation_signing import seal, unseal
 from app.ml.export_files import load_key, read_private_file, write_private_document
-from app.ml.export_snapshot import parse_json
 from scripts.ml.export_dataset import source_fingerprint
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,22 +31,12 @@ def template(task: str) -> dict:
 
 
 def sign_plan(plan: dict, *, secret: bytes) -> bytes:
-    value = dict(plan)
-    value["plan_id"] = hashlib.sha256(canonical_json(value)).hexdigest()
-    value["signature"] = signature(canonical_json(value), secret, domain="evaluation-plan-v1")
-    return canonical_json(value)
+    return seal(plan, secret=secret, domain="evaluation-plan-v1", id_field="plan_id")
 
 
 def verify_plan(data: bytes, *, secret: bytes) -> None:
-    value = parse_json(data)
-    if type(value) is not dict:
-        raise ValueError("Plan invalido")
-    mac = value.pop("signature", None)
-    if (not isinstance(mac, str) or not re.fullmatch(r"[a-f0-9]{64}", mac)
-            or not hmac.compare_digest(mac, signature(canonical_json(value), secret, domain="evaluation-plan-v1"))):
-        raise ValueError("Firma invalida")
-    plan_id = value.pop("plan_id", None)
-    if value.get("protocol_version") != PROTOCOL_VERSION or plan_id != hashlib.sha256(canonical_json(value)).hexdigest():
+    value = unseal(data, secret=secret, domain="evaluation-plan-v1", id_field="plan_id")
+    if value.get("protocol_version") != PROTOCOL_VERSION:
         raise ValueError("Version o fingerprint invalido")
 
 

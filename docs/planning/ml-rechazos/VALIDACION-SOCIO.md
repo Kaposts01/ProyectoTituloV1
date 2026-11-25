@@ -21,6 +21,8 @@ ML-05 (2026-11-25) añade [exportador offline y comandos reales](ML-05-EXPORTACI
 
 ML-06 (2026-11-25) prepara [protocolo y planificador aislado](ML-06-EVALUACION.md), sin ajustar modelos. El socio puede autenticar un paquete ML-05 y generar particiones privadas con purga temporal, criterios preinscritos y grupos; no se interpretan etiquetas del test ni se calculan metricas de modelos. Cuatro etapas separan entrenamiento, calibracion, seleccion y test. Debe acordar criterios/soporte/potencia, auditar disponibilidad real de etiquetas y designar custodia antes de ML-07. Un preflight verde no valida estadisticamente ni abre permiso de entrenamiento/activacion. Runners de entrenamiento y benchmark reales aun pendientes; no comunicar probabilidades o ganadores a partir de fixtures.
 
+ML-07 (2026-11-25) entrega [evaluador offline y comandos](ML-07-EVALUAR-MODELOS.md) para predicciones ya emitidas por pipelines externos congelados; no contiene entrenadores ni carga pesos. El socio debera producir/auditar predicciones reales, hashes de modelos/preprocesamiento/calibrador/politica y filas de ajuste. Solo entonces podra evaluar seleccion, registrar aprobacion/congelacion y abrir el test una vez. El registro se consume incluso ante fallo posterior; no borrarlo para repetir. Informes privados con metricas, soporte, cobertura e intervalos no autorizan activar: compartir agregados saneados y mantener decision conjunta. Pruebas locales solo con predicciones ficticias manuales, sin modelos entrenados o cargados.
+
 ## Paquete de entrega futuro
 
 1. Commit o version de codigo y entorno de dependencias bloqueado; compatibilidad de Python/OS verificada en el entorno receptor.
