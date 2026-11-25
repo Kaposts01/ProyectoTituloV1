@@ -59,6 +59,10 @@ from app.models.ml_batch import (  # noqa: F401
     MlBatchResult,
     MlCoreReceipt,
 )
+from app.models.ml_prospective import (  # noqa: F401
+    MlProspectiveEvent,
+    MlProspectiveStudy,
+)
 from app.models.payku_channel import (  # noqa: F401
     PaykuClient,
     PaykuCycle,
