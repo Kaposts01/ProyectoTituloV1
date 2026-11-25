@@ -15,6 +15,8 @@ Contexto confirmado por el usuario, 2026-11-24: este equipo tiene una parte de l
 
 Cada entrega distingue: **implementado**, **probado funcionalmente**, **entrenado**, **evaluado con datos reales** y **autorizado para activar**. No cerrar ML-07 por terminar el runner ni mostrar una probabilidad validada por usar un modelo ajustado con fixtures. P1 puede avanzar sin P2 y cada canal conserva su propia condicion de cobertura.
 
+ML-04 (2026-11-25) entrega [diccionario de variables, contratos y politica temporal experimental](ML-04-DATASET-TEMPORAL.md), con pruebas funcionales sinteticas. El socio debe validar relojes, enlaces y cobertura; revisar la politica de primera deteccion/un episodio por obligacion, monedas y exclusiones antes del dataset real. No hay aun adaptador SQL, exportador ni runner de entrenamiento; las pruebas puras se pueden repetir sin datos o conexiones. ML-05/06 implementaran las siguientes piezas tras solicitud; no extraer datos ni entrenar por haber completado ML-04.
+
 ## Paquete de entrega futuro
 
 1. Commit o version de codigo y entorno de dependencias bloqueado; compatibilidad de Python/OS verificada en el entorno receptor.

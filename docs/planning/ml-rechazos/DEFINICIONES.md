@@ -1,6 +1,6 @@
 # Definiciones propuestas para rechazos y recuperacion
 
-Fecha: 2026-11-24. Contrato para revisar antes de implementar ML-02/04. No altera definiciones financieras, ETL ni KPIs existentes.
+Fecha inicial: 2026-11-24; precisión ML-04: 2026-11-25. Contrato propuesto, con implementaciones experimentales aisladas ML-02/04. No altera definiciones financieras, ETL ni KPIs existentes.
 
 ## Entidades y relojes
 
@@ -12,6 +12,8 @@ Fecha: 2026-11-24. Contrato para revisar antes de implementar ML-02/04. No alter
 - **Corte de analisis (`as_of`):** instante explicito con zona horaria. **Cobertura efectiva:** intervalo de datos completos verificables por fuente y recurso; no basta con que una sync haya terminado ni con tomar el maximo de una fecha de pago.
 
 Conservar UTC para instantes; presentar hora de Chile. Una fecha calendario sin hora no se convierte en una hora exacta ficticia. La granularidad mensual puede impedir demostrar un plazo de 30 dias.
+
+ML-04 implementa una propuesta versionada: un episodio por obligacion/fuente-cuenta, calculado a la primera disponibilidad del primer rechazo, sin reaperturas. Incluye una lista blanca minima, madurez simetrica, cobertura explicita y exclusiones conservadoras de parciales/reversos/pagos anteriores al calculo. Esta implementacion sintetica no aprueba esa politica para datos reales. El socio debe revisarla antes de preparar el dataset real; [diccionario, contratos y limites](ML-04-DATASET-TEMPORAL.md).
 
 ## Objetivo P1
 
