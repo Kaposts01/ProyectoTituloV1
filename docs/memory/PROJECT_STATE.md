@@ -1,5 +1,7 @@
 # Estado del Proyecto
 
+ML-09 (2026-11-25): motor puro en sombra con reglas ML-02/contextos ML-03, precedencia de estados actuales, cobertura/restricciones y abstencion; probabilidad real nula, sin ejecucion. Lector Core acotado por cuenta/recurso exige readonly y repeatable read; mapeos revisados, sin inferir cobertura de updated_at. Mapper no certifica conciliacion y bloquea gestion hasta verificar pagos/abonos/reversos. Clave logica sin modelo y trazabilidad independiente; P1/P2 solo simulaciones sinteticas explicitas, sin cargar artefactos. 388 pruebas (371 puras,17PG) y Ruff pasan; PostgreSQL solo crm_ml_registry_test. [Contrato y limites](../planning/ml-rechazos/ML-09-MOTOR-POLITICA.md). Sin migracion nueva, QA/original, entrenamiento, activacion, skills o push. Socio valida datos/vocabularios/conciliacion; persistencia durable/lotes/API e inferencia real pendientes. ADR-002 Proposed.
+
 Fecha de actualizacion: 2026-11-09.
 
 > El plan, los sprints, el backlog y el estado de cada tarea viven en [docs/tasks.md](../tasks.md), la fuente única. Este archivo describe el estado técnico y las decisiones del sistema. Las secciones fechadas más abajo (2026-10-21 a 2026-10-28) son registro histórico: donde contradigan este resumen, prevalece este resumen.

@@ -1,5 +1,7 @@
 # Motor de rechazos asistido: plan revisado
 
+ML-09, preparacion autorizada el 2026-11-25: [motor y politica en sombra](ML-09-MOTOR-POLITICA.md), reglas/abstencion sin modelos, lectura Core readonly y snapshot consistente, mapeos revisados y comprobacion de estados/restricciones. 388 pruebas pasan. Solo simulaciones P1/P2 explicitas; sin probabilidades reales, entrenamiento, carga o activacion. Conciliacion/vocabularios/cobertura reales valida el socio; persistencia e inferencia operativa quedan pendientes. No inicia ML-10/11 automaticamente.
+
 Fecha: 2026-11-24. Alcance: propuesta de integracion sobre `codex/actualizacion-20261118`, revisada desde el documento aportado `PLAN_ML_RECHAZOS.md`. Su original en Downloads no se modifica. Estados, responsables y criterios de tareas: [docs/tasks.md, familia ML](../../tasks.md#417-motor-de-rechazos-definiciones-y-viabilidad-2026-11-24). Decision arquitectonica: [ADR-002, propuesta](../../decisions/ADR-002-motor-rechazos-asistido.md).
 
 **ML-00 termino en definiciones y auditoria QA. ML-02, autorizado el 2026-11-24, implementa solo taxonomia y reglas puras aisladas ([contrato y pruebas](ML-02-TAXONOMIA.md)). No se entrena, compara algoritmos, migra, materializa Core ni consulta proveedores; no hay integracion operativa del motor.**

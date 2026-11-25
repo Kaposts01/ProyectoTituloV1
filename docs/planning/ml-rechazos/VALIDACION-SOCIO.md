@@ -1,5 +1,7 @@
 # Desarrollo local y validacion con los datos del socio
 
+ML-09 (2026-11-25): [guia del motor en sombra](ML-09-MOTOR-POLITICA.md). El socio debe auditar estados por cuenta/recurso, glosas/enlaces, relojes/cobertura y conciliacion de pagos completos/parciales/reversos; no convertir updated_at en cobertura o estado activo en mandato vigente. Lector actual no certifica conciliacion y bloquea sugerencias de gestion. Motor sin modelos usa reglas/revision, con ejecucion prohibida y probabilidad real nula; solo fixtures permiten probar P1/P2 simulados. 388 pruebas funcionales pasan, sin datos/modelos reales ni activacion. Identidad logica reproducible no equivale a almacenamiento durable; lotes/persistencia/API/inferencia confiable requieren sus siguientes entregas.
+
 Contexto confirmado por el usuario, 2026-11-24: este equipo tiene una parte de los datos; su socio conserva practicamente todos los datos de los distintos proveedores y realizara las pruebas con ellos. El usuario participa en UX, modelos y otras partes del proyecto. No se inspecciono el entorno del socio ni se certifico su cobertura.
 
 ## Responsabilidades y significado de terminado
