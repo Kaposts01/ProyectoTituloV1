@@ -17,6 +17,8 @@ Cada entrega distingue: **implementado**, **probado funcionalmente**, **entrenad
 
 ML-04 (2026-11-25) entrega [diccionario de variables, contratos y politica temporal experimental](ML-04-DATASET-TEMPORAL.md), con pruebas funcionales sinteticas. El socio debe validar relojes, enlaces y cobertura; revisar la politica de primera deteccion/un episodio por obligacion, monedas y exclusiones antes del dataset real. No hay aun adaptador SQL, exportador ni runner de entrenamiento; las pruebas puras se pueden repetir sin datos o conexiones. ML-05/06 implementaran las siguientes piezas tras solicitud; no extraer datos ni entrenar por haber completado ML-04.
 
+ML-05 (2026-11-25) añade [exportador offline y comandos reales](ML-05-EXPORTACION.md), con snapshot JSON estricto, manifiesto y almacenamiento privado. Ya se pueden probar/exportar contratos ML-04 verificados sin entrenar. Sigue pendiente el mapeo SQL desde los datos completos del socio: auditar disponibilidad historica, vinculos y cobertura antes de producir snapshots reales. El socio conserva consultas/originales/clave y paquetes en su entorno; devuelve solo agregados saneados. El manifiesto firmado verifica integridad, no certifica la calidad de las fuentes ni autoriza ML-06/07 automaticamente.
+
 ## Paquete de entrega futuro
 
 1. Commit o version de codigo y entorno de dependencias bloqueado; compatibilidad de Python/OS verificada en el entorno receptor.

@@ -6,6 +6,8 @@ Fecha: 2026-11-24. Alcance: propuesta de integracion sobre `codex/actualizacion-
 
 Actualizacion 2026-11-25: ML-03 incorporo anotacion e historial con migracion probada solo en una base descartable ([contrato](ML-03-ANOTACION.md)). ML-04 añade contratos puros y dataset temporal sintetico separados P1/P2 ([diccionario y politica experimental](ML-04-DATASET-TEMPORAL.md)), sin nuevas migraciones ni acceso a datos. La politica y datos reales requieren validacion del socio; no hay entrenamiento o activacion. Estado vigente exclusivamente en docs/tasks.md.
 
+ML-05, autorizado el 2026-11-25: [exportacion offline restringida](ML-05-EXPORTACION.md) desde snapshot JSON revisado, manifiesto reproducible, seudonimizacion e integridad, CLI y ACL Windows probados con datos sinteticos. No se extrajeron datos reales ni se implemento una consulta SQL que invente disponibilidad/cobertura: ese mapeo depende de la auditoria del entorno del socio. Sin entrenamiento, migraciones o activacion; ML-06/07 no se ejecutan automaticamente.
+
 ## 1. Resultado de revisar la propuesta
 
 Separar tres responsabilidades: **explicar el rechazo (P1)**, **estimar un resultado financiero a 30 dias (P2)** y **evaluar una accion permitida (politica)**. Ninguna necesita que un LLM decida o ejecute operaciones. CPU es la direccion propuesta; el presupuesto de recursos se mide despues, sin prometer rendimiento ni ahorro monetario no comprobado.
