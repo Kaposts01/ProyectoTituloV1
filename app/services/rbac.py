@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.auth import Permission, Role, User
+from app.services.ml_permissions import ML_PERMISSIONS
 
 PERMISSIONS: dict[str, str] = {
     "users.manage": "Administrar usuarios",
@@ -75,6 +76,9 @@ PERMISSIONS: dict[str, str] = {
     "subscriptions.manual_tasks.view": "Ver tareas manuales de suscripciones (medios de pago, mandatos TCH, montos de Payku)",
     "subscriptions.manual_tasks.confirm": "Confirmar, asignar y descartar tareas manuales de suscripciones",
 }
+
+# ML-11 adds explicit ML/account capabilities without expanding default .view grants.
+PERMISSIONS.update(ML_PERMISSIONS)
 
 # RT-14: panel de salud de webhooks. Permiso de administracion (no termina en `.view`, asi que soporte y ejecutivo no lo
 # heredan). Sin migracion: `seed_permissions` (bootstrap_admin o scripts/maintenance/seed_roles.py) lo crea y lo da al rol

@@ -15,6 +15,7 @@ from app.api.v1.routes import (
     identity,
     imports,
     manual_tasks,
+    ml,
     recovery,
     reports,
     scheduler,
@@ -44,6 +45,7 @@ api_router.include_router(identity.router, prefix="/core")
 api_router.include_router(billing_changes.router, prefix="/billing")
 api_router.include_router(cancellations.router, prefix="/cancellations")
 api_router.include_router(manual_tasks.router, prefix="/manual-tasks")
+api_router.include_router(ml.router, prefix="/ml")
 api_router.include_router(imports.router, prefix="/imports")
 api_router.include_router(changes.router, prefix="/changes", tags=["Changes"])
 api_router.include_router(dashboard.router, prefix="/dashboard")
