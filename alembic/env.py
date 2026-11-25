@@ -61,6 +61,10 @@ from app.models.payku_report import (  # noqa: F401
 )
 from app.models.refresh_queue import RefreshQueueItem  # noqa: F401
 from app.models.rejection import PaymentRejectionDetail  # noqa: F401
+from app.models.rejection_annotation import (  # noqa: F401
+    RejectionReasonLabel,
+    RejectionReasonLabelRevision,
+)
 from app.models.source_record import SourceRecord  # noqa: F401
 from app.models.status_change import (  # noqa: F401
     RejectionReasonCatalog,
