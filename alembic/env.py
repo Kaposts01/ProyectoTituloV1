@@ -47,6 +47,11 @@ from app.models.manual_task import (  # noqa: F401
     SubscriptionManualTask,
     SubscriptionManualTaskEvent,
 )
+from app.models.ml_artifact import (  # noqa: F401
+    MlArtifact,
+    MlArtifactEvent,
+    MlArtifactRelease,
+)
 from app.models.payku_channel import (  # noqa: F401
     PaykuClient,
     PaykuCycle,

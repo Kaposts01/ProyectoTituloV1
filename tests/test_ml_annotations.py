@@ -9,8 +9,10 @@ from uuid import uuid4
 
 import pytest
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -188,7 +190,9 @@ def test_schema_has_context_and_revision_constraints():
     assert "uq_rejection_label_context" in {r["name"] for r in inspector.get_unique_constraints("rejection_reason_labels")}
     assert "uq_rejection_label_revision" in {r["name"] for r in inspector.get_unique_constraints("rejection_reason_label_revisions")}
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261124_0083"
+        config = Config()
+        config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(config).get_current_head()
         targets = {"rejection_reason_labels", "rejection_reason_label_revisions"}
         context = MigrationContext.configure(connection, opts={
             "include_object": lambda obj, name, kind, reflected, compared: kind != "table" or name in targets,

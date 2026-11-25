@@ -12,6 +12,8 @@ ML-06, autorizado el 2026-11-25: [protocolo y planificador offline](ML-06-EVALUA
 
 ML-07, autorizado para preparacion el 2026-11-25: [evaluador de predicciones externas congeladas](ML-07-EVALUAR-MODELOS.md), con metricas/soporte/IC pareados, seleccion, congelacion y apertura de test registrada. Comprobado solo con valores sinteticos escritos a mano, sin entrenar o cargar modelos. Entrenadores, calibracion y predicciones reales no implementados/ejecutados en esta entrega: socio debe obtenerlos de pipelines confiables y auditar procedencia antes de evaluar. No hay ganador ni activacion; ML-08 no se inicia automaticamente.
 
+ML-08, autorizado para preparacion el 2026-11-25: [fabricas sin ajustar y registro de artefactos](ML-08-PIPELINES-ARTEFACTOS.md), entorno experimental bloqueado separado, manifiestos privados/evidencia y PostgreSQL para versiones/auditoria. Construccion sin fit y transiciones sinteticas probadas; 0084 solo en base descartable. Sin entrenamiento, carga o activacion real; pesos/datos/aprobacion siguen con el socio. ML-09/11 no se ejecutan automaticamente.
+
 ## 1. Resultado de revisar la propuesta
 
 Separar tres responsabilidades: **explicar el rechazo (P1)**, **estimar un resultado financiero a 30 dias (P2)** y **evaluar una accion permitida (politica)**. Ninguna necesita que un LLM decida o ejecute operaciones. CPU es la direccion propuesta; el presupuesto de recursos se mide despues, sin prometer rendimiento ni ahorro monetario no comprobado.

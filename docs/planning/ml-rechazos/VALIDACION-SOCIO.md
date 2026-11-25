@@ -23,6 +23,8 @@ ML-06 (2026-11-25) prepara [protocolo y planificador aislado](ML-06-EVALUACION.m
 
 ML-07 (2026-11-25) entrega [evaluador offline y comandos](ML-07-EVALUAR-MODELOS.md) para predicciones ya emitidas por pipelines externos congelados; no contiene entrenadores ni carga pesos. El socio debera producir/auditar predicciones reales, hashes de modelos/preprocesamiento/calibrador/politica y filas de ajuste. Solo entonces podra evaluar seleccion, registrar aprobacion/congelacion y abrir el test una vez. El registro se consume incluso ante fallo posterior; no borrarlo para repetir. Informes privados con metricas, soporte, cobertura e intervalos no autorizan activar: compartir agregados saneados y mantener decision conjunta. Pruebas locales solo con predicciones ficticias manuales, sin modelos entrenados o cargados.
 
+ML-08 (2026-11-25) añade [pipelines construibles sin ajustar y registro preparado](ML-08-PIPELINES-ARTEFACTOS.md). El socio puede repetir construccion en el entorno experimental fijado y preparar/verificar manifiestos privados, sin ajustar. Debe respetar feature_matrix, cortes ML-04/06 y procedencia/evaluacion ML-07 de pesos/predicciones reales. Registro SQL/auditoria solo probados en base descartable: no migrar QA/original ni activar por ejecutar el CLI de archivos. Promocion real, cargador y permisos pendientes de ML-09/11. Datos, entrenamiento/calibracion externos, entorno destino y calidad estadistica requieren su validacion.
+
 ## Paquete de entrega futuro
 
 1. Commit o version de codigo y entorno de dependencias bloqueado; compatibilidad de Python/OS verificada en el entorno receptor.
