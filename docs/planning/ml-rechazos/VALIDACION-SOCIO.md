@@ -19,6 +19,8 @@ ML-04 (2026-11-25) entrega [diccionario de variables, contratos y politica tempo
 
 ML-05 (2026-11-25) añade [exportador offline y comandos reales](ML-05-EXPORTACION.md), con snapshot JSON estricto, manifiesto y almacenamiento privado. Ya se pueden probar/exportar contratos ML-04 verificados sin entrenar. Sigue pendiente el mapeo SQL desde los datos completos del socio: auditar disponibilidad historica, vinculos y cobertura antes de producir snapshots reales. El socio conserva consultas/originales/clave y paquetes en su entorno; devuelve solo agregados saneados. El manifiesto firmado verifica integridad, no certifica la calidad de las fuentes ni autoriza ML-06/07 automaticamente.
 
+ML-06 (2026-11-25) prepara [protocolo y planificador aislado](ML-06-EVALUACION.md), sin ajustar modelos. El socio puede autenticar un paquete ML-05 y generar particiones privadas con purga temporal, criterios preinscritos y grupos; no se interpretan etiquetas del test ni se calculan metricas de modelos. Cuatro etapas separan entrenamiento, calibracion, seleccion y test. Debe acordar criterios/soporte/potencia, auditar disponibilidad real de etiquetas y designar custodia antes de ML-07. Un preflight verde no valida estadisticamente ni abre permiso de entrenamiento/activacion. Runners de entrenamiento y benchmark reales aun pendientes; no comunicar probabilidades o ganadores a partir de fixtures.
+
 ## Paquete de entrega futuro
 
 1. Commit o version de codigo y entorno de dependencias bloqueado; compatibilidad de Python/OS verificada en el entorno receptor.

@@ -8,6 +8,8 @@ Actualizacion 2026-11-25: ML-03 incorporo anotacion e historial con migracion pr
 
 ML-05, autorizado el 2026-11-25: [exportacion offline restringida](ML-05-EXPORTACION.md) desde snapshot JSON revisado, manifiesto reproducible, seudonimizacion e integridad, CLI y ACL Windows probados con datos sinteticos. No se extrajeron datos reales ni se implemento una consulta SQL que invente disponibilidad/cobertura: ese mapeo depende de la auditoria del entorno del socio. Sin entrenamiento, migraciones o activacion; ML-06/07 no se ejecutan automaticamente.
 
+ML-06, autorizado el 2026-11-25: [protocolo y planificador offline](ML-06-EVALUACION.md) con cuatro etapas, purga por fechas reales, disponibilidad de etiquetas y test no interpretado. Prepara comparadores/metricas y criterios explicitos; no entrena, compara resultados estadisticos ni instala librerias. Socio validara datos/criterios/entorno y custodia; ML-07 no se ejecuta automaticamente. Preflight estructural no demuestra calidad estadistica o aprobacion de negocio.
+
 ## 1. Resultado de revisar la propuesta
 
 Separar tres responsabilidades: **explicar el rechazo (P1)**, **estimar un resultado financiero a 30 dias (P2)** y **evaluar una accion permitida (politica)**. Ninguna necesita que un LLM decida o ejecute operaciones. CPU es la direccion propuesta; el presupuesto de recursos se mide despues, sin prometer rendimiento ni ahorro monetario no comprobado.

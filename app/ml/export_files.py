@@ -170,7 +170,7 @@ def write_bundle(root: Path, relative: str, bundle: ExportBundle) -> None:
         raise
 
 
-def verify_bundle(root: Path, relative: str, *, secret: bytes) -> dict:
+def verify_bundle(root: Path, relative: str, *, secret: bytes, include_manifest: bool = False) -> dict:
     """Authenticate manifest and exact payloads before any future training consumes them.
 
     This does not certify source data quality, anonymity or permission to train.
@@ -215,7 +215,10 @@ def verify_bundle(root: Path, relative: str, *, secret: bytes) -> dict:
                 digest.update(block)
         if digest.hexdigest() != expected["sha256"]:
             raise ValueError("Contenido del paquete alterado")
-    return {"verified": True, "package_id": package_id}
+    result = {"verified": True, "package_id": package_id}
+    if include_manifest:
+        result["manifest"] = manifest
+    return result
 
 
 def read_private_file(root: Path, relative: str, *, max_bytes: int) -> bytes:
@@ -229,3 +232,12 @@ def read_private_file(root: Path, relative: str, *, max_bytes: int) -> bytes:
     if len(data) > max_bytes:
         raise ValueError("Archivo demasiado grande")
     return data
+
+
+def write_private_document(root: Path, relative: str, data: bytes) -> None:
+    """Exclusive private document, without changing existing files or broadening access."""
+    root = private_root(root)
+    target = _child(root, relative)
+    _parents(root, target)
+    _write(target, data)
+    _permissions(target)
