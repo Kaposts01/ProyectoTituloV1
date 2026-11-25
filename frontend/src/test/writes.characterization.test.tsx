@@ -4,10 +4,14 @@
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Call, type Handler } from "./appHarness";
+import { appReady, contentHtml, listSettled, failWith, ALL_PERMISSIONS, mountApp as mountHarness, resetApp, type Call, type Handler } from "./appHarness";
 import { page, paykuClient, paykuSubscription, rec, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPlan, vpSubscription } from "./fixtures";
 
 afterEach(resetApp);
+
+// Mutation scenarios explicitly include the matching client permission.
+const mountApp: typeof mountHarness = (path, handlers = [], options = {}) =>
+  mountHarness(path, handlers, { ...options, permissions: options.permissions ?? [...ALL_PERMISSIONS, "virtualpos.clients.update"] });
 
 const records = (items: unknown[], total = items.length): Handler => ["GET", "/api/v1/staging/records", page(items, total)];
 const form = (name: string) => screen.getByRole("form", { name });

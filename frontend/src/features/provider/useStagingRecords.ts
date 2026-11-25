@@ -34,19 +34,19 @@ export function useStagingRecords(ctx: {
   const [vpPlatform, setVpPlatform] = useState<"all" | "virtualpos1" | "virtualpos2">("all");
   const debouncedFilterQuery = useDebouncedValue(filterQuery);
   const debouncedVpColumnFilters = useDebouncedValue(vpColumnFilters);
-  const chargePilot = activeSection?.source === "virtualpos" && activeSection.resource === "charge";
+  const listPilot = activeSection?.source === "virtualpos" && ["charge", "client"].includes(activeSection.resource);
   const [attempt, setAttempt] = useState(0);
   const reload = useCallback(() => setAttempt((value) => value + 1), []);
   const [settledKey, setSettledKey] = useState("");
-  const filterKey = chargePilot ? JSON.stringify(Object.entries(vpColumnFilters).filter(([, value]) => value.trim()).sort()) : "";
-  const debouncedFilterKey = chargePilot ? JSON.stringify(Object.entries(debouncedVpColumnFilters).filter(([, value]) => value.trim()).sort()) : "";
+  const filterKey = listPilot ? JSON.stringify(Object.entries(vpColumnFilters).filter(([, value]) => value.trim()).sort()) : "";
+  const debouncedFilterKey = listPilot ? JSON.stringify(Object.entries(debouncedVpColumnFilters).filter(([, value]) => value.trim()).sort()) : "";
   const requestKey = JSON.stringify([session?.user.id, session?.user.permissions, activeSection?.source, activeSection?.resource, vpPlatform, recordsOffset, sortColumn, sortDirection, debouncedFilterKey, attempt]);
-  const chargePending = chargePilot && (filterKey !== debouncedFilterKey || settledKey !== requestKey);
+  const vpListPending = listPilot && (filterKey !== debouncedFilterKey || settledKey !== requestKey);
 
   useEffect(() => {
     if (!session || !activeSection) return;
     if (filterQuery !== debouncedFilterQuery) return;
-    if (chargePilot && filterKey !== debouncedFilterKey) return;
+    if (listPilot && filterKey !== debouncedFilterKey) return;
     let mounted = true;
     const controller = new AbortController();
     const effectiveSource =
@@ -82,7 +82,7 @@ export function useStagingRecords(ctx: {
     }
     const path = `/api/v1/staging/records?${params}`;
     setLoading(true);
-    if (chargePilot) setError(null);
+    if (listPilot) setError(null);
     getJson<StagingResponse>(path, controller.signal)
       .then((data) => {
         if (mounted) {
@@ -101,7 +101,7 @@ export function useStagingRecords(ctx: {
       mounted = false;
       controller.abort();
     };
-  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, debouncedVpColumnFilters, sortColumn, sortDirection, vpPlatform, recordsOffset, setError, setLoading, chargePilot, filterKey, debouncedFilterKey, requestKey]);
+  }, [session, activeSection, filterField, filterQuery, debouncedFilterQuery, debouncedVpColumnFilters, sortColumn, sortDirection, vpPlatform, recordsOffset, setError, setLoading, listPilot, filterKey, debouncedFilterKey, requestKey]);
 
   useEffect(() => {
     if (!session || !activeSection || !["status", "secondary_status"].includes(filterField)) {
@@ -122,7 +122,7 @@ export function useStagingRecords(ctx: {
   }, [session, activeSection, filterField, vpPlatform, setError]);
 
   return {
-    chargePending,
+    vpListPending,
     reload,
     records,
     setRecords,

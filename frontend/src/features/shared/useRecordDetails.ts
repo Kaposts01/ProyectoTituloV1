@@ -29,10 +29,14 @@ export function useRecordDetails(ctx: {
     useState<ProviderRecordDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [chargeDetailError, setChargeDetailError] = useState<string | null>(null);
+  const [clientDetailError, setClientDetailError] = useState<string | null>(null);
+  const clientRequest = useRef<AbortController | null>(null);
   const chargeRequest = useRef<AbortController | null>(null);
-  useEffect(() => () => { chargeRequest.current?.abort(); }, []);
+  useEffect(() => () => { chargeRequest.current?.abort(); clientRequest.current?.abort(); }, []);
 
   function clearDetails() {
+    if (clientRequest.current) { clientRequest.current.abort(); clientRequest.current = null; setDetailLoading(false); }
+    setClientDetailError(null);
     if (chargeRequest.current) { chargeRequest.current.abort(); chargeRequest.current = null; setDetailLoading(false); }
     setChargeDetailError(null);
     setClientDetail(null);
@@ -48,6 +52,11 @@ export function useRecordDetails(ctx: {
       navigate({ kind: "record", source: "virtualpos", resource: "client", externalId: record.external_id });
       return;
     }
+    clientRequest.current?.abort();
+    const controller = new AbortController();
+    clientRequest.current = controller;
+    setClientDetail(null);
+    setClientDetailError(null);
     setPlanDetail(null);
     setSubscriptionDetail(null);
     setChargeDetail(null);
@@ -55,15 +64,17 @@ export function useRecordDetails(ctx: {
     setDetailLoading(true);
     setError(null);
     try {
-      setClientDetail(
-        await getJson<VirtualPosClientDetail>(
-          `/api/v1/staging/virtualpos/clients/${encodeURIComponent(record.external_id)}`,
-        ),
+      const data = await getJson<VirtualPosClientDetail>(
+        "/api/v1/staging/virtualpos/clients/" + encodeURIComponent(record.external_id), controller.signal,
       );
+      if (!controller.signal.aborted) setClientDetail(data);
     } catch (err) {
-      setError(friendlyError(err, "No se pudo cargar la ficha del cliente."));
+      if (!controller.signal.aborted) {
+        const message = friendlyError(err, "No se pudo cargar la ficha del cliente.");
+        setClientDetailError(message); setError(message);
+      }
     } finally {
-      setDetailLoading(false);
+      if (clientRequest.current === controller) { setDetailLoading(false); clientRequest.current = null; }
     }
   }
   async function openVirtualPosPlan(record: Pick<StagingRecord, "external_id">, updateUrl = true) {
@@ -207,6 +218,7 @@ export function useRecordDetails(ctx: {
 
   return {
     chargeDetailError,
+    clientDetailError,
     clientDetail,
     setClientDetail,
     planDetail,

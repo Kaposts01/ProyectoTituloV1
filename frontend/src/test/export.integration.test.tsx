@@ -23,8 +23,8 @@ const exportHandlers = (entity: string, rows: number, includePii = false, dispos
 const lastExport = (app: { calls: Call[] }, suffix = "") => app.calls.filter((c) => c.path === `/api/v1/export/${suffix}`).at(-1)!;
 
 async function exportAll() {
-  const trigger = await screen.findByRole("button", { name: /Exportar/ });
-  await waitFor(() => expect(trigger).toBeEnabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: /Exportar/ })).toBeEnabled());
+  const trigger = screen.getByRole("button", { name: /Exportar/ });
   fireEvent.click(trigger);
   fireEvent.click(screen.getByRole("menuitem", { name: /Todo el listado/ }));
   return screen.findByRole("button", { name: /Descargar/ });
@@ -116,7 +116,7 @@ describe("Exportar: listas de staging", () => {
   it("VirtualPOS cargos: plataforma elegida, filtros por columna y avisos de lo que no se puede enviar", async () => {
     const app = mountApp("/virtualpos/cargos?cuenta=virtualpos1", [recordsHandler(page([vpCharge(1, "PAID")])), ...exportHandlers("cobros", 8)]);
     await appReady();
-    fireEvent.click(await screen.findByRole("button", { name: /Filtros por columna/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Más filtros" }));
     fireEvent.change(await screen.findByLabelText("Monto mínimo"), { target: { value: "500" } });
     fireEvent.change(await screen.findByLabelText("Fecha de cargo desde"), { target: { value: "2025-01-01" } });
     await waitFor(() => expect(app.find("GET", "/api/v1/staging/records").at(-1)?.query.get("amount_min")).toBe("500"));

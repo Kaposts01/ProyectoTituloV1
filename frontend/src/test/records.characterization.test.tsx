@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Handler } from "./appHarness";
+import { ALL_PERMISSIONS, appReady, contentHtml, listSettled, failWith, mountApp, resetApp, type Handler } from "./appHarness";
 import { page, rec, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "./fixtures";
 
 afterEach(resetApp);
@@ -27,13 +27,13 @@ const paymentDetail = { payment: vpPayment(1), charge: vpCharge(1, "pagado"), su
 
 describe("Ficha de cliente VirtualPOS (/virtualpos/clientes/{id})", () => {
   it("pide la ficha y muestra datos, suscripciones, cargos y transacciones con sus acciones", async () => {
-    const app = mountApp("/virtualpos/clientes/cli-1", [listHandler, ["GET", "/api/v1/staging/virtualpos/clients/cli-1", clientDetail]]);
+    const app = mountApp("/virtualpos/clientes/cli-1", [listHandler, ["GET", "/api/v1/staging/virtualpos/clients/cli-1", clientDetail]], { permissions: [...ALL_PERMISSIONS, "virtualpos.clients.update", "virtualpos.subscriptions.cancel"] });
     await appReady();
     expect(await screen.findByText("FICHA DEL CLIENTE")).toBeTruthy();
     expect(app.exact("GET", "/api/v1/staging/virtualpos/clients/cli-1")).toHaveLength(1);
     expect(screen.getByText("VIRTUALPOS / CLIENTE")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Persona1 Sintética" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Editar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Editar cliente" })).toBeTruthy();
     expect(screen.getByText("Relacionadas por RUT")).toBeTruthy();
     expect(screen.getByText("2 total")).toBeTruthy();
     expect(screen.getByText("Cobros generados por suscripción")).toBeTruthy();

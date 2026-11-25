@@ -4,7 +4,7 @@
  */
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { appReady, contentHtml, listSettled, failWith, mountApp, navDetail, resetApp, type Call, type Handler } from "./appHarness";
+import { ALL_PERMISSIONS, appReady, contentHtml, listSettled, failWith, mountApp, navDetail, resetApp, type Call, type Handler } from "./appHarness";
 import { page, paykuClient, paykuSubscription, tokuCustomer, tokuSubscription, vpCharge, vpClient, vpPayment, vpPlan, vpSubscription } from "./fixtures";
 
 afterEach(resetApp);
@@ -17,7 +17,7 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
   const items = [vpClient(1), vpClient(2, { status: "BLOQUEADO", first_name: "", last_name: "" })];
 
   it("pide la lista (source, resource_type, offset, limit) y muestra columnas, filas, contador y botón de alta", async () => {
-    const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items))]);
+    const app = mountApp("/virtualpos/clientes", [recordsHandler(page(items))], { permissions: [...ALL_PERMISSIONS, "virtualpos.clients.update"] });
     await appReady();
     expect(await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" })).toBeTruthy();
     const calls = app.exact("GET", "/api/v1/staging/records");
@@ -29,9 +29,9 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(screen.queryByText("Volver al resumen VirtualPOS")).toBeNull();
     expect(document.querySelector("main .channel-list-heading .eyebrow")).toHaveTextContent("VirtualPOS");
     expect(screen.getByRole("heading", { name: "Clientes" })).toBeTruthy();
-    expect(screen.getByText("Listado de registros")).toBeTruthy();
+    expect(screen.getByText("Clientes registrados")).toBeTruthy();
     expect(screen.getByText("2 registros")).toBeTruthy();
-    expect(headers().slice(0, 7)).toEqual(["RUT", "Nombre", "Correo electrónico", "Teléfono", "Plataforma", "Estado", "Acciones"]);
+    expect(headers().slice(0, 7)).toEqual(["Nombre", "RUT", "Correo electrónico", "Teléfono", "Plataforma", "Estado", "Acciones"]);
     expect(screen.getByText("Persona1 Sintética")).toBeTruthy();
     expect(screen.getAllByText("VP 1").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Editar" })).toHaveLength(2);
@@ -46,16 +46,16 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     await screen.findByRole("button", { name: "Ver ficha de cliente 11.111.111-1" });
     const clear = screen.getByRole("button", { name: "Limpiar filtros" }) as HTMLButtonElement;
     expect(clear.disabled).toBe(true);
-    const toggle = screen.getByRole("button", { name: /Filtros por columna/ });
+    const toggle = screen.getByRole("button", { name: /Más filtros/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(toggle);
-    fireEvent.change(screen.getByLabelText("Buscar por Correo electrónico"), { target: { value: "p1@" } });
+    fireEvent.change(screen.getByLabelText("Correo electrónico"), { target: { value: "p1@" } });
     await waitFor(() => expect(lastRecordsCall(app).query.getAll("filters")).toEqual(["email:p1@"]));
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle).toHaveTextContent("(1)");
     fireEvent.click(toggle);
-    expect(screen.getByLabelText("Buscar por Correo electrónico")).toHaveValue("p1@");
+    expect(screen.getByLabelText("Correo electrónico")).toHaveValue("p1@");
     expect((screen.getByRole("button", { name: "Limpiar filtros" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
     await waitFor(() => expect(lastRecordsCall(app).query.has("filters")).toBe(false));
@@ -102,10 +102,10 @@ describe("Lista VirtualPOS: clientes (/virtualpos/clientes)", () => {
     expect(screen.queryByText(/Mostrando/)).toBeNull();
   });
 
-  it("sin registros muestra «Sin registros sincronizados para este recurso.»; si falla muestra el error", async () => {
+  it("distingue ausencia de clientes de un error de consulta", async () => {
     mountApp("/virtualpos/clientes", [recordsHandler(page([]))]);
     await appReady();
-    expect(await screen.findByText("Sin registros sincronizados para este recurso.")).toBeTruthy();
+    expect(await screen.findByText("No hay clientes registrados en esta cuenta o canal.")).toBeTruthy();
     resetApp();
     mountApp("/virtualpos/clientes", [["GET", "/api/v1/staging/records", failWith(500, "lista rota")]]);
     await appReady();

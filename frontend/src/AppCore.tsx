@@ -96,15 +96,15 @@ function AppCore() {
     records, setRecords, recordsOffset, setRecordsOffset, filterField, setFilterField, filterQuery, setFilterQuery, vpColumnFilters, setVpColumnFilters, sortColumn, setSortColumn, sortDirection, setSortDirection, vpPlatform, setVpPlatform,
   } = stagingList;
   const chargeOwner = JSON.stringify([session?.user.id, session?.user.permissions]);
-  const chargeListMemory = useRef<{
-    owner: string; awaitingReturn: boolean; filters: typeof vpColumnFilters; records: typeof records;
+  const vpListMemory = useRef<{
+    owner: string; resource: "charge" | "client"; awaitingReturn: boolean; filters: typeof vpColumnFilters; records: typeof records;
     offset: number; sort: typeof sortColumn; direction: typeof sortDirection; platform: typeof vpPlatform;
     target: { id: string; top: number; left: number };
   } | null>(null);
-  const [chargeReturnTarget, setChargeReturnTarget] = useState<{ id: string; top: number; left: number } | null>(null);
-  useEffect(() => () => { chargeListMemory.current = null; }, [chargeOwner]);
+  const [vpReturnTarget, setVpReturnTarget] = useState<{ resource: "charge" | "client"; id: string; top: number; left: number } | null>(null);
+  useEffect(() => () => { vpListMemory.current = null; }, [chargeOwner]);
   const {
-    clientDetail, setClientDetail, planDetail, subscriptionDetail, setSubscriptionDetail, chargeDetail, setChargeDetail, chargeDetailError, paymentDetail, providerRecordDetail, detailLoading, clearDetails, openVirtualPosClient, openVirtualPosPlan, openVirtualPosSubscription, openVirtualPosCharge, openVirtualPosPayment, openProviderRecord, openRecord,
+    clientDetail, setClientDetail, planDetail, subscriptionDetail, setSubscriptionDetail, chargeDetail, setChargeDetail, chargeDetailError, clientDetailError, paymentDetail, providerRecordDetail, detailLoading, clearDetails, openVirtualPosClient, openVirtualPosPlan, openVirtualPosSubscription, openVirtualPosCharge, openVirtualPosPayment, openProviderRecord, openRecord,
   } = useRecordDetails({ navigate, setError });
   const vpWrites = useVirtualPosWrites({
     records, setRecords,
@@ -375,12 +375,13 @@ function AppCore() {
     else showDashboard();
   }
 
-  function openChargeFromList(record: StagingRecord) {
-    const scroll = document.querySelector(".vp-charge-pilot .channel-table-scroll");
-    chargeListMemory.current = { owner: chargeOwner, awaitingReturn: true, filters: { ...vpColumnFilters }, records,
+  function openVpFromList(record: StagingRecord, resource: "charge" | "client") {
+    const scroll = document.querySelector(".vp-" + resource + "-pilot .channel-table-scroll");
+    vpListMemory.current = { owner: chargeOwner, resource, awaitingReturn: true, filters: { ...vpColumnFilters }, records,
       offset: recordsOffset, sort: sortColumn, direction: sortDirection, platform: vpPlatform,
-      target: { id: record.external_id, top: scroll?.scrollTop ?? 0, left: scroll?.scrollLeft ?? 0 } };
-    void openVirtualPosCharge(record);
+      target: { id: resource === "client" ? record.id : record.external_id, top: scroll?.scrollTop ?? 0, left: scroll?.scrollLeft ?? 0 } };
+    if (resource === "charge") void openVirtualPosCharge(record);
+    else void openVirtualPosClient(record);
   }
 
   function showRecovery(updateUrl = true) {
@@ -488,14 +489,14 @@ function AppCore() {
         .find((entry) => entry.source === route.source && entry.resource === route.resource);
       if (section) {
         showSection(section, false);
-        const memory = chargeListMemory.current;
-        if (route.kind === "resource" && route.source === "virtualpos" && route.resource === "charge" && memory?.awaitingReturn && memory.owner === chargeOwner) {
+        const memory = vpListMemory.current;
+        if (route.kind === "resource" && route.source === "virtualpos" && route.resource === memory?.resource && memory?.awaitingReturn && memory.owner === chargeOwner) {
           memory.awaitingReturn = false;
           setVpColumnFilters(memory.filters); setRecords(memory.records); setRecordsOffset(memory.offset);
           setSortColumn(memory.sort); setSortDirection(memory.direction); setVpPlatform(memory.platform);
           // A previous response may have the same filters. Wait for this return's refresh before restoring focus.
           stagingList.reload();
-          setChargeReturnTarget(memory.target);
+          setVpReturnTarget({ ...memory.target, resource: memory.resource });
         } else {
           const filter = location.searchParams.get("filtro");
           const status = location.searchParams.get("estado");
@@ -568,8 +569,8 @@ function AppCore() {
 
 
   async function logout() {
-    chargeListMemory.current = null;
-    setChargeReturnTarget(null);
+    vpListMemory.current = null;
+    setVpReturnTarget(null);
     try { await postJson("/api/v1/auth/logout"); } finally {
       setCsrfToken("");
       setSession(null);
@@ -581,6 +582,7 @@ function AppCore() {
   const clientDetailView = clientDetail ? (
     <ClientDetailView
       detail={clientDetail}
+      can={can}
       showResourceList={showResourceList}
       openVirtualPosSubscription={openVirtualPosSubscription}
       openVirtualPosCharge={openVirtualPosCharge}
@@ -658,14 +660,14 @@ function AppCore() {
       error={error}
       can={can}
       notices={{ client: clientSaveNotice, plan: planSaveNotice, subscription: subscriptionSaveNotice, charge: chargeSaveNotice }}
-      openVirtualPosClient={openVirtualPosClient}
+      openVirtualPosClient={(record) => openVpFromList(record, "client")}
       openVirtualPosPlan={openVirtualPosPlan}
       openVirtualPosSubscription={openVirtualPosSubscription}
       openVirtualPosPayment={openVirtualPosPayment}
       openProviderRecord={openProviderRecord}
-      openVirtualPosCharge={openChargeFromList}
-      chargeReturnTarget={chargeReturnTarget}
-      onChargeReturnRestored={() => setChargeReturnTarget(null)}
+      openVirtualPosCharge={(record) => openVpFromList(record, "charge")}
+      vpReturnTarget={vpReturnTarget}
+      onVpReturnRestored={() => setVpReturnTarget(null)}
       onNewClient={() => setCreatingClient(true)}
       onNewPlan={() => { setPlanFormError(null); setPlanFieldErrors({}); setPlanSaveNotice(null); setCreatingPlan(true); }}
       onNewSubscription={() => { setSubscriptionFormError(null); setSubscriptionFieldErrors({}); setSubscriptionSaveNotice(null); setCreatingSubscription(true); }}
@@ -685,6 +687,7 @@ function AppCore() {
 
   const summaryRoute = parseRoute(routeLocation.split("?")[0]);
   const chargeRoute = summaryRoute?.kind === "record" && summaryRoute.source === "virtualpos" && summaryRoute.resource === "charge" ? summaryRoute : null;
+  const clientRoute = summaryRoute?.kind === "record" && summaryRoute.source === "virtualpos" && summaryRoute.resource === "client" ? summaryRoute : null;
   const onSummaryRoute = summaryRoute?.kind === "central" && summaryRoute.view === "summary";
   const onChannelDetailRoute = summaryRoute && ["channel", "resource", "record", "tch", "tchSubscription"].includes(summaryRoute.kind);
   const currentPage = session && summaryRoute && canAccessRoute(summaryRoute)
@@ -696,8 +699,17 @@ function AppCore() {
 
   const content = detailLoading ? (
     <main className="app-shell">
+      {clientRoute ? <button className="back-button" onClick={() => showResourceList("virtualpos", "client")}>Volver a clientes VirtualPOS</button> : null}
       {chargeRoute ? <button className="back-button" onClick={() => showResourceList("virtualpos", "charge")}>Volver a cargos VirtualPOS</button> : null}
-      <p className="muted-copy" role={chargeRoute ? "status" : undefined}>Cargando ficha...</p>
+      <p className="muted-copy" role={chargeRoute || clientRoute ? "status" : undefined}>Cargando ficha...</p>
+    </main>
+  ) : clientRoute && clientDetailError ? (
+    <main className="app-shell detail-page">
+      <button className="back-button" onClick={() => showResourceList("virtualpos", "client")}>Volver a clientes VirtualPOS</button>
+      <h1>Ficha de cliente no disponible</h1>
+      <div className="error-message" role="alert"><p>{clientDetailError}</p>
+        <button type="button" className="secondary-button" onClick={() => void openVirtualPosClient({ external_id: clientRoute.externalId }, false)}>Reintentar ficha</button>
+      </div>
     </main>
   ) : chargeRoute && chargeDetailError ? (
     <main className="app-shell detail-page">
