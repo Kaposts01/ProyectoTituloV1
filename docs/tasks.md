@@ -18,6 +18,7 @@ Los IDs son estables: no se renumeran ni se reutilizan. Un ID tiene exactamente 
 | BILL | Facturación gestionada por el CRM (Opción A): cambios de cobro VirtualPOS con solicitud y aprobación |
 | WR-VP, WR-TK, WR-PK, WR-INF | Escrituras hacia VirtualPOS, Toku, Payku y su infraestructura común |
 | REC | Recuperador de socios |
+| ML | Definiciones, datos y evaluacion del Motor de Rechazos asistido; implementacion condicionada a evidencia |
 | ENV, BCK, OPS, DEV, MT, STR | Ambientes, respaldo, operación, herramientas de desarrollo, mantenimiento y estructura |
 | VAL, CT | Validación de contratos con proveedores (VAL-VP, VAL-PK, VAL-TK, VAL-TCH) y suite de contrato |
 | VP, TK, PK, TCH | Trabajo propio de cada canal |
@@ -1029,6 +1030,28 @@ Direccion propuesta: operativa, sobria y de densidad util; reutilizar identidad,
 **Calendario:** S7 fija congelamiento de codigo al cierre del 2026-11-21. Este backlog no modifica esa fecha ni promete completar el rediseño antes de ella. UXG-00 puede alimentar UX-16/MET-03; calendarizar los lotes de implementacion segun capacidad y ventana acordada, sin expandir automaticamente el cierre de S7.
 
 | UXG-FIX-01 | Corregir los ocho hallazgos del diagnostico | Completada (2026-11-20) | Solicitud expresa de resolver F01-F08: Socios, Suscripciones y Cobros/Pagos. 78 pruebas frontend, 65 Python, Ruff, lint/build, Chrome y lecturas autenticadas QA pasan. Tres hipotesis requieren usuarios; UXG-03 a UXG-06 no se ejecutan automaticamente. [Evidencia](quality/uxg-fix-2026-11-20.md). Solo local, sin skills ni push. |
+
+### 4.17 Motor de rechazos: definiciones y viabilidad (2026-11-24)
+
+Solicitud expresa del usuario: revisar y mejorar la propuesta completa, ajustar definiciones y auditar QA en solo lectura. Sin entrenamiento, benchmark, migraciones, dependencias nuevas, sincronizaciones ni llamadas a proveedores. Rama local, sin skills ni push. La familia ML no sustituye HOR-04 hasta aprobar su alcance y evidencia.
+
+| ID | Tarea | Estado | Criterio de aceptacion |
+| --- | --- | --- | --- |
+| ML-00 | Ajustar propuesta y auditar viabilidad QA | Completada con limites (2026-11-24) | [Plan](planning/ml-rechazos/PLAN.md), [definiciones](planning/ml-rechazos/DEFINICIONES.md), ADR propuesto y [auditoria QA](planning/ml-rechazos/QA-2026-11-24.md). Core/historial vacios; TCH 2.094 motivos y diez combinaciones normalizadas; P2 y benchmark no viables en esta copia. Auditor reproducible readonly, 13 pruebas puras y Ruff pasan. Sin entrenamiento, materializacion, migraciones o proveedores. |
+| ML-01 | Decision de arquitectura | Pendiente de revision | ADR propuesto con alternativas y condiciones de avance; no marcar aceptado sin decision explicita. |
+| ML-02 | Taxonomia y reglas con abstencion | Pendiente | Revisar familias/submotivos y precedencia de evidencia; desconocido distinto de ISSUER, restricciones de mandato/reintentos antes de acciones; ejemplos sinteticos por canal. |
+| ML-03 | Anotacion contextual y revisiones | Pendiente | Texto saneado, clave contextual/versionada y revisiones auditables; evaluar primero las diez combinaciones TCH disponibles, sin asumir 450 etiquetas ni exponer glosas en Git. |
+| ML-04 | Definir variables y dataset temporal | Pendiente; P2 condicionado a datos | Lista blanca, disponibilidad al calculo, episodios sin duplicados y resultados maduros de misma obligacion; casos ambiguos no son negativos. Separar P1 y P2. |
+| ML-05 | Exportacion restringida reproducible | Pendiente | Manifiesto, corte, cobertura, privacidad y metadatos auxiliares separados de predictores. Hash no equivale a anonimato; solo agregados en Git. |
+| ML-06 | Protocolo y comparacion aislada | Pendiente; datos insuficientes hoy | Particiones temporales/purga y calibracion sin fugas, metricas por clase/canal, baseline de reglas y margen practico acordado antes del test. |
+| ML-07 | Evaluacion con datos aptos y decision | Pendiente; no ejecutar ahora | Informe reproducible con incertidumbre y condiciones; no hay ganador automatico por matriz teorica. Validar dependencias Python 3.14 antes de fijarlas. |
+| ML-08 | Pipelines y registro de artefactos | Pendiente | Procedencia confiable, entorno compatible, versiones por tipo/alcance, activacion transaccional y rollback; no uploads arbitrarios. |
+| ML-09 | Motor y politica de recomendacion | Pendiente | Solo lectura de datos centralizados; fallback/abstencion, estados actuales y accion subordinada a restricciones; idempotencia aun sin modelo, trazabilidad P1/P2/reglas/politica. |
+| ML-10 | Lotes posteriores a ETL | Pendiente | Solo tras Core confirmado, incluido TCH; bandera apagada, lotes reanudables y registro de errores ML sin modificar significado de sync/write runs. |
+| ML-11 | API, revisiones y permisos | Pendiente | Permisos ML mas canal/recurso, CSRF en cambios de etiquetas/activacion, matriz authz; ninguna llamada al proveedor ni entrenamiento por GET. |
+| ML-12 | Piloto del Recuperador | Pendiente | Un canal apto, estados accesibles, evidencia/corte y explicacion; probabilidad ausente si P2 no validado, aprobacion humana y flujos WR existentes intactos. |
+| ML-13 | Monitoreo y candidatos nuevos | Pendiente | Drift/cobertura/calibracion con resultados maduros; reentrenar distinto de promover, activacion humana inicial y rollback probado. |
+| ML-14 | Medicion prospectiva | Pendiente | Registrar exposicion, decision y resultado; distinguir recuperacion observada de efecto causal con denominador/horizonte/cobertura y evaluacion justificada. |
 
 ## 5. Bloqueos y decisiones abiertas
 

@@ -31,3 +31,8 @@ Detalle operativo y evidencia: [tasks.md](../tasks.md).
 - Corregidas causas de fallos backend: zona horaria SQL UTC por conexion, clasificacion de rutas publicas SPA y aislamiento de variables de tests. suite completa final: 3.747 pasan y 23 se omiten por guardas previstas.
 - Abierto DEV-LOCAL-02: siete alertas en herramientas de desarrollo derivadas de picomatch, sin parche publicado. Auditoria de dependencias de produccion da cero.
 - Evidencia actual: [reparacion local](../quality/local-repair-2026-11-18.md). La base original se conserva sin migrar.
+
+## Viabilidad ML en QA (2026-11-24)
+
+- ML-DATA-01: la copia QA 0082 no contiene Core, detalles/historial de rechazos o recuperaciones; Toku/Payku no tienen transacciones y VP no tiene rechazos. TCH conserva glosas parciales sin historia de recuperacion util. Esto impide entrenar/evaluar P2 a 30 dias y confirmar el benchmark multicanal, no preparar reglas o anotacion P1. No demuestra ausencia de datos en produccion.
+- Desbloqueo: tarea separada acordada para obtener una copia representativa, revisar privacidad y reconciliar/materializar datos con respaldo. No se autoriza automaticamente ETL, importacion o llamadas a proveedores. [Auditoria exacta y limites](../planning/ml-rechazos/QA-2026-11-24.md).

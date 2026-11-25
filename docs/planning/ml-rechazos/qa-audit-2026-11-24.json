@@ -1,0 +1,197 @@
+{
+  "audit_version": 1,
+  "tool_sha256": "34d2365623067d2e11fdb0178e51d6cc0ac9811e2662861d66d40b04b0d1382a",
+  "generated_at": "2026-11-25T00:18:49.356861+00:00",
+  "as_of": "2026-11-24T03:00:00+00:00",
+  "session": {
+    "database": "crm_qa_local_20261118",
+    "read_only": "on",
+    "isolation": "repeatable read",
+    "revision": "20261118_0082"
+  },
+  "aggregates": {
+    "exact_inventory": [
+      {
+        "table": "source_records",
+        "rows": 1676
+      },
+      {
+        "table": "charges",
+        "rows": 135043
+      },
+      {
+        "table": "payments",
+        "rows": 40
+      },
+      {
+        "table": "vp_charges",
+        "rows": 1469
+      },
+      {
+        "table": "vp_payments",
+        "rows": 40
+      },
+      {
+        "table": "vp_report_payments",
+        "rows": 0
+      },
+      {
+        "table": "tk_transactions",
+        "rows": 0
+      },
+      {
+        "table": "tk_report_attempts",
+        "rows": 0
+      },
+      {
+        "table": "p_transactions",
+        "rows": 0
+      },
+      {
+        "table": "p_report_transactions",
+        "rows": 0
+      },
+      {
+        "table": "tch_transacciones",
+        "rows": 133532
+      },
+      {
+        "table": "core_charges",
+        "rows": 0
+      },
+      {
+        "table": "core_payments",
+        "rows": 0
+      },
+      {
+        "table": "payment_rejection_details",
+        "rows": 0
+      },
+      {
+        "table": "rejection_reason_catalog",
+        "rows": 0
+      },
+      {
+        "table": "charge_recoveries",
+        "rows": 0
+      },
+      {
+        "table": "status_change_events",
+        "rows": 0
+      }
+    ],
+    "vp_charge_coverage": [
+      {
+        "source": "virtualpos1",
+        "rows": 1469,
+        "rejected_rows": 0,
+        "paid_rows": 32,
+        "with_scheduled_date": 1469,
+        "with_top_rejection_code": 0,
+        "earliest_scheduled_date": "2026-06-23",
+        "latest_scheduled_date": "2031-09-05"
+      }
+    ],
+    "vp_payment_coverage": [
+      {
+        "source": "virtualpos1",
+        "rows": 40,
+        "rejected_rows": 0,
+        "paid_rows": 33,
+        "linked_to_charge": 0,
+        "with_top_rejection_code": 0
+      }
+    ],
+    "rejection_details": [],
+    "core_charges": [],
+    "core_payments": [],
+    "linked_payment_candidates": [],
+    "recoveries": [],
+    "status_history": [],
+    "sync_coverage": [
+      {
+        "source": "payku",
+        "runs": 7,
+        "successful_runs": 0,
+        "latest_success": null,
+        "latest_finished": "2026-11-05 02:01:35.368426-03:00"
+      },
+      {
+        "source": "toku",
+        "runs": 9,
+        "successful_runs": 1,
+        "latest_success": "2026-10-20 16:43:14.788640-03:00",
+        "latest_finished": "2026-11-05 02:01:32.273477-03:00"
+      },
+      {
+        "source": "virtualpos1",
+        "runs": 8,
+        "successful_runs": 6,
+        "latest_success": "2026-11-05 02:00:13.304350-03:00",
+        "latest_finished": "2026-11-05 02:00:13.304350-03:00"
+      },
+      {
+        "source": "virtualpos2",
+        "runs": 7,
+        "successful_runs": 0,
+        "latest_success": null,
+        "latest_finished": "2026-11-05 02:00:13.348911-03:00"
+      }
+    ],
+    "toku_failed": [
+      {
+        "rows": 0,
+        "with_code": 0,
+        "with_message": 0,
+        "distinct_raw_messages": 0,
+        "with_reported_time": 0
+      }
+    ],
+    "tch_quota_evidence": [
+      {
+        "rows": 133532,
+        "rejected_rows": 53731,
+        "accepted_rows": 77694,
+        "rejected_with_reason": 2094,
+        "rejected_with_iso_shaped_date": 2094,
+        "rejected_with_reason_and_iso_shaped_date": 2094,
+        "iso_shaped_charge_date": 7738,
+        "earliest_iso_shaped_charge_date": "2026-09-01",
+        "latest_iso_shaped_charge_date": "2026-09-30",
+        "charge_origin": 0,
+        "history_origin": 0,
+        "with_reason": 2094,
+        "previous_rejection": 0,
+        "previous_rejection_dated": 0,
+        "earliest_report_period": null,
+        "latest_report_period": null
+      }
+    ],
+    "tch_reason_aggregates": [
+      {
+        "grouped_rows": 0,
+        "distinct_motives": 0,
+        "earliest_report_period": null,
+        "latest_report_period": null
+      }
+    ],
+    "rejection_text_coverage": [],
+    "toku_text_coverage": [],
+    "tch_text_coverage": [
+      {
+        "source": "tch",
+        "rows": 2094,
+        "catalogue_recognized_rows": 0,
+        "nonempty_text_rows": 2094,
+        "suspected_pii_text_rows": 0,
+        "normalized_code_text_pairs": 10
+      }
+    ]
+  },
+  "limits": [
+    "QA copy, not a fresh measurement of production",
+    "Candidate joins are not validated recovery labels",
+    "Text PII heuristic is incomplete; no anonymization certification",
+    "No training, benchmark or provider calls"
+  ]
+}
