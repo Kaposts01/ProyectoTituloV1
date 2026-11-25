@@ -1035,6 +1035,8 @@ Direccion propuesta: operativa, sobria y de densidad util; reutilizar identidad,
 
 Solicitud expresa del usuario: revisar y mejorar la propuesta completa, ajustar definiciones y auditar QA en solo lectura. Sin entrenamiento, benchmark, migraciones, dependencias nuevas, sincronizaciones ni llamadas a proveedores. Rama local, sin skills ni push. La familia ML no sustituye HOR-04 hasta aprobar su alcance y evidencia.
 
+Reparto confirmado por el usuario: aqui se desarrollan modelos/pipelines y pruebas funcionales con datos parciales o sinteticos; su socio realiza la validacion con datos mas completos en su propio entorno controlado. No exigir copiar su base aqui ni confundir codigo terminado con modelo entrenado/evaluado. [Protocolo y evidencia de entrega](planning/ml-rechazos/VALIDACION-SOCIO.md). Se mantiene sin entrenamiento en esta fase.
+
 | ID | Tarea | Estado | Criterio de aceptacion |
 | --- | --- | --- | --- |
 | ML-00 | Ajustar propuesta y auditar viabilidad QA | Completada con limites (2026-11-24) | [Plan](planning/ml-rechazos/PLAN.md), [definiciones](planning/ml-rechazos/DEFINICIONES.md), ADR propuesto y [auditoria QA](planning/ml-rechazos/QA-2026-11-24.md). Core/historial vacios; TCH 2.094 motivos y diez combinaciones normalizadas; P2 y benchmark no viables en esta copia. Auditor reproducible readonly, 13 pruebas puras y Ruff pasan. Sin entrenamiento, materializacion, migraciones o proveedores. |
@@ -1043,8 +1045,8 @@ Solicitud expresa del usuario: revisar y mejorar la propuesta completa, ajustar 
 | ML-03 | Anotacion contextual y revisiones | Pendiente | Texto saneado, clave contextual/versionada y revisiones auditables; evaluar primero las diez combinaciones TCH disponibles, sin asumir 450 etiquetas ni exponer glosas en Git. |
 | ML-04 | Definir variables y dataset temporal | Pendiente; P2 condicionado a datos | Lista blanca, disponibilidad al calculo, episodios sin duplicados y resultados maduros de misma obligacion; casos ambiguos no son negativos. Separar P1 y P2. |
 | ML-05 | Exportacion restringida reproducible | Pendiente | Manifiesto, corte, cobertura, privacidad y metadatos auxiliares separados de predictores. Hash no equivale a anonimato; solo agregados en Git. |
-| ML-06 | Protocolo y comparacion aislada | Pendiente; datos insuficientes hoy | Particiones temporales/purga y calibracion sin fugas, metricas por clase/canal, baseline de reglas y margen practico acordado antes del test. |
-| ML-07 | Evaluacion con datos aptos y decision | Pendiente; no ejecutar ahora | Informe reproducible con incertidumbre y condiciones; no hay ganador automatico por matriz teorica. Validar dependencias Python 3.14 antes de fijarlas. |
+| ML-06 | Protocolo y comparacion aislada | Pendiente | Runner desarrollable y comprobable con fixtures aqui; protocolo temporal/purga, calibracion sin fugas, baseline y criterios previos. Ejecucion estadistica con datos del socio, condicionada a su auditoria. |
+| ML-07 | Evaluacion con datos aptos y decision | Pendiente; ejecuta el socio | Entrenamiento/calibracion sobre desarrollo y test reservado por el socio; informe agregado reproducible por canal, incertidumbre y condiciones. Revision conjunta antes de elegir/activar; no hay ganador por datos sinteticos o matriz teorica. |
 | ML-08 | Pipelines y registro de artefactos | Pendiente | Procedencia confiable, entorno compatible, versiones por tipo/alcance, activacion transaccional y rollback; no uploads arbitrarios. |
 | ML-09 | Motor y politica de recomendacion | Pendiente | Solo lectura de datos centralizados; fallback/abstencion, estados actuales y accion subordinada a restricciones; idempotencia aun sin modelo, trazabilidad P1/P2/reglas/politica. |
 | ML-10 | Lotes posteriores a ETL | Pendiente | Solo tras Core confirmado, incluido TCH; bandera apagada, lotes reanudables y registro de errores ML sin modificar significado de sync/write runs. |

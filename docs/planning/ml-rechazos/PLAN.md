@@ -10,7 +10,7 @@ Separar tres responsabilidades: **explicar el rechazo (P1)**, **estimar un resul
 
 La matriz teorica del documento es una hipotesis de seleccion, no un resultado experimental. No se validaron las cifras de GPU ni las comparaciones bibliograficas contra este problema. No atribuir a una ley la eleccion obligatoria de un algoritmo ni presentar interpretabilidad como certificacion de cumplimiento.
 
-La [auditoria QA](QA-2026-11-24.md) cambia el orden: no hay datos Core, transacciones Toku/Payku, detalles de rechazo ni historial de recuperaciones en esta copia. TCH tiene glosas pero apenas 10 combinaciones normalizadas y sin etiquetas revisadas. Primero resolver representatividad, trazabilidad y captura temporal; no instalar modelos para compensar esas carencias.
+La [auditoria QA](QA-2026-11-24.md) limita las conclusiones locales: no hay datos Core, transacciones Toku/Payku, detalles de rechazo ni historial de recuperaciones en esta copia. TCH tiene glosas pero apenas 10 combinaciones normalizadas y sin etiquetas revisadas. El usuario aclara que su socio conserva practicamente todos los datos de proveedores y realizara las pruebas con ellos. Esto permite desarrollar aqui contratos, pipelines y pruebas funcionales; la representatividad, trazabilidad y evaluacion estadistica se verificaran en el entorno del socio, sin exigir trasladar su base a este equipo.
 
 ## 2. Arquitectura y fronteras
 
@@ -93,12 +93,22 @@ Permisos ML sumados a permisos del canal/recurso, nunca sustituyendolos. CSRF y 
 | Entrega | Salida y condicion |
 |---|---|
 | ML-00: esta entrega | Definiciones, ADR propuesto, auditoria segura y diagnostico por canal. |
-| Datos QA, previa a modelos | Resolver con el usuario el origen de una copia representativa y su tratamiento. Reconciliar staging/Core en tarea separada autorizada; conservar original y cuarentena. No sincronizar ni backfillear por asumir permiso. |
+| Datos del socio, antes de evaluar | El socio audita una copia controlada de su entorno completo; no asumir cobertura o enlaces por tener mas filas. No es requisito copiar sus datos al equipo del usuario. Materializacion o importaciones, si hacen falta, siguen siendo tareas separadas autorizadas. |
 | ML-02/03 | Reglas y anotacion saneada. TCH disponible para revisar, sin prometer un clasificador entrenado. |
 | ML-04/05 | Dataset temporal: admitir P1 y P2 por separado solo tras controles de trazabilidad, privacidad y poblacion. Si P2 falla, continuar P1 sin porcentajes. |
-| ML-06/07 | Benchmark aislado condicionado a muestras/clases suficientes y protocolo previo; sin dependencias ni conclusiones anticipadas. |
+| ML-06/07 | Preparar localmente un runner reproducible; el socio ejecuta entrenamiento/calibracion y benchmark con particiones de sus datos aptos. Sin usar el test para ajustar modelos ni afirmar resultados a partir de muestras sinteticas. |
 | ML-08/09/11 | Registro, motor y API con fallback y permisos, inicialmente en sombra. Validar carga, archivos confiables, idempotencia, latencia y rollback antes de mostrar resultados. |
 | ML-12 | Un piloto en Recuperador con ejecutivos: estado, corte, fuente, explicacion y revision humana. Registrar exposicion y decisiones para medir despues. |
 | ML-10/13/14 | Lotes tras ETL confirmado, candidato mensual sin promocion automatica inicial y medicion prospectiva. Diferenciar tasa observada de efecto causal; no atribuir mejora por comparar grupos seleccionados por el modelo. |
 
 El estado real vive solo en `docs/tasks.md`. No ejecutar toda la secuencia con una aprobacion del plan. Esta solicitud no autoriza PR, Git Flow, cambio a develop ni publicacion; se conserva rama local y skills excluidas.
+
+## 8. Trabajo entre ambos integrantes
+
+El usuario trabaja en experiencia de usuario, diseño de modelos y otras partes del proyecto. En este checkout se desarrollaran las implementaciones y pruebas de contratos, privacidad, permisos, serializacion, fallback e integracion, con datos sinteticos o parciales. Su socio, con datos mas completos, ejecutara las pruebas de datos y de desempeño estadistico. Este reparto no elimina la necesidad de probar localmente el codigo ni transfiere por si solo la aprobacion de negocio.
+
+**Crear el codigo de un modelo no equivale a entregar un modelo entrenado y validado.** Si no existe un artefacto entrenado legitimo, el socio debera ejecutar tambien entrenamiento y calibracion sobre sus particiones de desarrollo, antes de la evaluacion reservada. No entrenar con el conjunto de prueba. La seleccion definitiva, umbrales y activacion quedan pendientes de esa evidencia.
+
+La entrega al socio incluira codigo/version, dependencias reproducibles, esquema de variables y objetivo, runner y comandos que existan y hayan sido probados, protocolo temporal, comprobaciones previas, criterios de aceptacion y plantilla de resultados. No incluir datos personales, credenciales ni skills. Se reciben agregados y fallos saneados; los datasets permanecen en su entorno. Detalle: [protocolo de validacion con el socio](VALIDACION-SOCIO.md).
+
+Se mantiene la restriccion vigente: **en esta fase no entrenar modelos ni ejecutar nuevos benchmarks**. Este ajuste organiza el trabajo futuro, no autoriza ejecutarlo, publicar cambios o contactar al socio.

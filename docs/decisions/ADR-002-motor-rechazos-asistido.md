@@ -31,6 +31,8 @@ La interpretabilidad ayuda a revisar resultados pero no acredita cumplimiento le
 
 Revision explicita del objetivo y de pagos parciales/reversos/mandatos; fuente QA representativa y episodio trazable; privacidad, criterios de seleccion, presupuesto operativo y permisos acordados. Evaluacion de datos y de modelos son hitos diferentes. Esta ADR no se marca Accepted por haber escrito el plan ni porque el usuario autorizo auditar.
 
+El usuario confirma que la validacion con datos mas completos sera ejecutada por su socio en su entorno controlado. No es requisito disponer aqui de esos datos para implementar contratos, pipelines y pruebas funcionales; la eleccion y aceptacion estadistica del modelo esperan la evidencia del socio. Si falta artefacto entrenado, entrenamiento/calibracion forman parte de ese procedimiento futuro y se mantienen separados del test reservado. [Reparto y protocolo](../planning/ml-rechazos/VALIDACION-SOCIO.md).
+
 ## Evidencia
 
 - [Plan revisado](../planning/ml-rechazos/PLAN.md) y [definiciones](../planning/ml-rechazos/DEFINICIONES.md).
