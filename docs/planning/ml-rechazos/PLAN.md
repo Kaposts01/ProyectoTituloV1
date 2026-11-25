@@ -1,5 +1,7 @@
 # Motor de rechazos asistido: plan revisado
 
+ML-12, preparacion sintetica autorizada el 2026-11-25: [piloto TCH del Recuperador](ML-12-PILOTO-RECUPERADOR.md), consulta separada de gestion, explicaciones/corte/resguardos y ninguna probabilidad validada o accion WR. Frontend/backend apagados; validacion con ejecutivos/datos del socio pendiente. 57 pruebas Recuperador/184 backend y comprobaciones visuales/build pasan; deuda global de pruebas QA-ML12-01 documentada, sin certificar produccion. No inicia ML-13/14.
+
 ML-11, preparacion autorizada el 2026-11-25 con datos sinteticos: [API, revisiones y permisos](ML-11-API-PERMISOS.md), rutas autenticadas con permisos ML/cuenta/recurso, CSRF y actor de sesion; revisiones humanas, consultas sin calculo y transiciones de artefactos solo simuladas/reverificadas. Bandera apagada y guarda *_test. 569 pruebas y Ruff pasan; 0086 solo en base descartable, sin grants de migracion. Datos/privacidad/permisos y futura activacion real esperan al socio; no inicia ML-12 ni autoriza entrenamiento.
 
 ML-10, preparacion autorizada el 2026-11-25 con datos sinteticos: [lotes posteriores a Core](ML-10-LOTES-SOMBRA.md), confirmaciones visibles tras commit, manifiestos/resultados durables, reanudacion/reintentos y errores separados de corridas operativas. 518 pruebas y Ruff pasan; 0085 solo en base descartable. Bandera apagada y ejecucion *_test sintetica; sin conexion automatica a ETL/scheduler, entrenamiento o activacion. Conexion operativa y snapshots reales esperan auditoria del socio; no inicia ML-11.

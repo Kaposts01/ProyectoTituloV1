@@ -250,6 +250,10 @@ class ResultOut(BaseModel):
     category: Category | None
     advice: str
     method: str
+    classification_state: str
+    rules_state: str
+    severity: str
+    matched_rules: list[str]
     as_of: str
     reasons: list[str]
     restrictions: list[str]

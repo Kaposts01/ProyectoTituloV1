@@ -271,6 +271,8 @@ def test_results_are_resource_filtered_and_get_does_not_compute_or_dispatch(clie
     assert response.status_code == 200 and len(response.json()) == 1
     result = response.json()[0]
     assert result["purpose"] == "synthetic" and result["recovery_probability"] is None and result["execution_allowed"] is False
+    assert result["rules_state"] == result["classification_state"]
+    assert result["severity"] in {"temporary", "permanent", "unknown"} and isinstance(result["matched_rules"], list)
     assert "input_sha256" not in result and "normalized_text" not in result
     result_id = db_result_id(identity)
     assert call(client, "GET", f"/tch/charge/results/{result_id}", user).status_code == 200

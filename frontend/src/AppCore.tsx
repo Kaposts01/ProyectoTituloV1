@@ -643,7 +643,7 @@ function AppCore() {
       onDeleteRecord={(record, source, resourceType) => { setProviderDeleteError(null); setDeletingRecord({ record, source, resourceType }); }}
     />
   ) : null;
-  const recoveryView = recoveryOpen ? <GeneralRecoveryPage can={can} /> : null;
+  const recoveryView = recoveryOpen ? <GeneralRecoveryPage key={chargeOwner} can={can} owner={chargeOwner} /> : null;
   const billingView = billingOpen ? <BillingInbox can={can} currentUserId={session?.user.id} isAdmin={session?.user.roles.some((role) => role.name === "admin") ?? false} /> : null;
 
   const cancellationsView = cancellationsOpen ? (
