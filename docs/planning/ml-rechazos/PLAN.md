@@ -2,7 +2,7 @@
 
 Fecha: 2026-11-24. Alcance: propuesta de integracion sobre `codex/actualizacion-20261118`, revisada desde el documento aportado `PLAN_ML_RECHAZOS.md`. Su original en Downloads no se modifica. Estados, responsables y criterios de tareas: [docs/tasks.md, familia ML](../../tasks.md#417-motor-de-rechazos-definiciones-y-viabilidad-2026-11-24). Decision arquitectonica: [ADR-002, propuesta](../../decisions/ADR-002-motor-rechazos-asistido.md).
 
-**Esta entrega termina en definiciones y auditoria QA. No implementa el motor, entrena, compara algoritmos, migra, materializa Core ni consulta proveedores.**
+**ML-00 termino en definiciones y auditoria QA. ML-02, autorizado el 2026-11-24, implementa solo taxonomia y reglas puras aisladas ([contrato y pruebas](ML-02-TAXONOMIA.md)). No se entrena, compara algoritmos, migra, materializa Core ni consulta proveedores; no hay integracion operativa del motor.**
 
 ## 1. Resultado de revisar la propuesta
 
