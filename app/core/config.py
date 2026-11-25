@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     sync_tch_consolidate_only_after_load: bool = True
     # SYNC-O-16: el ETL Core de Toku/Payku/VirtualPOS corre dentro del sync, tras consolidar (False = solo manual).
     sync_core_etl_enabled: bool = False
+    # ML-10: prepared synthetic batches only; no scheduler/operational ETL hook.
+    ml_rejections_batches_enabled: bool = False
     # SYNC-O-02/05: lectura por ventana de fecha (Toku transacciones; VirtualPOS pagos y clientes). APAGADA por defecto:
     # se enciende tras las pruebas de contrato en sandbox (DEC-03). Solape de la ventana y relectura completa periodica.
     sync_windowed_reads_enabled: bool = False

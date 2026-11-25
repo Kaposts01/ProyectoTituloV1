@@ -52,6 +52,13 @@ from app.models.ml_artifact import (  # noqa: F401
     MlArtifactEvent,
     MlArtifactRelease,
 )
+from app.models.ml_batch import (  # noqa: F401
+    MlBatch,
+    MlBatchEvent,
+    MlBatchItem,
+    MlBatchResult,
+    MlCoreReceipt,
+)
 from app.models.payku_channel import (  # noqa: F401
     PaykuClient,
     PaykuCycle,
